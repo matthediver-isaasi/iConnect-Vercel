@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { Link } from "react-router-dom";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
@@ -87,12 +90,27 @@ export default function EventsPage({
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  // Load events using hybrid hook (authenticated: base44, public: publicClient)
+  // Load simple events using hybrid hook (authenticated: base44, public: publicClient)
   const {
-    data: events = [],
-    isLoading,
+    data: simpleEvents = [],
+    isLoading: isLoadingSimple,
     error: eventsError,
   } = useEventsData();
+
+  const { data: complexEvents = [], isLoading: isLoadingComplex } = useQuery({
+    queryKey: ['complex-events-for-listing'],
+    queryFn: async () => {
+      const data = await publicClient.listComplexEvents();
+      return (data || []).map(e => ({ ...e, is_complex: true }));
+    },
+    staleTime: 0
+  });
+
+  const events = useMemo(() => {
+    return [...simpleEvents, ...complexEvents];
+  }, [simpleEvents, complexEvents]);
+
+  const isLoading = isLoadingSimple || isLoadingComplex;
 
   // Query for all system settings (using public endpoint for unauthenticated access)
   const { data: systemSettings = [] } = useQuery({
@@ -848,19 +866,108 @@ export default function EventsPage({
               </div>
             ) : (
               <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {filteredEvents.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    organizationInfo={organizationInfo}
-                    isFeatureExcluded={resolvedIsFeatureExcluded}
-                    isAdmin={isAdmin}
-                    joinLinkSettings={joinLinkSettings}
-                    webinars={webinars}
-                    systemSettings={systemSettings}
-                    memberInfo={memberInfo}
-                  />
-                ))}
+                {filteredEvents.map((event) => {
+                  if (event.is_complex) {
+                    const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                    const detailUrl = event.slug
+                      ? `/session-events/${event.slug}`
+                      : `/ComplexEventDetail?id=${event.id}`;
+                    const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                    const cheapest = (() => {
+                      const tcs = event.pricing_config?.ticket_classes;
+                      if (!tcs?.length) return null;
+                      const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
+                      return prices.length > 0 ? Math.min(...prices) : null;
+                    })();
+
+                    return (
+                      <Card
+                        key={`complex-${event.id}`}
+                        className="border-slate-200 hover:shadow-lg transition-shadow overflow-hidden"
+                        data-testid={`card-event-${event.id}`}
+                      >
+                        {event.image_url && (
+                          <div className="h-48 overflow-hidden bg-slate-100">
+                            <img
+                              src={event.image_url}
+                              alt={event.title}
+                              className="w-full h-full object-cover"
+                              style={event.image_focal_point ? getFocalPointStyle(event.image_focal_point) : undefined}
+                            />
+                          </div>
+                        )}
+                        <CardHeader>
+                          <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                            <CardTitle className="text-lg">{event.title}</CardTitle>
+                          </div>
+                          {(event.description || event.summary) && (
+                            <p className="text-sm text-slate-600 line-clamp-2">{event.description || event.summary}</p>
+                          )}
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {event.start_date && (
+                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span>
+                                {formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}
+                                {event.end_date && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
+                              </span>
+                            </div>
+                          )}
+                          {event.location && (
+                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                              <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="line-clamp-1">{event.location}</span>
+                            </div>
+                          )}
+                          {event.show_seat_count !== false && (
+                            <div className="flex items-center gap-2 text-sm">
+                              <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                              {hasUnlimitedCapacity ? (
+                                <span className="text-green-600 font-medium">Open Registration</span>
+                              ) : event.available_seats > 0 ? (
+                                <span className="text-green-600 font-medium">
+                                  {event.available_seats} places available
+                                </span>
+                              ) : (
+                                <span className="text-red-600 font-medium">Sold out</span>
+                              )}
+                            </div>
+                          )}
+                          {cheapest !== null && (
+                            <div className="flex items-center gap-2 text-sm">
+                              <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="font-medium text-slate-900">
+                                {cheapest === 0 ? "Free" : `\u00a3${cheapest.toFixed(2)}`}
+                              </span>
+                            </div>
+                          )}
+                          <div className="pt-3 border-t border-slate-100">
+                            <Link to={detailUrl}>
+                              <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
+                                View Details
+                              </Button>
+                            </Link>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  }
+
+                  return (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      organizationInfo={organizationInfo}
+                      isFeatureExcluded={resolvedIsFeatureExcluded}
+                      isAdmin={isAdmin}
+                      joinLinkSettings={joinLinkSettings}
+                      webinars={webinars}
+                      systemSettings={systemSettings}
+                      memberInfo={memberInfo}
+                    />
+                  );
+                })}
               </div>
             )}
           </>
