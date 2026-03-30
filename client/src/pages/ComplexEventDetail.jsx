@@ -112,7 +112,7 @@ function TrackAttendeeCards({ trackName, attendees, onRemove }) {
   );
 }
 
-function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee }) {
+function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee, speakerMap = {} }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -203,7 +203,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAtte
                     return (
                       <div key={slotIndex} className="mb-2">
                         {slot.sessions.map(session => (
-                          <SessionCard key={session.id} session={session} timezone={timezone} colors={trackColorMap[session.track_name]} />
+                          <SessionCard key={session.id} session={session} timezone={timezone} colors={trackColorMap[session.track_name]} speakerMap={speakerMap} />
                         ))}
                       </div>
                     );
@@ -229,7 +229,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAtte
                         }
                         const isMultiTrack = (trackSession.track_names || []).length > 1;
                         return (
-                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} />
+                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} />
                         );
                       })}
                       {hasUntracked && (() => {
@@ -238,7 +238,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAtte
                           return names.length === 0;
                         });
                         if (!untrackedSession) return <div className="p-1" />;
-                        return <SessionCard session={untrackedSession} timezone={timezone} colors={null} />;
+                        return <SessionCard session={untrackedSession} timezone={timezone} colors={null} speakerMap={speakerMap} />;
                       })()}
                     </div>
                   );
@@ -274,9 +274,20 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAtte
   );
 }
 
-function SessionCard({ session, timezone, colors, isMultiTrack = false }) {
+function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {} }) {
   const hasCustomColors = colors?.lightStyle;
   const fallbackClass = "bg-slate-50 border-slate-300";
+
+  const sessionSpeakers = useMemo(() => {
+    if (session.speaker_ids?.length) {
+      return session.speaker_ids.map(id => speakerMap[id]).filter(Boolean);
+    }
+    return [];
+  }, [session.speaker_ids, speakerMap]);
+
+  const fallbackSpeakerNames = sessionSpeakers.length === 0 && session.speaker_names?.length > 0
+    ? session.speaker_names
+    : [];
 
   return (
     <div
@@ -304,6 +315,32 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false }) {
       </div>
       {session.description && (
         <p className="text-xs text-slate-500 line-clamp-2">{session.description}</p>
+      )}
+      {sessionSpeakers.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+          {sessionSpeakers.map(speaker => {
+            const displayName = speaker.full_name || speaker.name || '?';
+            return (
+              <div key={speaker.id} className="flex items-center gap-1.5" data-testid={`session-speaker-${speaker.id}`}>
+                <Avatar className="h-5 w-5">
+                  {speaker.profile_photo_url ? (
+                    <AvatarImage src={speaker.profile_photo_url} alt={displayName} />
+                  ) : null}
+                  <AvatarFallback className="text-[8px]">
+                    {displayName.charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-xs text-slate-700">{displayName}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {fallbackSpeakerNames.length > 0 && (
+        <div className="flex items-center gap-1 text-xs text-slate-600 pt-0.5">
+          <Mic className="w-3 h-3" />
+          <span>{fallbackSpeakerNames.join(", ")}</span>
+        </div>
       )}
       <div className="flex items-center gap-1 flex-wrap pt-1">
         {session.delivery_mode === 'virtual' && (
@@ -1147,11 +1184,23 @@ export default function ComplexEventDetail() {
     enabled: !!eventId
   });
 
+  const allSpeakerIds = useMemo(() => {
+    const ids = new Set(event?.speaker_ids || []);
+    sessions.forEach(s => (s.speaker_ids || []).forEach(id => ids.add(id)));
+    return [...ids];
+  }, [event?.speaker_ids, sessions]);
+
   const { data: speakers = [] } = useQuery({
-    queryKey: ['complex-event-speakers', event?.speaker_ids],
-    queryFn: async () => await publicClient.listSpeakers(event.speaker_ids) || [],
-    enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
+    queryKey: ['complex-event-speakers', allSpeakerIds],
+    queryFn: async () => await publicClient.listSpeakers(allSpeakerIds) || [],
+    enabled: allSpeakerIds.length > 0
   });
+
+  const speakerMap = useMemo(() => {
+    const map = {};
+    speakers.forEach(s => { map[s.id] = s; });
+    return map;
+  }, [speakers]);
 
   const trackColorMap = useMemo(() => {
     const map = {};
@@ -1381,6 +1430,7 @@ export default function ComplexEventDetail() {
                     eventTracks={event?.tracks || []}
                     cartAttendeesByTrack={cartAttendeesByTrack}
                     onRemoveCartAttendee={handleRemoveCartAttendee}
+                    speakerMap={speakerMap}
                   />
                 </CardContent>
               </Card>

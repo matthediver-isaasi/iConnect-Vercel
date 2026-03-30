@@ -16,12 +16,13 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
-  Bird, Check, X
+  Bird, Check, X, Mic
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -131,14 +132,14 @@ export default function CreateComplexEvent() {
     title: "",
     description: "",
     image_url: "",
-    speaker_names: [],
+    speaker_ids: [],
     start_time: "",
     end_time: "",
     location: "",
     is_online: false,
     track_ids: [],
   });
-  const [speakerInput, setSpeakerInput] = useState("");
+  const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
 
   const [ticketClasses, setTicketClasses] = useState([]);
   const [expandedTickets, setExpandedTickets] = useState({});
@@ -153,6 +154,24 @@ export default function CreateComplexEvent() {
     queryKey: ['/api/entities/SystemSettings'],
     queryFn: () => base44.entities.SystemSettings.list()
   });
+
+  const { data: speakers = [] } = useQuery({
+    queryKey: ['/api/entities/Speaker'],
+    queryFn: () => base44.entities.Speaker.list({ filter: { is_active: true }, sort: { full_name: 'asc' } })
+  });
+
+  const speakerModuleName = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'speaker_module_name');
+    if (setting?.setting_value) {
+      try {
+        const names = JSON.parse(setting.setting_value);
+        return { singular: names.singular || "Speaker", plural: names.plural || "Speakers" };
+      } catch {
+        return { singular: setting.setting_value, plural: setting.setting_value + "s" };
+      }
+    }
+    return { singular: "Speaker", plural: "Speakers" };
+  }, [systemSettings]);
 
   const defaultVatRate = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'event_default_vat_rate');
@@ -286,6 +305,7 @@ export default function CreateComplexEvent() {
       const loadedSessions = existingSessions.map((s) => ({
         ...s,
         _localId: s.id,
+        speaker_ids: s.speaker_ids || [],
         speaker_names: s.speaker_names || [],
         track_ids: s.track_ids || [],
       }));
@@ -358,28 +378,26 @@ export default function CreateComplexEvent() {
         title: session.title || "",
         description: session.description || "",
         image_url: session.image_url || "",
-        speaker_names: session.speaker_names || [],
+        speaker_ids: session.speaker_ids || [],
         start_time: session.start_time ? session.start_time.slice(0, 16) : "",
         end_time: session.end_time ? session.end_time.slice(0, 16) : "",
         location: session.location || "",
         is_online: session.is_online || false,
         track_ids: session.track_ids || [],
       });
-      setSpeakerInput("");
     } else {
       setEditingSession(null);
       setSessionForm({
         title: "",
         description: "",
         image_url: "",
-        speaker_names: [],
+        speaker_ids: [],
         start_time: "",
         end_time: "",
         location: "",
         is_online: false,
         track_ids: [],
       });
-      setSpeakerInput("");
     }
   };
 
@@ -465,20 +483,9 @@ export default function CreateComplexEvent() {
     });
   };
 
-  const addSpeaker = () => {
-    const name = speakerInput.trim();
-    if (name && !sessionForm.speaker_names.includes(name)) {
-      setSessionForm((prev) => ({ ...prev, speaker_names: [...prev.speaker_names, name] }));
-      setSpeakerInput("");
-    }
-  };
-
-  const removeSpeaker = (name) => {
-    setSessionForm((prev) => ({
-      ...prev,
-      speaker_names: prev.speaker_names.filter((n) => n !== name),
-    }));
-  };
+  const selectedSessionSpeakers = useMemo(() => {
+    return speakers.filter(s => (sessionForm.speaker_ids || []).includes(s.id));
+  }, [speakers, sessionForm.speaker_ids]);
 
   const addTicketClass = () => {
     const newTicket = createEmptyTicketClass(ticketClasses.length === 0, defaultVatRate);
@@ -637,6 +644,7 @@ export default function CreateComplexEvent() {
           title: session.title || "Untitled Session",
           description: session.description || null,
           image_url: session.image_url || null,
+          speaker_ids: session.speaker_ids || [],
           speaker_names: session.speaker_names || [],
           start_time: session.start_time || null,
           end_time: session.end_time || null,
@@ -1166,9 +1174,20 @@ export default function CreateComplexEvent() {
                                 {session.location}
                               </span>
                             )}
-                            {session.speaker_names?.length > 0 && (
-                              <span>{session.speaker_names.join(", ")}</span>
-                            )}
+                            {(() => {
+                              const sessionSpeakerNames = (session.speaker_ids || [])
+                                .map(id => speakers.find(s => s.id === id)?.full_name)
+                                .filter(Boolean);
+                              const fallbackNames = sessionSpeakerNames.length > 0
+                                ? sessionSpeakerNames
+                                : session.speaker_names || [];
+                              return fallbackNames.length > 0 ? (
+                                <span className="flex items-center gap-1">
+                                  <Mic className="w-3 h-3" />
+                                  {fallbackNames.join(", ")}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
                           {sessionTrackNames.length > 0 && (
                             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -1848,37 +1867,51 @@ export default function CreateComplexEvent() {
             </div>
 
             <div className="space-y-2">
-              <Label>Speakers</Label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {sessionForm.speaker_names.map((name) => (
-                  <Badge key={name} variant="secondary" className="gap-1">
-                    {name}
-                    <button
-                      onClick={() => removeSpeaker(name)}
-                      className="ml-1 hover:text-red-500"
-                    >
-                      &times;
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  value={speakerInput}
-                  onChange={(e) => setSpeakerInput(e.target.value)}
-                  placeholder="Type speaker name and press Add"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addSpeaker();
-                    }
-                  }}
-                  data-testid="input-speaker-name"
-                />
-                <Button variant="outline" onClick={addSpeaker} data-testid="button-add-speaker">
-                  Add
-                </Button>
-              </div>
+              <Label>{speakerModuleName.plural}</Label>
+              {selectedSessionSpeakers.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {selectedSessionSpeakers.map((speaker) => (
+                    <Badge key={speaker.id} variant="secondary" className="gap-1.5">
+                      {speaker.profile_photo_url ? (
+                        <img src={speaker.profile_photo_url} alt="" className="w-5 h-5 rounded-full object-cover" />
+                      ) : (
+                        <Mic className="w-3.5 h-3.5" />
+                      )}
+                      {speaker.full_name}
+                      <button
+                        onClick={() =>
+                          setSessionForm((prev) => ({
+                            ...prev,
+                            speaker_ids: prev.speaker_ids.filter((id) => id !== speaker.id),
+                          }))
+                        }
+                        className="ml-0.5"
+                        data-testid={`button-remove-session-speaker-${speaker.id}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSessionSpeakerModalOpen(true)}
+                data-testid="button-select-session-speakers"
+              >
+                <Mic className="w-4 h-4 mr-2" />
+                Select {speakerModuleName.plural}
+              </Button>
+              <SpeakerSelectionModal
+                open={sessionSpeakerModalOpen}
+                onOpenChange={setSessionSpeakerModalOpen}
+                speakers={speakers}
+                selectedSpeakerIds={sessionForm.speaker_ids || []}
+                onConfirm={(ids) =>
+                  setSessionForm((prev) => ({ ...prev, speaker_ids: ids }))
+                }
+              />
             </div>
 
             <div className="space-y-2">

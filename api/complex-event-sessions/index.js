@@ -66,7 +66,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantCtx.tenantId;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -161,6 +161,7 @@ export default async function handler(req, res) {
         timezone = 'Europe/London',
         display_order = 0,
         speaker_names,
+        speaker_ids,
         is_online = false,
         location,
         image_url,
@@ -196,6 +197,7 @@ export default async function handler(req, res) {
         description: description || null,
         image_url: image_url || null,
         speaker_names: speaker_names || null,
+        speaker_ids: speaker_ids || null,
         start_time: start_time ? convertLocalTimeToUTC(start_time, timezone) : null,
         end_time: end_time ? convertLocalTimeToUTC(end_time, timezone) : null,
         location: location || null,

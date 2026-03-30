@@ -68,7 +68,7 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -209,7 +209,7 @@ export default async function handler(req, res) {
       const ALLOWED_FIELDS = [
         'title', 'description', 'start_time', 'end_time',
         'display_order', 'location',
-        'is_online', 'speaker_names', 'image_url', 'complex_event_id'
+        'is_online', 'speaker_names', 'speaker_ids', 'image_url', 'complex_event_id'
       ];
       const dbUpdates = { updated_at: new Date().toISOString() };
       for (const field of ALLOWED_FIELDS) {
