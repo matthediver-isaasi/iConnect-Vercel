@@ -950,7 +950,8 @@ export default function CreateComplexEvent() {
 
   const sections = [
     { id: "details", label: "Event Details" },
-    { id: "tracks", label: "Tracks & Sessions" },
+    { id: "tracks", label: "Tracks" },
+    { id: "sessions", label: "Sessions" },
     { id: "tickets", label: "Tickets" },
   ];
 
@@ -1723,8 +1724,11 @@ export default function CreateComplexEvent() {
               )}
             </div>
 
-            <Separator />
+          </div>
+        )}
 
+        {activeSection === "sessions" && (
+          <div className="space-y-6">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -1872,9 +1876,8 @@ export default function CreateComplexEvent() {
             </div>
           </div>
         )}
-      </div>
 
-      <div className={`max-w-4xl mx-auto space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
+        <div className={`space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-slate-800">Ticket Classes</h3>
           <Button onClick={addTicketClass} data-testid="button-add-ticket-class">
@@ -2047,7 +2050,7 @@ export default function CreateComplexEvent() {
                         {!ticket.all_tracks && (
                           <div className="space-y-1.5">
                             {tracks.length === 0 ? (
-                              <p className="text-sm text-slate-400">No tracks created yet. Add tracks in the Tracks & Sessions tab.</p>
+                              <p className="text-sm text-slate-400">No tracks created yet. Add tracks in the Tracks tab.</p>
                             ) : (
                               tracks.map((track) => (
                                 <div
@@ -2593,6 +2596,7 @@ export default function CreateComplexEvent() {
             ))}
           </div>
         )}
+      </div>
       </div>
 
       <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>
