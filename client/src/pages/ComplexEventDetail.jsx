@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
-  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText
+  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
@@ -495,6 +495,22 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
     return () => { ro.disconnect(); el.removeEventListener('scroll', checkScroll); };
   }, [checkScroll, sessions]);
 
+  const scrollToNextSession = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll('[data-testid^="session-card-"]');
+    const containerRect = el.getBoundingClientRect();
+    const bottomEdge = containerRect.bottom;
+    for (const card of cards) {
+      const cardRect = card.getBoundingClientRect();
+      if (cardRect.top >= bottomEdge - 4) {
+        el.scrollTo({ top: el.scrollTop + (cardRect.top - containerRect.top), behavior: 'smooth' });
+        return;
+      }
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, []);
+
   return (
     <div className="relative">
       {canScrollUp && !expandedSession && (
@@ -511,7 +527,16 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
         />
       </div>
       {canScrollDown && !expandedSession && (
-        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+        <>
+          <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+          <button
+            onClick={scrollToNextSession}
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
+            data-testid="button-scroll-next-session"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </>
       )}
       {expandedSession && (
         <ExpandedSessionOverlay
