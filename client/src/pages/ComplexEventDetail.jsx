@@ -486,7 +486,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
       {canScrollUp && !expandedSession && (
         <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
       )}
-      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
+      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto pr-2 transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
         <ScheduleGrid
           sessions={sessions}
           timezone={timezone}
