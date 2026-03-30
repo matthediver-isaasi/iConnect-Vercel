@@ -590,7 +590,11 @@ export default function NewsEditorPage() {
                   <Input
                     id="published-date"
                     type="datetime-local"
-                    value={publishedDate ? new Date(publishedDate).toISOString().slice(0, 16) : ''}
+                    value={publishedDate ? (() => {
+                      const d = new Date(publishedDate);
+                      const pad = (n) => String(n).padStart(2, '0');
+                      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    })() : ''}
                     onChange={(e) => {
                       const dateValue = e.target.value ? new Date(e.target.value).toISOString() : new Date().toISOString();
                       setPublishedDate(dateValue);
