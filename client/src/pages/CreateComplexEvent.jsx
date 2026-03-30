@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
-  Bird, Check, X, Mic, Eye, Tag, Clock
+  Bird, Check, X, Mic, Eye, Tag, Clock, Pencil
 } from "lucide-react";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
@@ -1857,7 +1857,7 @@ export default function CreateComplexEvent() {
                             onClick={() => openSessionDialog(session)}
                             data-testid={`button-edit-session-${session._localId}`}
                           >
-                            <Calendar className="w-3.5 h-3.5" />
+                            <Pencil className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
