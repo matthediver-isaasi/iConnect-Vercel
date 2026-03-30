@@ -2150,7 +2150,10 @@ export default function CreateComplexEvent() {
                             <Switch
                               id={`ticket-unlimited-${ticket._localId}`}
                               checked={ticket.is_unlimited_tickets !== false}
-                              onCheckedChange={(val) => updateTicketClass(ticket._localId, 'is_unlimited_tickets', val)}
+                              onCheckedChange={(val) => {
+                                updateTicketClass(ticket._localId, 'is_unlimited_tickets', val);
+                                if (val) updateTicketClass(ticket._localId, 'available_count', '');
+                              }}
                               data-testid={`switch-unlimited-${ticket._localId}`}
                             />
                             <Label htmlFor={`ticket-unlimited-${ticket._localId}`} className="text-sm font-medium">Unlimited</Label>
