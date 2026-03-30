@@ -342,17 +342,18 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
 
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center transition-all duration-250"
+      className="absolute inset-0 z-30 flex items-center justify-center overflow-visible transition-all duration-250"
       style={{ backgroundColor: visible ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0)', backdropFilter: visible ? 'blur(6px)' : 'blur(0px)' }}
       onClick={handleClose}
       data-testid="session-overlay-backdrop"
     >
       <div
-        className="absolute bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
+        className="absolute left-[30px] right-[30px] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
         style={{
-          inset: '30px',
+          top: '50%',
+          transform: visible ? 'translateY(-50%) scale(1)' : 'translateY(-50%) scale(0.85)',
+          maxHeight: '80vh',
           opacity: visible ? 1 : 0,
-          transform: visible ? 'scale(1)' : 'scale(0.85)',
         }}
         onClick={(e) => e.stopPropagation()}
         data-testid={`session-expanded-${session.id}`}
