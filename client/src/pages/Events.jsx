@@ -98,9 +98,14 @@ export default function EventsPage({
   } = useEventsData();
 
   const { data: complexEvents = [], isLoading: isLoadingComplex } = useQuery({
-    queryKey: ['complex-events-for-listing'],
+    queryKey: ['complex-events-for-listing', !!memberInfo],
     queryFn: async () => {
-      const data = await publicClient.listComplexEvents();
+      let data;
+      if (memberInfo) {
+        data = await base44.entities.ComplexEvent.list();
+      } else {
+        data = await publicClient.listComplexEvents();
+      }
       return (data || []).map(e => ({ ...e, is_complex: true }));
     },
     staleTime: 0
