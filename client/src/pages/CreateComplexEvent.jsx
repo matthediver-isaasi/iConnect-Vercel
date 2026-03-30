@@ -1647,40 +1647,40 @@ export default function CreateComplexEvent() {
         )}
 
         {activeSection === "tracks" && (
-          <div className="space-y-6">
-            <div className="space-y-4">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="pb-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Tracks</h2>
-                  <p className="text-sm text-slate-500">
+                  <CardTitle className="text-lg">Tracks</CardTitle>
+                  <CardDescription>
                     Define tracks to organise sessions by theme, room, or stream.
-                  </p>
+                  </CardDescription>
                 </div>
                 <Button onClick={addTrack} data-testid="button-add-track">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Track
                 </Button>
               </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
 
               {tracks.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <p className="text-slate-500 mb-2" data-testid="text-no-tracks">
-                      No tracks yet
-                    </p>
-                    <p className="text-slate-400 text-sm mb-4">
-                      Add tracks to organise sessions by theme, room, or stream.
-                    </p>
-                    <Button variant="outline" onClick={addTrack} data-testid="button-add-first-track">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add First Track
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="flex flex-col items-center justify-center py-12">
+                  <p className="text-slate-500 mb-2" data-testid="text-no-tracks">
+                    No tracks yet
+                  </p>
+                  <p className="text-slate-400 text-sm mb-4">
+                    Add tracks to organise sessions by theme, room, or stream.
+                  </p>
+                  <Button variant="outline" onClick={addTrack} data-testid="button-add-first-track">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add First Track
+                  </Button>
+                </div>
               ) : (
                 tracks.map((track, trackIdx) => (
-                  <Card key={track._localId} data-testid={`card-track-${track._localId}`}>
-                    <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                  <div key={track._localId} className="border border-slate-200 rounded-md overflow-hidden" data-testid={`card-track-${track._localId}`}>
+                    <div className="flex flex-row items-center justify-between gap-2 p-4 pb-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <div
                           className="w-4 h-4 rounded-full flex-shrink-0"
@@ -1734,10 +1734,10 @@ export default function CreateComplexEvent() {
                           <Trash2 className="w-4 h-4 text-red-500" />
                         </Button>
                       </div>
-                    </CardHeader>
+                    </div>
 
                     {expandedTracks[track._localId] && (
-                      <CardContent className="space-y-4">
+                      <div className="px-4 pb-4 space-y-4">
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="space-y-2">
                             <Label>Track Name *</Label>
@@ -1799,47 +1799,46 @@ export default function CreateComplexEvent() {
                             </div>
                           );
                         })()}
-                      </CardContent>
+                      </div>
                     )}
-                  </Card>
+                  </div>
                 ))
               )}
-            </div>
-
-          </div>
+            </CardContent>
+          </Card>
         )}
 
         {activeSection === "sessions" && (
-          <div className="space-y-6">
-            <div className="space-y-4">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="pb-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Sessions</h2>
-                  <p className="text-sm text-slate-500">
+                  <CardTitle className="text-lg">Sessions</CardTitle>
+                  <CardDescription>
                     Add sessions and assign them to one or more tracks.
-                  </p>
+                  </CardDescription>
                 </div>
                 <Button onClick={() => openSessionDialog()} data-testid="button-add-session">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Session
                 </Button>
               </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
 
               {sessions.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <p className="text-slate-500 mb-2" data-testid="text-no-sessions">
-                      No sessions yet
-                    </p>
-                    <p className="text-slate-400 text-sm mb-4">
-                      Add sessions and assign them to tracks.
-                    </p>
-                    <Button variant="outline" onClick={() => openSessionDialog()} data-testid="button-add-first-session">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add First Session
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="flex flex-col items-center justify-center py-12">
+                  <p className="text-slate-500 mb-2" data-testid="text-no-sessions">
+                    No sessions yet
+                  </p>
+                  <p className="text-slate-400 text-sm mb-4">
+                    Add sessions and assign them to tracks.
+                  </p>
+                  <Button variant="outline" onClick={() => openSessionDialog()} data-testid="button-add-first-session">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add First Session
+                  </Button>
+                </div>
               ) : (
                 <div className="space-y-2">
                   {sessions.map((session, sessionIdx) => {
@@ -1961,27 +1960,32 @@ export default function CreateComplexEvent() {
                   })}
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
-        <div className={`space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-semibold text-slate-800">Ticket Classes</h3>
-          <Button onClick={addTicketClass} data-testid="button-add-ticket-class">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Ticket Class
-          </Button>
-        </div>
+        <div className={activeSection !== 'tickets' ? 'hidden' : ''}>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-lg">Ticket Classes</CardTitle>
+                <CardDescription>Add ticket classes to allow registrations for this event</CardDescription>
+              </div>
+              <Button onClick={addTicketClass} data-testid="button-add-ticket-class">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Ticket Class
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
 
         {ticketClasses.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-slate-500">
+            <div className="py-12 text-center text-slate-500">
               <Ticket className="w-12 h-12 mx-auto mb-3 text-slate-300" />
               <p className="font-medium">No ticket classes yet</p>
               <p className="text-sm">Add ticket classes to allow registrations for this event</p>
-            </CardContent>
-          </Card>
+            </div>
         ) : (
           <div className="space-y-3">
             {ticketClasses.map((ticket, idx) => (
@@ -2684,7 +2688,8 @@ export default function CreateComplexEvent() {
             ))}
           </div>
         )}
-      </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>
