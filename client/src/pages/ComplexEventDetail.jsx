@@ -346,7 +346,7 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
         className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
         style={{
           width: visible ? '80%' : '20%',
-          maxHeight: visible ? '80%' : '10%',
+          height: visible ? '80%' : '10%',
           opacity: visible ? 1 : 0,
           transform: visible ? 'scale(1)' : 'scale(0.85)',
         }}
@@ -354,7 +354,7 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
         data-testid={`session-expanded-${session.id}`}
       >
         {imageUrl && (
-          <div className="h-36 shrink-0 overflow-hidden bg-slate-100">
+          <div className="h-48 shrink-0 overflow-hidden bg-slate-100">
             <img src={imageUrl} alt={session.title} className="w-full h-full object-cover" />
           </div>
         )}
