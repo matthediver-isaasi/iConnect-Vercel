@@ -1211,7 +1211,7 @@ export default function ComplexEventDetail() {
             <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-900 mb-2" data-testid="text-event-not-found">Event Not Found</h2>
             <p className="text-slate-600 mb-4">This event may have been removed or is not available.</p>
-            <Link to="/PublicComplexEvents">
+            <Link to="/events">
               <Button variant="outline" data-testid="button-back-to-events">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Events
@@ -1243,7 +1243,7 @@ export default function ComplexEventDetail() {
         <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-start gap-2 mb-3 flex-wrap">
-              <Link to="/PublicComplexEvents">
+              <Link to="/events">
                 <Button variant="outline" size="sm" className="bg-white/10 backdrop-blur-sm border-white/30 text-white" data-testid="button-back">
                   <ArrowLeft className="w-4 h-4 mr-1" />
                   All Events
