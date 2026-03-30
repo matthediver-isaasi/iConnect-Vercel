@@ -74,28 +74,36 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenResponse.json();
     
-    const userResponse = await fetch('https://api.zoom.us/v2/users/me', {
+    const userResponse = await fetch('https://api.zoom.us/v2/users?page_size=1', {
       headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`
+        'Authorization': `Bearer ${tokenData.access_token}`,
+        'Content-Type': 'application/json'
       }
     });
 
     if (!userResponse.ok) {
+      const errorText = await userResponse.text();
+      let errorBody = errorText;
+      try {
+        errorBody = JSON.stringify(JSON.parse(errorText));
+      } catch (_) {}
+      console.error('[Zoom Test] Failed to fetch user info. Status:', userResponse.status, 'Body:', errorBody);
       return res.json({ 
         success: false, 
-        error: 'Token obtained but failed to fetch user info' 
+        error: `Token obtained but failed to fetch user info (${userResponse.status}: ${errorBody})` 
       });
     }
 
-    const userData = await userResponse.json();
+    const usersData = await userResponse.json();
+    const firstUser = usersData.users && usersData.users[0];
 
     console.log('[Zoom Test] Success for tenant:', tenantId);
     
     res.json({ 
       success: true, 
       message: 'Zoom connection successful!',
-      account_email: userData.email,
-      account_type: userData.type === 1 ? 'Basic' : userData.type === 2 ? 'Licensed' : 'Admin'
+      account_email: firstUser ? firstUser.email : 'N/A',
+      account_type: firstUser ? (firstUser.type === 1 ? 'Basic' : firstUser.type === 2 ? 'Licensed' : 'Admin') : 'Unknown'
     });
   } catch (error) {
     console.error('[Zoom Test] Error:', error);
