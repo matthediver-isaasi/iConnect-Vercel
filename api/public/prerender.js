@@ -257,12 +257,191 @@ async function renderJobPage(supabaseClient, tenant, jobId, baseUrl) {
   };
 }
 
+const CMS_TEXT_FIELDS = [
+  'heading', 'text', 'content_text', 'header_content', 'header', 'subheading',
+  'subtitle', 'description', 'quote_text', 'attribution', 'author_name',
+  'left_heading', 'left_text', 'right_heading', 'right_text',
+  'header_title', 'header_subtitle', 'text_content', 'body_content',
+  'title', 'body', 'name', 'label', 'quote', 'content'
+];
+
+const CMS_IMAGE_FIELDS = [
+  'image_url', 'background_image', 'hero_image', 'image',
+  'background_image_url', 'left_image_url', 'right_image_url',
+  'profile_image_url', 'mobile_image_url'
+];
+
+const CMS_TEXT_FIELDS_SET = new Set(CMS_TEXT_FIELDS);
+const CMS_IMAGE_FIELDS_SET = new Set(CMS_IMAGE_FIELDS);
+
+function extractTextFromContent(obj, seen) {
+  if (!obj || typeof obj !== 'object') return [];
+  if (!seen) seen = new WeakSet();
+  if (seen.has(obj)) return [];
+  seen.add(obj);
+
+  const texts = [];
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      texts.push(...extractTextFromContent(item, seen));
+    }
+    return texts;
+  }
+
+  for (const field of CMS_TEXT_FIELDS) {
+    if (typeof obj[field] === 'string') {
+      const cleaned = stripHtml(obj[field]);
+      if (cleaned) texts.push(cleaned);
+    }
+  }
+
+  for (const key of Object.keys(obj)) {
+    if (CMS_TEXT_FIELDS_SET.has(key)) continue;
+    if (CMS_IMAGE_FIELDS_SET.has(key)) continue;
+    const val = obj[key];
+    if (val && typeof val === 'object') {
+      texts.push(...extractTextFromContent(val, seen));
+    }
+  }
+
+  return texts;
+}
+
+function extractFirstImage(obj, seen) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (!seen) seen = new WeakSet();
+  if (seen.has(obj)) return null;
+  seen.add(obj);
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const img = extractFirstImage(item, seen);
+      if (img) return img;
+    }
+    return null;
+  }
+
+  for (const field of CMS_IMAGE_FIELDS) {
+    if (typeof obj[field] === 'string' && obj[field].startsWith('http')) {
+      return obj[field];
+    }
+  }
+
+  if (obj.media && typeof obj.media.src === 'string' && obj.media.src.startsWith('http')) {
+    return obj.media.src;
+  }
+
+  if (Array.isArray(obj.media_items)) {
+    for (const m of obj.media_items) {
+      if (m && typeof m.src === 'string' && m.src.startsWith('http')) {
+        return m.src;
+      }
+    }
+  }
+
+  for (const key of Object.keys(obj)) {
+    if (CMS_IMAGE_FIELDS_SET.has(key)) continue;
+    if (CMS_TEXT_FIELDS_SET.has(key)) continue;
+    const val = obj[key];
+    if (val && typeof val === 'object') {
+      const img = extractFirstImage(val, seen);
+      if (img) return img;
+    }
+  }
+
+  return null;
+}
+
+function buildElementSection(el) {
+  if (!el.content || typeof el.content !== 'object') return '';
+
+  const content = el.content;
+  const parts = [];
+
+  const headingFields = ['heading', 'header', 'header_title', 'title'];
+  for (const f of headingFields) {
+    if (typeof content[f] === 'string') {
+      const cleaned = stripHtml(content[f]);
+      if (cleaned) {
+        parts.push(`<h2>${escapeHtml(cleaned)}</h2>`);
+        break;
+      }
+    }
+  }
+
+  const subheadingFields = ['subheading', 'subtitle', 'header_subtitle'];
+  for (const f of subheadingFields) {
+    if (typeof content[f] === 'string') {
+      const cleaned = stripHtml(content[f]);
+      if (cleaned) {
+        parts.push(`<h3>${escapeHtml(cleaned)}</h3>`);
+        break;
+      }
+    }
+  }
+
+  const bodyFields = [
+    'text', 'content_text', 'text_content', 'header_content', 'body_content',
+    'description', 'body'
+  ];
+  for (const f of bodyFields) {
+    if (typeof content[f] === 'string') {
+      const cleaned = stripHtml(content[f]);
+      if (cleaned) {
+        parts.push(`<p>${escapeHtml(cleaned)}</p>`);
+      }
+    }
+  }
+
+  const pairFields = [
+    ['left_heading', 'left_text'],
+    ['right_heading', 'right_text']
+  ];
+  for (const [hf, tf] of pairFields) {
+    if (typeof content[hf] === 'string') {
+      const h = stripHtml(content[hf]);
+      if (h) parts.push(`<h3>${escapeHtml(h)}</h3>`);
+    }
+    if (typeof content[tf] === 'string') {
+      const t = stripHtml(content[tf]);
+      if (t) parts.push(`<p>${escapeHtml(t)}</p>`);
+    }
+  }
+
+  if (typeof content.quote_text === 'string') {
+    const qt = stripHtml(content.quote_text);
+    if (qt) parts.push(`<blockquote>${escapeHtml(qt)}</blockquote>`);
+  }
+  if (typeof content.author_name === 'string') {
+    const an = stripHtml(content.author_name);
+    if (an) parts.push(`<p>${escapeHtml(an)}</p>`);
+  }
+
+  const arrayKeys = ['items', 'quotes', 'column_content', 'sub_items'];
+  for (const key of arrayKeys) {
+    if (Array.isArray(content[key])) {
+      for (const item of content[key]) {
+        if (item && typeof item === 'object') {
+          const texts = extractTextFromContent(item);
+          for (const t of texts) {
+            parts.push(`<p>${escapeHtml(t)}</p>`);
+          }
+        }
+      }
+    }
+  }
+
+  if (parts.length === 0) return '';
+  return `<section>${parts.join('\n')}</section>`;
+}
+
 async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   if (!pageSlug) return null;
 
   const { data: page } = await supabaseClient
     .from('i_edit_page')
-    .select('id, title, slug, description')
+    .select('id, title, slug, description, meta_title, meta_description')
     .eq('tenant_id', tenant.id)
     .eq('slug', pageSlug)
     .eq('status', 'published')
@@ -277,29 +456,55 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
     .eq('page_id', page.id)
     .order('display_order', { ascending: true });
 
-  let textContent = '';
+  const allTexts = [];
+  const bodySections = [];
+  let ogImage = null;
+
   if (elements) {
     for (const el of elements) {
-      if (el.content) {
-        const text = typeof el.content === 'string' ? stripHtml(el.content) : '';
-        if (text) textContent += text + ' ';
+      if (!el.content) continue;
+
+      if (typeof el.content === 'string') {
+        const text = stripHtml(el.content);
+        if (text) {
+          allTexts.push(text);
+          bodySections.push(`<section><p>${escapeHtml(text)}</p></section>`);
+        }
+      } else if (typeof el.content === 'object') {
+        const texts = extractTextFromContent(el.content);
+        allTexts.push(...texts);
+
+        const section = buildElementSection(el);
+        if (section) bodySections.push(section);
+
+        if (!ogImage) {
+          ogImage = extractFirstImage(el.content);
+        }
       }
     }
   }
 
-  const desc = truncate(page.description || textContent);
+  const textContent = allTexts.join(' ');
+  const pageTitle = page.meta_title || page.title;
+  const pageDesc = page.meta_description || page.description || truncate(textContent);
 
-  return {
-    title: `${page.title} | ${tenant.name}`,
-    description: desc,
+  const result = {
+    title: `${pageTitle} | ${tenant.name}`,
+    description: truncate(pageDesc),
     ogUrl: `${baseUrl}/${page.slug}`,
     bodyContent: `
       <article>
-        <h2>${escapeHtml(page.title)}</h2>
-        ${page.description ? `<p>${escapeHtml(page.description)}</p>` : ''}
-        ${textContent ? `<div>${escapeHtml(truncate(textContent, 1000))}</div>` : ''}
+        <h1>${escapeHtml(pageTitle)}</h1>
+        ${pageDesc ? `<p>${escapeHtml(truncate(pageDesc, 300))}</p>` : ''}
+        ${bodySections.join('\n')}
       </article>`
   };
+
+  if (ogImage) {
+    result.ogImage = ogImage;
+  }
+
+  return result;
 }
 
 async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
