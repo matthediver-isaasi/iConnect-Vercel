@@ -1874,7 +1874,7 @@ export default function CreateComplexEvent() {
         )}
       </div>
 
-      <div className={`space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
+      <div className={`max-w-4xl mx-auto space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-semibold text-slate-800">Ticket Classes</h3>
           <Button onClick={addTicketClass} data-testid="button-add-ticket-class">
