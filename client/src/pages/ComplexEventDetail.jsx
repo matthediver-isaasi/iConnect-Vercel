@@ -352,6 +352,7 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
         style={{
           top: '50%',
           transform: visible ? 'translateY(-50%) scale(1)' : 'translateY(-50%) scale(0.85)',
+          minHeight: '60vh',
           maxHeight: '80vh',
           opacity: visible ? 1 : 0,
         }}
