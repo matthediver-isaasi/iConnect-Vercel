@@ -1244,7 +1244,26 @@ export default function PaymentOptions({
       }
     } catch (error) {
       console.error("Booking error:", error);
-      toast.error(error.message || "Failed to create booking");
+      const errMsg = error.message || "Failed to create booking";
+      const errorData = error.errorData || null;
+      const isDuplicateError = isComplexEvent && error.status === 409 && 
+        errorData?.error && (errorData.error.includes('Duplicate') || errorData.error.includes('already registered'));
+      if (isDuplicateError) {
+        const dupes = errorData.duplicates || [];
+        if (dupes.length > 0) {
+          setDuplicateAttendees(dupes.map(email => ({ email, name: email })));
+        } else {
+          const emailMatch = (errorData.message || '').match(/already registered:\s*(.+)/i) ||
+                             (errorData.message || '').match(/^(.+?)\s+is already registered/i);
+          const parsedEmails = emailMatch ? emailMatch[1].split(',').map(e => e.trim()) : [];
+          setDuplicateAttendees(parsedEmails.length > 0 
+            ? parsedEmails.map(email => ({ email, name: email }))
+            : [{ email: 'unknown', name: 'An attendee' }]);
+        }
+        setShowDuplicateWarning(true);
+      } else {
+        toast.error(errMsg);
+      }
     } finally {
       doSetSubmitting(false);
     }
@@ -1402,7 +1421,7 @@ export default function PaymentOptions({
               </div>
             )}
             
-            {/* Vouchers - only for logged-in members, not for complex events */}
+            {/* Vouchers - only for logged-in members (not supported for complex events due to split payment limitations) */}
             {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseVouchers') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                 <div className="flex items-center justify-between mb-3">
@@ -1439,7 +1458,7 @@ export default function PaymentOptions({
               </div>
             )}
 
-            {/* Training Fund - only for logged-in members, not for complex events */}
+            {/* Training Fund - only for logged-in members (not supported for complex events due to split payment limitations) */}
             {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseTrainingFund') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-green-50">
                 <div className="flex items-center justify-between mb-3">
@@ -1537,7 +1556,7 @@ export default function PaymentOptions({
                   </div>
                 </div>
 
-                {!memberInfo || isComplexEvent ? (
+                {!memberInfo ? (
                   <div className="flex items-start space-x-3 p-3 rounded-lg border-2 border-indigo-500 bg-white">
                     <CreditCard className="w-5 h-5 text-indigo-600 mt-0.5" />
                     <div className="flex-1">
@@ -1718,11 +1737,9 @@ export default function PaymentOptions({
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
   const canProceed = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
-    isComplexEvent
-      ? (ticketsRequired > 0 && !isSubmitting)
-      : isOneOffEvent 
-        ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
-        : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
+    (isComplexEvent || isOneOffEvent)
+      ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
+      : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
   );
 
   // Notify parent component of canProceed state changes

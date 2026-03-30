@@ -148,13 +148,18 @@ async function publicFetch(url, options = {}, tenantSlug = null) {
     if (!response.ok) {
       const errorBody = await response.text();
       let errorMessage;
+      let errorData = null;
       try {
         const errorJson = JSON.parse(errorBody);
         errorMessage = errorJson.message || errorJson.error || response.statusText;
+        errorData = errorJson;
       } catch {
         errorMessage = errorBody || response.statusText;
       }
-      throw new Error(`Public API Error (${response.status}): ${errorMessage}`);
+      const err = new Error(`Public API Error (${response.status}): ${errorMessage}`);
+      err.status = response.status;
+      err.errorData = errorData;
+      throw err;
     }
     
     return response.json();
