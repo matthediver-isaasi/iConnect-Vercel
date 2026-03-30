@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import ReactQuill from "react-quill";
@@ -120,6 +121,7 @@ export default function CreateComplexEvent() {
     description: "",
     summary: "",
     image_url: "",
+    image_focal_point: null,
     start_date: "",
     end_date: "",
     location: "",
@@ -342,6 +344,7 @@ export default function CreateComplexEvent() {
         description: existingEvent.description || "",
         summary: existingEvent.summary || "",
         image_url: existingEvent.image_url || "",
+        image_focal_point: existingEvent.image_focal_point || null,
         start_date: existingEvent.start_date ? existingEvent.start_date.slice(0, 16) : "",
         end_date: existingEvent.end_date ? existingEvent.end_date.slice(0, 16) : "",
         location: existingEvent.location || "",
@@ -435,6 +438,35 @@ export default function CreateComplexEvent() {
     const timer = setTimeout(checkSlugUniqueness, 500);
     return () => clearTimeout(timer);
   }, [formData.slug, editId, isEditMode]);
+
+  useEffect(() => {
+    if (formData.status === 'tbc') return;
+    const allTimes = sessions
+      .filter(s => s.start_time || s.end_time)
+      .flatMap(s => {
+        const times = [];
+        if (s.start_time) times.push(new Date(s.start_time));
+        if (s.end_time) times.push(new Date(s.end_time));
+        return times;
+      })
+      .filter(d => !isNaN(d.getTime()));
+
+    if (allTimes.length === 0) return;
+
+    const earliest = new Date(Math.min(...allTimes.map(d => d.getTime())));
+    const latest = new Date(Math.max(...allTimes.map(d => d.getTime())));
+
+    const toLocal = (d) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    setFormData(prev => ({
+      ...prev,
+      start_date: toLocal(earliest),
+      end_date: toLocal(latest),
+    }));
+  }, [sessions, formData.status]);
 
   const updateField = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -687,6 +719,7 @@ export default function CreateComplexEvent() {
         description: formData.description || null,
         summary: formData.summary || null,
         image_url: formData.image_url || null,
+        image_focal_point: formData.image_focal_point || null,
         start_date: formData.start_date || null,
         end_date: formData.end_date || null,
         location: formData.location || null,
@@ -1156,14 +1189,6 @@ export default function CreateComplexEvent() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Event Image</Label>
-                  <EventImageUpload
-                    imageUrl={formData.image_url}
-                    onImageChange={(url) => updateField("image_url", url)}
-                  />
-                </div>
-
                 {/* Filter Tags */}
                 {eventCategories.length > 0 && (
                   <div className="space-y-2">
@@ -1327,21 +1352,21 @@ export default function CreateComplexEvent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="start_date">
-                      Start Date & Time {formData.status !== 'tbc' && '*'}
+                      Start Date & Time
                     </Label>
                     <Input
                       id="start_date"
                       type="datetime-local"
                       value={formData.start_date}
-                      onChange={(e) => updateField("start_date", e.target.value)}
-                      required={formData.status !== 'tbc'}
-                      disabled={formData.status === 'tbc'}
-                      className={formData.status === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                      disabled
+                      className="bg-slate-100 cursor-not-allowed"
                       data-testid="input-start-date"
                     />
-                    {formData.status === 'tbc' && (
-                      <p className="text-xs text-blue-600">Date disabled for TBC events</p>
-                    )}
+                    <p className="text-xs text-slate-500">
+                      {formData.status === 'tbc'
+                        ? "Date disabled for TBC events"
+                        : "Auto-populated from the earliest session across all tracks"}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="end_date">End Date & Time</Label>
@@ -1349,11 +1374,15 @@ export default function CreateComplexEvent() {
                       id="end_date"
                       type="datetime-local"
                       value={formData.end_date}
-                      onChange={(e) => updateField("end_date", e.target.value)}
-                      disabled={formData.status === 'tbc'}
-                      className={formData.status === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                      disabled
+                      className="bg-slate-100 cursor-not-allowed"
                       data-testid="input-end-date"
                     />
+                    <p className="text-xs text-slate-500">
+                      {formData.status === 'tbc'
+                        ? "Date disabled for TBC events"
+                        : "Auto-populated from the latest session across all tracks"}
+                    </p>
                   </div>
                 </div>
 
@@ -1423,6 +1452,19 @@ export default function CreateComplexEvent() {
                     data-testid="input-available-seats"
                   />
                 </div>
+
+                <EventImageUpload
+                  value={formData.image_url}
+                  onChange={(url) => updateField("image_url", url)}
+                />
+
+                {formData.image_url && (
+                  <FocalPointPicker
+                    imageUrl={formData.image_url}
+                    focalPoint={formData.image_focal_point}
+                    onChange={(point) => updateField('image_focal_point', point)}
+                  />
+                )}
               </CardContent>
             </Card>
 
