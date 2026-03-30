@@ -959,17 +959,25 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
     return 'members_and_public';
   };
 
+  const availableTicketClasses = useMemo(() => {
+    return ticketClasses.filter(tc => {
+      const vis = getTicketVisibility(tc);
+      if (isGuest) {
+        if (vis === 'members_only') return false;
+        if (tc.role_match_only) return false;
+        return true;
+      }
+      if (vis === 'public_only') return false;
+      if (!tc.role_match_only) return true;
+      if ((tc.role_ids || []).length === 0) return true;
+      return userRoleId && (tc.role_ids || []).includes(userRoleId);
+    });
+  }, [ticketClasses, isGuest, userRoleId]);
+
   const isTicketRestricted = (tc) => {
     const vis = getTicketVisibility(tc);
-    if (isGuest) {
-      if (vis === 'members_only') return true;
-      if (tc.role_match_only) return true;
-      return false;
-    }
-    if (vis === 'public_only') return true;
-    if (!tc.role_match_only) return false;
-    if ((tc.role_ids || []).length === 0) return false;
-    return !userRoleId || !(tc.role_ids || []).includes(userRoleId);
+    if (isGuest) return vis === 'members_only';
+    return vis === 'public_only';
   };
 
   const allExistingEmails = useMemo(() => {
@@ -1079,9 +1087,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
   }, [ticketClasses, modalTicketClassId]);
 
   const firstCartTicketClass = useMemo(() => {
-    if (cartItems.length === 0) return ticketClasses[0] || null;
+    if (cartItems.length === 0) return availableTicketClasses[0] || null;
     return cartItems[0].ticketClass || null;
-  }, [cartItems, ticketClasses]);
+  }, [cartItems, availableTicketClasses]);
 
   const complexEventApi = useMemo(() => ({
     createPaymentIntent: (data) => {
@@ -1169,10 +1177,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
 
   const ticketCards = (
     <div className="space-y-3">
-      {ticketClasses.length > 0 && (
+      {availableTicketClasses.length > 0 && (
         <Label className="text-sm font-medium">Tickets</Label>
       )}
-      {ticketClasses.map(tc => {
+      {availableTicketClasses.map(tc => {
         const tcPrice = getEffectiveTicketPrice(tc);
         const restricted = isTicketRestricted(tc);
         const cartEntry = cart[tc.id];
@@ -1253,7 +1261,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
         );
       })}
 
-      {ticketClasses.length === 0 && (
+      {availableTicketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
           No tickets are currently available for public registration.
         </p>
