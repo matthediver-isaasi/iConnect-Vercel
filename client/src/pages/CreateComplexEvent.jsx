@@ -144,6 +144,8 @@ export default function CreateComplexEvent() {
     title: "",
     description: "",
     image_url: "",
+    image_focal_point: null,
+    use_event_image: true,
     speaker_ids: [],
     start_time: "",
     end_time: "",
@@ -397,6 +399,8 @@ export default function CreateComplexEvent() {
         speaker_ids: s.speaker_ids || [],
         speaker_names: s.speaker_names || [],
         track_ids: s.track_ids || [],
+        image_focal_point: s.image_focal_point || null,
+        use_event_image: s.use_event_image !== undefined ? s.use_event_image : !s.image_url,
       }));
       setSessions(loadedSessions);
     }
@@ -523,6 +527,8 @@ export default function CreateComplexEvent() {
         title: session.title || "",
         description: session.description || "",
         image_url: session.image_url || "",
+        image_focal_point: session.image_focal_point || null,
+        use_event_image: session.use_event_image !== undefined ? session.use_event_image : !session.image_url,
         speaker_ids: session.speaker_ids || [],
         start_time: session.start_time ? session.start_time.slice(0, 16) : "",
         end_time: session.end_time ? session.end_time.slice(0, 16) : "",
@@ -536,6 +542,8 @@ export default function CreateComplexEvent() {
         title: "",
         description: "",
         image_url: "",
+        image_focal_point: null,
+        use_event_image: true,
         speaker_ids: [],
         start_time: "",
         end_time: "",
@@ -799,11 +807,13 @@ export default function CreateComplexEvent() {
       for (let si = 0; si < sessions.length; si++) {
         const session = sessions[si];
         const resolvedTrackIds = (session.track_ids || []).map(id => trackIdMap[id] || id);
+        const sessionImageUrl = session.use_event_image ? null : (session.image_url || null);
         const sessionPayload = {
           complex_event_id: eventId,
           title: session.title || "Untitled Session",
           description: session.description || null,
-          image_url: session.image_url || null,
+          image_url: sessionImageUrl,
+          image_focal_point: session.use_event_image ? null : (session.image_focal_point || null),
           speaker_ids: session.speaker_ids || [],
           speaker_names: session.speaker_names || [],
           start_time: session.start_time || null,
@@ -2446,14 +2456,68 @@ export default function CreateComplexEvent() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Session Image</Label>
-              <EventImageUpload
-                imageUrl={sessionForm.image_url}
-                onImageChange={(url) =>
-                  setSessionForm((prev) => ({ ...prev, image_url: url }))
-                }
-              />
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="use-event-image"
+                  checked={sessionForm.use_event_image}
+                  onCheckedChange={(checked) =>
+                    setSessionForm((prev) => ({
+                      ...prev,
+                      use_event_image: checked,
+                      ...(checked ? { image_url: "", image_focal_point: null } : {}),
+                    }))
+                  }
+                  data-testid="switch-use-event-image"
+                />
+                <Label htmlFor="use-event-image" className="cursor-pointer font-normal">
+                  {sessionForm.use_event_image ? "Use event image" : "Use custom session image"}
+                </Label>
+              </div>
+
+              {sessionForm.use_event_image ? (
+                formData.image_url ? (
+                  <div className="rounded-lg overflow-hidden border">
+                    <img
+                      src={formData.image_url}
+                      alt="Event image preview"
+                      className="w-full h-48 object-cover"
+                      style={formData.image_focal_point ? { objectPosition: `${formData.image_focal_point.x}% ${formData.image_focal_point.y}%` } : undefined}
+                      data-testid="img-session-event-preview"
+                    />
+                    <p className="text-xs text-muted-foreground px-3 py-2">
+                      This session will use the event image
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-32 rounded-lg border border-dashed">
+                    <p className="text-sm text-muted-foreground" data-testid="text-no-event-image">
+                      No event image set yet
+                    </p>
+                  </div>
+                )
+              ) : (
+                <div className="space-y-3">
+                  <EventImageUpload
+                    value={sessionForm.image_url}
+                    onChange={(url) =>
+                      setSessionForm((prev) => ({ ...prev, image_url: url }))
+                    }
+                    label=""
+                    helpText="Upload a custom image for this session"
+                  />
+                  {sessionForm.image_url && (
+                    <FocalPointPicker
+                      imageUrl={sessionForm.image_url}
+                      focalPoint={sessionForm.image_focal_point}
+                      onChange={(point) =>
+                        setSessionForm((prev) => ({ ...prev, image_focal_point: point }))
+                      }
+                    />
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
