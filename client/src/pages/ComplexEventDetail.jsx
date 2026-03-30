@@ -1225,63 +1225,85 @@ export default function ComplexEventDetail() {
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="relative">
-        {event.image_url ? (
-          <div className="h-64 md:h-80 overflow-hidden bg-slate-100">
-            <img
-              src={event.image_url}
-              alt={event.title}
-              className="w-full h-full object-cover"
-              style={getFocalPointStyle(event.image_focal_point)}
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
-          </div>
-        ) : (
-          <div className="h-64 md:h-80 bg-gradient-to-r from-indigo-600 to-purple-600" />
-        )}
-
-        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-start gap-2 mb-3 flex-wrap">
-              <Link to="/events">
-                <Button variant="outline" size="sm" className="bg-white/10 backdrop-blur-sm border-white/30 text-white" data-testid="button-back">
-                  <ArrowLeft className="w-4 h-4 mr-1" />
-                  All Events
-                </Button>
-              </Link>
-              {event.event_type && (
-                <Badge className="bg-white/20 text-white border-white/30">{event.event_type}</Badge>
-              )}
-              {event.status === 'tbc' && (
-                <Badge variant="outline" className="border-amber-300 text-amber-200">Dates TBC</Badge>
-              )}
-            </div>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2" data-testid="text-event-title">
-              {event.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-4 text-white/90 text-sm">
-              {event.start_date && (
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4" />
-                  {formatDate(event.start_date, tz, "MMM d")}
-                  {event.end_date && ` - ${formatDate(event.end_date, tz, "MMM d, yyyy")}`}
-                  {!event.end_date && `, ${formatDate(event.start_date, tz, "yyyy")}`}
-                </span>
-              )}
-              {event.location && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4" />
-                  {event.location}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
+        <div className="flex items-center justify-between mb-6">
+          <Link to="/events" className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Events
+          </Link>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-8 mb-8">
+          <div className="lg:col-span-2 space-y-6">
+            {event.image_url && (
+              <div className="rounded-xl overflow-hidden shadow-lg">
+                <img
+                  src={event.image_url}
+                  alt={event.title}
+                  className="w-full h-64 object-cover"
+                  style={getFocalPointStyle(event.image_focal_point)}
+                />
+              </div>
+            )}
+
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                {(event.program_tag || (event.filter_tags && event.filter_tags.length > 0) || event.event_type) && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {event.event_type && (
+                      <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                        {event.event_type}
+                      </Badge>
+                    )}
+                    {event.program_tag && (
+                      <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                        {event.program_tag}
+                      </Badge>
+                    )}
+                    {event.filter_tags && event.filter_tags.length > 0 && event.filter_tags.map((tag, index) => (
+                      <Badge key={index} className="bg-purple-100 text-purple-700 border-purple-200">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <h1 className="text-3xl font-bold text-slate-900 mb-2" data-testid="text-event-title">
+                  {event.title}
+                </h1>
+                {event.status === 'tbc' && (
+                  <Badge variant="outline" className="border-amber-300 text-amber-600 mb-2">Dates TBC</Badge>
+                )}
+
+                <div className="space-y-3 pt-4">
+                  {event.start_date && (
+                    <div className="flex items-center gap-3 text-slate-700">
+                      <Calendar className="w-5 h-5 text-slate-400" />
+                      <span className="font-medium">{formatDate(event.start_date, tz, "EEEE, MMMM d, yyyy")}</span>
+                      {event.end_date && !isSameDay(parseISO(event.start_date), parseISO(event.end_date)) && (
+                        <span className="text-slate-500">- {formatDate(event.end_date, tz, "MMMM d, yyyy")}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {event.start_date && (
+                    <div className="flex items-center gap-3 text-slate-700">
+                      <Clock className="w-5 h-5 text-slate-400" />
+                      <span>{formatTime(event.start_date, tz)}</span>
+                      {event.end_date && (
+                        <span className="text-slate-500">- {formatTime(event.end_date, tz)}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {event.location && (
+                    <div className="flex items-center gap-3 text-slate-700">
+                      <MapPin className="w-5 h-5 text-slate-400" />
+                      <span>{event.location}</span>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+            </Card>
             {(event.description || event.summary) && (
               <Card className="border-slate-200">
                 <CardContent className="p-6">
