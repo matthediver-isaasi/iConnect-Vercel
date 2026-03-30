@@ -289,7 +289,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Load draft if resume token is in URL
-  const { data: draftData } = useQuery({
+  const { data: draftData, isError: draftFetchError } = useQuery({
     queryKey: ['form-draft-embed', draftToken],
     queryFn: async () => {
       // Use publicClient which handles both subdomain and custom domain resolution
@@ -299,12 +299,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     retry: false
   });
 
-  // Apply draft data when loaded
+  // Apply draft data when loaded - wait for defaults to be initialized first
+  // so draft values are layered on top of defaults rather than being wiped
   useEffect(() => {
-    if (draftData?.success && !draftLoaded) {
+    if (!defaultsInitialized) return;
+    if (draftLoaded) return;
+    if (draftData?.success) {
       console.log('[IEditFormElement] Loading draft data:', draftData);
       setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
-      if (draftData.draft.current_page_index) {
+      if (draftData.draft.current_page_index != null) {
         setCurrentPageIndex(draftData.draft.current_page_index);
       }
       setDraftLoaded(true);
@@ -313,8 +316,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         setSchemaChangeMessage(draftData.message);
       }
       toast.success('Your saved progress has been restored');
+    } else if (draftData && !draftData.success) {
+      setDraftLoaded(true);
     }
-  }, [draftData, draftLoaded]);
+  }, [draftData, draftLoaded, defaultsInitialized]);
 
   // Save draft handler
   const handleSaveDraft = async () => {
@@ -502,6 +507,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
+    setDraftLoaded(false);
+    setSchemaChanged(false);
+    setSchemaChangeMessage(null);
     setFormValues({});
     // Reset set_value and role tracking refs
     originalValuesRef.current = {};
@@ -555,6 +563,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
+    if (draftToken && !draftLoaded && !draftFetchError) return;
     
     if (form.prefill_source === 'member' && memberCustomValuesLoading) {
       return;
@@ -626,7 +635,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (Object.keys(newValues).length > 0) {
       setFormValues(prev => {
         const merged = { ...prev };
+        const draftFields = draftLoaded && draftData?.draft?.draft_data ? draftData.draft.draft_data : {};
         for (const [key, value] of Object.entries(newValues)) {
+          if (draftLoaded && key in draftFields) {
+            continue;
+          }
           const field = form.fields?.find(f => f.id === key);
           if (field?.type === 'boolean') {
             merged[key] = value;
@@ -638,7 +651,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       });
       setPrefillApplied(true);
     }
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, memberCustomValuesLoading]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, memberCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {
