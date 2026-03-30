@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,15 @@ import { parseISO } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { Link } from "react-router-dom";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
@@ -31,6 +40,63 @@ import {
 } from "@/lib/utils";
 
 const DEFAULT_TIMEZONE = "Europe/London";
+
+const isEventInPast = (event) => {
+  if (!event.start_date) return false;
+  try {
+    const eventDate = typeof event.start_date === 'string' 
+      ? parseISO(event.start_date) 
+      : new Date(event.start_date);
+    return eventDate < new Date();
+  } catch {
+    return false;
+  }
+};
+
+const getEventTypeStyle = (eventTypeName, systemSettings) => {
+  const defaultStyle = { bgColor: '#dcfce7', textColor: '#15803d' };
+  if (!eventTypeName || !systemSettings?.length) return defaultStyle;
+  const eventTypesSetting = systemSettings.find(s => s.setting_key === 'event_types');
+  if (!eventTypesSetting?.setting_value) return defaultStyle;
+  try {
+    const eventTypes = JSON.parse(eventTypesSetting.setting_value);
+    const eventType = eventTypes.find(t => 
+      (typeof t === 'string' && t === eventTypeName) ||
+      (typeof t === 'object' && t.name === eventTypeName)
+    );
+    if (eventType && typeof eventType === 'object') {
+      return {
+        bgColor: eventType.bgColor || defaultStyle.bgColor,
+        textColor: eventType.textColor || defaultStyle.textColor
+      };
+    }
+  } catch (e) {
+    console.error('Error parsing event types:', e);
+  }
+  return defaultStyle;
+};
+
+const getCtaButtonConfig = (systemSettings) => {
+  const defaultConfig = { style: 'default', label: 'Register' };
+  if (!systemSettings?.length) return defaultConfig;
+  const ctaSetting = systemSettings.find(s => s.setting_key === 'event_cta_button');
+  if (!ctaSetting?.setting_value) return defaultConfig;
+  try {
+    const config = JSON.parse(ctaSetting.setting_value);
+    return {
+      style: config.style || 'default',
+      label: config.label || 'Register'
+    };
+  } catch (e) {
+    console.error('Error parsing CTA button config:', e);
+    return defaultConfig;
+  }
+};
+
+const stripHtmlTags = (html) => {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+};
 
 export default function EventsPage({
   organizationInfo: propsOrganizationInfo,
@@ -59,8 +125,11 @@ export default function EventsPage({
   const resolvedMemberRole = memberRole || hookMemberRole;
   // Derive admin status from feature exclusion - admins can create/manage events
   const isAdmin = !hookIsFeatureExcluded('events.browse-events.create');
+  const queryClient = useQueryClient();
   const { eventTypes } = useEventTypes();
   const [searchQuery, setSearchQuery] = useState("");
+  const [complexDeleteTarget, setComplexDeleteTarget] = useState(null);
+  const [complexDeleteConfirmText, setComplexDeleteConfirmText] = useState("");
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [selectedEventType, setSelectedEventType] = useState("all");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
@@ -121,6 +190,34 @@ export default function EventsPage({
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['public-system-settings'],
     queryFn: () => publicClient.listSystemSettings()
+  });
+
+  const deleteComplexEventMutation = useMutation({
+    mutationFn: async (id) => {
+      const ticketClasses = await base44.entities.ComplexEventTicketClass.filter({ complex_event_id: id });
+      for (const tc of ticketClasses) {
+        await base44.entities.ComplexEventTicketClass.delete(tc.id);
+      }
+      const tracks = await base44.entities.ComplexEventTrack.filter({ complex_event_id: id });
+      for (const track of tracks) {
+        const sessions = await base44.entities.ComplexEventSession.filter({ complex_event_track_id: track.id });
+        for (const session of sessions) {
+          await base44.entities.ComplexEventSession.delete(session.id);
+        }
+        await base44.entities.ComplexEventTrack.delete(track.id);
+      }
+      await base44.entities.ComplexEvent.delete(id);
+    },
+    onSuccess: () => {
+      toast.success('Complex event deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['complex-events-for-listing'] });
+      setComplexDeleteTarget(null);
+      setComplexDeleteConfirmText("");
+    },
+    onError: (error) => {
+      console.error('Delete complex event error:', error);
+      toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+    }
   });
 
   // Query for webinar join link visibility settings (using public endpoint)
@@ -878,39 +975,97 @@ export default function EventsPage({
                       ? `/session-events/${event.slug}`
                       : `/ComplexEventDetail?id=${event.id}`;
                     const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                    const isEventPast = isEventInPast(event);
+                    const isRegistrationClosed = event.event_state === 'closed' || 
+                      (!event.event_state && event.status === 'closed') ||
+                      (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
                     const cheapest = (() => {
                       const tcs = event.pricing_config?.ticket_classes;
                       if (!tcs?.length) return null;
                       const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
                       return prices.length > 0 ? Math.min(...prices) : null;
                     })();
+                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || isRegistrationClosed;
+                    const descriptionText = event.summary || stripHtmlTags(event.description);
 
                     return (
                       <Card
                         key={`complex-${event.id}`}
-                        className="border-slate-200 hover:shadow-lg transition-shadow overflow-hidden"
+                        className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
                         data-testid={`card-event-${event.id}`}
                       >
-                        {event.image_url && (
-                          <div className="h-48 overflow-hidden bg-slate-100">
-                            <img
-                              src={event.image_url}
-                              alt={event.title}
-                              className="w-full h-full object-cover"
-                              style={event.image_focal_point ? getFocalPointStyle(event.image_focal_point) : undefined}
-                            />
-                          </div>
-                        )}
-                        <CardHeader>
-                          <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-                            <CardTitle className="text-lg">{event.title}</CardTitle>
-                          </div>
-                          {(event.description || event.summary) && (
-                            <p className="text-sm text-slate-600 line-clamp-2">{event.description || event.summary}</p>
+                        <div className="relative">
+                          {event.image_url ? (
+                            <div className="h-48 overflow-hidden bg-slate-100">
+                              <img
+                                src={event.image_url}
+                                alt={event.title}
+                                className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                                style={getFocalPointStyle(event.image_focal_point)}
+                              />
+                            </div>
+                          ) : (
+                            <div className={`h-24 ${isEventPast ? 'bg-gradient-to-r from-slate-100 to-slate-50' : 'bg-gradient-to-r from-slate-50 to-blue-50'}`} />
+                          )}
+
+                          {hasBadges && (
+                            <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
+                              {event.status === 'draft' && (
+                                <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">
+                                  Draft
+                                </Badge>
+                              )}
+                              {event.status === 'tbc' && (
+                                <Badge variant="secondary" className="bg-blue-100/95 text-blue-700 border-blue-200 shadow-sm">
+                                  TBC
+                                </Badge>
+                              )}
+                              {isRegistrationClosed && (
+                                <Badge variant="secondary" className="bg-red-100/95 text-red-700 border-red-200 shadow-sm" data-testid={`badge-closed-event-${event.id}`}>
+                                  Registration Closed
+                                </Badge>
+                              )}
+                              {isEventPast && (
+                                <Badge variant="secondary" className="bg-slate-200/95 text-slate-600 border-slate-300 shadow-sm">
+                                  Past Event
+                                </Badge>
+                              )}
+                              {event.event_type && (() => {
+                                const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+                                return (
+                                  <Badge 
+                                    variant="secondary" 
+                                    className="border-0 shadow-sm"
+                                    style={{ 
+                                      backgroundColor: `${eventTypeStyle.bgColor}f2`,
+                                      color: eventTypeStyle.textColor 
+                                    }}
+                                  >
+                                    {event.event_type}
+                                  </Badge>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+
+                        <CardHeader className="pb-3">
+                          <h3 className="font-bold text-lg text-slate-900 line-clamp-2">
+                            {event.title}
+                          </h3>
+                          {descriptionText && (
+                            <p className="text-sm text-slate-600 mt-2 line-clamp-2" data-testid="text-event-summary">
+                              {descriptionText}
+                            </p>
                           )}
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          {event.start_date && (
+                          {event.status === 'tbc' ? (
+                            <div className="flex items-center gap-2 text-sm text-blue-600">
+                              <Calendar className="w-4 h-4 text-blue-400" />
+                              <span className="font-medium">Date to be confirmed</span>
+                            </div>
+                          ) : event.start_date && (
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                               <span>
@@ -932,7 +1087,7 @@ export default function EventsPage({
                                 <span className="text-green-600 font-medium">Open Registration</span>
                               ) : event.available_seats > 0 ? (
                                 <span className="text-green-600 font-medium">
-                                  {event.available_seats} places available
+                                  {event.available_seats} seats available
                                 </span>
                               ) : (
                                 <span className="text-red-600 font-medium">Sold out</span>
@@ -948,11 +1103,90 @@ export default function EventsPage({
                             </div>
                           )}
                           <div className="pt-3 border-t border-slate-100">
-                            <Link to={detailUrl}>
-                              <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                                View Details
-                              </Button>
-                            </Link>
+                            {memberInfo && (!resolvedIsFeatureExcluded?.('events.browse-events.create') || !resolvedIsFeatureExcluded?.('events.browse-events.view-attendees')) && (
+                              <div className="flex items-center gap-2 mb-3">
+                                {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.location.href = createPageUrl("CreateComplexEvent") + "?id=" + event.id;
+                                    }}
+                                    className="flex-1"
+                                    data-testid={`button-edit-event-${event.id}`}
+                                  >
+                                    <Pencil className="w-4 h-4 mr-1" />
+                                    Edit
+                                  </Button>
+                                )}
+                                {!resolvedIsFeatureExcluded?.('events.browse-events.view-attendees') && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.location.href = detailUrl + (detailUrl.includes('?') ? '&' : '?') + 'tab=attendees';
+                                    }}
+                                    className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
+                                    data-testid={`button-attendees-event-${event.id}`}
+                                  >
+                                    <UsersRound className="w-4 h-4 mr-1" />
+                                    Attendees
+                                  </Button>
+                                )}
+                                {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setComplexDeleteTarget(event);
+                                    }}
+                                    className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                    data-testid={`button-delete-event-${event.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-1" />
+                                    Delete
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+
+                            {!resolvedIsFeatureExcluded?.('events.event-details') && (
+                              <>
+                                {isEventPast ? (
+                                  <Button 
+                                    className="w-full"
+                                    variant="secondary"
+                                    disabled
+                                    data-testid={`button-event-ended-${event.id}`}
+                                  >
+                                    Event Ended
+                                  </Button>
+                                ) : (() => {
+                                  const ctaConfig = getCtaButtonConfig(systemSettings);
+                                  const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                                  const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
+                                  const isGradient = ctaConfig.style === 'gradient';
+                                  
+                                  return (
+                                    <Link to={detailUrl}>
+                                      <Button 
+                                        variant={isRegistrationClosed ? "secondary" : "default"}
+                                        className={`w-full ${!isRegistrationClosed && isGradient 
+                                          ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
+                                          : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
+                                        disabled={isSoldOut}
+                                        data-testid={`button-register-event-${event.id}`}
+                                      >
+                                        {buttonLabel}
+                                      </Button>
+                                    </Link>
+                                  );
+                                })()}
+                              </>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -978,6 +1212,44 @@ export default function EventsPage({
           </>
         )}
       </div>
+
+      <Dialog open={!!complexDeleteTarget} onOpenChange={(open) => {
+        if (!open) {
+          setComplexDeleteTarget(null);
+          setComplexDeleteConfirmText("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Complex Event</DialogTitle>
+            <DialogDescription>
+              This will permanently delete "{complexDeleteTarget?.title}" and all its tracks, sessions, and ticket classes. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <p className="text-sm text-slate-600">Type <span className="font-bold">DELETE EVENT</span> to confirm:</p>
+            <Input
+              value={complexDeleteConfirmText}
+              onChange={(e) => setComplexDeleteConfirmText(e.target.value)}
+              placeholder="DELETE EVENT"
+              data-testid="input-delete-confirm"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setComplexDeleteTarget(null); setComplexDeleteConfirmText(""); }} data-testid="button-cancel-delete">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={complexDeleteConfirmText !== "DELETE EVENT" || deleteComplexEventMutation.isPending}
+              onClick={() => deleteComplexEventMutation.mutate(complexDeleteTarget?.id)}
+              data-testid="button-confirm-delete"
+            >
+              {deleteComplexEventMutation.isPending ? "Deleting..." : "Delete Event"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

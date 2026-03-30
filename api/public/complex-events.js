@@ -97,6 +97,8 @@ export default async function handler(req, res) {
         status: event.status,
         available_seats: event.available_seats,
         timezone: event.timezone,
+        event_state: event.event_state || null,
+        event_type: event.event_type || null,
         is_complex: true,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
