@@ -316,7 +316,7 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
   );
 }
 
-function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, onClose }) {
+function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, eventImageFocalPoint, onClose }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -339,7 +339,9 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
     ? session.speaker_names
     : [];
 
+  const hasOwnImage = !!session.image_url;
   const imageUrl = session.image_url || eventImageUrl || null;
+  const imageFocalPoint = hasOwnImage ? null : eventImageFocalPoint;
 
   return (
     <div
@@ -362,7 +364,7 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
       >
         {imageUrl && (
           <div className="h-48 shrink-0 overflow-hidden bg-slate-100">
-            <img src={imageUrl} alt={session.title} className="w-full h-full object-cover" />
+            <img src={imageUrl} alt={session.title} className="w-full h-full object-cover" style={getFocalPointStyle(imageFocalPoint)} />
           </div>
         )}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -470,7 +472,7 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
   );
 }
 
-function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl }) {
+function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl, eventImageFocalPoint }) {
   const scrollRef = useRef(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
@@ -517,6 +519,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
           timezone={timezone}
           speakerMap={speakerMap}
           eventImageUrl={eventImageUrl}
+          eventImageFocalPoint={eventImageFocalPoint}
           onClose={() => setExpandedSession(null)}
         />
       )}
@@ -1737,6 +1740,7 @@ export default function ComplexEventDetail() {
                     eventTracks={event?.tracks || []}
                     speakerMap={speakerMap}
                     eventImageUrl={event?.image_url}
+                    eventImageFocalPoint={event?.image_focal_point}
                   />
                 </CardContent>
               </Card>
