@@ -159,6 +159,10 @@ export default function CreateComplexEvent() {
   const [expandedTickets, setExpandedTickets] = useState({});
   const [ticketsInitialized, setTicketsInitialized] = useState(false);
 
+  const [unlimitedSeats, setUnlimitedSeats] = useState(true);
+  const [showSeatCount, setShowSeatCount] = useState(true);
+  const [showTicketAvailability, setShowTicketAvailability] = useState(false);
+
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
     queryKey: ['/api/entities/Role'],
     queryFn: () => base44.entities.Role.list({ sort: { name: 'asc' } })
@@ -180,6 +184,11 @@ export default function CreateComplexEvent() {
     queryKey: ['/api/entities/ResourceCategory'],
     queryFn: () => base44.entities.ResourceCategory.list('display_order')
   });
+
+  const globalShowSeats = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
+    return !setting || setting.setting_value !== 'false';
+  }, [systemSettings]);
 
   const eventCategories = useMemo(() => {
     return resourceCategories
@@ -365,6 +374,16 @@ export default function CreateComplexEvent() {
       if (existingEvent.program_tag) {
         setIsProgramEvent(true);
       }
+
+      if (existingEvent.is_unlimited_registration === true) {
+        setUnlimitedSeats(true);
+      } else if (existingEvent.is_unlimited_registration === false) {
+        setUnlimitedSeats(false);
+      } else {
+        setUnlimitedSeats(existingEvent.available_seats === null);
+      }
+      setShowSeatCount(existingEvent.show_seat_count !== false);
+      setShowTicketAvailability(existingEvent.show_ticket_availability === true);
     }
   }, [existingEvent, isEditMode]);
 
@@ -719,6 +738,14 @@ export default function CreateComplexEvent() {
       return;
     }
 
+    if (!unlimitedSeats) {
+      const seats = parseInt(formData.available_seats);
+      if (!formData.available_seats || isNaN(seats) || seats < 1) {
+        toast.error('Please enter a valid number of seats (or enable "Unlimited")');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const eventPayload = {
@@ -734,7 +761,10 @@ export default function CreateComplexEvent() {
         status: formData.status,
         event_state: formData.event_state,
         timezone: formData.timezone,
-        available_seats: formData.available_seats ? parseInt(formData.available_seats, 10) : null,
+        available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats, 10) : null),
+        is_unlimited_registration: unlimitedSeats,
+        show_seat_count: showSeatCount,
+        show_ticket_availability: showTicketAvailability,
         internal_reference: formData.internal_reference || null,
         event_type: formData.event_type || null,
         registration_closes_at: formData.registration_closes_at || null,
@@ -1451,16 +1481,68 @@ export default function CreateComplexEvent() {
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="available_seats">Available Seats</Label>
-                  <Input
-                    id="available_seats"
-                    type="number"
-                    value={formData.available_seats}
-                    onChange={(e) => updateField("available_seats", e.target.value)}
-                    placeholder="Leave empty for unlimited"
-                    data-testid="input-available-seats"
-                  />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="available_seats">Available Seats</Label>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="unlimited-seats"
+                        checked={unlimitedSeats}
+                        onCheckedChange={(checked) => {
+                          setUnlimitedSeats(checked);
+                          if (checked) {
+                            updateField('available_seats', '');
+                          }
+                        }}
+                        data-testid="switch-unlimited-seats"
+                      />
+                      <Label htmlFor="unlimited-seats" className="text-sm font-normal cursor-pointer">
+                        Unlimited
+                      </Label>
+                    </div>
+                  </div>
+                  {!unlimitedSeats && (
+                    <Input
+                      id="available_seats"
+                      type="number"
+                      min="1"
+                      value={formData.available_seats}
+                      onChange={(e) => updateField("available_seats", e.target.value)}
+                      placeholder="Enter number of seats"
+                      data-testid="input-seats"
+                    />
+                  )}
+                  <p className="text-xs text-slate-500">
+                    Set the maximum number of attendees for this event
+                  </p>
+
+                  {globalShowSeats && (
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <div>
+                        <Label htmlFor="show-seat-count" className="text-sm">Show seat count</Label>
+                        <p className="text-xs text-slate-500">Display available seats on event cards</p>
+                      </div>
+                      <Switch
+                        id="show-seat-count"
+                        checked={showSeatCount}
+                        onCheckedChange={setShowSeatCount}
+                        data-testid="switch-show-seat-count"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="show-ticket-availability" className="text-sm">Show ticket availability</Label>
+                      <p className="text-xs text-slate-500">Display remaining tickets per class on event page</p>
+                    </div>
+                    <Switch
+                      id="show-ticket-availability"
+                      checked={showTicketAvailability}
+                      onCheckedChange={setShowTicketAvailability}
+                      data-testid="switch-show-ticket-availability"
+                    />
+                  </div>
                 </div>
 
                 <EventImageUpload
