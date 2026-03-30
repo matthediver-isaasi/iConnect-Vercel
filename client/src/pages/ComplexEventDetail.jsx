@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -305,6 +305,49 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
           </Badge>
         )}
       </div>
+    </div>
+  );
+}
+
+function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap }) {
+  const scrollRef = useRef(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollUp(el.scrollTop > 8);
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 8);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    checkScroll();
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    el.addEventListener('scroll', checkScroll, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener('scroll', checkScroll); };
+  }, [checkScroll, sessions]);
+
+  return (
+    <div className="relative">
+      {canScrollUp && (
+        <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
+      )}
+      <div ref={scrollRef} className="max-h-[500px] overflow-y-auto">
+        <ScheduleGrid
+          sessions={sessions}
+          timezone={timezone}
+          trackColorMap={trackColorMap}
+          eventTracks={eventTracks}
+          speakerMap={speakerMap}
+        />
+      </div>
+      {canScrollDown && (
+        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+      )}
     </div>
   );
 }
@@ -1343,7 +1386,7 @@ export default function ComplexEventDetail() {
                   )}
                 </CardHeader>
                 <CardContent>
-                  <ScheduleGrid
+                  <ScrollableSchedule
                     sessions={sessions}
                     timezone={tz}
                     trackColorMap={trackColorMap}
