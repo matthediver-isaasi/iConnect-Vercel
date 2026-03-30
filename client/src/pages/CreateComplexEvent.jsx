@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -159,6 +160,9 @@ export default function CreateComplexEvent() {
     zoom_link_mode: "auto_create",
     auto_create_zoom: true,
     link_existing_zoom_id: "",
+    zoom_meeting_id: null,
+    zoom_webinar_id: null,
+    zoom_join_url: null,
   });
   const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
 
@@ -585,6 +589,9 @@ export default function CreateComplexEvent() {
         zoom_link_mode: session.zoom_link_mode || "auto_create",
         auto_create_zoom: session.auto_create_zoom !== undefined ? session.auto_create_zoom : true,
         link_existing_zoom_id: session.link_existing_zoom_id || "",
+        zoom_meeting_id: session.zoom_meeting_id || null,
+        zoom_webinar_id: session.zoom_webinar_id || null,
+        zoom_join_url: session.zoom_join_url || null,
       });
     } else {
       setEditingSession(null);
@@ -607,6 +614,9 @@ export default function CreateComplexEvent() {
         zoom_link_mode: "auto_create",
         auto_create_zoom: true,
         link_existing_zoom_id: "",
+        zoom_meeting_id: null,
+        zoom_webinar_id: null,
+        zoom_join_url: null,
       });
     }
   };
@@ -909,8 +919,9 @@ export default function CreateComplexEvent() {
               sessionPayload.zoom_webinar_id = null;
             }
           } else {
-            sessionPayload.zoom_meeting_id = null;
-            sessionPayload.zoom_webinar_id = null;
+            sessionPayload.zoom_meeting_id = session.zoom_meeting_id || null;
+            sessionPayload.zoom_webinar_id = session.zoom_webinar_id || null;
+            sessionPayload.zoom_join_url = session.zoom_join_url || null;
           }
         } else {
           sessionPayload.zoom_type = null;
@@ -2800,157 +2811,21 @@ export default function CreateComplexEvent() {
             </div>
 
             {sessionForm.is_online && (
-              <div className="space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-900 font-medium">
-                  <Video className="h-4 w-4" />
-                  Zoom Configuration
-                </div>
-
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>Zoom Type</Label>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant={sessionForm.zoom_type === 'meeting' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSessionForm(prev => ({ ...prev, zoom_type: 'meeting' }))}
-                        data-testid="button-session-zoom-meeting"
-                      >
-                        <Video className="h-4 w-4 mr-1" />
-                        Meeting
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={sessionForm.zoom_type === 'webinar' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSessionForm(prev => ({ ...prev, zoom_type: 'webinar' }))}
-                        data-testid="button-session-zoom-webinar"
-                      >
-                        <Users className="h-4 w-4 mr-1" />
-                        Webinar
-                      </Button>
-                    </div>
-                    <p className="text-xs text-blue-700">
-                      {sessionForm.zoom_type === 'webinar'
-                        ? 'Webinars support large audiences with registration and panel features'
-                        : 'Meetings allow all participants to share video and audio'
-                      }
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Zoom Host</Label>
-                    <Select
-                      value={sessionForm.zoom_host_id}
-                      onValueChange={(value) => {
-                        const user = zoomUsers.find(u => u.id === value);
-                        setSessionForm(prev => ({
-                          ...prev,
-                          zoom_host_id: value,
-                          zoom_host_email: user?.email || '',
-                        }));
-                      }}
-                      disabled={loadingZoomUsers}
-                      data-testid="select-session-zoom-host"
-                    >
-                      <SelectTrigger data-testid="select-session-zoom-host-trigger">
-                        <SelectValue placeholder={loadingZoomUsers ? "Loading hosts..." : "Select a Zoom host"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {zoomUsers.map(user => (
-                          <SelectItem key={user.id} value={user.id}>
-                            <div className="flex flex-col">
-                              <span>{user.first_name} {user.last_name}</span>
-                              <span className="text-xs text-slate-500">{user.email}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {sessionForm.zoom_type === 'webinar' && (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Require Registration</Label>
-                        <p className="text-xs text-blue-700">Attendees must register before joining</p>
-                      </div>
-                      <Switch
-                        checked={sessionForm.zoom_registration_required}
-                        onCheckedChange={(checked) => setSessionForm(prev => ({ ...prev, zoom_registration_required: checked }))}
-                        data-testid="switch-session-zoom-registration"
-                      />
-                    </div>
-                  )}
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <Label>Zoom Setup Mode</Label>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant={(sessionForm.zoom_link_mode || 'auto_create') === 'auto_create' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSessionForm(prev => ({
-                          ...prev,
-                          zoom_link_mode: 'auto_create',
-                          auto_create_zoom: true,
-                          link_existing_zoom_id: '',
-                        }))}
-                        data-testid="button-session-zoom-auto"
-                      >
-                        Auto-Create
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={sessionForm.zoom_link_mode === 'link_existing' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSessionForm(prev => ({
-                          ...prev,
-                          zoom_link_mode: 'link_existing',
-                          auto_create_zoom: false,
-                        }))}
-                        data-testid="button-session-zoom-link"
-                      >
-                        <LinkIcon className="h-4 w-4 mr-1" />
-                        Link Existing
-                      </Button>
-                    </div>
-                  </div>
-
-                  {sessionForm.zoom_link_mode === 'link_existing' ? (
-                    <div className="space-y-2">
-                      <Label>Existing Zoom Meeting/Webinar ID</Label>
-                      <Input
-                        type="text"
-                        placeholder="e.g. 12345678901"
-                        value={sessionForm.link_existing_zoom_id || ''}
-                        onChange={(e) => setSessionForm(prev => ({ ...prev, link_existing_zoom_id: e.target.value.trim() }))}
-                        data-testid="input-session-existing-zoom-id"
-                      />
-                      <p className="text-xs text-blue-700">
-                        Enter the numeric Zoom {sessionForm.zoom_type} ID to link.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Auto-create Zoom on Save</Label>
-                        <p className="text-xs text-blue-700">
-                          Automatically create a Zoom {sessionForm.zoom_type} when the event is saved
-                        </p>
-                      </div>
-                      <Switch
-                        checked={sessionForm.auto_create_zoom}
-                        onCheckedChange={(checked) => setSessionForm(prev => ({ ...prev, auto_create_zoom: checked }))}
-                        data-testid="switch-session-auto-zoom"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ZoomSessionConfig
+                zoomType={sessionForm.zoom_type}
+                zoomHostId={sessionForm.zoom_host_id}
+                zoomHostEmail={sessionForm.zoom_host_email}
+                zoomRegistrationRequired={sessionForm.zoom_registration_required}
+                zoomLinkMode={sessionForm.zoom_link_mode}
+                autoCreateZoom={sessionForm.auto_create_zoom}
+                linkExistingZoomId={sessionForm.link_existing_zoom_id}
+                zoomMeetingId={sessionForm.zoom_meeting_id}
+                zoomWebinarId={sessionForm.zoom_webinar_id}
+                zoomJoinUrl={sessionForm.zoom_join_url}
+                zoomUsers={zoomUsers}
+                loadingZoomUsers={loadingZoomUsers}
+                onUpdate={(updates) => setSessionForm(prev => ({ ...prev, ...updates }))}
+              />
             )}
 
             <div className="space-y-2">

@@ -1,11 +1,95 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { fromZonedTime } from 'date-fns-tz';
 
 function convertLocalTimeToUTC(localTimeStr, timezone) {
   const localDate = new Date(localTimeStr);
   const utcDate = fromZonedTime(localDate, timezone);
   return utcDate.toISOString();
+}
+
+async function autoProvisionZoom(tenantId, sessionData, rawStartTime, rawEndTime, timezone) {
+  const tz = timezone || 'Europe/London';
+  const userId = sessionData.zoom_host_id;
+  const isWebinar = sessionData.zoom_type === 'webinar';
+  const durationMinutes = rawStartTime && rawEndTime
+    ? Math.round((new Date(rawEndTime) - new Date(rawStartTime)) / 60000)
+    : 60;
+
+  const token = await getZoomAccessTokenForTenant(tenantId);
+  const endpoint = isWebinar
+    ? `https://api.zoom.us/v2/users/${userId}/webinars`
+    : `https://api.zoom.us/v2/users/${userId}/meetings`;
+
+  const payload = {
+    topic: sessionData.title,
+    type: isWebinar ? 5 : 2,
+    start_time: rawStartTime,
+    duration: durationMinutes,
+    timezone: tz,
+    agenda: sessionData.description || '',
+    settings: isWebinar
+      ? {
+          host_video: true,
+          panelists_video: true,
+          approval_type: sessionData.zoom_registration_required ? 0 : 2,
+          registration_type: sessionData.zoom_registration_required ? 1 : undefined,
+          audio: 'both',
+          auto_recording: 'cloud',
+        }
+      : {
+          host_video: true,
+          participant_video: true,
+          join_before_host: false,
+          mute_upon_entry: true,
+          waiting_room: true,
+          audio: 'both',
+          auto_recording: 'cloud',
+        }
+  };
+
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Zoom ${isWebinar ? 'webinar' : 'meeting'} creation failed (${resp.status}): ${errText}`);
+  }
+
+  const data = await resp.json();
+  if (isWebinar) {
+    return {
+      zoom_webinar_id: String(data.id),
+      zoom_join_url: data.join_url,
+      zoom_start_url: data.start_url,
+      zoom_registration_url: data.registration_url || null,
+    };
+  } else {
+    return {
+      zoom_meeting_id: String(data.id),
+      zoom_join_url: data.join_url,
+      zoom_start_url: data.start_url,
+    };
+  }
+}
+
+async function cleanupOrphanedZoom(tenantId, zoomResult) {
+  try {
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    const zoomId = zoomResult.zoom_meeting_id || zoomResult.zoom_webinar_id;
+    const type = zoomResult.zoom_webinar_id ? 'webinars' : 'meetings';
+    await fetch(`https://api.zoom.us/v2/${type}/${zoomId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    console.log(`[Sessions] Cleaned up orphaned Zoom ${type} ${zoomId}`);
+  } catch (cleanupErr) {
+    console.error('[Sessions] Failed to cleanup orphaned Zoom resource:', cleanupErr.message);
+  }
 }
 
 async function checkTrackOverlaps(supabase, tenantId, trackIds, startTime, endTime, excludeSessionId) {
@@ -250,7 +334,35 @@ export default async function handler(req, res) {
 
       const track_ids = (updatedJunctions || []).map(j => j.complex_event_track_id);
 
-      return res.json({ ...session, track_ids });
+      let finalSession = { ...session, track_ids };
+      let zoomProvisioningError = null;
+
+      if (session.auto_create_zoom && session.is_online && session.zoom_host_id && !session.zoom_meeting_id && !session.zoom_webinar_id) {
+        const rawStart = body.start_time || session.start_time;
+        const rawEnd = body.end_time || session.end_time;
+        const tz2 = body.timezone || 'Europe/London';
+        try {
+          const zoomResult = await autoProvisionZoom(tenantId, session, rawStart, rawEnd, tz2);
+          const { error: zoomUpdateError } = await supabase
+            .from('complex_event_session')
+            .update(zoomResult)
+            .eq('id', session.id)
+            .eq('tenant_id', tenantId);
+          if (zoomUpdateError) {
+            console.error('[Sessions] Failed to save Zoom data:', zoomUpdateError);
+            await cleanupOrphanedZoom(tenantId, zoomResult);
+            zoomProvisioningError = 'Zoom resource created but failed to save to database. Resource was cleaned up.';
+          } else {
+            finalSession = { ...finalSession, ...zoomResult };
+            console.log(`[Sessions] Auto-provisioned Zoom for session "${session.title}":`, zoomResult);
+          }
+        } catch (zoomErr) {
+          console.error('[Sessions] Zoom auto-provision error:', zoomErr.message);
+          zoomProvisioningError = zoomErr.message;
+        }
+      }
+
+      return res.json({ ...finalSession, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
     } catch (error) {
       console.error('[Sessions] Update error:', error);
       return res.status(500).json({ error: error.message || 'Failed to update session' });
