@@ -11,8 +11,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
-  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail
+  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -936,6 +937,22 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
 function BookingSection({ event, sessions, memberInfo, organizationInfo, onBookingComplete, cart, setCart }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['/api/public/system-settings'],
+    queryFn: () => publicClient.listSystemSettings()
+  });
+
+  const bookingTerms = useMemo(() => {
+    const setting = Array.isArray(systemSettings)
+      ? systemSettings.find(s => s.setting_key === 'event_booking_terms')
+      : null;
+    return setting?.setting_value || '';
+  }, [systemSettings]);
+
+  const hasBookingTerms = bookingTerms && bookingTerms.trim() !== '' && bookingTerms !== '<p><br></p>';
 
   const pricingConfig = useMemo(() => {
     if (!event?.pricing_config) return null;
@@ -1296,6 +1313,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
       complexEventApi={complexEventApi}
       onComplexBookingComplete={onBookingComplete}
       renderAsCard={false}
+      hasBookingTerms={hasBookingTerms}
+      bookingTerms={bookingTerms}
+      termsAccepted={termsAccepted}
+      setTermsAccepted={setTermsAccepted}
+      onShowTermsModal={() => setShowTermsModal(true)}
     />
   ) : null;
 
@@ -1322,6 +1344,29 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
         onAddAttendee={handleAddAttendee}
         existingEmails={allExistingEmails}
       />
+
+      <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Terms and Conditions
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <div
+              className="prose prose-slate max-w-none"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bookingTerms) }}
+              data-testid="terms-content"
+            />
+          </div>
+          <div className="mt-6 pt-4 border-t flex justify-end">
+            <Button onClick={() => setShowTermsModal(false)} data-testid="button-close-terms">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
