@@ -437,7 +437,11 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
                       </Avatar>
                       <div>
                         <div className="text-sm font-medium text-slate-900">{displayName}</div>
-                        {speaker.title && <div className="text-xs text-slate-500">{speaker.title}</div>}
+                        {(speaker.title || speaker.organization) && (
+                          <div className="text-xs text-slate-500">
+                            {[speaker.title, speaker.organization].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
