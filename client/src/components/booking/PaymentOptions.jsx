@@ -1246,7 +1246,7 @@ export default function PaymentOptions({
       console.error("Booking error:", error);
       const errMsg = error.message || "Failed to create booking";
       const errorData = error.errorData || null;
-      const errText = (errorData?.error || '').toLowerCase();
+      const errText = ((errorData?.error || '') + ' ' + (errorData?.message || '')).toLowerCase();
       const isDuplicateError = isComplexEvent && error.status === 409 && errorData && 
         (Array.isArray(errorData.duplicates) || 
          errText.includes('duplicate') || errText.includes('already registered'));
