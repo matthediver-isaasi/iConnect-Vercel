@@ -48,34 +48,34 @@ export default async function handler(req, res) {
     let sessionCountByEvent = {};
     let trackCountByEvent = {};
     if (eventIds.length > 0) {
-      const sessionCountPromises = eventIds.map(id =>
+      const [sessionRes, trackRes] = await Promise.all([
         supabase
           .from('complex_event_session')
-          .select('*', { count: 'exact', head: true })
-          .eq('complex_event_id', id)
-          .eq('tenant_id', tenant.id)
-      );
-      const trackCountPromises = eventIds.map(id =>
+          .select('complex_event_id')
+          .in('complex_event_id', eventIds)
+          .eq('tenant_id', tenant.id),
         supabase
           .from('complex_event_track')
-          .select('*', { count: 'exact', head: true })
-          .eq('complex_event_id', id)
+          .select('complex_event_id')
+          .in('complex_event_id', eventIds)
           .eq('tenant_id', tenant.id)
-      );
-
-      const [sessionResults, trackResults] = await Promise.all([
-        Promise.all(sessionCountPromises),
-        Promise.all(trackCountPromises)
       ]);
 
-      eventIds.forEach((id, i) => {
-        if (!sessionResults[i].error) {
-          sessionCountByEvent[id] = sessionResults[i].count || 0;
+      if (sessionRes.error) {
+        console.error('[Public Complex Events] Session count query error:', sessionRes.error);
+      } else if (sessionRes.data) {
+        for (const s of sessionRes.data) {
+          sessionCountByEvent[s.complex_event_id] = (sessionCountByEvent[s.complex_event_id] || 0) + 1;
         }
-        if (!trackResults[i].error) {
-          trackCountByEvent[id] = trackResults[i].count || 0;
+      }
+
+      if (trackRes.error) {
+        console.error('[Public Complex Events] Track count query error:', trackRes.error);
+      } else if (trackRes.data) {
+        for (const t of trackRes.data) {
+          trackCountByEvent[t.complex_event_id] = (trackCountByEvent[t.complex_event_id] || 0) + 1;
         }
-      });
+      }
     }
 
     let ticketClassesByEvent = {};

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, Mic } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -1106,7 +1106,7 @@ export default function EventsPage({
                             <div className="flex items-center gap-4 text-sm text-slate-600">
                               {event.session_count > 0 && (
                                 <div className="flex items-center gap-1.5" data-testid={`text-session-count-${event.id}`}>
-                                  <Mic className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <List className="w-4 h-4 text-slate-400 shrink-0" />
                                   <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
                                 </div>
                               )}
