@@ -52,7 +52,8 @@ export default async function handler(req, res) {
         timezone,
         program_tag,
         event_state,
-        registration_closes_at
+        registration_closes_at,
+        is_featured
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -99,6 +100,7 @@ export default async function handler(req, res) {
         program_tag: event.program_tag,
         event_state: event.event_state,
         registration_closes_at: event.registration_closes_at,
+        is_featured: event.is_featured || false,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });

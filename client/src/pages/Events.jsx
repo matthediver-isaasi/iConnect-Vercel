@@ -1044,6 +1044,15 @@ export default function EventsPage({
                           const detailUrl = event.slug
                             ? `/session-events/${event.slug}`
                             : `/ComplexEventDetail?id=${event.id}`;
+                          const featCheapest = event.cheapest_price ?? (() => {
+                            const tcs = event.pricing_config?.ticket_classes;
+                            if (!tcs?.length) return null;
+                            const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
+                            return prices.length > 0 ? Math.min(...prices) : null;
+                          })();
+                          const featShowPrices = Array.isArray(systemSettings) 
+                            ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
+                            : false;
                           return (
                             <Card
                               key={`featured-complex-${event.id}`}
@@ -1055,18 +1064,58 @@ export default function EventsPage({
                                   <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
                                 </div>
                               )}
-                              <CardContent className="p-4">
+                              <CardContent className="p-4 space-y-1.5">
                                 <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
                                 {event.start_date && (
-                                  <p className="text-xs text-slate-500">{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy h:mm a")}</p>
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    <span>{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}</span>
+                                  </div>
                                 )}
-                                <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-2 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
+                                {(event.track_count > 0 || event.session_count > 0) && (
+                                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                                    {event.session_count > 0 && (
+                                      <div className="flex items-center gap-1" data-testid={`text-session-count-${event.id}`}>
+                                        <List className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
+                                      </div>
+                                    )}
+                                    {event.track_count > 0 && (
+                                      <div className="flex items-center gap-1" data-testid={`text-track-count-${event.id}`}>
+                                        <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {featShowPrices && featCheapest !== null && (
+                                  <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
+                                    <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    {featCheapest === 0 ? (
+                                      <span className="text-green-600 font-medium">Free to register</span>
+                                    ) : (
+                                      <span className="text-slate-600">
+                                        Price from <span className="font-semibold text-slate-800">{`\u00a3${featCheapest.toFixed(2)}`}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-1 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
                               </CardContent>
                             </Card>
                           );
                         }
                         const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                         const detailUrl = event.slug ? `/events/${event.slug}` : `/EventDetails?id=${event.id}`;
+                        const featSimpleCheapest = (() => {
+                          const tcs = event.pricing_config?.ticket_classes;
+                          if (!tcs?.length) return null;
+                          const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
+                          return prices.length > 0 ? Math.min(...prices) : null;
+                        })();
+                        const featSimpleShowPrices = Array.isArray(systemSettings)
+                          ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
+                          : false;
                         return (
                           <Card
                             key={`featured-${event.id}`}
@@ -1078,12 +1127,27 @@ export default function EventsPage({
                                 <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
                               </div>
                             )}
-                            <CardContent className="p-4">
+                            <CardContent className="p-4 space-y-1.5">
                               <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
                               {event.start_date && (
-                                <p className="text-xs text-slate-500">{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy h:mm a")}</p>
+                                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}</span>
+                                </div>
                               )}
-                              <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-2 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
+                              {featSimpleShowPrices && featSimpleCheapest !== null && (
+                                <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
+                                  <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  {featSimpleCheapest === 0 ? (
+                                    <span className="text-green-600 font-medium">Free to register</span>
+                                  ) : (
+                                    <span className="text-slate-600">
+                                      Price from <span className="font-semibold text-slate-800">{`\u00a3${featSimpleCheapest.toFixed(2)}`}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-1 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
                             </CardContent>
                           </Card>
                         );

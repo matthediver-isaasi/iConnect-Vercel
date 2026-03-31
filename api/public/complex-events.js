@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type, is_featured')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .or('event_state.is.null,event_state.eq.active,event_state.eq.closed')
@@ -136,6 +136,7 @@ export default async function handler(req, res) {
         timezone: event.timezone,
         event_state: event.event_state || null,
         event_type: event.event_type || null,
+        is_featured: event.is_featured || false,
         is_complex: true,
         session_count: sessionCountByEvent[event.id] || 0,
         track_count: trackCountByEvent[event.id] || 0,

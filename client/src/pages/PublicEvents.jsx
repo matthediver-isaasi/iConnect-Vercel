@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, Clock, Users, Ticket, Star } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, Ticket, Star, List, Layers } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { publicClient } from "@/api/publicClient";
@@ -181,6 +181,15 @@ export default function PublicEventsPage() {
                   {featuredEvents.map((event) => {
                     const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                     const detailUrl = getEventDetailUrl(event);
+                    const featCheapest = event.cheapest_price ?? (() => {
+                      const tcs = event.pricing_config?.ticket_classes;
+                      if (!tcs?.length) return null;
+                      const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
+                      return prices.length > 0 ? Math.min(...prices) : null;
+                    })();
+                    const featShowPrices = Array.isArray(systemSettings)
+                      ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
+                      : false;
                     return (
                       <Card
                         key={`featured-${event.is_complex ? 'complex' : 'simple'}-${event.id}`}
@@ -197,10 +206,41 @@ export default function PublicEventsPage() {
                             />
                           </div>
                         )}
-                        <CardContent className="p-4">
+                        <CardContent className="p-4 space-y-1.5">
                           <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
                           {event.start_date && (
-                            <p className="text-xs text-slate-500">{formatEventDate(event.start_date, eventTimezone)}</p>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>{formatEventDate(event.start_date, eventTimezone)}</span>
+                            </div>
+                          )}
+                          {event.is_complex && (event.track_count > 0 || event.session_count > 0) && (
+                            <div className="flex items-center gap-3 text-xs text-slate-500">
+                              {event.session_count > 0 && (
+                                <div className="flex items-center gap-1" data-testid={`text-session-count-${event.id}`}>
+                                  <List className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
+                                </div>
+                              )}
+                              {event.track_count > 0 && (
+                                <div className="flex items-center gap-1" data-testid={`text-track-count-${event.id}`}>
+                                  <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {featShowPrices && featCheapest !== null && (
+                            <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
+                              <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              {featCheapest === 0 ? (
+                                <span className="text-green-600 font-medium">Free to register</span>
+                              ) : (
+                                <span className="text-slate-600">
+                                  Price from <span className="font-semibold text-slate-800">{`\u00a3${featCheapest.toFixed(2)}`}</span>
+                                </span>
+                              )}
+                            </div>
                           )}
                           <div className="pt-2">
                             <Link to={detailUrl}>
