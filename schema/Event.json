@@ -75,6 +75,10 @@
       "slug": {
         "type": "string",
         "description": "URL-friendly slug for the event. Must be unique per tenant. Used for friendly URLs like /events/my-event-name"
+      },
+      "is_featured": {
+        "type": "boolean",
+        "description": "If true, event is featured and displayed prominently at the top of event listings"
       }
     },
     "required": [

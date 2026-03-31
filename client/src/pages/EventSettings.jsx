@@ -38,6 +38,10 @@ export default function EventSettingsPage() {
   const [eventCardTitleClamp, setEventCardTitleClamp] = useState(true);
   const [showEventCardPrices, setShowEventCardPrices] = useState(false);
   const [donationEnabled, setDonationEnabled] = useState(false);
+  const [featuredBgMode, setFeaturedBgMode] = useState("solid");
+  const [featuredBgColor, setFeaturedBgColor] = useState("#f0f9ff");
+  const [featuredBgFrom, setFeaturedBgFrom] = useState("#dbeafe");
+  const [featuredBgTo, setFeaturedBgTo] = useState("#ede9fe");
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -276,6 +280,22 @@ export default function EventSettingsPage() {
     const transferRoleSetting = settings.find(s => s.setting_key === 'transfer_restrict_by_role');
     if (transferRoleSetting) {
       setTransferRestrictByRole(transferRoleSetting.setting_value !== 'false');
+    }
+
+    const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
+    if (featuredBgSetting?.setting_value) {
+      try {
+        const bgConfig = JSON.parse(featuredBgSetting.setting_value);
+        setFeaturedBgMode(bgConfig.mode || 'solid');
+        if (bgConfig.mode === 'gradient') {
+          setFeaturedBgFrom(bgConfig.from || '#dbeafe');
+          setFeaturedBgTo(bgConfig.to || '#ede9fe');
+        } else {
+          setFeaturedBgColor(bgConfig.color || '#f0f9ff');
+        }
+      } catch (e) {
+        console.error('Failed to parse featured events background:', e);
+      }
     }
   }, [settings]);
 
@@ -574,6 +594,24 @@ export default function EventSettingsPage() {
           setting_key: 'transfer_restrict_by_role',
           setting_value: transferRestrictByRole.toString(),
           description: 'Restrict ticket transfers to members with the same role within the organisation'
+        });
+      }
+
+      const featuredBgValue = featuredBgMode === 'gradient'
+        ? JSON.stringify({ mode: 'gradient', from: featuredBgFrom, to: featuredBgTo })
+        : JSON.stringify({ mode: 'solid', color: featuredBgColor });
+      const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
+
+      if (featuredBgSetting) {
+        await base44.entities.SystemSettings.update(featuredBgSetting.id, {
+          setting_value: featuredBgValue,
+          description: 'Background style for the Featured Events card on event listings'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'featured_events_background',
+          setting_value: featuredBgValue,
+          description: 'Background style for the Featured Events card on event listings'
         });
       }
       
@@ -1781,6 +1819,101 @@ export default function EventSettingsPage() {
                     Save
                   </Button>
                 </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                <div className="space-y-1">
+                  <Label className="font-medium">Featured Events Background</Label>
+                  <p className="text-sm text-slate-500">
+                    Choose the background style for the Featured Events section on event listing pages.
+                  </p>
+                </div>
+                <RadioGroup
+                  value={featuredBgMode}
+                  onValueChange={setFeaturedBgMode}
+                  className="flex gap-4"
+                  data-testid="radio-featured-bg-mode"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="solid" id="featured-bg-solid" data-testid="radio-featured-bg-solid" />
+                    <Label htmlFor="featured-bg-solid" className="cursor-pointer">Solid Colour</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="gradient" id="featured-bg-gradient" data-testid="radio-featured-bg-gradient" />
+                    <Label htmlFor="featured-bg-gradient" className="cursor-pointer">Gradient</Label>
+                  </div>
+                </RadioGroup>
+                {featuredBgMode === 'solid' ? (
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm text-slate-600">Colour:</Label>
+                    <input
+                      type="color"
+                      value={featuredBgColor}
+                      onChange={(e) => setFeaturedBgColor(e.target.value)}
+                      className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                      data-testid="input-featured-bg-color"
+                    />
+                    <Input
+                      value={featuredBgColor}
+                      onChange={(e) => setFeaturedBgColor(e.target.value)}
+                      className="w-28"
+                      data-testid="input-featured-bg-color-text"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm text-slate-600">From:</Label>
+                      <input
+                        type="color"
+                        value={featuredBgFrom}
+                        onChange={(e) => setFeaturedBgFrom(e.target.value)}
+                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-featured-bg-from"
+                      />
+                      <Input
+                        value={featuredBgFrom}
+                        onChange={(e) => setFeaturedBgFrom(e.target.value)}
+                        className="w-28"
+                        data-testid="input-featured-bg-from-text"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm text-slate-600">To:</Label>
+                      <input
+                        type="color"
+                        value={featuredBgTo}
+                        onChange={(e) => setFeaturedBgTo(e.target.value)}
+                        className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-featured-bg-to"
+                      />
+                      <Input
+                        value={featuredBgTo}
+                        onChange={(e) => setFeaturedBgTo(e.target.value)}
+                        className="w-28"
+                        data-testid="input-featured-bg-to-text"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div
+                  className="h-12 rounded-lg border border-slate-200"
+                  style={
+                    featuredBgMode === 'gradient'
+                      ? { background: `linear-gradient(to right, ${featuredBgFrom}, ${featuredBgTo})` }
+                      : { background: featuredBgColor }
+                  }
+                  data-testid="preview-featured-bg"
+                />
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  size="sm"
+                  data-testid="button-save-featured-bg"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
               </div>
             </div>
           </CardContent>

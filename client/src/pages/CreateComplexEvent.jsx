@@ -499,6 +499,7 @@ export default function CreateComplexEvent() {
     location: "",
     status: "published",
     event_state: "active",
+    is_featured: false,
     timezone: "Europe/London",
     available_seats: "",
     internal_reference: "",
@@ -753,6 +754,7 @@ export default function CreateComplexEvent() {
         location: existingEvent.location || "",
         status: loadedStatus,
         event_state: loadedEventState,
+        is_featured: existingEvent.is_featured === true,
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
@@ -1179,6 +1181,7 @@ export default function CreateComplexEvent() {
         location: formData.location || null,
         status: formData.status,
         event_state: formData.event_state,
+        is_featured: formData.is_featured || false,
         timezone: formData.timezone,
         available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats, 10) : null),
         is_unlimited_registration: unlimitedSeats,
@@ -1444,6 +1447,18 @@ export default function CreateComplexEvent() {
                 <CardDescription>Configure when and how members can access this event</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-3 rounded-lg border-2 border-slate-200">
+                  <div>
+                    <Label className="font-medium">Featured Event</Label>
+                    <p className="text-xs text-slate-500">Highlight this event at the top of event listings</p>
+                  </div>
+                  <Switch
+                    checked={formData.is_featured}
+                    onCheckedChange={(checked) => updateField("is_featured", checked)}
+                    data-testid="switch-is-featured"
+                  />
+                </div>
+
                 <div>
                   <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
                   <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>

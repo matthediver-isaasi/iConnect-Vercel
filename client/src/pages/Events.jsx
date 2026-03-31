@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -448,6 +448,25 @@ export default function EventsPage({
     const dateB = new Date(b.start_date);
     return dateA.getTime() - dateB.getTime();
   });
+
+  const featuredEvents = filteredEvents.filter(e => e.is_featured === true);
+  const nonFeaturedEvents = filteredEvents.filter(e => e.is_featured !== true);
+
+  const featuredBgSetting = (() => {
+    const setting = Array.isArray(systemSettings)
+      ? systemSettings.find(item => item.setting_key === 'featured_events_background')
+      : null;
+    if (setting?.setting_value) {
+      try { return JSON.parse(setting.setting_value); } catch { return null; }
+    }
+    return null;
+  })();
+
+  const featuredBgStyle = featuredBgSetting
+    ? featuredBgSetting.mode === 'gradient'
+      ? { background: `linear-gradient(to right, ${featuredBgSetting.from}, ${featuredBgSetting.to})` }
+      : { background: featuredBgSetting.color }
+    : { background: '#f0f9ff' };
   
   // Count past events for the toggle label
   const pastEventsCount = accessibleEvents.filter(event => {
@@ -1008,8 +1027,73 @@ export default function EventsPage({
                 </p>
               </div>
             ) : (
+              <>
+              {featuredEvents.length > 0 && (
+                <Card className="mb-6 border-slate-200 shadow-sm" style={featuredBgStyle} data-testid="card-featured-events">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Star className="h-5 w-5 text-amber-500" />
+                      Featured Events
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {featuredEvents.map((event) => {
+                        if (event.is_complex) {
+                          const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                          const detailUrl = event.slug
+                            ? `/session-events/${event.slug}`
+                            : `/ComplexEventDetail?id=${event.id}`;
+                          return (
+                            <Card
+                              key={`featured-complex-${event.id}`}
+                              className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
+                              data-testid={`card-featured-event-${event.id}`}
+                            >
+                              {event.image_url && (
+                                <div className="h-32 overflow-hidden bg-slate-100">
+                                  <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
+                                </div>
+                              )}
+                              <CardContent className="p-4">
+                                <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
+                                {event.start_date && (
+                                  <p className="text-xs text-slate-500">{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy h:mm a")}</p>
+                                )}
+                                <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-2 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
+                              </CardContent>
+                            </Card>
+                          );
+                        }
+                        const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                        const detailUrl = event.slug ? `/events/${event.slug}` : `/EventDetails?id=${event.id}`;
+                        return (
+                          <Card
+                            key={`featured-${event.id}`}
+                            className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
+                            data-testid={`card-featured-event-${event.id}`}
+                          >
+                            {event.image_url && (
+                              <div className="h-32 overflow-hidden bg-slate-100">
+                                <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
+                              </div>
+                            )}
+                            <CardContent className="p-4">
+                              <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
+                              {event.start_date && (
+                                <p className="text-xs text-slate-500">{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy h:mm a")}</p>
+                              )}
+                              <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-2 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {filteredEvents.map((event) => {
+                {nonFeaturedEvents.map((event) => {
                   if (event.is_complex) {
                     const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
                     const detailUrl = event.slug
@@ -1273,6 +1357,7 @@ export default function EventsPage({
                   );
                 })}
               </div>
+              </>
             )}
           </>
         )}

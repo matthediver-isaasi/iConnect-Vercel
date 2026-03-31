@@ -46,6 +46,10 @@
     "available_seats": {
       "type": "number",
       "description": "Total capacity (null = unlimited)"
+    },
+    "is_featured": {
+      "type": "boolean",
+      "description": "If true, event is featured and displayed prominently at the top of event listings"
     }
   },
   "required": ["title", "slug"]

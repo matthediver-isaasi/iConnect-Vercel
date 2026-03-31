@@ -106,6 +106,7 @@ export default function CreateEvent() {
   const { eventTypes } = useEventTypes();
   const [eventTiming, setEventTiming] = useState("published"); // published or tbc - affects date requirements
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
+  const [isFeatured, setIsFeatured] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [isComplexEvent, setIsComplexEvent] = useState(false);
@@ -802,7 +803,8 @@ export default function CreateEvent() {
       is_online: isOnline,
       is_complex: isComplexEvent,
       status: eventTiming,
-      event_state: eventState
+      event_state: eventState,
+      is_featured: isFeatured
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
@@ -933,6 +935,18 @@ export default function CreateEvent() {
               <CardDescription>Configure when and how members can access this event</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-3 rounded-lg border-2 border-slate-200">
+                <div>
+                  <Label className="font-medium">Featured Event</Label>
+                  <p className="text-xs text-slate-500">Highlight this event at the top of event listings</p>
+                </div>
+                <Switch
+                  checked={isFeatured}
+                  onCheckedChange={setIsFeatured}
+                  data-testid="switch-is-featured"
+                />
+              </div>
+
               {/* Event Timing - affects date requirements */}
               <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>

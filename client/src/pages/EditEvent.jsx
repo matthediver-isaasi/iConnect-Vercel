@@ -133,6 +133,7 @@ export default function EditEvent() {
   const [eventTiming, setEventTiming] = useState("published");
   // Event state: active, draft, or closed - affects visibility/registration
   const [eventState, setEventState] = useState("active");
+  const [isFeatured, setIsFeatured] = useState(false);
   
   // Complex event sessions
   const [isComplexEvent, setIsComplexEvent] = useState(false);
@@ -928,6 +929,8 @@ export default function EditEvent() {
         setSelectedSpeakers([]);
       }
       
+      setIsFeatured(event.is_featured === true);
+
       // Load timing and state from event with migration for old status values
       // Old values: draft, published, tbc, closed -> New: timing (published/tbc) + state (active/draft/closed)
       const oldStatus = event.status || 'published';
@@ -1251,6 +1254,7 @@ export default function EditEvent() {
       is_online: isOnlineEvent,
       status: eventTiming,
       event_state: eventState,
+      is_featured: isFeatured,
       timezone: eventTimezone,
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
@@ -1575,6 +1579,18 @@ export default function EditEvent() {
               <CardDescription>Configure when and how members can access this event</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-3 rounded-lg border-2 border-slate-200">
+                <div>
+                  <Label className="font-medium">Featured Event</Label>
+                  <p className="text-xs text-slate-500">Highlight this event at the top of event listings</p>
+                </div>
+                <Switch
+                  checked={isFeatured}
+                  onCheckedChange={setIsFeatured}
+                  data-testid="switch-is-featured"
+                />
+              </div>
+
               {/* Event Timing - affects date requirements */}
               <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
