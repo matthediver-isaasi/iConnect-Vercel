@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
+  ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
   Layers, Building2
@@ -197,6 +197,70 @@ function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, spe
   );
 }
 
+function AdminHScrollContainer({ children, trackCount }) {
+  const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    checkScroll();
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    el.addEventListener('scroll', checkScroll, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener('scroll', checkScroll); };
+  }, [checkScroll, trackCount]);
+
+  const scrollBy = useCallback((direction) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const colWidth = (el.scrollWidth - 80) / (trackCount || 1);
+    el.scrollTo({ left: el.scrollLeft + (direction * colWidth), behavior: 'smooth' });
+  }, [trackCount]);
+
+  return (
+    <div className="relative">
+      {canScrollLeft && (
+        <>
+          <div className="absolute top-0 bottom-0 left-0 w-12 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
+          <button
+            onClick={() => scrollBy(-1)}
+            className="absolute top-1/2 left-1 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
+            data-testid="button-scroll-tracks-left"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </>
+      )}
+      <div ref={scrollRef} className="overflow-x-auto">
+        <div className="min-w-[500px]">
+          {children}
+        </div>
+      </div>
+      {canScrollRight && (
+        <>
+          <div className="absolute top-0 bottom-0 right-0 w-12 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+          <button
+            onClick={() => scrollBy(1)}
+            className="absolute top-1/2 right-1 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
+            data-testid="button-scroll-tracks-right"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete }) {
   const trackColorMap = useMemo(() => {
     const map = {};
@@ -240,16 +304,16 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
     return Array.from(trackSet).sort();
   }, [enrichedSessions]);
 
+  const hasAnyUntracked = useMemo(() => {
+    return enrichedSessions.some(s => (s.track_names || []).length === 0);
+  }, [enrichedSessions]);
+
+  const totalColumns = allTrackNames.length + (hasAnyUntracked ? 1 : 0);
+  const gridTemplateColumns = totalColumns > 0 ? `80px repeat(${totalColumns}, minmax(180px, 1fr))` : undefined;
+
   return (
     <div className="space-y-6">
       {sessionsByDay.map((day, dayIndex) => {
-        const dayTracks = new Set();
-        day.sessions.forEach(s => {
-          (s.track_names || []).forEach(n => dayTracks.add(n));
-        });
-        const dayTrackNames = allTrackNames.filter(t => dayTracks.has(t));
-        const hasUntracked = day.sessions.some(s => (s.track_names || []).length === 0);
-
         const timeSlots = [];
         const slotMap = {};
         day.sessions
@@ -270,12 +334,11 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
               {scheduleFormatDate(day.date, timezone)}
             </h3>
 
-            <div className="overflow-x-auto">
-              <div className="min-w-[500px]">
-                {dayTrackNames.length > 0 && (
-                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: `80px repeat(${dayTrackNames.length + (hasUntracked ? 1 : 0)}, 1fr)` }}>
-                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2">Time</div>
-                    {dayTrackNames.map(trackName => {
+            <AdminHScrollContainer trackCount={totalColumns}>
+                {allTrackNames.length > 0 && (
+                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns }}>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]">Time</div>
+                    {allTrackNames.map(trackName => {
                       const colors = trackColorMap[trackName];
                       const hasCustom = colors?.bgStyle;
                       return (
@@ -289,7 +352,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                         </div>
                       );
                     })}
-                    {hasUntracked && (
+                    {hasAnyUntracked && (
                       <div className="text-xs font-semibold p-2 rounded-md text-center bg-slate-100 text-slate-700">
                         General
                       </div>
@@ -298,7 +361,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                 )}
 
                 {timeSlots.map((slot, slotIndex) => {
-                  if (dayTrackNames.length === 0) {
+                  if (allTrackNames.length === 0) {
                     return (
                       <div key={slotIndex} className="mb-2">
                         {slot.sessions.map(session => (
@@ -312,12 +375,12 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                     <div
                       key={slotIndex}
                       className="grid gap-1 mb-1"
-                      style={{ gridTemplateColumns: `80px repeat(${dayTrackNames.length + (hasUntracked ? 1 : 0)}, 1fr)` }}
+                      style={{ gridTemplateColumns }}
                     >
-                      <div className="text-xs font-medium text-slate-600 p-2 flex items-start pt-3">
+                      <div className="text-xs font-medium text-slate-600 p-2 flex items-start pt-3 sticky left-0 bg-white z-[1]">
                         {slot.time}
                       </div>
-                      {dayTrackNames.map(trackName => {
+                      {allTrackNames.map(trackName => {
                         const trackSessions = slot.sessions.filter(s => (s.track_names || []).includes(trackName));
                         const colors = trackColorMap[trackName];
                         if (trackSessions.length === 0) {
@@ -334,7 +397,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                           </div>
                         );
                       })}
-                      {hasUntracked && (() => {
+                      {hasAnyUntracked && (() => {
                         const untrackedSessions = slot.sessions.filter(s => (s.track_names || []).length === 0);
                         if (untrackedSessions.length === 0) return <div key="untracked-empty" className="p-1" />;
                         return (
@@ -348,8 +411,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                     </div>
                   );
                 })}
-              </div>
-            </div>
+            </AdminHScrollContainer>
           </div>
         );
       })}

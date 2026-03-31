@@ -11,7 +11,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
-  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown
+  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
@@ -80,6 +81,70 @@ const formatDateShort = (dateStr, timezone = DEFAULT_TIMEZONE) => {
 };
 
 
+function HScrollContainer({ children, trackCount }) {
+  const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    checkScroll();
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    el.addEventListener('scroll', checkScroll, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener('scroll', checkScroll); };
+  }, [checkScroll, trackCount]);
+
+  const scrollBy = useCallback((direction) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const colWidth = (el.scrollWidth - 100) / (trackCount || 1);
+    el.scrollTo({ left: el.scrollLeft + (direction * colWidth), behavior: 'smooth' });
+  }, [trackCount]);
+
+  return (
+    <div className="relative">
+      {canScrollLeft && (
+        <>
+          <div className="absolute top-0 bottom-0 left-0 w-12 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
+          <button
+            onClick={() => scrollBy(-1)}
+            className="absolute top-1/2 left-1 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
+            data-testid="button-scroll-tracks-left"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </>
+      )}
+      <div ref={scrollRef} className="overflow-x-auto">
+        <div className="min-w-[600px]">
+          {children}
+        </div>
+      </div>
+      {canScrollRight && (
+        <>
+          <div className="absolute top-0 bottom-0 right-0 w-12 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+          <button
+            onClick={() => scrollBy(1)}
+            className="absolute top-1/2 right-1 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
+            data-testid="button-scroll-tracks-right"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {}, onSessionClick }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
@@ -108,22 +173,21 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
     return Array.from(trackSet).sort();
   }, [sessions, trackColorMap]);
 
+  const hasAnyUntracked = useMemo(() => {
+    return sessions.some(s => {
+      const names = s.track_names || (s.track_name ? [s.track_name] : []);
+      return names.length === 0;
+    });
+  }, [sessions]);
+
+  const totalColumns = allTracks.length + (hasAnyUntracked ? 1 : 0);
+  const gridTemplateColumns = totalColumns > 0 ? `100px repeat(${totalColumns}, minmax(180px, 1fr))` : undefined;
+
   if (sessionsByDay.length === 0) return null;
 
   return (
     <div className="space-y-8">
       {sessionsByDay.map((day, dayIndex) => {
-        const dayTracks = new Set();
-        day.sessions.forEach(s => {
-          const names = s.track_names || (s.track_name ? [s.track_name] : []);
-          names.forEach(n => dayTracks.add(n));
-        });
-        const tracks = allTracks.filter(t => dayTracks.has(t));
-        const hasUntracked = day.sessions.some(s => {
-          const names = s.track_names || (s.track_name ? [s.track_name] : []);
-          return names.length === 0;
-        });
-
         const timeSlots = [];
         const slotMap = {};
         day.sessions
@@ -144,12 +208,11 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
               {formatDate(day.date, timezone)}
             </h3>
 
-            <div className="overflow-x-auto">
-              <div className="min-w-[600px]">
-                {(tracks.length > 0) && (
-                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: `100px repeat(${tracks.length + (hasUntracked ? 1 : 0)}, 1fr)` }}>
-                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2">Time</div>
-                    {tracks.map(track => {
+            <HScrollContainer trackCount={totalColumns}>
+                {(allTracks.length > 0) && (
+                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns }}>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]">Time</div>
+                    {allTracks.map(track => {
                       const colors = trackColorMap[track];
                       const hasCustom = colors?.bgStyle;
                       return (
@@ -163,7 +226,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                         </div>
                       );
                     })}
-                    {hasUntracked && (
+                    {hasAnyUntracked && (
                       <div className="text-xs font-semibold p-2 rounded-md text-center bg-slate-100 text-slate-700">
                         General
                       </div>
@@ -172,7 +235,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                 )}
 
                 {timeSlots.map((slot, slotIndex) => {
-                  if (tracks.length === 0) {
+                  if (allTracks.length === 0) {
                     return (
                       <div key={slotIndex} className="mb-2">
                         {slot.sessions.map(session => (
@@ -186,39 +249,49 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                     <div
                       key={slotIndex}
                       className="grid gap-1 mb-1"
-                      style={{ gridTemplateColumns: `100px repeat(${tracks.length + (hasUntracked ? 1 : 0)}, 1fr)` }}
+                      style={{ gridTemplateColumns }}
                     >
-                      <div className="text-sm font-medium text-slate-600 p-2 flex items-start pt-3">
+                      <div className="text-sm font-medium text-slate-600 p-2 flex items-start pt-3 sticky left-0 bg-white z-[1]">
                         {slot.time}
                       </div>
-                      {tracks.map(track => {
-                        const trackSession = slot.sessions.find(s => {
+                      {allTracks.map(track => {
+                        const trackSessions = slot.sessions.filter(s => {
                           const names = s.track_names || (s.track_name ? [s.track_name] : []);
                           return names.includes(track);
                         });
                         const colors = trackColorMap[track];
-                        if (!trackSession) {
+                        if (trackSessions.length === 0) {
                           return <div key={track} className="p-1" />;
                         }
-                        const isMultiTrack = (trackSession.track_names || []).length > 1;
                         return (
-                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onClick={onSessionClick} />
+                          <div key={track} className="space-y-1">
+                            {trackSessions.map(trackSession => {
+                              const isMultiTrack = (trackSession.track_names || []).length > 1;
+                              return (
+                                <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onClick={onSessionClick} />
+                              );
+                            })}
+                          </div>
                         );
                       })}
-                      {hasUntracked && (() => {
-                        const untrackedSession = slot.sessions.find(s => {
+                      {hasAnyUntracked && (() => {
+                        const untrackedSessions = slot.sessions.filter(s => {
                           const names = s.track_names || (s.track_name ? [s.track_name] : []);
                           return names.length === 0;
                         });
-                        if (!untrackedSession) return <div className="p-1" />;
-                        return <SessionCard session={untrackedSession} timezone={timezone} colors={null} speakerMap={speakerMap} onClick={onSessionClick} />;
+                        if (untrackedSessions.length === 0) return <div className="p-1" />;
+                        return (
+                          <div className="space-y-1">
+                            {untrackedSessions.map(s => (
+                              <SessionCard key={s.id} session={s} timezone={timezone} colors={null} speakerMap={speakerMap} onClick={onSessionClick} />
+                            ))}
+                          </div>
+                        );
                       })()}
                     </div>
                   );
                 })}
-
-              </div>
-            </div>
+            </HScrollContainer>
           </div>
         );
       })}
