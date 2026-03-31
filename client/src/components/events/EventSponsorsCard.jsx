@@ -6,8 +6,8 @@ import { publicClient } from "@/api/publicClient";
 
 export default function EventSponsorsCard({ eventId, eventType = "simple" }) {
   const { data } = useQuery({
-    queryKey: ['public-event-sponsors', eventId],
-    queryFn: () => publicClient.getEventSponsors(eventId),
+    queryKey: ['public-event-sponsors', eventId, eventType],
+    queryFn: () => publicClient.getEventSponsors(eventId, eventType),
     enabled: !!eventId
   });
 

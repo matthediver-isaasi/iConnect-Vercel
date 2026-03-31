@@ -31,15 +31,19 @@ export default async function handler(req, res) {
     }
 
     const eventId = req.query.event_id;
+    const eventType = req.query.event_type || 'simple';
     if (!eventId) {
       return res.status(400).json({ error: 'event_id is required' });
     }
 
-    const { data: assignments, error: assignError } = await supabase
+    let assignQuery = supabase
       .from('event_sponsor_assignment')
       .select('sponsor_id, category_id')
       .eq('tenant_id', tenant.id)
-      .eq('event_id', eventId);
+      .eq('event_id', eventId)
+      .eq('event_type', eventType);
+
+    const { data: assignments, error: assignError } = await assignQuery;
 
     if (assignError) {
       console.error('[Public event-sponsors] Assignment query error:', assignError);

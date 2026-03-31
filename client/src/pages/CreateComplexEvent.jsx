@@ -783,7 +783,7 @@ export default function CreateComplexEvent() {
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
 
       // Load sponsor assignments
-      base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id } })
+      base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
         .then(assignments => setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)))
         .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); });
     }
@@ -1395,7 +1395,7 @@ export default function CreateComplexEvent() {
       // Save sponsor assignments
       try {
         if (isEditMode) {
-          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId } });
+          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'complex' } });
           for (const a of existingAssignments) {
             await base44.entities.EventSponsorAssignment.delete(a.id);
           }

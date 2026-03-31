@@ -937,7 +937,7 @@ export default function EditEvent() {
 
       // Load sponsor assignments
       try {
-        const assignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id } });
+        const assignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } });
         setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
       } catch (e) {
         console.error('Failed to load sponsor assignments:', e);
@@ -1419,7 +1419,7 @@ export default function EditEvent() {
 
         // Save sponsor assignments
         try {
-          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId } });
+          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'simple' } });
           for (const a of existingAssignments) {
             await base44.entities.EventSponsorAssignment.delete(a.id);
           }

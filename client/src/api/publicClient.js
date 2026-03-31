@@ -272,9 +272,9 @@ class PublicClient {
   }
   
   // Event Sponsors
-  async getEventSponsors(eventId) {
+  async getEventSponsors(eventId, eventType = 'simple') {
     if (!eventId) return { sponsors: [], categories: [], assignments: [] };
-    return this._fetch(`/api/public/event-sponsors?event_id=${eventId}`);
+    return this._fetch(`/api/public/event-sponsors?event_id=${eventId}&event_type=${eventType}`);
   }
 
   // Speakers
