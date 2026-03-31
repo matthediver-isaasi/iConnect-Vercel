@@ -290,7 +290,7 @@ async function backfillInvoiceForBooking(bookingId) {
   if (booking.organization_id) {
     const { data: orgData } = await supabase
       .from('organization')
-      .select('id, name')
+      .select('id, name, invoicing_email')
       .eq('id', booking.organization_id)
       .single();
     org = orgData;
@@ -319,7 +319,7 @@ async function backfillInvoiceForBooking(bookingId) {
   if (org) {
     invoiceContactInfo = {
       name: org.name,
-      email: null,
+      email: org.invoicing_email || null,
       isOrganization: true
     };
     console.log(`Invoice to organization: ${org.name}`);

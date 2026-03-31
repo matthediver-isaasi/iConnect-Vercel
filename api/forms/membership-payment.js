@@ -498,17 +498,19 @@ async function handlePost(req, res, resolvedTenantId) {
         const { createXeroMembershipInvoice } = await import('../_lib/xero.js');
         const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
 
-        let invoiceOrgName, invoicingAddress;
+        let invoiceOrgName, invoicingAddress, invoicingEmail;
         if (isMemberScoped) {
           invoiceOrgName = memberName;
+          invoicingEmail = member.email || null;
           invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, member.id, 'member');
         } else {
           const { data: org } = await supabase
             .from('organization')
-            .select('name, invoicing_address')
+            .select('name, invoicing_address, invoicing_email')
             .eq('id', organizationId)
             .single();
           invoiceOrgName = org?.name || 'Organisation';
+          invoicingEmail = org?.invoicing_email || null;
           invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
         }
 
@@ -517,6 +519,7 @@ async function handlePost(req, res, resolvedTenantId) {
         xeroInvoice = await createXeroMembershipInvoice({
           appTenantId: tenantId,
           organizationName: invoiceOrgName,
+          invoicingEmail,
           invoicingAddress: invoicingAddress || undefined,
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,

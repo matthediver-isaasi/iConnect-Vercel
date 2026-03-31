@@ -141,14 +141,12 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
     const existingContact = contactData.Contacts[0];
     console.log(`[Xero] Found existing contact: ${existingContact.ContactID}`);
 
-    if (parsedAddress) {
+    if (parsedAddress || info.email) {
       try {
-        const updatePayload = {
-          Contacts: [{
-            ContactID: existingContact.ContactID,
-            Addresses: [parsedAddress]
-          }]
-        };
+        const updateContact = { ContactID: existingContact.ContactID };
+        if (parsedAddress) updateContact.Addresses = [parsedAddress];
+        if (info.email) updateContact.EmailAddress = info.email;
+        const updatePayload = { Contacts: [updateContact] };
         const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
           method: 'POST',
           headers: {
@@ -159,10 +157,10 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
           },
           body: JSON.stringify(updatePayload)
         });
-        await safeXeroJson(updateResponse, 'contact-address-update');
-        console.log(`[Xero] Updated contact address for: ${info.name}`);
+        await safeXeroJson(updateResponse, 'contact-update');
+        console.log(`[Xero] Updated contact details for: ${info.name}`);
       } catch (addrErr) {
-        console.warn(`[Xero] Failed to update contact address (non-fatal): ${addrErr.message}`);
+        console.warn(`[Xero] Failed to update contact details (non-fatal): ${addrErr.message}`);
       }
     }
 
@@ -195,7 +193,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -203,6 +201,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
   const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, {
     name: organizationName,
+    email: invoicingEmail || null,
     address: invoicingAddress || null,
   });
 

@@ -499,7 +499,7 @@ export default async function handler(req, res) {
             const { createXeroMembershipInvoice } = await import('../../_lib/xero.js');
             const { data: org } = await supabase
               .from('organization')
-              .select('name, invoicing_address')
+              .select('name, invoicing_address, invoicing_email')
               .eq('id', feeToken.organization_id)
               .single();
 
@@ -510,6 +510,7 @@ export default async function handler(req, res) {
             xeroInvoice = await createXeroMembershipInvoice({
               appTenantId: feeToken.tenant_id,
               organizationName: org?.name || 'Organisation',
+              invoicingEmail: org?.invoicing_email || null,
               invoicingAddress: org?.invoicing_address,
               membershipYear: feeToken.membership_year,
               tierLabel: feeToken.tier_label,

@@ -2281,10 +2281,9 @@ const functionHandlers = {
       let invoiceContactInfo = null;
       
       if (org) {
-        // Member with linked organization
         invoiceContactInfo = {
           name: org.name,
-          email: null, // Organizations don't need email in Xero contact
+          email: org.invoicing_email || null,
           isOrganization: true
         };
         console.log(`[Xero] Invoice to linked organization: ${org.name}`);

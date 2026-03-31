@@ -306,6 +306,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
+      invoicingEmail: org.invoicing_email || null,
       invoicingAddress: resolvedAddr,
       membershipYear: record.membership_year,
       tierLabel: record.tier_label,
@@ -498,6 +499,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
+        invoicingEmail: org.invoicing_email || null,
         invoicingAddress: resolvedOrgAddr,
         membershipYear: membershipYear.label,
         tierLabel,
@@ -858,6 +860,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: memberName,
+        invoicingEmail: member.email || null,
         invoicingAddress: resolvedMemberAddr,
         membershipYear: membershipYear.label,
         tierLabel,
@@ -1000,6 +1003,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
+      invoicingEmail: member.email || null,
       invoicingAddress: resolvedMemberAddr2,
       membershipYear: record.membership_year,
       tierLabel: record.tier_label,

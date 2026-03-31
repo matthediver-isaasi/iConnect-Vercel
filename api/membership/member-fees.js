@@ -462,7 +462,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
         const { createXeroMembershipInvoice } = await import('../_lib/xero.js');
         const { data: org } = await supabase
           .from('organization')
-          .select('name, invoicing_address')
+          .select('name, invoicing_address, invoicing_email')
           .eq('id', organizationId)
           .single();
 
@@ -483,6 +483,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
         xeroInvoice = await createXeroMembershipInvoice({
           appTenantId: tenantId,
           organizationName: org?.name || 'Organisation',
+          invoicingEmail: org?.invoicing_email || null,
           invoicingAddress: resolvedAddress,
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,
@@ -812,6 +813,7 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
         xeroInvoice = await createXeroMembershipInvoice({
           appTenantId: tenantId,
           organizationName: memberName,
+          invoicingEmail: member.email || null,
           invoicingAddress: resolvedMemberAddress,
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,

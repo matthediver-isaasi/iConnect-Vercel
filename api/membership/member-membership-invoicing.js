@@ -300,6 +300,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
+      invoicingEmail: member.email || null,
       invoicingAddress: await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member'),
       membershipYear: membershipYear.label,
       tierLabel,
