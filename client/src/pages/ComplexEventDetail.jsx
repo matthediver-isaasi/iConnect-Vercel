@@ -1660,17 +1660,19 @@ export default function ComplexEventDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen lg:h-screen lg:flex lg:flex-col bg-white">
+      <div className="max-w-7xl mx-auto px-4 pt-8 pb-4 w-full shrink-0">
+        <div className="flex items-center justify-between">
           <Link to="/events" className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to Events
           </Link>
         </div>
+      </div>
 
-        <div className="grid lg:grid-cols-3 gap-8 mb-8">
-          <div className="lg:col-span-2 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 pb-8 w-full lg:flex-1 lg:min-h-0">
+        <div className="grid lg:grid-cols-3 gap-8 lg:h-full">
+          <div className="lg:col-span-2 space-y-6 lg:overflow-y-auto lg:pr-4 lg:pb-8">
             {event.image_url && (
               <div className="rounded-xl overflow-hidden shadow-lg">
                 <img
@@ -1864,7 +1866,7 @@ export default function ComplexEventDetail() {
             )}
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 lg:overflow-y-auto lg:pb-8">
             <BookingSection
               event={event}
               sessions={sessions}
