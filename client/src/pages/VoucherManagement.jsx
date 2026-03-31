@@ -158,6 +158,33 @@ export default function VoucherManagementPage() {
     return filteredVouchers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredVouchers, currentPage]);
 
+  const orgSummary = useMemo(() => {
+    const summaryMap = {};
+    filteredVouchers.forEach(v => {
+      const orgId = v.organization_id;
+      if (!orgId) return;
+      if (!summaryMap[orgId]) {
+        summaryMap[orgId] = { activeCount: 0, totalValue: 0 };
+      }
+      summaryMap[orgId].totalValue += (v.value || 0);
+      const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
+      if (v.status === 'active' && !isExpired) {
+        summaryMap[orgId].activeCount += 1;
+      }
+    });
+    return Object.entries(summaryMap)
+      .map(([orgId, data]) => {
+        const org = organizations.find(o => o.id === orgId);
+        return {
+          orgId,
+          name: org?.name || 'Unknown Organisation',
+          activeCount: data.activeCount,
+          totalValue: data.totalValue,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [filteredVouchers, organizations]);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, orgFilter, showExpired]);
@@ -559,183 +586,229 @@ export default function VoucherManagementPage() {
           </CardContent>
         </Card>
 
-        {loadingVouchers ? (
-          <div className="text-center py-12">Loading vouchers...</div>
-        ) : vouchers.length === 0 ? (
-          <Card className="border-slate-200 shadow-sm">
-            <CardContent className="p-12 text-center">
-              <Ticket className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                No Vouchers Yet
-              </h3>
-              <p className="text-slate-600 mb-6">
-                Create your first training voucher for an organisation
-              </p>
-              <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Create First Voucher
-              </Button>
-            </CardContent>
-          </Card>
-        ) : filteredVouchers.length === 0 ? (
-          <Card className="border-slate-200 shadow-sm">
-            <CardContent className="p-12 text-center">
-              <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                No Matching Vouchers
-              </h3>
-              <p className="text-slate-600 mb-4">
-                No vouchers match your search criteria
-              </p>
-              <Button 
-                variant="outline" 
-                onClick={() => { setSearchTerm(""); setStatusFilter("all"); setOrgFilter("all"); setShowExpired(true); }}
-              >
-                Clear Filters
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {paginatedVouchers.map((voucher) => {
-              const org = organizations.find(o => o.id === voucher.organization_id);
-              const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-              const canDelete = voucher.status !== 'used';
-              
-              return (
-                <Card 
-                  key={voucher.id} 
-                  className={`border-2 cursor-pointer transition-shadow hover:shadow-md ${
-                    voucher.status === 'used' ? 'border-slate-200 bg-slate-50' : 
-                    isExpired ? 'border-red-200 bg-red-50' :
-                    'border-slate-200'
-                  }`}
-                  onClick={() => handleVoucherClick(voucher)}
-                  data-testid={`card-voucher-${voucher.id}`}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <Ticket className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                          <span className="text-xl font-bold text-slate-900">{voucher.code}</span>
-                          {getStatusBadge(voucher.status, voucher.expires_at)}
-                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                            £{(voucher.value || 0).toFixed(2)}
-                          </Badge>
-                        </div>
-                        
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
-                          <div className="flex items-center gap-1">
-                            <Building2 className="w-4 h-4" />
-                            <span>{org?.name || 'Unknown Organisation'}</span>
-                          </div>
-                          {voucher.expires_at && (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4" />
-                              <span className={isExpired ? 'text-red-600' : ''}>
-                                Expires: {format(new Date(voucher.expires_at), 'MMM d, yyyy')}
-                              </span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            {loadingVouchers ? (
+              <div className="text-center py-12">Loading vouchers...</div>
+            ) : vouchers.length === 0 ? (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-12 text-center">
+                  <Ticket className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                    No Vouchers Yet
+                  </h3>
+                  <p className="text-slate-600 mb-6">
+                    Create your first training voucher for an organisation
+                  </p>
+                  <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create First Voucher
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : filteredVouchers.length === 0 ? (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-12 text-center">
+                  <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                    No Matching Vouchers
+                  </h3>
+                  <p className="text-slate-600 mb-4">
+                    No vouchers match your search criteria
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => { setSearchTerm(""); setStatusFilter("all"); setOrgFilter("all"); setShowExpired(true); }}
+                  >
+                    Clear Filters
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {paginatedVouchers.map((voucher) => {
+                  const org = organizations.find(o => o.id === voucher.organization_id);
+                  const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
+                  const canDelete = voucher.status !== 'used';
+                  
+                  return (
+                    <Card 
+                      key={voucher.id} 
+                      className={`border-2 cursor-pointer transition-shadow hover:shadow-md ${
+                        voucher.status === 'used' ? 'border-slate-200 bg-slate-50' : 
+                        isExpired ? 'border-red-200 bg-red-50' :
+                        'border-slate-200'
+                      }`}
+                      onClick={() => handleVoucherClick(voucher)}
+                      data-testid={`card-voucher-${voucher.id}`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2 flex-wrap">
+                              <Ticket className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                              <span className="text-xl font-bold text-slate-900">{voucher.code}</span>
+                              {getStatusBadge(voucher.status, voucher.expires_at)}
+                              <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                £{(voucher.value || 0).toFixed(2)}
+                              </Badge>
                             </div>
-                          )}
+                            
+                            <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                              <div className="flex items-center gap-1">
+                                <Building2 className="w-4 h-4" />
+                                <span>{org?.name || 'Unknown Organisation'}</span>
+                              </div>
+                              {voucher.expires_at && (
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="w-4 h-4" />
+                                  <span className={isExpired ? 'text-red-600' : ''}>
+                                    Expires: {format(new Date(voucher.expires_at), 'MMM d, yyyy')}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {voucher.description && (
+                              <p className="text-sm text-slate-500 mt-2">{voucher.description}</p>
+                            )}
+                            
+                            {voucher.used_at && (
+                              <p className="text-xs text-slate-400 mt-2">
+                                Used on: {format(new Date(voucher.used_at), 'MMM d, yyyy h:mm a')}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div className="flex gap-2 flex-shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); handleEdit(voucher); }}
+                              data-testid={`button-edit-voucher-${voucher.id}`}
+                            >
+                              <Pencil className="w-3 h-3 mr-1" />
+                              Edit
+                            </Button>
+                            {canDelete && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleDelete(voucher); }}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                data-testid={`button-delete-voucher-${voucher.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        
-                        {voucher.description && (
-                          <p className="text-sm text-slate-500 mt-2">{voucher.description}</p>
-                        )}
-                        
-                        {voucher.used_at && (
-                          <p className="text-xs text-slate-400 mt-2">
-                            Used on: {format(new Date(voucher.used_at), 'MMM d, yyyy h:mm a')}
-                          </p>
-                        )}
-                      </div>
-                      
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); handleEdit(voucher); }}
-                          data-testid={`button-edit-voucher-${voucher.id}`}
-                        >
-                          <Pencil className="w-3 h-3 mr-1" />
-                          Edit
-                        </Button>
-                        {canDelete && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => { e.stopPropagation(); handleDelete(voucher); }}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            data-testid={`button-delete-voucher-${voucher.id}`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200">
+                    <div className="text-sm text-slate-500">
+                      Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredVouchers.length)} of {filteredVouchers.length}
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200">
-                <div className="text-sm text-slate-500">
-                  Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredVouchers.length)} of {filteredVouchers.length}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    data-testid="button-prev-page"
-                  >
-                    <ChevronLeft className="w-4 h-4 mr-1" />
-                    Previous
-                  </Button>
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum;
-                      if (totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-                      return (
-                        <Button
-                          key={pageNum}
-                          variant={currentPage === pageNum ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setCurrentPage(pageNum)}
-                          className="w-9"
-                          data-testid={`button-page-${pageNum}`}
-                        >
-                          {pageNum}
-                        </Button>
-                      );
-                    })}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        data-testid="button-prev-page"
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setCurrentPage(pageNum)}
+                              className="w-9"
+                              data-testid={`button-page-${pageNum}`}
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        data-testid="button-next-page"
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    data-testid="button-next-page"
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4 ml-1" />
-                  </Button>
-                </div>
+                )}
               </div>
             )}
           </div>
-        )}
+
+          <div className="lg:col-span-1">
+            <Card className="border-slate-200 shadow-sm lg:sticky lg:top-8" data-testid="card-org-summary">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-slate-500" />
+                  Organisation Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {loadingVouchers ? (
+                  <div className="px-4 pb-4 text-center text-sm text-slate-500">
+                    Loading...
+                  </div>
+                ) : orgSummary.length === 0 ? (
+                  <div className="px-4 pb-4 text-center text-sm text-slate-500">
+                    No organisations to display
+                  </div>
+                ) : (
+                  <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
+                    {orgSummary.map((org) => (
+                      <div
+                        key={org.orgId}
+                        className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100"
+                        data-testid={`row-org-summary-${org.orgId}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-900 truncate">{org.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {org.activeCount} active {org.activeCount === 1 ? 'voucher' : 'vouchers'}
+                          </p>
+                        </div>
+                        <div className="flex-shrink-0 text-right">
+                          <p className="text-sm font-semibold text-slate-900">£{org.totalValue.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogContent className="max-w-lg">
