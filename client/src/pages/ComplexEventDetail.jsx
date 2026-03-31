@@ -1614,6 +1614,10 @@ export default function ComplexEventDetail() {
     return map;
   }, [filteredSessions]);
 
+  const visibleSpeakers = useMemo(() => {
+    return speakers.filter(s => speakerSessionsMap[s.id]?.length > 0);
+  }, [speakers, speakerSessionsMap]);
+
   useEffect(() => {
     if (event) {
       document.title = event.seo_title || event.title || 'Event';
@@ -1812,7 +1816,7 @@ export default function ComplexEventDetail() {
               </Card>
             )}
 
-            {speakers.length > 0 && (
+            {visibleSpeakers.length > 0 && (
               <Card className="border-slate-200">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1822,7 +1826,7 @@ export default function ComplexEventDetail() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {speakers.map(speaker => {
+                    {visibleSpeakers.map(speaker => {
                       const displayName = speaker.full_name || speaker.name || '?';
                       const speakerSessions = speakerSessionsMap[speaker.id] || [];
                       return (
