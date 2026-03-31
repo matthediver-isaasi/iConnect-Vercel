@@ -1029,7 +1029,7 @@ export default function EventsPage({
             ) : (
               <>
               {featuredEvents.length > 0 && (
-                <div className="mb-6 rounded-lg p-4" style={featuredBgStyle} data-testid="card-featured-events">
+                <div className="mb-6 rounded-lg p-4 -mx-[10px]" style={featuredBgStyle} data-testid="card-featured-events">
                   <div className="flex items-center gap-2 mb-4">
                     <Star className="h-5 w-5 text-amber-500" />
                     <h2 className="text-lg font-semibold">Featured Events</h2>
