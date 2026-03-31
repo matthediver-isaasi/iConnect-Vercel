@@ -42,11 +42,12 @@ import {
 const DEFAULT_TIMEZONE = "Europe/London";
 
 const isEventInPast = (event) => {
-  if (!event.start_date) return false;
+  const dateStr = event.end_date || event.start_date;
+  if (!dateStr) return false;
   try {
-    const eventDate = typeof event.start_date === 'string' 
-      ? parseISO(event.start_date) 
-      : new Date(event.start_date);
+    const eventDate = typeof dateStr === 'string' 
+      ? parseISO(dateStr) 
+      : new Date(dateStr);
     return eventDate < new Date();
   } catch {
     return false;
@@ -320,12 +321,12 @@ export default function EventsPage({
 
   // Helper to check if event is in the past (timezone-aware)
   const isEventPast = (event) => {
-    if (!event.start_date) return false;
+    const dateStr = event.end_date || event.start_date;
+    if (!dateStr) return false;
     try {
-      // Parse the date string properly - the date is stored in ISO format
-      const eventDate = typeof event.start_date === 'string' 
-        ? parseISO(event.start_date) 
-        : new Date(event.start_date);
+      const eventDate = typeof dateStr === 'string' 
+        ? parseISO(dateStr) 
+        : new Date(dateStr);
       const now = new Date();
       return eventDate < now;
     } catch {
