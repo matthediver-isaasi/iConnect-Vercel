@@ -301,10 +301,11 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
     enrichedSessions.forEach(s => {
       (s.track_names || []).forEach(n => usedNames.add(n));
     });
+    const seen = new Set();
     const ordered = tracks
       .map(t => t.name || "Untitled Track")
-      .filter(n => usedNames.has(n));
-    const orderedSet = new Set(ordered);
+      .filter(n => usedNames.has(n) && !seen.has(n) && seen.add(n));
+    const orderedSet = seen;
     const extras = Array.from(usedNames).filter(n => !orderedSet.has(n));
     return [...ordered, ...extras];
   }, [enrichedSessions, tracks]);

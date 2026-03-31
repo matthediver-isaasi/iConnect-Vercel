@@ -168,10 +168,11 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
     const allowed = Object.keys(trackColorMap).length > 0
       ? new Set(Object.keys(trackColorMap))
       : null;
+    const seen = new Set();
     const ordered = (eventTracks || [])
       .map(t => t.name)
-      .filter(n => n && trackSet.has(n) && (!allowed || allowed.has(n)));
-    const orderedSet = new Set(ordered);
+      .filter(n => n && trackSet.has(n) && (!allowed || allowed.has(n)) && !seen.has(n) && seen.add(n));
+    const orderedSet = seen;
     const extras = Array.from(trackSet).filter(n => !orderedSet.has(n) && (!allowed || allowed.has(n)));
     return [...ordered, ...extras];
   }, [sessions, trackColorMap, eventTracks]);
@@ -1507,10 +1508,11 @@ export default function ComplexEventDetail() {
       names.forEach(n => trackNames.add(n));
     });
 
+    const seenColors = new Set();
     const orderedTrackNames = eventTracks
       .map(t => t.name)
-      .filter(n => n && trackNames.has(n));
-    const orderedSet = new Set(orderedTrackNames);
+      .filter(n => n && trackNames.has(n) && !seenColors.has(n) && seenColors.add(n));
+    const orderedSet = seenColors;
     const extraNames = Array.from(trackNames).filter(n => !orderedSet.has(n));
     const sortedTrackNames = [...orderedTrackNames, ...extraNames];
 
