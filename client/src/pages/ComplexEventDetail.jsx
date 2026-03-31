@@ -1671,8 +1671,8 @@ export default function ComplexEventDetail() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 pb-8 w-full lg:flex-1 lg:min-h-0">
-        <div className="grid lg:grid-cols-3 gap-8 lg:h-full">
-          <div className="lg:col-span-2 space-y-6 lg:overflow-y-auto lg:pr-4 lg:pb-8">
+        <div className="grid lg:grid-cols-3 gap-8 lg:h-full lg:grid-rows-[1fr] lg:min-h-0">
+          <div className="lg:col-span-2 space-y-6 lg:overflow-y-auto lg:min-h-0 lg:pr-4 lg:pb-8">
             {event.image_url && (
               <div className="rounded-xl overflow-hidden shadow-lg">
                 <img
@@ -1866,7 +1866,7 @@ export default function ComplexEventDetail() {
             )}
           </div>
 
-          <div className="space-y-6 lg:overflow-y-auto lg:pb-8">
+          <div className="space-y-6 lg:overflow-y-auto lg:min-h-0 lg:pb-8">
             <BookingSection
               event={event}
               sessions={sessions}
