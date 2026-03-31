@@ -2956,6 +2956,7 @@ export default function CreateComplexEvent() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
