@@ -16,8 +16,12 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
-  Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon
+  Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
+  Layers, Building2
 } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import DOMPurify from "dompurify";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -68,6 +72,304 @@ const TRACK_COLOURS = [
   "#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6",
   "#EC4899", "#06B6D4", "#F97316", "#6366F1", "#14B8A6",
 ];
+
+const DEFAULT_TIMEZONE = "Europe/London";
+
+function buildTrackColorStyles(hex) {
+  if (!hex) return null;
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return {
+    accent: hex,
+    bgStyle: { backgroundColor: `rgba(${r},${g},${b},0.12)` },
+    lightStyle: { backgroundColor: `rgba(${r},${g},${b},0.06)` },
+    borderStyle: { borderColor: `rgba(${r},${g},${b},0.35)` },
+    textStyle: { color: hex },
+    dotStyle: { backgroundColor: hex },
+  };
+}
+
+const scheduleFormatTime = (dateStr, timezone = DEFAULT_TIMEZONE) => {
+  if (!dateStr) return "";
+  try {
+    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
+    return formatInTimeZone(date, timezone, "h:mm a");
+  } catch {
+    return format(new Date(dateStr), "h:mm a");
+  }
+};
+
+const scheduleFormatDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "EEEE, MMMM d, yyyy") => {
+  if (!dateStr) return "";
+  try {
+    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
+    return formatInTimeZone(date, timezone, formatStr);
+  } catch {
+    return format(new Date(dateStr), formatStr);
+  }
+};
+
+function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onEdit, onDelete }) {
+  const hasCustomColors = colors?.lightStyle;
+  const fallbackClass = "bg-slate-50 border-slate-300";
+
+  const sessionSpeakers = useMemo(() => {
+    if (session.speaker_ids?.length) {
+      return session.speaker_ids.map(id => speakerMap[id]).filter(Boolean);
+    }
+    return [];
+  }, [session.speaker_ids, speakerMap]);
+
+  return (
+    <div
+      className={`p-3 rounded-md border space-y-1 relative group ${hasCustomColors ? '' : fallbackClass}`}
+      style={hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : undefined}
+      data-testid={`session-card-${session._localId}`}
+    >
+      <div className="absolute top-1 right-1 flex gap-0.5 invisible group-hover:visible">
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit?.(session); }} data-testid={`button-edit-session-${session._localId}`}>
+          <Pencil className="w-3.5 h-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onDelete?.(session._localId); }} data-testid={`button-delete-session-${session._localId}`}>
+          <Trash2 className="w-3.5 h-3.5 text-red-500" />
+        </Button>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="font-medium text-sm text-slate-900">{session.title || "Untitled Session"}</span>
+        {isMultiTrack && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Layers className="h-2.5 w-2.5 mr-0.5" />Multi-Track
+          </Badge>
+        )}
+      </div>
+      {session.start_time && (
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <Clock className="w-3 h-3" />
+          <span>
+            {scheduleFormatTime(session.start_time, timezone)}
+            {session.end_time && ` - ${scheduleFormatTime(session.end_time, timezone)}`}
+          </span>
+          {session.duration_minutes && (
+            <span className="text-slate-400">({session.duration_minutes} min)</span>
+          )}
+        </div>
+      )}
+      {session.description && (
+        <p className="text-xs text-slate-500 line-clamp-2" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(session.description) }} />
+      )}
+      {sessionSpeakers.length > 0 ? (
+        <div className="flex items-center gap-1 text-xs text-slate-600 pt-0.5">
+          <Mic className="w-3 h-3" />
+          <span>{sessionSpeakers.map(s => s.full_name || s.name).filter(Boolean).join(", ")}</span>
+        </div>
+      ) : (session.speaker_names?.length > 0 && (
+        <div className="flex items-center gap-1 text-xs text-slate-600 pt-0.5">
+          <Mic className="w-3 h-3" />
+          <span>{session.speaker_names.join(", ")}</span>
+        </div>
+      ))}
+      {session.location && (
+        <div className="flex items-center gap-1 text-xs text-slate-500">
+          <MapPin className="w-3 h-3" />
+          <span>{session.location}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-1 flex-wrap pt-1">
+        {session.is_online && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Monitor className="h-2.5 w-2.5 mr-0.5" />Virtual
+          </Badge>
+        )}
+        {session.delivery_mode === 'hybrid' && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Video className="h-2.5 w-2.5 mr-0.5" />Hybrid
+          </Badge>
+        )}
+        {session.delivery_mode === 'in_person' && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Building2 className="h-2.5 w-2.5 mr-0.5" />In-Person
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete }) {
+  const trackColorMap = useMemo(() => {
+    const map = {};
+    tracks.forEach(track => {
+      const name = track.name || "Untitled Track";
+      map[name] = buildTrackColorStyles(track.colour) || buildTrackColorStyles(TRACK_COLOURS[0]);
+    });
+    return map;
+  }, [tracks]);
+
+  const enrichedSessions = useMemo(() => {
+    return sessions.map(session => {
+      const trackNames = (session.track_ids || []).map(tid => {
+        const t = tracks.find(tr => (tr.id || tr._localId) === tid);
+        return t ? (t.name || "Untitled Track") : null;
+      }).filter(Boolean);
+      return { ...session, track_names: trackNames };
+    });
+  }, [sessions, tracks]);
+
+  const sessionsWithTime = enrichedSessions.filter(s => s.start_time);
+  const sessionsWithoutTime = enrichedSessions.filter(s => !s.start_time);
+
+  const sessionsByDay = useMemo(() => {
+    const days = {};
+    sessionsWithTime.forEach(session => {
+      const dateKey = scheduleFormatDate(session.start_time, timezone, "yyyy-MM-dd");
+      if (!days[dateKey]) {
+        days[dateKey] = { date: session.start_time, sessions: [] };
+      }
+      days[dateKey].sessions.push(session);
+    });
+    return Object.values(days).sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [sessionsWithTime, timezone]);
+
+  const allTrackNames = useMemo(() => {
+    const trackSet = new Set();
+    enrichedSessions.forEach(s => {
+      (s.track_names || []).forEach(n => trackSet.add(n));
+    });
+    return Array.from(trackSet).sort();
+  }, [enrichedSessions]);
+
+  return (
+    <div className="space-y-6">
+      {sessionsByDay.map((day, dayIndex) => {
+        const dayTracks = new Set();
+        day.sessions.forEach(s => {
+          (s.track_names || []).forEach(n => dayTracks.add(n));
+        });
+        const dayTrackNames = allTrackNames.filter(t => dayTracks.has(t));
+        const hasUntracked = day.sessions.some(s => (s.track_names || []).length === 0);
+
+        const timeSlots = [];
+        const slotMap = {};
+        day.sessions
+          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+          .forEach(session => {
+            const timeKey = scheduleFormatTime(session.start_time, timezone);
+            if (!slotMap[timeKey]) {
+              slotMap[timeKey] = { time: timeKey, startTime: session.start_time, sessions: [] };
+              timeSlots.push(slotMap[timeKey]);
+            }
+            slotMap[timeKey].sessions.push(session);
+          });
+
+        return (
+          <div key={dayIndex} data-testid={`admin-schedule-day-${dayIndex}`}>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-indigo-600" />
+              {scheduleFormatDate(day.date, timezone)}
+            </h3>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[500px]">
+                {dayTrackNames.length > 0 && (
+                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: `80px repeat(${dayTrackNames.length + (hasUntracked ? 1 : 0)}, 1fr)` }}>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2">Time</div>
+                    {dayTrackNames.map(trackName => {
+                      const colors = trackColorMap[trackName];
+                      const hasCustom = colors?.bgStyle;
+                      return (
+                        <div
+                          key={trackName}
+                          className={`text-xs font-semibold p-2 rounded-md text-center ${hasCustom ? '' : 'bg-slate-100 text-slate-700'}`}
+                          style={hasCustom ? { ...colors.bgStyle, ...colors.textStyle } : undefined}
+                          data-testid={`admin-track-header-${trackName}`}
+                        >
+                          {trackName}
+                        </div>
+                      );
+                    })}
+                    {hasUntracked && (
+                      <div className="text-xs font-semibold p-2 rounded-md text-center bg-slate-100 text-slate-700">
+                        General
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {timeSlots.map((slot, slotIndex) => {
+                  if (dayTrackNames.length === 0) {
+                    return (
+                      <div key={slotIndex} className="mb-2">
+                        {slot.sessions.map(session => (
+                          <AdminSessionCard key={session._localId} session={session} timezone={timezone} colors={null} speakerMap={speakerMap} onEdit={onEdit} onDelete={onDelete} />
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={slotIndex}
+                      className="grid gap-1 mb-1"
+                      style={{ gridTemplateColumns: `80px repeat(${dayTrackNames.length + (hasUntracked ? 1 : 0)}, 1fr)` }}
+                    >
+                      <div className="text-xs font-medium text-slate-600 p-2 flex items-start pt-3">
+                        {slot.time}
+                      </div>
+                      {dayTrackNames.map(trackName => {
+                        const trackSessions = slot.sessions.filter(s => (s.track_names || []).includes(trackName));
+                        const colors = trackColorMap[trackName];
+                        if (trackSessions.length === 0) {
+                          return <div key={trackName} className="p-1" />;
+                        }
+                        return (
+                          <div key={trackName} className="space-y-1">
+                            {trackSessions.map(trackSession => {
+                              const isMultiTrack = (trackSession.track_names || []).length > 1;
+                              return (
+                                <AdminSessionCard key={`${trackSession._localId}-${trackName}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onEdit={onEdit} onDelete={onDelete} />
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                      {hasUntracked && (() => {
+                        const untrackedSessions = slot.sessions.filter(s => (s.track_names || []).length === 0);
+                        if (untrackedSessions.length === 0) return <div key="untracked-empty" className="p-1" />;
+                        return (
+                          <div key="untracked" className="space-y-1">
+                            {untrackedSessions.map(s => (
+                              <AdminSessionCard key={s._localId} session={s} timezone={timezone} colors={null} speakerMap={speakerMap} onEdit={onEdit} onDelete={onDelete} />
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {sessionsWithoutTime.length > 0 && (
+        <div data-testid="admin-schedule-unscheduled">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            Unscheduled Sessions
+          </h3>
+          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            {sessionsWithoutTime.map(session => (
+              <AdminSessionCard key={session._localId} session={session} timezone={timezone} colors={null} speakerMap={speakerMap} onEdit={onEdit} onDelete={onDelete} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function generateId() {
   return `tmp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -1840,125 +2142,14 @@ export default function CreateComplexEvent() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {sessions.map((session, sessionIdx) => {
-                    const sessionTrackNames = (session.track_ids || []).map(tid => {
-                      const t = tracks.find(tr => (tr.id || tr._localId) === tid);
-                      return t ? { name: t.name || "Untitled Track", colour: t.colour } : null;
-                    }).filter(Boolean);
-
-                    return (
-                      <div
-                        key={session._localId}
-                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100"
-                        data-testid={`session-item-${session._localId}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-sm text-slate-800 truncate">
-                              {session.title || "Untitled Session"}
-                            </span>
-                            {session.is_online && (
-                              <Badge variant="outline" className="text-xs">
-                                <Monitor className="w-3 h-3 mr-1" />
-                                Virtual
-                              </Badge>
-                            )}
-                            {session.is_online && session.zoom_type && (
-                              <Badge variant="outline" className="text-xs">
-                                <Video className="w-3 h-3 mr-1" />
-                                {session.zoom_type === 'webinar' ? 'Webinar' : 'Meeting'}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
-                            {session.start_time && (
-                              <span className="flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {new Date(session.start_time).toLocaleString(undefined, {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </span>
-                            )}
-                            {session.location && (
-                              <span className="flex items-center gap-1">
-                                <MapPin className="w-3 h-3" />
-                                {session.location}
-                              </span>
-                            )}
-                            {(() => {
-                              const sessionSpeakerNames = (session.speaker_ids || [])
-                                .map(id => speakers.find(s => s.id === id)?.full_name)
-                                .filter(Boolean);
-                              const fallbackNames = sessionSpeakerNames.length > 0
-                                ? sessionSpeakerNames
-                                : session.speaker_names || [];
-                              return fallbackNames.length > 0 ? (
-                                <span className="flex items-center gap-1">
-                                  <Mic className="w-3 h-3" />
-                                  {fallbackNames.join(", ")}
-                                </span>
-                              ) : null;
-                            })()}
-                          </div>
-                          {sessionTrackNames.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                              {sessionTrackNames.map((t, i) => (
-                                <Badge key={i} variant="secondary" className="text-xs gap-1">
-                                  <div
-                                    className="w-2.5 h-2.5 rounded-full"
-                                    style={{ backgroundColor: t.colour || "#94a3b8" }}
-                                  />
-                                  {t.name}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          {sessionTrackNames.length === 0 && (
-                            <p className="text-xs text-amber-600 mt-1">No tracks assigned</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={sessionIdx === 0}
-                            onClick={() => moveSession(session._localId, -1)}
-                          >
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={sessionIdx === sessions.length - 1}
-                            onClick={() => moveSession(session._localId, 1)}
-                          >
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openSessionDialog(session)}
-                            data-testid={`button-edit-session-${session._localId}`}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeSession(session._localId)}
-                            data-testid={`button-remove-session-${session._localId}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <AdminScheduleGrid
+                  sessions={sessions}
+                  tracks={tracks}
+                  timezone={formData.timezone || DEFAULT_TIMEZONE}
+                  speakerMap={speakers.reduce((map, s) => { map[s.id] = s; return map; }, {})}
+                  onEdit={(session) => openSessionDialog(session)}
+                  onDelete={(localId) => removeSession(localId)}
+                />
               )}
             </CardContent>
           </Card>
