@@ -36,7 +36,8 @@ import {
   parseFilterTagKey, 
   buildFilterTagKeyMap, 
   normalizeFilterTags,
-  getFilterTagLabels 
+  getFilterTagLabels,
+  parseEventTypes
 } from "@/lib/utils";
 
 const DEFAULT_TIMEZONE = "Europe/London";
@@ -402,7 +403,7 @@ export default function EventsPage({
     // Handle event type filtering
     let matchesEventType = true;
     if (selectedEventType !== "all") {
-      matchesEventType = event.event_type === selectedEventType;
+      matchesEventType = parseEventTypes(event.event_type).includes(selectedEventType);
     }
     
     // Handle delivery mode filtering (online/in-person)
@@ -502,7 +503,7 @@ export default function EventsPage({
     // Use same event type matching logic
     let matchesEventType = true;
     if (selectedEventType !== "all") {
-      matchesEventType = event.event_type === selectedEventType;
+      matchesEventType = parseEventTypes(event.event_type).includes(selectedEventType);
     }
     
     // Use same delivery mode matching logic
@@ -540,7 +541,7 @@ export default function EventsPage({
     
     let matchesEventType = true;
     if (selectedEventType !== "all") {
-      matchesEventType = event.event_type === selectedEventType;
+      matchesEventType = parseEventTypes(event.event_type).includes(selectedEventType);
     }
     
     let matchesDeliveryMode = true;
@@ -1108,7 +1109,8 @@ export default function EventsPage({
                           ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')
                           : null;
                         const showPricesOnCard = showPricesSetting?.setting_value === 'true';
-                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || isRegistrationClosed;
+                        const eventParsedTypes = parseEventTypes(event.event_type);
+                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed;
                         const descriptionText = event.summary || stripHtmlTags(event.description);
 
                         return (
@@ -1144,14 +1146,14 @@ export default function EventsPage({
                                   {isEventPast && (
                                     <Badge variant="secondary" className="bg-slate-200/95 text-slate-600 border-slate-300 shadow-sm">Past Event</Badge>
                                   )}
-                                  {event.event_type && (() => {
-                                    const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+                                  {eventParsedTypes.map((typeName, etIdx) => {
+                                    const eventTypeStyle = getEventTypeStyle(typeName, systemSettings);
                                     return (
-                                      <Badge variant="secondary" className="border-0 shadow-sm" style={{ backgroundColor: `${eventTypeStyle.bgColor}f2`, color: eventTypeStyle.textColor }}>
-                                        {event.event_type}
+                                      <Badge key={etIdx} variant="secondary" className="border-0 shadow-sm" style={{ backgroundColor: `${eventTypeStyle.bgColor}f2`, color: eventTypeStyle.textColor }}>
+                                        {typeName}
                                       </Badge>
                                     );
-                                  })()}
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -1345,7 +1347,8 @@ export default function EventsPage({
                       ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')
                       : null;
                     const showPricesOnCard = showPricesSetting?.setting_value === 'true';
-                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || isRegistrationClosed;
+                    const eventParsedTypes = parseEventTypes(event.event_type);
+                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed;
                     const descriptionText = event.summary || stripHtmlTags(event.description);
 
                     return (
@@ -1390,10 +1393,11 @@ export default function EventsPage({
                                   Past Event
                                 </Badge>
                               )}
-                              {event.event_type && (() => {
-                                const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+                              {eventParsedTypes.map((typeName, etIdx) => {
+                                const eventTypeStyle = getEventTypeStyle(typeName, systemSettings);
                                 return (
                                   <Badge 
+                                    key={etIdx}
                                     variant="secondary" 
                                     className="border-0 shadow-sm"
                                     style={{ 
@@ -1401,10 +1405,10 @@ export default function EventsPage({
                                       color: eventTypeStyle.textColor 
                                     }}
                                   >
-                                    {event.event_type}
+                                    {typeName}
                                   </Badge>
                                 );
-                              })()}
+                              })}
                             </div>
                           )}
                         </div>

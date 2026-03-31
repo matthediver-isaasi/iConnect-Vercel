@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { parseEventTypes } from "@/lib/utils";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
@@ -1700,13 +1701,13 @@ export default function ComplexEventDetail() {
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
-                {(event.program_tag || (event.filter_tags && event.filter_tags.length > 0) || event.event_type) && (
+                {(event.program_tag || (event.filter_tags && event.filter_tags.length > 0) || parseEventTypes(event.event_type).length > 0) && (
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {event.event_type && (
-                      <Badge className="bg-purple-100 text-purple-700 border-purple-200">
-                        {event.event_type}
+                    {parseEventTypes(event.event_type).map((typeName, etIdx) => (
+                      <Badge key={etIdx} className="bg-purple-100 text-purple-700 border-purple-200">
+                        {typeName}
                       </Badge>
-                    )}
+                    ))}
                     {event.program_tag && (
                       <Badge className="bg-purple-100 text-purple-700 border-purple-200">
                         {event.program_tag}

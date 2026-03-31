@@ -23,7 +23,7 @@ import { format, parseISO } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
 import { useEventTypes } from "@/hooks/useEventTypes";
-import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
+import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
@@ -503,7 +503,7 @@ export default function CreateComplexEvent() {
     timezone: "Europe/London",
     available_seats: "",
     internal_reference: "",
-    event_type: "",
+    event_type: [],
     registration_closes_at: "",
     program_tag: "",
   });
@@ -758,7 +758,7 @@ export default function CreateComplexEvent() {
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
-        event_type: existingEvent.event_type || "",
+        event_type: parseEventTypes(existingEvent.event_type),
         registration_closes_at: existingEvent.registration_closes_at ? existingEvent.registration_closes_at.slice(0, 16) : "",
         program_tag: existingEvent.program_tag || "",
       });
@@ -1188,7 +1188,7 @@ export default function CreateComplexEvent() {
         show_seat_count: showSeatCount,
         show_ticket_availability: showTicketAvailability,
         internal_reference: formData.internal_reference || null,
-        event_type: formData.event_type || null,
+        event_type: serializeEventTypes(formData.event_type),
         registration_closes_at: formData.registration_closes_at || null,
         filter_tags: selectedFilterTags.length > 0
           ? selectedFilterTags.map(key => parseFilterTagKey(key).label)
@@ -1822,25 +1822,56 @@ export default function CreateComplexEvent() {
                   {eventTypes.length > 0 && (
                     <div className="space-y-2">
                       <Label htmlFor="event_type">Event Type</Label>
-                      <Select
-                        value={formData.event_type || "_none"}
-                        onValueChange={(val) => updateField("event_type", val === "_none" ? "" : val)}
-                      >
-                        <SelectTrigger id="event_type" data-testid="select-event-type">
-                          <SelectValue placeholder="Select event type..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">None</SelectItem>
-                          {eventTypes.map((type, idx) => {
-                            const typeName = typeof type === 'string' ? type : type.name;
-                            return (
-                              <SelectItem key={idx} value={typeName}>{typeName}</SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-between font-normal" data-testid="select-event-type">
+                            {formData.event_type?.length > 0
+                              ? formData.event_type.join(', ')
+                              : "Select event types..."}
+                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full min-w-[260px] p-2" align="start">
+                          <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
+                            {eventTypes.map((type, idx) => {
+                              const typeName = typeof type === 'string' ? type : type.name;
+                              const isSelected = formData.event_type?.includes(typeName);
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover-elevate ${isSelected ? 'bg-accent' : ''}`}
+                                  data-testid={`option-event-type-${idx}`}
+                                  onClick={() => {
+                                    const current = formData.event_type || [];
+                                    const updated = isSelected
+                                      ? current.filter(t => t !== typeName)
+                                      : [...current, typeName];
+                                    updateField('event_type', updated);
+                                  }}
+                                >
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-input'}`}>
+                                    {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
+                                  </div>
+                                  {typeName}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {formData.event_type?.length > 0 && (
+                            <button
+                              type="button"
+                              className="w-full mt-2 pt-2 border-t text-xs text-muted-foreground hover:text-foreground text-center"
+                              onClick={() => updateField('event_type', [])}
+                              data-testid="button-clear-event-types"
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </PopoverContent>
+                      </Popover>
                       <p className="text-xs text-slate-500">
-                        Categorize this event by type (e.g., Workshop, Training).
+                        Categorize this event by type (e.g., Workshop, Training). You can select multiple types.
                       </p>
                     </div>
                   )}

@@ -8,6 +8,7 @@ import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { publicClient } from "@/api/publicClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
 const DEFAULT_TIMEZONE = "Europe/London";
@@ -211,11 +212,11 @@ export default function PublicEventsPage() {
                               {event.program_tag}
                             </Badge>
                           )}
-                          {isComplex && event.event_type && (
-                            <Badge variant="secondary" className="shrink-0 text-xs">
-                              {event.event_type}
+                          {isComplex && parseEventTypes(event.event_type).map((typeName, etIdx) => (
+                            <Badge key={etIdx} variant="secondary" className="shrink-0 text-xs">
+                              {typeName}
                             </Badge>
-                          )}
+                          ))}
                         </div>
                         {(event.description || event.summary) && (
                           <p className="text-sm text-slate-600 line-clamp-2">{event.description || event.summary}</p>
@@ -320,11 +321,11 @@ export default function PublicEventsPage() {
                           {event.program_tag}
                         </Badge>
                       )}
-                      {isComplex && event.event_type && (
-                        <Badge variant="secondary" className="shrink-0 text-xs">
-                          {event.event_type}
+                      {isComplex && parseEventTypes(event.event_type).map((typeName, etIdx) => (
+                        <Badge key={etIdx} variant="secondary" className="shrink-0 text-xs">
+                          {typeName}
                         </Badge>
-                      )}
+                      ))}
                     </div>
                     {(event.description || event.summary) && (
                       <p className="text-sm text-slate-600 line-clamp-2">{event.description || event.summary}</p>

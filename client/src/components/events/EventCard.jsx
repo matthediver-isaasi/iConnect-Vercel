@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
+import { parseEventTypes } from "@/lib/utils";
 import { formatEventTime, formatEventDate, is24HourFormat } from "@/utils/timeFormat";
 import { base44 } from "@/api/base44Client";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -484,7 +485,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const isDeleteButtonDisabled = deleteConfirmText !== "DELETE EVENT" || deleteEventMutation.isPending;
 
   // Check if any badges should be shown
-  const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || event.program_tag;
+  const parsedEventTypes = parseEventTypes(event.event_type);
+  const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || parsedEventTypes.length > 0 || event.program_tag;
 
   return (
     <>
@@ -527,21 +529,22 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   Past Event
                 </Badge>
               )}
-              {event.event_type && (() => {
-                const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+              {parsedEventTypes.map((typeName, etIdx) => {
+                const eventTypeStyle = getEventTypeStyle(typeName, systemSettings);
                 return (
                   <Badge 
+                    key={etIdx}
                     variant="secondary" 
                     className="border-0 shadow-sm"
                     style={{ 
-                      backgroundColor: `${eventTypeStyle.bgColor}f2`, // add slight transparency
+                      backgroundColor: `${eventTypeStyle.bgColor}f2`,
                       color: eventTypeStyle.textColor 
                     }}
                   >
-                    {event.event_type}
+                    {typeName}
                   </Badge>
                 );
-              })()}
+              })}
               {event.program_tag && (
                 <Badge variant="secondary" className="bg-purple-100/95 text-purple-700 border-purple-200 shadow-sm">
                   {event.program_tag}

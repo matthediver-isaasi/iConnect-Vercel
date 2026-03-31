@@ -106,4 +106,26 @@ export function getFilterTagLabels(filterTagKeys, keyMap) {
     const parsed = parseFilterTagKey(key);
     return { key, label: parsed.label };
   });
+}
+
+export function parseEventTypes(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      } catch (e) {}
+    }
+    return trimmed ? [trimmed] : [];
+  }
+  return [];
+}
+
+export function serializeEventTypes(arr) {
+  if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
+  if (arr.length === 1) return arr[0];
+  return JSON.stringify(arr);
 } 

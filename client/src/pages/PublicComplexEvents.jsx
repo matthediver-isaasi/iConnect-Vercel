@@ -9,6 +9,7 @@ import { format, parseISO, isPast } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { publicClient } from "@/api/publicClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
+import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
 const DEFAULT_TIMEZONE = "Europe/London";
@@ -46,7 +47,7 @@ export default function PublicComplexEvents() {
   const categories = useMemo(() => {
     const types = new Set();
     allEvents.forEach(e => {
-      if (e.event_type) types.add(e.event_type);
+      parseEventTypes(e.event_type).forEach(t => types.add(t));
     });
     return Array.from(types).sort();
   }, [allEvents]);
@@ -65,7 +66,7 @@ export default function PublicComplexEvents() {
     }
 
     if (categoryFilter !== "all") {
-      events = events.filter(e => e.event_type === categoryFilter);
+      events = events.filter(e => parseEventTypes(e.event_type).includes(categoryFilter));
     }
 
     if (searchQuery.trim()) {
@@ -185,11 +186,11 @@ export default function PublicComplexEvents() {
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2 flex-wrap">
                       <CardTitle className="text-lg">{event.title}</CardTitle>
-                      {event.event_type && (
-                        <Badge variant="secondary" className="shrink-0 text-xs">
-                          {event.event_type}
+                      {parseEventTypes(event.event_type).map((typeName, etIdx) => (
+                        <Badge key={etIdx} variant="secondary" className="shrink-0 text-xs">
+                          {typeName}
                         </Badge>
-                      )}
+                      ))}
                     </div>
                     {event.summary && (
                       <p className="text-sm text-slate-600 line-clamp-2">{event.summary}</p>
