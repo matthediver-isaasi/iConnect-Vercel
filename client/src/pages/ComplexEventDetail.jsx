@@ -165,13 +165,16 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
       const names = s.track_names || (s.track_name ? [s.track_name] : []);
       names.forEach(n => trackSet.add(n));
     });
-    const visibleTrackNames = Object.keys(trackColorMap);
-    if (visibleTrackNames.length > 0) {
-      const allowed = new Set(visibleTrackNames);
-      return Array.from(trackSet).filter(t => allowed.has(t)).sort();
-    }
-    return Array.from(trackSet).sort();
-  }, [sessions, trackColorMap]);
+    const allowed = Object.keys(trackColorMap).length > 0
+      ? new Set(Object.keys(trackColorMap))
+      : null;
+    const ordered = (eventTracks || [])
+      .map(t => t.name)
+      .filter(n => n && trackSet.has(n) && (!allowed || allowed.has(n)));
+    const orderedSet = new Set(ordered);
+    const extras = Array.from(trackSet).filter(n => !orderedSet.has(n) && (!allowed || allowed.has(n)));
+    return [...ordered, ...extras];
+  }, [sessions, trackColorMap, eventTracks]);
 
   const hasAnyUntracked = useMemo(() => {
     return sessions.some(s => {
@@ -1504,8 +1507,15 @@ export default function ComplexEventDetail() {
       names.forEach(n => trackNames.add(n));
     });
 
+    const orderedTrackNames = eventTracks
+      .map(t => t.name)
+      .filter(n => n && trackNames.has(n));
+    const orderedSet = new Set(orderedTrackNames);
+    const extraNames = Array.from(trackNames).filter(n => !orderedSet.has(n));
+    const sortedTrackNames = [...orderedTrackNames, ...extraNames];
+
     let fallbackIdx = 0;
-    Array.from(trackNames).sort().forEach(trackName => {
+    sortedTrackNames.forEach(trackName => {
       const dbTrack = tracksByName[trackName];
       const sessionWithColour = sessions.find(s => s.track_name === trackName && s.track_colour);
       const hex = dbTrack?.colour || sessionWithColour?.track_colour;

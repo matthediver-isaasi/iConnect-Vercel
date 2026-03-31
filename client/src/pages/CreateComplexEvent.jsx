@@ -297,12 +297,17 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
   }, [sessionsWithTime, timezone]);
 
   const allTrackNames = useMemo(() => {
-    const trackSet = new Set();
+    const usedNames = new Set();
     enrichedSessions.forEach(s => {
-      (s.track_names || []).forEach(n => trackSet.add(n));
+      (s.track_names || []).forEach(n => usedNames.add(n));
     });
-    return Array.from(trackSet).sort();
-  }, [enrichedSessions]);
+    const ordered = tracks
+      .map(t => t.name || "Untitled Track")
+      .filter(n => usedNames.has(n));
+    const orderedSet = new Set(ordered);
+    const extras = Array.from(usedNames).filter(n => !orderedSet.has(n));
+    return [...ordered, ...extras];
+  }, [enrichedSessions, tracks]);
 
   const hasAnyUntracked = useMemo(() => {
     return enrichedSessions.some(s => (s.track_names || []).length === 0);
