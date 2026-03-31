@@ -42,6 +42,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'job_types',
   'job_hours',
   'show_event_card_prices',
+  'featured_events_background',
 ];
 
 export default async function handler(req, res) {
