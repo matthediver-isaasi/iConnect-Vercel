@@ -14,10 +14,13 @@ import {
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
   ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
-  RefreshCw
+  RefreshCw, Monitor, Smartphone, Reply, Forward, Archive, MoreHorizontal, Star, Paperclip
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
+import { defaultEmailDesign } from '@/components/email-builder/types';
+import DOMPurify from 'dompurify';
 
 export default function EmailCampaigns() {
   const navigate = useNavigate();
@@ -55,6 +58,11 @@ export default function EmailCampaigns() {
   const [expandedRecipients, setExpandedRecipients] = useState(new Set());
   const [statsLinkFilter, setStatsLinkFilter] = useState(null);
   const [syncingStats, setSyncingStats] = useState(false);
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreviewData, setEmailPreviewData] = useState(null);
+  const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
+  const [emailPreviewMode, setEmailPreviewMode] = useState('desktop');
+  const [emailPreviewFooter, setEmailPreviewFooter] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -386,6 +394,52 @@ export default function EmailCampaigns() {
       toast.error(error.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleEmailPreview = async (campaign) => {
+    setShowEmailPreview(true);
+    setEmailPreviewLoading(true);
+    setEmailPreviewData(null);
+    setEmailPreviewFooter(null);
+    setEmailPreviewMode('desktop');
+    try {
+      const [campaignRes, footerRes] = await Promise.all([
+        fetch(`/api/email-campaigns/${campaign.id}`, { credentials: 'include' }),
+        fetch('/api/email-campaigns/preview-footer', { credentials: 'include' })
+      ]);
+      if (!campaignRes.ok) throw new Error('Failed to fetch campaign');
+      const campaignData = await campaignRes.json();
+      let parsedDesign = campaignData.design_json;
+      if (typeof parsedDesign === 'string') {
+        try {
+          parsedDesign = JSON.parse(parsedDesign);
+        } catch (e) {
+          parsedDesign = null;
+        }
+      }
+      const hasDesign = parsedDesign && typeof parsedDesign === 'object' &&
+        (parsedDesign.type === 'custom-email-builder' || Array.isArray(parsedDesign.blocks));
+      if (hasDesign) {
+        parsedDesign = {
+          ...parsedDesign,
+          globalStyles: {
+            ...defaultEmailDesign.globalStyles,
+            ...(parsedDesign.globalStyles || {}),
+          },
+        };
+      }
+      campaignData.design_json = hasDesign ? parsedDesign : null;
+      setEmailPreviewData(campaignData);
+      if (footerRes.ok) {
+        const footerData = await footerRes.json();
+        setEmailPreviewFooter(footerData);
+      }
+    } catch (error) {
+      toast.error('Failed to load email preview');
+      setShowEmailPreview(false);
+    } finally {
+      setEmailPreviewLoading(false);
     }
   };
 
@@ -910,6 +964,17 @@ export default function EmailCampaigns() {
                                 ) : (
                                   <Square className="w-4 h-4" />
                                 )}
+                              </Button>
+                            )}
+                            {campaign.status === 'sent' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEmailPreview(campaign)}
+                                title="Preview Email"
+                                data-testid={`button-preview-email-${campaign.id}`}
+                              >
+                                <Eye className="w-4 h-4" />
                               </Button>
                             )}
                             {campaign.status === 'sent' && (
@@ -1680,6 +1745,124 @@ export default function EmailCampaigns() {
               Send Test
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEmailPreview} onOpenChange={setShowEmailPreview}>
+        <DialogContent className="max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh] p-0 gap-0 flex flex-col">
+          <DialogHeader className="flex flex-row items-center justify-between px-4 py-3 border-b bg-background flex-shrink-0 space-y-0">
+            <DialogTitle className="text-sm font-semibold" data-testid="text-sent-preview-title">Email Preview</DialogTitle>
+            <DialogDescription className="sr-only">Preview how the sent email appeared to recipients</DialogDescription>
+            <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+              <Button
+                variant={emailPreviewMode === 'desktop' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setEmailPreviewMode('desktop')}
+                data-testid="button-sent-preview-desktop"
+              >
+                <Monitor className="w-4 h-4 mr-1" />
+                Desktop
+              </Button>
+              <Button
+                variant={emailPreviewMode === 'mobile' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setEmailPreviewMode('mobile')}
+                data-testid="button-sent-preview-mobile"
+              >
+                <Smartphone className="w-4 h-4 mr-1" />
+                Mobile
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-muted/30 flex justify-center p-6" data-testid="sent-preview-container">
+            {emailPreviewLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" data-testid="loader-email-preview" />
+              </div>
+            ) : emailPreviewData ? (
+              <div
+                className="bg-white dark:bg-zinc-900 rounded-md shadow-md overflow-hidden transition-all duration-300 h-fit border border-border"
+                style={{ width: emailPreviewMode === 'mobile' ? '375px' : '100%', maxWidth: '800px' }}
+              >
+                <div className="border-b border-border bg-muted/40 px-4 py-2 flex items-center justify-between gap-2 flex-wrap" data-testid="sent-preview-email-toolbar">
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <Archive className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <Reply className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <Forward className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <Star className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1}>
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-b border-border px-4 py-3 space-y-1.5 bg-background" data-testid="sent-preview-email-headers">
+                  <div className="text-base font-semibold text-foreground" data-testid="text-sent-preview-subject">
+                    {emailPreviewData.subject || 'No subject'}
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                      <Mail className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-foreground" data-testid="text-sent-preview-from-name">
+                          {emailPreviewData.from_name || 'Sender Name'}
+                        </span>
+                        <span className="text-xs text-muted-foreground" data-testid="text-sent-preview-from-email">
+                          &lt;{emailPreviewData.from_email || 'sender@example.com'}&gt;
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        to <span className="font-medium">recipient@example.com</span>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground" data-testid="text-sent-preview-date">
+                        {emailPreviewData.sent_at
+                          ? new Date(emailPreviewData.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                          : 'Unknown date'}
+                      </span>
+                      <Paperclip className="w-3.5 h-3.5 text-muted-foreground opacity-0" />
+                    </div>
+                  </div>
+                </div>
+
+                <div data-testid="sent-preview-email-body" style={{ backgroundColor: emailPreviewData.design_json?.globalStyles?.backgroundColor || '#f4f4f4' }}>
+                  {emailPreviewData.design_json && Array.isArray(emailPreviewData.design_json.blocks) ? (
+                    <ReadOnlyBlockPreview
+                      blocks={emailPreviewData.design_json.blocks}
+                      globalStyles={emailPreviewData.design_json.globalStyles}
+                      footerHtml={emailPreviewFooter?.hasFooter ? emailPreviewFooter.footer : null}
+                    />
+                  ) : emailPreviewData.html_content ? (
+                    <div
+                      className="p-4"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(emailPreviewData.html_content, { ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'hr', 'center', 'font', 'sup', 'sub', 'pre', 'code'], ALLOWED_ATTR: ['style', 'class', 'href', 'src', 'alt', 'width', 'height', 'align', 'valign', 'border', 'cellpadding', 'cellspacing', 'bgcolor', 'color', 'size', 'face', 'target', 'rel'] }) }}
+                      data-testid="sent-preview-raw-html"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-no-visual-design">
+                      No visual design data available for this campaign.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
