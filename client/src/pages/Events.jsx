@@ -176,12 +176,14 @@ export default function EventsPage({
         const events = data || [];
         const eventIds = events.map(e => e.id);
         if (eventIds.length > 0) {
-          const [allSessions, allTracks] = await Promise.all([
+          const [allSessions, allTracks, allTicketClasses] = await Promise.all([
             base44.entities.ComplexEventSession.listAll(),
-            base44.entities.ComplexEventTrack.listAll()
+            base44.entities.ComplexEventTrack.listAll(),
+            base44.entities.ComplexEventTicketClass.listAll()
           ]);
           const sessionCounts = {};
           const trackCounts = {};
+          const cheapestPrices = {};
           (allSessions || []).forEach(s => {
             if (eventIds.includes(s.complex_event_id)) {
               sessionCounts[s.complex_event_id] = (sessionCounts[s.complex_event_id] || 0) + 1;
@@ -192,14 +194,25 @@ export default function EventsPage({
               trackCounts[t.complex_event_id] = (trackCounts[t.complex_event_id] || 0) + 1;
             }
           });
+          (allTicketClasses || []).forEach(tc => {
+            if (eventIds.includes(tc.complex_event_id)) {
+              const price = Number(tc.price);
+              if (Number.isFinite(price)) {
+                if (cheapestPrices[tc.complex_event_id] === undefined || price < cheapestPrices[tc.complex_event_id]) {
+                  cheapestPrices[tc.complex_event_id] = price;
+                }
+              }
+            }
+          });
           return events.map(e => ({
             ...e,
             is_complex: true,
             session_count: sessionCounts[e.id] || 0,
-            track_count: trackCounts[e.id] || 0
+            track_count: trackCounts[e.id] || 0,
+            cheapest_price: cheapestPrices[e.id] ?? null
           }));
         }
-        return events.map(e => ({ ...e, is_complex: true, session_count: 0, track_count: 0 }));
+        return events.map(e => ({ ...e, is_complex: true, session_count: 0, track_count: 0, cheapest_price: null }));
       } else {
         data = await publicClient.listComplexEvents();
         return (data || []).map(e => ({ ...e, is_complex: true }));
@@ -1007,12 +1020,16 @@ export default function EventsPage({
                     const isRegistrationClosed = event.event_state === 'closed' || 
                       (!event.event_state && event.status === 'closed') ||
                       (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
-                    const cheapest = (() => {
+                    const cheapest = event.cheapest_price ?? (() => {
                       const tcs = event.pricing_config?.ticket_classes;
                       if (!tcs?.length) return null;
                       const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
                       return prices.length > 0 ? Math.min(...prices) : null;
                     })();
+                    const showPricesSetting = Array.isArray(systemSettings) 
+                      ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')
+                      : null;
+                    const showPricesOnCard = showPricesSetting?.setting_value === 'true';
                     const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || isRegistrationClosed;
                     const descriptionText = event.summary || stripHtmlTags(event.description);
 
@@ -1138,12 +1155,16 @@ export default function EventsPage({
                               )}
                             </div>
                           )}
-                          {cheapest !== null && (
-                            <div className="flex items-center gap-2 text-sm">
+                          {showPricesOnCard && cheapest !== null && (
+                            <div className="flex items-center gap-2 text-sm" data-testid={`text-ticket-price-${event.id}`}>
                               <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
-                              <span className="font-medium text-slate-900">
-                                {cheapest === 0 ? "Free" : `\u00a3${cheapest.toFixed(2)}`}
-                              </span>
+                              {cheapest === 0 ? (
+                                <span className="text-green-600 font-medium">Free to register</span>
+                              ) : (
+                                <span className="text-slate-600">
+                                  Price from <span className="font-semibold text-slate-800">{`\u00a3${cheapest.toFixed(2)}`}</span>
+                                </span>
+                              )}
                             </div>
                           )}
                           <div className="pt-3 border-t border-slate-100">

@@ -99,6 +99,10 @@ export default async function handler(req, res) {
 
     const events = (rawEvents || []).map(event => {
       const allTicketClasses = ticketClassesByEvent[event.id] || [];
+      const allPrices = allTicketClasses
+        .map(tc => Number(tc.price))
+        .filter(p => Number.isFinite(p));
+      const cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
       const publicTicketClasses = allTicketClasses
         .filter(tc => {
           const vis = tc.visibility_mode || 'members_only';
@@ -135,6 +139,7 @@ export default async function handler(req, res) {
         is_complex: true,
         session_count: sessionCountByEvent[event.id] || 0,
         track_count: trackCountByEvent[event.id] || 0,
+        cheapest_price: cheapestPrice,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });

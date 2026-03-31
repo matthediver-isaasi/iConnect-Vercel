@@ -1761,7 +1761,7 @@ export default function EventSettingsPage() {
                     Show Ticket Prices on Cards
                   </Label>
                   <p className="text-sm text-slate-500">
-                    When ON, event cards display the cheapest ticket price (e.g., "£ Tickets from £10.00" or "Free to register").
+                    When ON, event cards display the cheapest ticket price (e.g., "Price from £10.00" or "Free to register").
                   </p>
                 </div>
                 <div className="flex items-center gap-4">

@@ -666,12 +666,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             
             return (
               <div className="flex items-center gap-2 text-sm" data-testid={`text-ticket-price-${event.id}`}>
-                <span className="text-green-600 font-bold">£</span>
+                <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
                 {cheapestPrice === 0 ? (
                   <span className="text-green-600 font-medium">Free to register</span>
                 ) : (
                   <span className="text-slate-600">
-                    Tickets from <span className="font-semibold text-slate-800">£{cheapestPrice.toFixed(2)}</span>
+                    Price from <span className="font-semibold text-slate-800">£{cheapestPrice.toFixed(2)}</span>
                   </span>
                 )}
               </div>
