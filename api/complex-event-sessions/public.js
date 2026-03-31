@@ -61,7 +61,7 @@ export default async function handler(req, res) {
 
     const { data: sessions, error: sessionsError } = await supabase
       .from('complex_event_session')
-      .select('id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, complex_event_id')
+      .select('id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, complex_event_id')
       .eq('complex_event_id', event_id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })
