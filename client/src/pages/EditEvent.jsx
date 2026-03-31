@@ -936,13 +936,9 @@ export default function EditEvent() {
       }
 
       // Load sponsor assignments
-      try {
-        const assignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } });
-        setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
-      } catch (e) {
-        console.error('Failed to load sponsor assignments:', e);
-        setSelectedSponsors([]);
-      }
+      base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } })
+        .then(assignments => setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)))
+        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); });
       
       setIsFeatured(event.is_featured === true);
 
