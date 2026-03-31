@@ -139,6 +139,7 @@ export default function EventsPage({
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showDraftEvents, setShowDraftEvents] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
 
   // Determine if tours should be shown for this user based on role setting
@@ -984,10 +985,9 @@ export default function EventsPage({
                   </PopoverContent>
                 </Popover>
 
-                {/* Create Event Button - shown only when logged in and not excluded */}
                 {memberInfo && !resolvedIsFeatureExcluded('events.browse-events.create') && (
                   <Button
-                    onClick={() => window.location.href = createPageUrl('CreateEvent')}
+                    onClick={() => setShowCreateEventModal(true)}
                     className="bg-blue-600 hover:bg-blue-700 ml-auto"
                     data-testid="button-create-event"
                   >
@@ -1633,6 +1633,57 @@ export default function EventsPage({
               {deleteComplexEventMutation.isPending ? "Deleting..." : "Delete Event"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateEventModal} onOpenChange={setShowCreateEventModal}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create New Event</DialogTitle>
+            <DialogDescription>
+              What type of event would you like to create?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            <button
+              type="button"
+              className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 text-left hover-elevate transition-colors"
+              data-testid="button-create-single-event"
+              onClick={() => {
+                setShowCreateEventModal(false);
+                window.location.href = createPageUrl('CreateEvent');
+              }}
+            >
+              <div className="mt-0.5 p-2 rounded-lg bg-blue-50 text-blue-600 shrink-0">
+                <Calendar className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Single Session Event</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  A standalone event with one session, such as a workshop, webinar, or social gathering. Ideal for simple events with a single date and time.
+                </p>
+              </div>
+            </button>
+            <button
+              type="button"
+              className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 text-left hover-elevate transition-colors"
+              data-testid="button-create-complex-event"
+              onClick={() => {
+                setShowCreateEventModal(false);
+                window.location.href = createPageUrl('CreateComplexEvent');
+              }}
+            >
+              <div className="mt-0.5 p-2 rounded-lg bg-purple-50 text-purple-600 shrink-0">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Multi-Session Event</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  A complex event with multiple tracks, sessions, and ticket classes. Suited for conferences, courses, or multi-day programmes with separate bookable sessions.
+                </p>
+              </div>
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
