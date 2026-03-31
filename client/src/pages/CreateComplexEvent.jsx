@@ -1387,7 +1387,7 @@ export default function CreateComplexEvent() {
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEvent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass"] });
       toast.success(isEditMode ? "Complex event updated" : "Complex event created");
-      window.location.href = createPageUrl("ComplexEvents");
+      window.location.href = createPageUrl("Events");
     } catch (err) {
       console.error("Save error:", err);
       toast.error("Failed to save: " + (err.message || "Unknown error"));
@@ -1412,7 +1412,7 @@ export default function CreateComplexEvent() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => (window.location.href = createPageUrl("ComplexEvents"))}
+              onClick={() => (window.location.href = createPageUrl("Events"))}
               data-testid="button-back"
             >
               <ArrowLeft className="w-5 h-5" />
