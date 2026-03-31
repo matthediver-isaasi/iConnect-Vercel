@@ -319,12 +319,6 @@ const adminNavigationItems = [
     featureId: "page_ResourceSettings"
   },
   {
-    title: "Complex Events",
-    url: createPageUrl("ComplexEvents"),
-    icon: Layers,
-    featureId: "page_admin_ComplexEvents"
-  },
-  {
     title: "Forum Management",
     url: createPageUrl("ForumManagement"),
     icon: MessageSquare,
@@ -1094,7 +1088,7 @@ useEffect(() => {
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
   const hybridPages = ["PostJob", "ArticleView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "ComplexEvents", "CreateComplexEvent"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = [];
@@ -1190,7 +1184,6 @@ useEffect(() => {
     'Forum': 'page_user_Forum',
     'ForumThread': 'page_user_Forum',
     'ForumManagement': 'page_admin_ForumManagement',
-    'ComplexEvents': 'page_admin_ComplexEvents',
     'CreateComplexEvent': 'page_admin_ComplexEvents',
   };
 

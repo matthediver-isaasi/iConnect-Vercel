@@ -308,7 +308,6 @@ import GroupBookingPage from "./GroupBookingPage";
 
 import MembershipFees from "./MembershipFees";
 
-import ComplexEvents from "./ComplexEvents";
 import CreateComplexEvent from "./CreateComplexEvent";
 import PublicComplexEvents from "./PublicComplexEvents";
 import ComplexEventDetail from "./ComplexEventDetail";
@@ -633,7 +632,6 @@ const PAGES = {
     
     AIReports: AIReports,
     
-    ComplexEvents: ComplexEvents,
     CreateComplexEvent: CreateComplexEvent,
     PublicComplexEvents: PublicComplexEvents,
     ComplexEventDetail: ComplexEventDetail,
@@ -975,7 +973,6 @@ function PagesContent() {
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 <Route path="/AIReports" element={<AIReports />} />
                 
-                <Route path="/ComplexEvents" element={<ComplexEvents />} />
                 <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
                 <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />
                 <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
