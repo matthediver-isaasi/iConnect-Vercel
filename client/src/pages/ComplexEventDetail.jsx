@@ -403,13 +403,13 @@ function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMa
 
   const hasOwnImage = !!session?.image_url;
   const imageUrl = session?.image_url || eventImageUrl || null;
-  const imageFocalPoint = hasOwnImage ? null : eventImageFocalPoint;
+  const imageFocalPoint = hasOwnImage ? session?.image_focal_point : eventImageFocalPoint;
 
   if (!session) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg p-0 overflow-hidden" data-testid={`session-expanded-${session.id}`}>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden" data-testid={`session-expanded-${session.id}`}>
         <DialogHeader className="sr-only">
           <DialogTitle>{session.title}</DialogTitle>
         </DialogHeader>
