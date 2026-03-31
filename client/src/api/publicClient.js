@@ -271,6 +271,12 @@ class PublicClient {
     return this._fetch('/api/public/roles');
   }
   
+  // Event Sponsors
+  async getEventSponsors(eventId) {
+    if (!eventId) return { sponsors: [], categories: [], assignments: [] };
+    return this._fetch(`/api/public/event-sponsors?event_id=${eventId}`);
+  }
+
   // Speakers
   async listSpeakers(ids = null) {
     if (ids && Array.isArray(ids) && ids.length > 0) {

@@ -27,6 +27,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import PaymentOptions from "@/components/booking/PaymentOptions";
+import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -1792,6 +1793,8 @@ export default function ComplexEventDetail() {
                 </CardContent>
               </Card>
             )}
+
+            <EventSponsorsCard eventId={event.id} eventType="complex" />
 
             {filteredSessions.length > 0 && (
               <Card className="border-slate-200">

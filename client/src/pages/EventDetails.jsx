@@ -28,6 +28,7 @@ import AttendeeList from "../components/booking/AttendeeList";
 import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
+import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -1396,6 +1397,9 @@ export default function EventDetailsPage() {
                   </div>
                 </CardContent>
               )}
+
+              {/* Sponsors */}
+              <EventSponsorsCard eventId={event.id} eventType="simple" />
 
               {/* Sessions Schedule */}
               {eventSessions.length > 0 && (

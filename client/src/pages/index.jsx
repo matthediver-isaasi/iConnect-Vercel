@@ -216,6 +216,7 @@ import ArticlesSettings from "./ArticlesSettings";
 
 import GuestWriterManagement from "./GuestWriterManagement";
 import SpeakerManagement from "./SpeakerManagement";
+import SponsorManagement from "./SponsorManagement";
 
 import CardDeckManagement from "./CardDeckManagement";
 
@@ -575,6 +576,7 @@ const PAGES = {
     GuestWriterManagement: GuestWriterManagement,
     
     SpeakerManagement: SpeakerManagement,
+    SponsorManagement: SponsorManagement,
     
     CardDeckManagement: CardDeckManagement,
     
@@ -918,6 +920,7 @@ function PagesContent() {
                 <Route path="/GuestWriterManagement" element={<GuestWriterManagement />} />
                 
                 <Route path="/SpeakerManagement" element={<SpeakerManagement />} />
+                <Route path="/SponsorManagement" element={<SponsorManagement />} />
                 
                 <Route path="/CardDeckManagement" element={<CardDeckManagement />} />
                 

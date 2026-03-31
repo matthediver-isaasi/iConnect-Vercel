@@ -192,6 +192,9 @@ const entityToTable = {
   'ComplexEventTrack': 'complex_event_track',
   'ComplexEventSession': 'complex_event_session',
   'ComplexEventTicketClass': 'complex_event_ticket_class',
+  'EventSponsor': 'event_sponsor',
+  'EventSponsorCategory': 'event_sponsor_category',
+  'EventSponsorAssignment': 'event_sponsor_assignment',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -689,7 +692,8 @@ export default async function handler(req, res) {
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
               'DynamicDirectory',
               'IEditPage', 'IEditPageElement',
-              'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
+              'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
+              'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -871,7 +875,8 @@ export default async function handler(req, res) {
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
-            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
+            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction'];

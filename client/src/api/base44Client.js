@@ -278,6 +278,9 @@ class EntitiesProxy {
   get ComplexEventTrack() { return this._getEntity('ComplexEventTrack'); }
   get ComplexEventSession() { return this._getEntity('ComplexEventSession'); }
   get ComplexEventTicketClass() { return this._getEntity('ComplexEventTicketClass'); }
+  get EventSponsor() { return this._getEntity('EventSponsor'); }
+  get EventSponsorCategory() { return this._getEntity('EventSponsorCategory'); }
+  get EventSponsorAssignment() { return this._getEntity('EventSponsorAssignment'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

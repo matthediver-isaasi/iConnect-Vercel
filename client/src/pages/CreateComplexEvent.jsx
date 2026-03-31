@@ -33,6 +33,7 @@ import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -601,6 +602,7 @@ export default function CreateComplexEvent() {
 
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
+  const [selectedSponsors, setSelectedSponsors] = useState([]);
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
@@ -778,6 +780,11 @@ export default function CreateComplexEvent() {
       }
       setShowSeatCount(existingEvent.show_seat_count !== false);
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
+
+      // Load sponsor assignments
+      base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id } })
+        .then(assignments => setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)))
+        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); });
     }
   }, [existingEvent, isEditMode]);
 
@@ -1384,8 +1391,30 @@ export default function CreateComplexEvent() {
         }
       }
 
+      // Save sponsor assignments
+      try {
+        if (isEditMode) {
+          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId } });
+          for (const a of existingAssignments) {
+            await base44.entities.EventSponsorAssignment.delete(a.id);
+          }
+        }
+        for (const sponsorId of selectedSponsors) {
+          await base44.entities.EventSponsorAssignment.create({
+            event_id: eventId,
+            event_type: 'complex',
+            sponsor_id: sponsorId,
+            category_id: null
+          });
+        }
+      } catch (sponsorErr) {
+        console.error('Failed to save sponsor assignments:', sponsorErr);
+        toast.error('Event saved but sponsor assignments could not be saved');
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEvent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/EventSponsorAssignment"] });
       toast.success(isEditMode ? "Complex event updated" : "Complex event created");
       window.location.href = createPageUrl("Events");
     } catch (err) {
@@ -1637,6 +1666,13 @@ export default function CreateComplexEvent() {
                     Friendly URL for sharing. Leave empty to use the default URL format.
                   </p>
                 </div>
+
+                <EventSponsorSelector
+                  eventId={editId}
+                  eventType="complex"
+                  selectedSponsorIds={selectedSponsors}
+                  onSelectedSponsorIdsChange={setSelectedSponsors}
+                />
 
                 <SEOSettings
                   seoTitle={seoTitle}

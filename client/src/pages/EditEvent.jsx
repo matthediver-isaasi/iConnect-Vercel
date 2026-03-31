@@ -53,6 +53,7 @@ import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import ReactQuill from 'react-quill';
@@ -525,6 +526,9 @@ export default function EditEvent() {
   const [selectedSpeakers, setSelectedSpeakers] = useState([]);
   const [speakerModalOpen, setSpeakerModalOpen] = useState(false);
   
+  // Selected sponsors state
+  const [selectedSponsors, setSelectedSponsors] = useState([]);
+
   // Selected filter tags state
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
 
@@ -927,6 +931,15 @@ export default function EditEvent() {
         setSelectedSpeakers(event.speaker_ids);
       } else {
         setSelectedSpeakers([]);
+      }
+
+      // Load sponsor assignments
+      try {
+        const assignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id } });
+        setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
+      } catch (e) {
+        console.error('Failed to load sponsor assignments:', e);
+        setSelectedSponsors([]);
       }
       
       setIsFeatured(event.is_featured === true);
@@ -1402,9 +1415,29 @@ export default function EditEvent() {
           }
         }
 
+        // Save sponsor assignments
+        try {
+          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId } });
+          for (const a of existingAssignments) {
+            await base44.entities.EventSponsorAssignment.delete(a.id);
+          }
+          for (const sponsorId of selectedSponsors) {
+            await base44.entities.EventSponsorAssignment.create({
+              event_id: eventId,
+              event_type: 'simple',
+              sponsor_id: sponsorId,
+              category_id: null
+            });
+          }
+        } catch (sponsorErr) {
+          console.error('Failed to save sponsor assignments:', sponsorErr);
+          toast.error('Event saved but sponsor assignments could not be saved');
+        }
+
         toast.success('Event updated successfully');
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+        queryClient.invalidateQueries({ queryKey: ['/api/entities/EventSponsorAssignment'] });
         setTimeout(() => {
           window.location.href = createPageUrl('Events');
         }, 500);
@@ -1902,6 +1935,14 @@ export default function EditEvent() {
                   </>
                 )}
               </div>
+
+              {/* Event Sponsors */}
+              <EventSponsorSelector
+                eventId={eventId}
+                eventType="simple"
+                selectedSponsorIds={selectedSponsors}
+                onSelectedSponsorIdsChange={setSelectedSponsors}
+              />
 
               {/* Event Filter Tags - Grouped by Category */}
               {eventCategories.length > 0 && (
