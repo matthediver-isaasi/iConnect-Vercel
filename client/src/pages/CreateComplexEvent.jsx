@@ -25,6 +25,7 @@ import DOMPurify from "dompurify";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -1400,13 +1401,6 @@ export default function CreateComplexEvent() {
     );
   }
 
-  const sections = [
-    { id: "details", label: "Event Details" },
-    { id: "tracks", label: "Tracks" },
-    { id: "sessions", label: "Sessions" },
-    { id: "tickets", label: "Tickets" },
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
@@ -1430,20 +1424,15 @@ export default function CreateComplexEvent() {
           </Button>
         </div>
 
-        <div className="flex gap-2 mb-6">
-          {sections.map((s) => (
-            <Button
-              key={s.id}
-              variant={activeSection === s.id ? "default" : "outline"}
-              onClick={() => setActiveSection(s.id)}
-              data-testid={`button-section-${s.id}`}
-            >
-              {s.label}
-            </Button>
-          ))}
-        </div>
+        <Tabs value={activeSection} onValueChange={setActiveSection}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="details" data-testid="button-section-details">Event Details</TabsTrigger>
+            <TabsTrigger value="tracks" data-testid="button-section-tracks">Tracks</TabsTrigger>
+            <TabsTrigger value="sessions" data-testid="button-section-sessions">Sessions</TabsTrigger>
+            <TabsTrigger value="tickets" data-testid="button-section-tickets">Tickets</TabsTrigger>
+          </TabsList>
 
-        {activeSection === "details" && (
+        <TabsContent value="details">
           <>
             {/* Event Status Card — matches EditEvent */}
             <Card className="border-slate-200 shadow-sm mb-6">
@@ -2014,9 +2003,9 @@ export default function CreateComplexEvent() {
             </Card>
 
           </>
-        )}
+        </TabsContent>
 
-        {activeSection === "tracks" && (
+        <TabsContent value="tracks">
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2176,9 +2165,9 @@ export default function CreateComplexEvent() {
               )}
             </CardContent>
           </Card>
-        )}
+        </TabsContent>
 
-        {activeSection === "sessions" && (
+        <TabsContent value="sessions">
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2221,9 +2210,9 @@ export default function CreateComplexEvent() {
               )}
             </CardContent>
           </Card>
-        )}
+        </TabsContent>
 
-        <div className={activeSection !== 'tickets' ? 'hidden' : ''}>
+        <TabsContent value="tickets" forceMount className={activeSection !== 'tickets' ? 'hidden' : ''}>
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2949,7 +2938,8 @@ export default function CreateComplexEvent() {
         )}
           </CardContent>
         </Card>
-      </div>
+        </TabsContent>
+        </Tabs>
 
       <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
