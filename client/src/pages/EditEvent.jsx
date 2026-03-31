@@ -41,7 +41,8 @@ import {
   ExternalLink,
   Gift,
   Bird,
-  AlertCircle
+  AlertCircle,
+  Handshake
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -528,6 +529,7 @@ export default function EditEvent() {
   
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
+  const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
 
   // Selected filter tags state
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
@@ -1936,13 +1938,34 @@ export default function EditEvent() {
                 )}
               </div>
 
-              {/* Event Sponsors */}
-              <EventSponsorSelector
-                eventId={eventId}
-                eventType="simple"
-                selectedSponsorIds={selectedSponsors}
-                onSelectedSponsorIdsChange={setSelectedSponsors}
-              />
+              {/* Event Sponsors - Collapsible */}
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
+                  onClick={() => setSponsorsExpanded(prev => !prev)}
+                  data-testid="button-toggle-sponsors-section"
+                >
+                  <span className="flex items-center gap-2 font-medium text-slate-700">
+                    <Handshake className="h-4 w-4 text-blue-600" />
+                    Sponsors
+                    {selectedSponsors.length > 0 && (
+                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{selectedSponsors.length}</span>
+                    )}
+                  </span>
+                  {sponsorsExpanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                </button>
+                {sponsorsExpanded && (
+                  <div className="p-4 border-t border-slate-200">
+                    <EventSponsorSelector
+                      eventId={eventId}
+                      eventType="simple"
+                      selectedSponsorIds={selectedSponsors}
+                      onSelectedSponsorIdsChange={setSelectedSponsors}
+                    />
+                  </div>
+                )}
+              </div>
 
               {/* Event Filter Tags - Grouped by Category */}
               {eventCategories.length > 0 && (

@@ -17,7 +17,7 @@ import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
-  Layers, Building2
+  Layers, Building2, Handshake
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -603,6 +603,7 @@ export default function CreateComplexEvent() {
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
   const [selectedSponsors, setSelectedSponsors] = useState([]);
+  const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
@@ -1667,12 +1668,34 @@ export default function CreateComplexEvent() {
                   </p>
                 </div>
 
-                <EventSponsorSelector
-                  eventId={editId}
-                  eventType="complex"
-                  selectedSponsorIds={selectedSponsors}
-                  onSelectedSponsorIdsChange={setSelectedSponsors}
-                />
+                {/* Event Sponsors - Collapsible */}
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
+                    onClick={() => setSponsorsExpanded(prev => !prev)}
+                    data-testid="button-toggle-sponsors-section"
+                  >
+                    <span className="flex items-center gap-2 font-medium text-slate-700">
+                      <Handshake className="h-4 w-4 text-blue-600" />
+                      Sponsors
+                      {selectedSponsors.length > 0 && (
+                        <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{selectedSponsors.length}</span>
+                      )}
+                    </span>
+                    {sponsorsExpanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                  </button>
+                  {sponsorsExpanded && (
+                    <div className="p-4 border-t border-slate-200">
+                      <EventSponsorSelector
+                        eventId={editId}
+                        eventType="complex"
+                        selectedSponsorIds={selectedSponsors}
+                        onSelectedSponsorIdsChange={setSelectedSponsors}
+                      />
+                    </div>
+                  )}
+                </div>
 
                 <SEOSettings
                   seoTitle={seoTitle}
