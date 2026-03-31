@@ -697,6 +697,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
             .in('category_id', categoryIds)
             .eq('is_subscribed', true)
             .eq('member.tenant_id', tenantId)
+            .not('member.email', 'ilike', 'deleted_%@deleted.local')
             .range(offset, offset + PAGE_SIZE - 1);
 
           if (prefError) {
@@ -869,6 +870,9 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       const segRecipients = await getRecipientsForSegment(campaign.target_type, campaign.target_ids || [], tenantId);
       allRecipients.push(...segRecipients);
     }
+
+    const deletedPattern = /^deleted_.*@deleted\.local$/i;
+    allRecipients = allRecipients.filter(r => !deletedPattern.test(r.email));
 
     const totalAudience = allRecipients.length;
     const rawAudienceList = detailedLists ? allRecipients.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })) : null;
