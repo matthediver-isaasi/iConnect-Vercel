@@ -224,6 +224,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     enabled: showAttendeesModal && isAdmin,
   });
 
+  // Fetch members when attendees modal is open
+  const { data: membersData } = useQuery({
+    queryKey: ['members-for-attendees'],
+    queryFn: async () => {
+      return await base44.entities.Member.listAll();
+    },
+    enabled: showAttendeesModal && isAdmin,
+  });
+
   // Create organization lookup map
   const organizationMap = useMemo(() => {
     if (!organizationsData) return {};
@@ -232,6 +241,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       return acc;
     }, {});
   }, [organizationsData]);
+
+  // Create member job title lookup map
+  const memberJobTitleMap = useMemo(() => {
+    if (!membersData) return {};
+    return membersData.reduce((acc, member) => {
+      acc[member.id] = member.job_title || '';
+      return acc;
+    }, {});
+  }, [membersData]);
 
   const activeBookings = useMemo(() => {
     if (!bookingsData) return [];
@@ -334,11 +352,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       return;
     }
 
-    const headers = ['Name', 'Email', 'Organisation'];
+    const headers = ['Name', 'Job Title', 'Organisation', 'Email'];
     const rows = filteredAttendees.map(booking => [
       `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
-      booking.attendee_email || '',
-      booking.organization_id ? (organizationMap[booking.organization_id] || '') : 'Non-member'
+      booking.member_id ? (memberJobTitleMap[booking.member_id] || '') : '',
+      booking.organization_id ? (organizationMap[booking.organization_id] || '') : 'Non-member',
+      booking.attendee_email || ''
     ]);
 
     const csvContent = [
@@ -843,7 +862,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             setCurrentPage(1);
           }
         }}>
-          <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogContent className="sm:max-w-5xl max-h-[80vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <UsersRound className="w-5 h-5 text-purple-600" />
@@ -915,6 +934,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
+                      <TableHead>Job Title</TableHead>
                       <TableHead>Organisation</TableHead>
                       <TableHead>Email</TableHead>
                     </TableRow>
@@ -924,6 +944,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TableRow key={booking.id || index} data-testid={`row-attendee-${booking.id || index}`}>
                         <TableCell className="font-medium">
                           {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
+                        </TableCell>
+                        <TableCell>
+                          {booking.member_id
+                            ? (memberJobTitleMap[booking.member_id] || '-')
+                            : <span className="text-muted-foreground">-</span>
+                          }
                         </TableCell>
                         <TableCell>
                           {booking.organization_id 
