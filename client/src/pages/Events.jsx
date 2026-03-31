@@ -943,9 +943,9 @@ export default function EventsPage({
                         {sortBy === "date" ? (
                           <span>Sort: Date</span>
                         ) : sortBy === "price_asc" ? (
-                          <span>Sort: Price Low-High</span>
+                          <span>Sort: Price Low to High</span>
                         ) : (
-                          <span>Sort: Price High-Low</span>
+                          <span>Sort: Price High to Low</span>
                         )}
                       </div>
                       <ChevronDown className="w-4 h-4 opacity-50" />
