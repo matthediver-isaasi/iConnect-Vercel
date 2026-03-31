@@ -45,6 +45,39 @@ export default async function handler(req, res) {
 
     const eventIds = (rawEvents || []).map(e => e.id);
 
+    let sessionCountByEvent = {};
+    let trackCountByEvent = {};
+    if (eventIds.length > 0) {
+      const sessionCountPromises = eventIds.map(id =>
+        supabase
+          .from('complex_event_session')
+          .select('*', { count: 'exact', head: true })
+          .eq('complex_event_id', id)
+          .eq('tenant_id', tenant.id)
+      );
+      const trackCountPromises = eventIds.map(id =>
+        supabase
+          .from('complex_event_track')
+          .select('*', { count: 'exact', head: true })
+          .eq('complex_event_id', id)
+          .eq('tenant_id', tenant.id)
+      );
+
+      const [sessionResults, trackResults] = await Promise.all([
+        Promise.all(sessionCountPromises),
+        Promise.all(trackCountPromises)
+      ]);
+
+      eventIds.forEach((id, i) => {
+        if (!sessionResults[i].error) {
+          sessionCountByEvent[id] = sessionResults[i].count || 0;
+        }
+        if (!trackResults[i].error) {
+          trackCountByEvent[id] = trackResults[i].count || 0;
+        }
+      });
+    }
+
     let ticketClassesByEvent = {};
     if (eventIds.length > 0) {
       const { data: ticketClasses, error: tcError } = await supabase
@@ -100,6 +133,8 @@ export default async function handler(req, res) {
         event_state: event.event_state || null,
         event_type: event.event_type || null,
         is_complex: true,
+        session_count: sessionCountByEvent[event.id] || 0,
+        track_count: trackCountByEvent[event.id] || 0,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, Mic } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -173,10 +173,37 @@ export default function EventsPage({
       let data;
       if (memberInfo) {
         data = await base44.entities.ComplexEvent.list();
+        const events = data || [];
+        const eventIds = events.map(e => e.id);
+        if (eventIds.length > 0) {
+          const [allSessions, allTracks] = await Promise.all([
+            base44.entities.ComplexEventSession.listAll(),
+            base44.entities.ComplexEventTrack.listAll()
+          ]);
+          const sessionCounts = {};
+          const trackCounts = {};
+          (allSessions || []).forEach(s => {
+            if (eventIds.includes(s.complex_event_id)) {
+              sessionCounts[s.complex_event_id] = (sessionCounts[s.complex_event_id] || 0) + 1;
+            }
+          });
+          (allTracks || []).forEach(t => {
+            if (eventIds.includes(t.complex_event_id)) {
+              trackCounts[t.complex_event_id] = (trackCounts[t.complex_event_id] || 0) + 1;
+            }
+          });
+          return events.map(e => ({
+            ...e,
+            is_complex: true,
+            session_count: sessionCounts[e.id] || 0,
+            track_count: trackCounts[e.id] || 0
+          }));
+        }
+        return events.map(e => ({ ...e, is_complex: true, session_count: 0, track_count: 0 }));
       } else {
         data = await publicClient.listComplexEvents();
+        return (data || []).map(e => ({ ...e, is_complex: true }));
       }
-      return (data || []).map(e => ({ ...e, is_complex: true }));
     },
     staleTime: 0
   });
@@ -1073,6 +1100,22 @@ export default function EventsPage({
                                 {formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}
                                 {event.end_date && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
                               </span>
+                            </div>
+                          )}
+                          {(event.track_count > 0 || event.session_count > 0) && (
+                            <div className="flex items-center gap-4 text-sm text-slate-600">
+                              {event.session_count > 0 && (
+                                <div className="flex items-center gap-1.5" data-testid={`text-session-count-${event.id}`}>
+                                  <Mic className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
+                                </div>
+                              )}
+                              {event.track_count > 0 && (
+                                <div className="flex items-center gap-1.5" data-testid={`text-track-count-${event.id}`}>
+                                  <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
+                                </div>
+                              )}
                             </div>
                           )}
                           {event.location && (
