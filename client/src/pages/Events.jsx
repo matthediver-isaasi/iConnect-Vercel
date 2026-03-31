@@ -1029,132 +1029,247 @@ export default function EventsPage({
             ) : (
               <>
               {featuredEvents.length > 0 && (
-                <Card className="mb-6 border-slate-200 shadow-sm" style={featuredBgStyle} data-testid="card-featured-events">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Star className="h-5 w-5 text-amber-500" />
-                      Featured Events
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {featuredEvents.map((event) => {
-                        if (event.is_complex) {
-                          const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
-                          const detailUrl = event.slug
-                            ? `/session-events/${event.slug}`
-                            : `/ComplexEventDetail?id=${event.id}`;
-                          const featCheapest = event.cheapest_price ?? (() => {
-                            const tcs = event.pricing_config?.ticket_classes;
-                            if (!tcs?.length) return null;
-                            const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
-                            return prices.length > 0 ? Math.min(...prices) : null;
-                          })();
-                          const featShowPrices = Array.isArray(systemSettings) 
-                            ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
-                            : false;
-                          return (
-                            <Card
-                              key={`featured-complex-${event.id}`}
-                              className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
-                              data-testid={`card-featured-event-${event.id}`}
-                            >
-                              {event.image_url && (
-                                <div className="h-32 overflow-hidden bg-slate-100">
-                                  <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
-                                </div>
-                              )}
-                              <CardContent className="p-4 space-y-1.5">
-                                <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
-                                {event.start_date && (
-                                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                    <span>{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}</span>
-                                  </div>
-                                )}
-                                {(event.track_count > 0 || event.session_count > 0) && (
-                                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                                    {event.session_count > 0 && (
-                                      <div className="flex items-center gap-1" data-testid={`text-session-count-${event.id}`}>
-                                        <List className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
-                                      </div>
-                                    )}
-                                    {event.track_count > 0 && (
-                                      <div className="flex items-center gap-1" data-testid={`text-track-count-${event.id}`}>
-                                        <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {featShowPrices && featCheapest !== null && (
-                                  <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
-                                    <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                    {featCheapest === 0 ? (
-                                      <span className="text-green-600 font-medium">Free to register</span>
-                                    ) : (
-                                      <span className="text-slate-600">
-                                        Price from <span className="font-semibold text-slate-800">{`\u00a3${featCheapest.toFixed(2)}`}</span>
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-1 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
-                              </CardContent>
-                            </Card>
-                          );
-                        }
+                <div className="mb-6 rounded-lg p-4" style={featuredBgStyle} data-testid="card-featured-events">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Star className="h-5 w-5 text-amber-500" />
+                    <h2 className="text-lg font-semibold">Featured Events</h2>
+                  </div>
+                  <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {featuredEvents.map((event) => {
+                      if (event.is_complex) {
                         const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
-                        const detailUrl = event.slug ? `/events/${event.slug}` : `/EventDetails?id=${event.id}`;
-                        const featSimpleCheapest = (() => {
+                        const detailUrl = event.slug
+                          ? `/session-events/${event.slug}`
+                          : `/ComplexEventDetail?id=${event.id}`;
+                        const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                        const isEventPast = isEventInPast(event);
+                        const isRegistrationClosed = event.event_state === 'closed' || 
+                          (!event.event_state && event.status === 'closed') ||
+                          (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
+                        const cheapest = event.cheapest_price ?? (() => {
                           const tcs = event.pricing_config?.ticket_classes;
                           if (!tcs?.length) return null;
                           const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
                           return prices.length > 0 ? Math.min(...prices) : null;
                         })();
-                        const featSimpleShowPrices = Array.isArray(systemSettings)
-                          ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
-                          : false;
+                        const showPricesSetting = Array.isArray(systemSettings) 
+                          ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')
+                          : null;
+                        const showPricesOnCard = showPricesSetting?.setting_value === 'true';
+                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || isRegistrationClosed;
+                        const descriptionText = event.summary || stripHtmlTags(event.description);
+
                         return (
                           <Card
-                            key={`featured-${event.id}`}
+                            key={`featured-complex-${event.id}`}
                             className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white"
                             data-testid={`card-featured-event-${event.id}`}
                           >
-                            {event.image_url && (
-                              <div className="h-32 overflow-hidden bg-slate-100">
-                                <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" style={getFocalPointStyle(event.image_focal_point)} />
-                              </div>
-                            )}
-                            <CardContent className="p-4 space-y-1.5">
-                              <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
-                              {event.start_date && (
-                                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}</span>
+                            <div className="relative">
+                              {event.image_url ? (
+                                <div className="h-48 overflow-hidden bg-slate-100">
+                                  <img
+                                    src={event.image_url}
+                                    alt={event.title}
+                                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                                    style={getFocalPointStyle(event.image_focal_point)}
+                                  />
+                                </div>
+                              ) : (
+                                <div className={`h-24 ${isEventPast ? 'bg-gradient-to-r from-slate-100 to-slate-50' : 'bg-gradient-to-r from-slate-50 to-blue-50'}`} />
+                              )}
+                              {hasBadges && (
+                                <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
+                                  {event.status === 'draft' && (
+                                    <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">Draft</Badge>
+                                  )}
+                                  {event.status === 'tbc' && (
+                                    <Badge variant="secondary" className="bg-blue-100/95 text-blue-700 border-blue-200 shadow-sm">TBC</Badge>
+                                  )}
+                                  {isRegistrationClosed && (
+                                    <Badge variant="secondary" className="bg-red-100/95 text-red-700 border-red-200 shadow-sm" data-testid={`badge-closed-event-${event.id}`}>Registration Closed</Badge>
+                                  )}
+                                  {isEventPast && (
+                                    <Badge variant="secondary" className="bg-slate-200/95 text-slate-600 border-slate-300 shadow-sm">Past Event</Badge>
+                                  )}
+                                  {event.event_type && (() => {
+                                    const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+                                    return (
+                                      <Badge variant="secondary" className="border-0 shadow-sm" style={{ backgroundColor: `${eventTypeStyle.bgColor}f2`, color: eventTypeStyle.textColor }}>
+                                        {event.event_type}
+                                      </Badge>
+                                    );
+                                  })()}
                                 </div>
                               )}
-                              {featSimpleShowPrices && featSimpleCheapest !== null && (
-                                <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
-                                  <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  {featSimpleCheapest === 0 ? (
+                            </div>
+                            <CardHeader className="pb-3">
+                              <h3 className="font-bold text-lg text-slate-900 line-clamp-2">{event.title}</h3>
+                              {descriptionText && (
+                                <p className="text-sm text-slate-600 mt-2 line-clamp-2" data-testid="text-event-summary">{descriptionText}</p>
+                              )}
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                              {event.status === 'tbc' ? (
+                                <div className="flex items-center gap-2 text-sm text-blue-600">
+                                  <Calendar className="w-4 h-4 text-blue-400" />
+                                  <span className="font-medium">Date to be confirmed</span>
+                                </div>
+                              ) : event.start_date && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600">
+                                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>
+                                    {formatInTimeZone(parseISO(event.start_date), eventTimezone, "MMM d, yyyy")}
+                                    {event.end_date && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
+                                  </span>
+                                </div>
+                              )}
+                              {(event.track_count > 0 || event.session_count > 0) && (
+                                <div className="flex items-center gap-4 text-sm text-slate-600">
+                                  {event.session_count > 0 && (
+                                    <div className="flex items-center gap-1.5" data-testid={`text-session-count-${event.id}`}>
+                                      <List className="w-4 h-4 text-slate-400 shrink-0" />
+                                      <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
+                                    </div>
+                                  )}
+                                  {event.track_count > 0 && (
+                                    <div className="flex items-center gap-1.5" data-testid={`text-track-count-${event.id}`}>
+                                      <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+                                      <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {event.location && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600">
+                                  <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span className="line-clamp-1">{event.location}</span>
+                                </div>
+                              )}
+                              {event.show_seat_count !== false && (
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                                  {hasUnlimitedCapacity ? (
+                                    <span className="text-green-600 font-medium">Open Registration</span>
+                                  ) : event.available_seats > 0 ? (
+                                    <span className="text-green-600 font-medium">{event.available_seats} seats available</span>
+                                  ) : (
+                                    <span className="text-red-600 font-medium">Sold out</span>
+                                  )}
+                                </div>
+                              )}
+                              {showPricesOnCard && cheapest !== null && (
+                                <div className="flex items-center gap-2 text-sm" data-testid={`text-ticket-price-${event.id}`}>
+                                  <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
+                                  {cheapest === 0 ? (
                                     <span className="text-green-600 font-medium">Free to register</span>
                                   ) : (
                                     <span className="text-slate-600">
-                                      Price from <span className="font-semibold text-slate-800">{`\u00a3${featSimpleCheapest.toFixed(2)}`}</span>
+                                      Price from <span className="font-semibold text-slate-800">{`\u00a3${cheapest.toFixed(2)}`}</span>
                                     </span>
                                   )}
                                 </div>
                               )}
-                              <Link to={detailUrl} className="text-xs text-blue-600 hover:underline mt-1 inline-block" data-testid={`link-featured-event-${event.id}`}>View Details</Link>
+                              <div className="pt-3 border-t border-slate-100">
+                                {memberInfo && (!resolvedIsFeatureExcluded?.('events.browse-events.create') || !resolvedIsFeatureExcluded?.('events.browse-events.view-attendees')) && (
+                                  <div className="flex items-center gap-2 mb-3">
+                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.location.href = createPageUrl("CreateComplexEvent") + "?id=" + event.id;
+                                        }}
+                                        className="flex-1"
+                                        data-testid={`button-edit-event-${event.id}`}
+                                      >
+                                        <Pencil className="w-4 h-4 mr-1" />
+                                        Edit
+                                      </Button>
+                                    )}
+                                    {!resolvedIsFeatureExcluded?.('events.browse-events.view-attendees') && (
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.location.href = detailUrl + (detailUrl.includes('?') ? '&' : '?') + 'tab=attendees';
+                                        }}
+                                        className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
+                                        data-testid={`button-attendees-event-${event.id}`}
+                                      >
+                                        <UsersRound className="w-4 h-4 mr-1" />
+                                        Attendees
+                                      </Button>
+                                    )}
+                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setComplexDeleteTarget(event);
+                                        }}
+                                        className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                        data-testid={`button-delete-event-${event.id}`}
+                                      >
+                                        <Trash2 className="w-4 h-4 mr-1" />
+                                        Delete
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                                {!resolvedIsFeatureExcluded?.('events.event-details') && (
+                                  <>
+                                    {isEventPast ? (
+                                      <Button className="w-full" variant="secondary" disabled data-testid={`button-event-ended-${event.id}`}>
+                                        Event Ended
+                                      </Button>
+                                    ) : (() => {
+                                      const ctaConfig = getCtaButtonConfig(systemSettings);
+                                      const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                                      const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
+                                      const isGradient = ctaConfig.style === 'gradient';
+                                      return (
+                                        <Link to={detailUrl}>
+                                          <Button 
+                                            variant={isRegistrationClosed ? "secondary" : "default"}
+                                            className={`w-full ${!isRegistrationClosed && isGradient 
+                                              ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
+                                              : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
+                                            disabled={isSoldOut}
+                                            data-testid={`button-register-event-${event.id}`}
+                                          >
+                                            {buttonLabel}
+                                          </Button>
+                                        </Link>
+                                      );
+                                    })()}
+                                  </>
+                                )}
+                              </div>
                             </CardContent>
                           </Card>
                         );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
+                      }
+
+                      return (
+                        <EventCard
+                          key={`featured-${event.id}`}
+                          event={event}
+                          organizationInfo={organizationInfo}
+                          isFeatureExcluded={resolvedIsFeatureExcluded}
+                          isAdmin={isAdmin}
+                          joinLinkSettings={joinLinkSettings}
+                          webinars={webinars}
+                          systemSettings={systemSettings}
+                          memberInfo={memberInfo}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
               )}
               <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {nonFeaturedEvents.map((event) => {

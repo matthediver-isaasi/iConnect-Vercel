@@ -41,6 +41,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'event_cta_button',
   'job_types',
   'job_hours',
+  'show_event_card_prices',
 ];
 
 export default async function handler(req, res) {

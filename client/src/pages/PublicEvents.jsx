@@ -169,93 +169,122 @@ export default function PublicEventsPage() {
         ) : (
           <>
           {featuredEvents.length > 0 && (
-            <Card className="mb-8 border-slate-200 shadow-sm" style={featuredBgStyle} data-testid="card-featured-events">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Star className="h-5 w-5 text-amber-500" />
-                  Featured Events
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {featuredEvents.map((event) => {
-                    const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
-                    const detailUrl = getEventDetailUrl(event);
-                    const featCheapest = event.cheapest_price ?? (() => {
-                      const tcs = event.pricing_config?.ticket_classes;
-                      if (!tcs?.length) return null;
-                      const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
-                      return prices.length > 0 ? Math.min(...prices) : null;
-                    })();
-                    const featShowPrices = Array.isArray(systemSettings)
-                      ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
-                      : false;
-                    return (
-                      <Card
-                        key={`featured-${event.is_complex ? 'complex' : 'simple'}-${event.id}`}
-                        className="border-slate-200 hover:shadow-lg transition-shadow overflow-hidden bg-white"
-                        data-testid={`card-featured-event-${event.id}`}
-                      >
-                        {event.image_url && (
-                          <div className="h-32 overflow-hidden bg-slate-100">
-                            <img
-                              src={event.image_url}
-                              alt={event.title}
-                              className="w-full h-full object-cover"
-                              style={event.image_focal_point ? getFocalPointStyle(event.image_focal_point) : undefined}
-                            />
+            <div className="mb-8 rounded-lg p-4" style={featuredBgStyle} data-testid="card-featured-events">
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold">Featured Events</h2>
+              </div>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {featuredEvents.map((event) => {
+                  const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
+                  const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
+                  const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+                  const isComplex = !!event.is_complex;
+                  const cheapest = getCheapestPrice(event.pricing_config);
+                  const detailUrl = getEventDetailUrl(event);
+                  const showPricesSetting = Array.isArray(systemSettings)
+                    ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
+                    : false;
+
+                  return (
+                    <Card
+                      key={`featured-${isComplex ? 'complex' : 'simple'}-${event.id}`}
+                      className="border-slate-200 hover:shadow-lg transition-shadow overflow-hidden"
+                      data-testid={`card-featured-event-${event.id}`}
+                    >
+                      {event.image_url && (
+                        <div className="h-48 overflow-hidden bg-slate-100">
+                          <img 
+                            src={event.image_url} 
+                            alt={event.title}
+                            className="w-full h-full object-cover"
+                            style={event.image_focal_point ? getFocalPointStyle(event.image_focal_point) : undefined}
+                          />
+                        </div>
+                      )}
+                      
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                          <CardTitle className="text-lg">{event.title}</CardTitle>
+                          {event.program_tag && (
+                            <Badge className="bg-purple-100 text-purple-700 border-purple-200 shrink-0">
+                              {event.program_tag}
+                            </Badge>
+                          )}
+                          {isComplex && event.event_type && (
+                            <Badge variant="secondary" className="shrink-0 text-xs">
+                              {event.event_type}
+                            </Badge>
+                          )}
+                        </div>
+                        {(event.description || event.summary) && (
+                          <p className="text-sm text-slate-600 line-clamp-2">{event.description || event.summary}</p>
+                        )}
+                      </CardHeader>
+
+                      <CardContent className="space-y-3">
+                        {event.start_date && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span>
+                              {formatEventDate(event.start_date, eventTimezone)}
+                              {isComplex && event.end_date && ` - ${formatEventDate(event.end_date, eventTimezone)}`}
+                            </span>
                           </div>
                         )}
-                        <CardContent className="p-4 space-y-1.5">
-                          <h3 className="font-semibold text-sm mb-1 line-clamp-2">{event.title}</h3>
-                          {event.start_date && (
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span>{formatEventDate(event.start_date, eventTimezone)}</span>
-                            </div>
-                          )}
-                          {event.is_complex && (event.track_count > 0 || event.session_count > 0) && (
-                            <div className="flex items-center gap-3 text-xs text-slate-500">
-                              {event.session_count > 0 && (
-                                <div className="flex items-center gap-1" data-testid={`text-session-count-${event.id}`}>
-                                  <List className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{event.session_count} {event.session_count === 1 ? 'Session' : 'Sessions'}</span>
-                                </div>
-                              )}
-                              {event.track_count > 0 && (
-                                <div className="flex items-center gap-1" data-testid={`text-track-count-${event.id}`}>
-                                  <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{event.track_count} {event.track_count === 1 ? 'Track' : 'Tracks'}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {featShowPrices && featCheapest !== null && (
-                            <div className="flex items-center gap-1.5 text-xs" data-testid={`text-ticket-price-${event.id}`}>
-                              <Ticket className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              {featCheapest === 0 ? (
-                                <span className="text-green-600 font-medium">Free to register</span>
-                              ) : (
-                                <span className="text-slate-600">
-                                  Price from <span className="font-semibold text-slate-800">{`\u00a3${featCheapest.toFixed(2)}`}</span>
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <div className="pt-2">
-                            <Link to={detailUrl}>
-                              <Button size="sm" className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
-                                View Details
-                              </Button>
-                            </Link>
+
+                        {event.start_date && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span>{formatEventTime(event.start_date, eventTimezone)}</span>
+                            <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
                           </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+                        )}
+
+                        {event.location && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="line-clamp-1">{event.location}</span>
+                          </div>
+                        )}
+
+                        {event.show_seat_count !== false && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                            {hasUnlimitedCapacity ? (
+                              <span className="text-green-600 font-medium">Open Registration</span>
+                            ) : event.available_seats > 0 ? (
+                              <span className="text-green-600 font-medium">
+                                {event.available_seats} {isComplex ? 'places' : 'seats'} available
+                              </span>
+                            ) : (
+                              <span className="text-red-600 font-medium">Sold out</span>
+                            )}
+                          </div>
+                        )}
+
+                        {showPricesSetting && cheapest !== null && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="font-medium text-slate-900">
+                              {cheapest === 0 ? "Free" : `\u00a3${cheapest.toFixed(2)}`}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="pt-3 border-t border-slate-100">
+                          <Link to={detailUrl}>
+                            <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
+                              View Details
+                            </Button>
+                          </Link>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
           )}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {nonFeaturedEvents.map((event) => {
