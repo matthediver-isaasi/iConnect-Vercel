@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -134,6 +134,7 @@ export default function EventsPage({
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [selectedEventType, setSelectedEventType] = useState("all");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
+  const [sortBy, setSortBy] = useState("date");
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showDraftEvents, setShowDraftEvents] = useState(false);
   const [showTour, setShowTour] = useState(false);
@@ -430,24 +431,39 @@ export default function EventsPage({
   
   console.log('[Events] Debug - filteredEvents count:', filteredEvents.length);
 
-  // Sort events: dated events first (by date), then TBC events at the end
-  filteredEvents.sort((a, b) => {
-    const aIsTbc = a.status === 'tbc' || !a.start_date;
-    const bIsTbc = b.status === 'tbc' || !b.start_date;
-    
-    // TBC events go to the end
-    if (aIsTbc && !bIsTbc) return 1;
-    if (!aIsTbc && bIsTbc) return -1;
-    
-    // Both TBC or both dated - sort by title for TBC, by date for dated
-    if (aIsTbc && bIsTbc) {
-      return (a.title || '').localeCompare(b.title || '');
+  const getEventPrice = (event) => {
+    if (event.cheapest_price !== undefined && event.cheapest_price !== null) {
+      return Number(event.cheapest_price);
     }
-    
-    const dateA = new Date(a.start_date);
-    const dateB = new Date(b.start_date);
-    return dateA.getTime() - dateB.getTime();
-  });
+    const tcs = event.pricing_config?.ticket_classes;
+    if (!tcs?.length) return null;
+    const prices = tcs.map(tc => Number(tc.price)).filter(p => Number.isFinite(p));
+    return prices.length > 0 ? Math.min(...prices) : null;
+  };
+
+  if (sortBy === 'price_asc' || sortBy === 'price_desc') {
+    filteredEvents.sort((a, b) => {
+      const priceA = getEventPrice(a);
+      const priceB = getEventPrice(b);
+      if (priceA === null && priceB === null) return 0;
+      if (priceA === null) return 1;
+      if (priceB === null) return -1;
+      return sortBy === 'price_asc' ? priceA - priceB : priceB - priceA;
+    });
+  } else {
+    filteredEvents.sort((a, b) => {
+      const aIsTbc = a.status === 'tbc' || !a.start_date;
+      const bIsTbc = b.status === 'tbc' || !b.start_date;
+      if (aIsTbc && !bIsTbc) return 1;
+      if (!aIsTbc && bIsTbc) return -1;
+      if (aIsTbc && bIsTbc) {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      const dateA = new Date(a.start_date);
+      const dateB = new Date(b.start_date);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }
 
   const featuredEvents = filteredEvents.filter(e => e.is_featured === true);
   const nonFeaturedEvents = filteredEvents.filter(e => e.is_featured !== true);
@@ -638,8 +654,7 @@ export default function EventsPage({
             </div>
             
             {/* Filter Dropdowns Row */}
-            {(eventCategories.length > 0 || eventTypes.length > 0) && (
-              <div className="flex flex-wrap gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-4">
                 {/* Filter Tags - Multi-select with grouped subcategories */}
                 {eventCategories.length > 0 && (
                   <Popover>
@@ -916,6 +931,58 @@ export default function EventsPage({
                   </PopoverContent>
                 </Popover>
 
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      className="w-full md:w-auto justify-between gap-2"
+                      data-testid="sort-by-trigger"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowUpDown className="w-4 h-4" />
+                        {sortBy === "date" ? (
+                          <span>Sort: Date</span>
+                        ) : sortBy === "price_asc" ? (
+                          <span>Sort: Price Low-High</span>
+                        ) : (
+                          <span>Sort: Price High-Low</span>
+                        )}
+                      </div>
+                      <ChevronDown className="w-4 h-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-52 p-0" align="start">
+                    <div className="p-2 border-b border-slate-100">
+                      <span className="text-sm font-medium text-slate-700">Sort by</span>
+                    </div>
+                    <div className="p-1">
+                      {[
+                        { value: "date", label: "Date (default)" },
+                        { value: "price_asc", label: "Price: Low to High" },
+                        { value: "price_desc", label: "Price: High to Low" },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                            sortBy === option.value
+                              ? "bg-slate-100 text-slate-900 font-medium" 
+                              : "text-slate-600 hover:bg-slate-50"
+                          }`}
+                          onClick={() => setSortBy(option.value)}
+                          data-testid={`sort-by-${option.value}`}
+                        >
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                            sortBy === option.value ? "bg-primary border-primary" : "border-slate-300"
+                          }`}>
+                            {sortBy === option.value && <Check className="w-3 h-3 text-white" />}
+                          </div>
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
                 {/* Create Event Button - shown only when logged in and not excluded */}
                 {memberInfo && !resolvedIsFeatureExcluded('events.browse-events.create') && (
                   <Button
@@ -928,21 +995,6 @@ export default function EventsPage({
                   </Button>
                 )}
               </div>
-            )}
-
-            {/* Create Event Button - shown when no filter row, only when logged in and not excluded */}
-            {memberInfo && !resolvedIsFeatureExcluded('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
-              <div className="flex justify-end mt-4">
-                <Button
-                  onClick={() => window.location.href = createPageUrl('CreateEvent')}
-                  className="bg-blue-600 hover:bg-blue-700"
-                  data-testid="button-create-event-no-filters"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Event
-                </Button>
-              </div>
-            )}
             
             {/* Toggle Row for Past Events and Drafts */}
             {(pastEventsCount > 0 || canToggleDrafts) && (
