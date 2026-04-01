@@ -715,17 +715,23 @@ export default function PaymentOptions({
   // Check if we have enough tickets (for program events)
   const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
 
+  const trainingFundAllowedRoles = organizationInfo?.training_fund_allowed_role_ids || [];
+  const voucherAllowedRoles = organizationInfo?.voucher_allowed_role_ids || [];
+  const memberRoleId = memberInfo?.role_id;
+  const isTrainingFundRoleAllowed = trainingFundAllowedRoles.length === 0 || (memberRoleId && trainingFundAllowedRoles.includes(memberRoleId));
+  const isVoucherRoleAllowed = voucherAllowedRoles.length === 0 || (memberRoleId && voucherAllowedRoles.includes(memberRoleId));
+
   // Calculate voucher amount from selected vouchers - capped at (totalCost - trainingFundAmount)
   // This ensures vouchers only cover the remaining cost after training fund is applied
   const voucherAmountRaw = selectedVouchers.reduce((sum, voucherId) => {
     const voucher = vouchers.find((v) => v.id === voucherId);
     return sum + (voucher?.value || 0);
   }, 0);
-  const voucherAmount = isFeatureExcluded('element_EventUseVouchers') ? 0 : Math.min(voucherAmountRaw, totalCost - trainingFundAmount);
+  const voucherAmount = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? 0 : Math.min(voucherAmountRaw, totalCost - trainingFundAmount);
 
   // Max available for training fund - capped at (totalCost - voucherAmount)
   // This ensures training fund only covers remaining cost after vouchers are applied
-  const maxTrainingFund = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : Math.min(
+  const maxTrainingFund = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : Math.min(
     organizationInfo?.training_fund_balance || 0,
     totalCost - voucherAmount
   );
@@ -1079,8 +1085,8 @@ export default function PaymentOptions({
       
       if (!isGuestCheckout && !isComplexEvent) {
         savedPayload.memberEmail = memberInfo?.email;
-        savedPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
-        savedPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
+        savedPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
+        savedPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
         savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
         savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
         savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
@@ -1188,8 +1194,8 @@ export default function PaymentOptions({
 
         if (!isGuestCheckout) {
           bookingPayload.memberEmail = memberInfo.email;
-          bookingPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
-          bookingPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
+          bookingPayload.selectedVoucherIds = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? [] : selectedVouchers;
+          bookingPayload.trainingFundAmount = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : trainingFundAmount;
           bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
           bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
           bookingPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
@@ -1424,7 +1430,7 @@ export default function PaymentOptions({
             )}
             
             {/* Vouchers - only for logged-in members (not supported for complex events due to split payment limitations) */}
-            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseVouchers') && (
+            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseVouchers') && isVoucherRoleAllowed && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -1461,7 +1467,7 @@ export default function PaymentOptions({
             )}
 
             {/* Training Fund - only for logged-in members (not supported for complex events due to split payment limitations) */}
-            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseTrainingFund') && (
+            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseTrainingFund') && isTrainingFundRoleAllowed && (
               <div className="p-4 rounded-lg border border-slate-200 bg-green-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">

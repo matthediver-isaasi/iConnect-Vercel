@@ -1,18 +1,20 @@
 
-import React, { useMemo, useEffect, useCallback } from "react";
+import React, { useMemo, useEffect, useCallback, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Ticket, Calendar, AlertCircle, Wifi, WifiOff } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Wallet, Ticket, Calendar, AlertCircle, Wifi, WifiOff, Shield, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { toast } from "sonner";
 
 export default function BalancesPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo, isAdmin } = useMemberAccess();
   const queryClient = useQueryClient();
   
   // Refresh organization info on mount to get latest training fund balance
@@ -48,6 +50,69 @@ export default function BalancesPage({ hasBanner }) {
     onTrainingFundUpdated: handleTrainingFundUpdated
   });
   
+  // Role restrictions state
+  const [trainingFundRolesOpen, setTrainingFundRolesOpen] = useState(false);
+  const [voucherRolesOpen, setVoucherRolesOpen] = useState(false);
+  const [savingRestrictions, setSavingRestrictions] = useState(false);
+
+  const { data: rolesData = [], isLoading: rolesLoading } = useQuery({
+    queryKey: ['membership-roles'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/roles', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch roles');
+      const result = await response.json();
+      return result.data || [];
+    },
+    enabled: !!organizationInfo?.id
+  });
+
+  const { data: roleRestrictions, isLoading: restrictionsLoading } = useQuery({
+    queryKey: ['role-restrictions', organizationInfo?.id],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/role-restrictions', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch role restrictions');
+      const result = await response.json();
+      return result.data || { training_fund_allowed_role_ids: [], voucher_allowed_role_ids: [] };
+    },
+    enabled: !!organizationInfo?.id
+  });
+
+  const trainingFundAllowedRoles = roleRestrictions?.training_fund_allowed_role_ids || [];
+  const voucherAllowedRoles = roleRestrictions?.voucher_allowed_role_ids || [];
+
+  const saveRoleRestrictions = useCallback(async (field, roleIds) => {
+    setSavingRestrictions(true);
+    try {
+      const response = await fetch('/api/membership/role-restrictions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ [field]: roleIds })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to update');
+      }
+      queryClient.invalidateQueries({ queryKey: ['role-restrictions', organizationInfo?.id] });
+      if (refreshOrganizationInfo) {
+        refreshOrganizationInfo();
+      }
+      toast.success('Role restrictions updated');
+    } catch (error) {
+      console.error('[BalancesPage] Error saving role restrictions:', error);
+      toast.error('Failed to save role restrictions');
+    } finally {
+      setSavingRestrictions(false);
+    }
+  }, [organizationInfo?.id, queryClient]);
+
+  const handleToggleRole = useCallback((field, roleId, currentRoles) => {
+    const newRoles = currentRoles.includes(roleId)
+      ? currentRoles.filter(id => id !== roleId)
+      : [...currentRoles, roleId];
+    saveRoleRestrictions(field, newRoles);
+  }, [saveRoleRestrictions]);
+
   // Check feature exclusions for each section
   const hideTrainingFundCard = isFeatureExcluded('commerce.balances.training-fund-card');
   const hideTrainingVouchersCard = isFeatureExcluded('commerce.balances.training-vouchers-card');
@@ -161,6 +226,60 @@ export default function BalancesPage({ hasBanner }) {
                   <p className="text-sm text-slate-600 mt-3">
                     Use your training fund balance when purchasing event tickets and training
                   </p>
+                  {isAdmin && rolesData.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-green-200">
+                      <button
+                        type="button"
+                        onClick={() => setTrainingFundRolesOpen(!trainingFundRolesOpen)}
+                        className="flex items-center gap-2 text-sm font-medium text-green-800 w-full justify-between"
+                        data-testid="button-training-fund-role-restrictions"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Shield className="w-4 h-4" />
+                          Role Restrictions
+                          {trainingFundAllowedRoles.length > 0 && (
+                            <Badge className="bg-green-200 text-green-800 text-xs ml-1">
+                              {trainingFundAllowedRoles.length} role{trainingFundAllowedRoles.length !== 1 ? 's' : ''}
+                            </Badge>
+                          )}
+                          {trainingFundAllowedRoles.length === 0 && (
+                            <span className="text-xs text-slate-500 font-normal">(All roles allowed)</span>
+                          )}
+                        </span>
+                        {trainingFundRolesOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                      {trainingFundRolesOpen && (
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs text-slate-500">
+                            Select which roles can use the training fund. If none are selected, all roles can use it.
+                          </p>
+                          {rolesLoading || restrictionsLoading ? (
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Loading...
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                              {rolesData.map((role) => (
+                                <label
+                                  key={role.id}
+                                  className="flex items-center gap-2 p-2 rounded-md bg-white/60 cursor-pointer"
+                                  data-testid={`checkbox-training-fund-role-${role.id}`}
+                                >
+                                  <Checkbox
+                                    checked={trainingFundAllowedRoles.includes(role.id)}
+                                    onCheckedChange={() => handleToggleRole('training_fund_allowed_role_ids', role.id, trainingFundAllowedRoles)}
+                                    disabled={savingRestrictions}
+                                  />
+                                  <span className="text-sm text-slate-700">{role.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -193,6 +312,60 @@ export default function BalancesPage({ hasBanner }) {
                   <p className="text-sm text-slate-600 mt-3">
                     Apply vouchers when purchasing event and training tickets
                   </p>
+                  {isAdmin && rolesData.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-blue-200">
+                      <button
+                        type="button"
+                        onClick={() => setVoucherRolesOpen(!voucherRolesOpen)}
+                        className="flex items-center gap-2 text-sm font-medium text-blue-800 w-full justify-between"
+                        data-testid="button-voucher-role-restrictions"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Shield className="w-4 h-4" />
+                          Role Restrictions
+                          {voucherAllowedRoles.length > 0 && (
+                            <Badge className="bg-blue-200 text-blue-800 text-xs ml-1">
+                              {voucherAllowedRoles.length} role{voucherAllowedRoles.length !== 1 ? 's' : ''}
+                            </Badge>
+                          )}
+                          {voucherAllowedRoles.length === 0 && (
+                            <span className="text-xs text-slate-500 font-normal">(All roles allowed)</span>
+                          )}
+                        </span>
+                        {voucherRolesOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                      {voucherRolesOpen && (
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs text-slate-500">
+                            Select which roles can use training vouchers. If none are selected, all roles can use them.
+                          </p>
+                          {rolesLoading || restrictionsLoading ? (
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Loading...
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                              {rolesData.map((role) => (
+                                <label
+                                  key={role.id}
+                                  className="flex items-center gap-2 p-2 rounded-md bg-white/60 cursor-pointer"
+                                  data-testid={`checkbox-voucher-role-${role.id}`}
+                                >
+                                  <Checkbox
+                                    checked={voucherAllowedRoles.includes(role.id)}
+                                    onCheckedChange={() => handleToggleRole('voucher_allowed_role_ids', role.id, voucherAllowedRoles)}
+                                    disabled={savingRestrictions}
+                                  />
+                                  <span className="text-sm text-slate-700">{role.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

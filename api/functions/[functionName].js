@@ -1568,6 +1568,30 @@ const functionHandlers = {
     const voucherDeductions = [];
     
     if (!isGuestBooking && org) {
+      // Server-side role restriction validation for training fund
+      const trainingFundAllowedRoles = org.training_fund_allowed_role_ids || [];
+      if (trainingFundAmount > 0 && trainingFundAllowedRoles.length > 0) {
+        if (!member?.role_id || !trainingFundAllowedRoles.includes(member.role_id)) {
+          console.warn('[createOneOffEventBooking] Training fund rejected - member role not in allowed list:', {
+            memberRoleId: member?.role_id,
+            allowedRoles: trainingFundAllowedRoles
+          });
+          return { success: false, error: 'Your role does not have permission to use the training fund' };
+        }
+      }
+
+      // Server-side role restriction validation for vouchers
+      const voucherAllowedRoles = org.voucher_allowed_role_ids || [];
+      if (selectedVoucherIds && selectedVoucherIds.length > 0 && voucherAllowedRoles.length > 0) {
+        if (!member?.role_id || !voucherAllowedRoles.includes(member.role_id)) {
+          console.warn('[createOneOffEventBooking] Voucher usage rejected - member role not in allowed list:', {
+            memberRoleId: member?.role_id,
+            allowedRoles: voucherAllowedRoles
+          });
+          return { success: false, error: 'Your role does not have permission to use training vouchers' };
+        }
+      }
+
       // Server-side validation: Clamp training fund amount to available balance
       validatedTrainingFundAmount = Math.min(
         Math.max(0, trainingFundAmount || 0),

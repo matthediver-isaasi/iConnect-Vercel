@@ -281,11 +281,18 @@ export default async function handler(req, res) {
         if (organization_id) {
           const { data: org } = await supabase
             .from('organization')
-            .select('id, training_fund_balance')
+            .select('id, training_fund_balance, training_fund_allowed_role_ids')
             .eq('id', organization_id)
             .single();
           if (!org || (org.training_fund_balance || 0) < totalInPounds) {
             return res.status(400).json({ error: 'Insufficient training fund balance' });
+          }
+          const tfAllowedRoles = org.training_fund_allowed_role_ids || [];
+          if (tfAllowedRoles.length > 0) {
+            const memberRoleId = authenticatedMember.role_id;
+            if (!memberRoleId || !tfAllowedRoles.includes(memberRoleId)) {
+              return res.status(403).json({ error: 'Your role does not have permission to use the training fund' });
+            }
           }
         }
         paymentStatus = 'pending';
@@ -293,6 +300,22 @@ export default async function handler(req, res) {
       } else if (payment_method === 'voucher') {
         if (!authenticatedMember) {
           return res.status(401).json({ error: 'You must be logged in to use voucher payment' });
+        }
+        if (organization_id) {
+          const { data: org } = await supabase
+            .from('organization')
+            .select('id, voucher_allowed_role_ids')
+            .eq('id', organization_id)
+            .single();
+          if (org) {
+            const vAllowedRoles = org.voucher_allowed_role_ids || [];
+            if (vAllowedRoles.length > 0) {
+              const memberRoleId = authenticatedMember.role_id;
+              if (!memberRoleId || !vAllowedRoles.includes(memberRoleId)) {
+                return res.status(403).json({ error: 'Your role does not have permission to use training vouchers' });
+              }
+            }
+          }
         }
         paymentStatus = 'pending';
         confirmedPaymentMethod = 'voucher';
