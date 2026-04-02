@@ -37,7 +37,9 @@ import {
   Bookmark,
   ExternalLink,
   Link2,
-  Copy
+  Copy,
+  FileText,
+  Download
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -265,6 +267,82 @@ function ImagePopupModal({ embedCode, onClose }) {
   );
 }
 
+function PdfViewerModal({ url, onClose }) {
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  const filename = (() => {
+    try {
+      const pathname = new URL(url).pathname;
+      const segments = pathname.split('/');
+      return decodeURIComponent(segments[segments.length - 1] || 'Document.pdf');
+    } catch {
+      return 'Document.pdf';
+    }
+  })();
+
+  return (
+    <div
+      className="fixed inset-0 z-[10002] flex items-center justify-center bg-black/60"
+      onClick={onClose}
+      data-testid="pdf-viewer-overlay"
+    >
+      <div
+        className="relative bg-white rounded-lg overflow-hidden shadow-2xl flex flex-col"
+        style={{ width: '90vw', height: '90vh', maxWidth: '1200px' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+            <span className="text-sm font-medium text-slate-700 truncate" data-testid="pdf-viewer-filename">{filename}</span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 rounded-md hover:bg-slate-200 transition-colors text-slate-600"
+              aria-label="Open in new tab"
+              data-testid="button-pdf-open-tab"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+            <a
+              href={url}
+              download
+              className="p-1.5 rounded-md hover:bg-slate-200 transition-colors text-slate-600"
+              aria-label="Download PDF"
+              data-testid="button-pdf-download"
+            >
+              <Download className="w-4 h-4" />
+            </a>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-slate-200 transition-colors text-slate-600"
+              aria-label="Close PDF viewer"
+              data-testid="button-pdf-close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0">
+          <iframe
+            src={url}
+            className="w-full h-full border-0"
+            title={filename}
+            data-testid="pdf-viewer-iframe"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImageLinkWrapper({ img, onPopupClick, children }) {
   if (!img.link_type) return children;
 
@@ -441,6 +519,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
   const [expandedTexts, setExpandedTexts] = useState({});
   const [popupImage, setPopupImage] = useState(null);
+  const [pdfModal, setPdfModal] = useState(null);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
   const navRef = useRef(null);
@@ -2114,6 +2193,27 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     <ImagePopupModal embedCode={popupImage.link_embed} onClose={() => setPopupImage(null)} />
   ) : null;
 
+  const pdfViewerModal = pdfModal ? (
+    <PdfViewerModal url={pdfModal} onClose={() => setPdfModal(null)} />
+  ) : null;
+
+  const handlePdfLinkClick = useCallback((e) => {
+    if (e.target.closest('[data-testid="pdf-viewer-overlay"]')) return;
+    const anchor = e.target.closest('a[href]');
+    if (!anchor) return;
+    const href = anchor.getAttribute('href');
+    if (!href) return;
+    try {
+      const url = new URL(href, window.location.origin);
+      if (/\.pdf(\?.*)?$/i.test(url.pathname)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPdfModal(url.toString());
+      }
+    } catch {
+    }
+  }, []);
+
   /* ── Expanded overlay ── */
   const linkColorStyle = (
     <style dangerouslySetInnerHTML={{ __html: `.${timelineScopeClass} .tl-link-styled a { color: var(--tl-link-color); }` }} />
@@ -2124,6 +2224,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     return (
       <>
         {popupModal}
+        {pdfViewerModal}
         <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-desktop">
           {linkColorStyle}
           {expandButton}
@@ -2132,6 +2233,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           className={`fixed inset-0 z-[9999] flex items-center justify-center ${timelineScopeClass}`}
           style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
           onClick={(e) => { if (!isMobile && e.target === e.currentTarget) setIsExpanded(false); }}
+          onClickCapture={handlePdfLinkClick}
           data-testid="timeline-overlay"
         >
           <div
@@ -2230,9 +2332,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   /* ── Mobile layout (inline) ── */
   if (isMobile) {
     return (
-      <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-mobile">
+      <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-mobile" onClickCapture={handlePdfLinkClick}>
         {linkColorStyle}
         {popupModal}
+        {pdfViewerModal}
         {expandButton}
         {title && (
           <h2 className="text-2xl font-bold text-slate-900 mb-6" data-testid="timeline-title">{title}</h2>
@@ -2284,9 +2387,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   /* ── Desktop layout (inline) ── */
   return (
-    <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-desktop">
+    <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-desktop" onClickCapture={handlePdfLinkClick}>
       {linkColorStyle}
       {popupModal}
+      {pdfViewerModal}
       {expandButton}
       {title && (
         <h2 className="text-3xl font-bold text-slate-900 mb-10" data-testid="timeline-title">{title}</h2>
