@@ -879,7 +879,7 @@ export default async function handler(req, res) {
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
-            const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction'];
+            const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];
             if (entitiesWithExplicitOrgId.includes(entity) && sanitizedBody.organization_id) {
               console.log(`[Entity POST] Preserving organization_id ${sanitizedBody.organization_id} from request for ${entity} creation`);
             } else if (tenantCtx.organizationId) {
