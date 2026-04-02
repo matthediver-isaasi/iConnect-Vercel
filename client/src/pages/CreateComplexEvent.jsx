@@ -504,6 +504,7 @@ export default function CreateComplexEvent() {
     timezone: "Europe/London",
     available_seats: "",
     internal_reference: "",
+    xero_account_code: "",
     event_type: [],
     registration_closes_at: "",
     program_tag: "",
@@ -761,6 +762,7 @@ export default function CreateComplexEvent() {
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
+        xero_account_code: existingEvent.xero_account_code || "",
         event_type: parseEventTypes(existingEvent.event_type),
         registration_closes_at: existingEvent.registration_closes_at ? existingEvent.registration_closes_at.slice(0, 16) : "",
         program_tag: existingEvent.program_tag || "",
@@ -1196,6 +1198,7 @@ export default function CreateComplexEvent() {
         show_seat_count: showSeatCount,
         show_ticket_availability: showTicketAvailability,
         internal_reference: formData.internal_reference || null,
+        xero_account_code: formData.xero_account_code || null,
         event_type: serializeEventTypes(formData.event_type),
         registration_closes_at: formData.registration_closes_at || null,
         filter_tags: selectedFilterTags.length > 0
@@ -1878,20 +1881,40 @@ export default function CreateComplexEvent() {
                     </p>
                   </div>
 
-                  {eventTypes.length > 0 && (
-                    <div className="space-y-2">
-                      <Label htmlFor="event_type">Event Type</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-between font-normal" data-testid="select-event-type">
-                            {formData.event_type?.length > 0
-                              ? formData.event_type.join(', ')
-                              : "Select event types..."}
-                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-full min-w-[260px] p-2" align="start">
-                          <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
+                  <div className="space-y-2">
+                    <Label htmlFor="xero_account_code">Xero Account Code</Label>
+                    <Input
+                      id="xero_account_code"
+                      value={formData.xero_account_code}
+                      onChange={(e) => updateField("xero_account_code", e.target.value)}
+                      placeholder={(() => {
+                        const setting = systemSettings.find(s => s.setting_key === 'xero_sales_account_code');
+                        return setting?.setting_value || '200';
+                      })()}
+                      data-testid="input-xero-account-code"
+                    />
+                    <p className="text-xs text-slate-500">
+                      {formData.xero_account_code
+                        ? "This event will use its own Xero account code for invoices."
+                        : "Using default from Event Settings. Set a value here to override."}
+                    </p>
+                  </div>
+                </div>
+
+                {eventTypes.length > 0 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="event_type">Event Type</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between font-normal" data-testid="select-event-type">
+                          {formData.event_type?.length > 0
+                            ? formData.event_type.join(', ')
+                            : "Select event types..."}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full min-w-[260px] p-2" align="start">
+                        <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
                             {eventTypes.map((type, idx) => {
                               const typeName = typeof type === 'string' ? type : type.name;
                               const isSelected = formData.event_type?.includes(typeName);
@@ -1934,7 +1957,6 @@ export default function CreateComplexEvent() {
                       </p>
                     </div>
                   )}
-                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">

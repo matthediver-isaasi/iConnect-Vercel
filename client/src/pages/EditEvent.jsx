@@ -212,6 +212,7 @@ export default function EditEvent() {
     summary: "",
     description: "",
     internal_reference: "",
+    xero_account_code: "",
     event_type: "",
     program_tag: "",
     start_date: "",
@@ -769,6 +770,7 @@ export default function EditEvent() {
         summary: event.summary || "",
         description: event.description || "",
         internal_reference: event.internal_reference || "",
+        xero_account_code: event.xero_account_code || "",
         event_type: parseEventTypes(event.event_type),
         program_tag: event.program_tag || "",
         start_date: isTbcEvent ? "" : (event.start_date || ""),
@@ -1235,6 +1237,7 @@ export default function EditEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
+      xero_account_code: formData.xero_account_code || null,
       event_type: serializeEventTypes(formData.event_type),
       // For one-off events, program_tag should be empty string; for program events, use the selected program
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
@@ -2095,19 +2098,39 @@ export default function EditEvent() {
                   </p>
                 </div>
 
-                {eventTypes.length > 0 && (
-                  <div className="space-y-2">
-                    <Label htmlFor="event_type">Event Type</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-between font-normal" data-testid="select-event-type">
-                          {formData.event_type?.length > 0
-                            ? formData.event_type.join(', ')
-                            : "Select event types..."}
-                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-full min-w-[260px] p-2" align="start">
+                <div className="space-y-2">
+                  <Label htmlFor="xero_account_code">Xero Account Code</Label>
+                  <Input
+                    id="xero_account_code"
+                    value={formData.xero_account_code}
+                    onChange={(e) => handleInputChange('xero_account_code', e.target.value)}
+                    placeholder={(() => {
+                      const setting = systemSettings.find(s => s.setting_key === 'xero_sales_account_code');
+                      return setting?.setting_value || '200';
+                    })()}
+                    data-testid="input-xero-account-code"
+                  />
+                  <p className="text-xs text-slate-500">
+                    {formData.xero_account_code
+                      ? "This event will use its own Xero account code for invoices."
+                      : "Using default from Event Settings. Set a value here to override."}
+                  </p>
+                </div>
+              </div>
+
+              {eventTypes.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="event_type">Event Type</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between font-normal" data-testid="select-event-type">
+                        {formData.event_type?.length > 0
+                          ? formData.event_type.join(', ')
+                          : "Select event types..."}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full min-w-[260px] p-2" align="start">
                         <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
                           {eventTypes.map((type, idx) => {
                             const typeName = typeof type === 'string' ? type : type.name;
@@ -2151,7 +2174,6 @@ export default function EditEvent() {
                     </p>
                   </div>
                 )}
-              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="cta_override_url">CTA Override URL</Label>

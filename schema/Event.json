@@ -79,6 +79,10 @@
       "is_featured": {
         "type": "boolean",
         "description": "If true, event is featured and displayed prominently at the top of event listings"
+      },
+      "xero_account_code": {
+        "type": "string",
+        "description": "Optional Xero nominal ledger / account code for this event. Overrides the system default xero_sales_account_code when generating invoices."
       }
     },
     "required": [

@@ -2453,8 +2453,11 @@ const functionHandlers = {
                 .eq('tenant_id', appTenantId)
                 .maybeSingle();
 
-              const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+              const systemDefaultAccountCode = accountCodeSetting?.setting_value || '200';
+              const eventAccountCode = (event.xero_account_code || '').trim();
+              const xeroAccountCode = eventAccountCode || systemDefaultAccountCode;
               xeroDebug.accountCodeUsed = xeroAccountCode;
+              xeroDebug.accountCodeSource = eventAccountCode ? 'event' : 'system_default';
               
               // Get Xero invoice status setting (DRAFT or AUTHORISED) - tenant-scoped
               const { data: invoiceStatusSetting } = await supabase
@@ -4900,7 +4903,9 @@ const functionHandlers = {
       discountValue,
       stripePaymentIntentId,
       internalReference,
-      appTenantId: providedTenantId
+      appTenantId: providedTenantId,
+      eventXeroAccountCode,
+      eventId
     } = params;
 
     if (!organizationName || !programName || totalCost === undefined || !totalTickets) {
@@ -4935,7 +4940,19 @@ const functionHandlers = {
       .eq('tenant_id', appTenantId)
       .maybeSingle();
     
-    const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+    const systemDefaultAccountCode = accountCodeSetting?.setting_value || '200';
+    
+    let resolvedEventCode = (eventXeroAccountCode || '').trim();
+    if (!resolvedEventCode && eventId) {
+      const { data: eventRecord } = await supabase
+        .from('event')
+        .select('xero_account_code')
+        .eq('id', eventId)
+        .eq('tenant_id', appTenantId)
+        .maybeSingle();
+      resolvedEventCode = (eventRecord?.xero_account_code || '').trim();
+    }
+    const xeroAccountCode = resolvedEventCode || systemDefaultAccountCode;
     
     const { data: invoiceStatusSetting } = await supabase
       .from('system_settings')
