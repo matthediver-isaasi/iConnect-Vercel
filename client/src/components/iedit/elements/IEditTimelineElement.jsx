@@ -508,21 +508,28 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const effectiveRailBgType = _rail_bg_type || (rail_background_image ? 'image' : 'none');
   const isLeftLabel = label_position === 'left';
 
+  const showAsOverlay = isExpanded || isMobile;
+
   useEffect(() => {
-    if (isExpanded) {
+    if (showAsOverlay) {
       document.body.style.overflow = 'hidden';
-      const handleEsc = (e) => {
-        if (e.key === 'Escape') setIsExpanded(false);
-      };
-      document.addEventListener('keydown', handleEsc);
+      if (!isMobile) {
+        const handleEsc = (e) => {
+          if (e.key === 'Escape') setIsExpanded(false);
+        };
+        document.addEventListener('keydown', handleEsc);
+        return () => {
+          document.body.style.overflow = '';
+          document.removeEventListener('keydown', handleEsc);
+        };
+      }
       return () => {
         document.body.style.overflow = '';
-        document.removeEventListener('keydown', handleEsc);
       };
     } else {
       document.body.style.overflow = '';
     }
-  }, [isExpanded]);
+  }, [showAsOverlay, isMobile]);
 
   useEffect(() => {
     prefersReducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -547,10 +554,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       window.removeEventListener('resize', updateBgLeft);
       ro.disconnect();
     };
-  }, [hasBgActive, isExpanded]);
+  }, [hasBgActive, showAsOverlay]);
 
   useEffect(() => {
-    if (!isExpanded || !hasBgActive || !overlayScrollRef.current) {
+    if (!showAsOverlay || !hasBgActive || !overlayScrollRef.current) {
       setOverlayRect(null);
       return;
     }
@@ -568,7 +575,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       window.removeEventListener('resize', update);
       ro.disconnect();
     };
-  }, [isExpanded, hasBgActive]);
+  }, [showAsOverlay, hasBgActive]);
 
   useEffect(() => {
     if (!activeYear || !railRef.current) return;
@@ -597,7 +604,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const userHasScrolledRef = useRef(false);
 
   useEffect(() => {
-    if (!isExpanded || !scrollContainerRef.current) return;
+    if (!showAsOverlay || !scrollContainerRef.current) return;
     const container = scrollContainerRef.current;
     container.scrollTop = 0;
     userHasScrolledRef.current = false;
@@ -650,7 +657,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         img.removeEventListener('error', onLoad);
       });
     };
-  }, [isExpanded]);
+  }, [showAsOverlay]);
 
   const scrollTickingRef = useRef(false);
   const scrollRafRef = useRef(null);
@@ -662,7 +669,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       scrollTickingRef.current = false;
       if (isClickScrolling.current) return;
 
-      const container = isExpanded ? scrollContainerRef.current : null;
+      const container = showAsOverlay ? scrollContainerRef.current : null;
       const containerTop = container ? container.getBoundingClientRect().top : 0;
       const visibleHeight = container ? container.clientHeight : window.innerHeight;
       const fallbackThreshold = visibleHeight / 2;
@@ -726,7 +733,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       scrollRafRef.current = requestAnimationFrame(computeActiveYear);
     };
 
-    const target = isExpanded ? scrollContainerRef.current : window;
+    const target = showAsOverlay ? scrollContainerRef.current : window;
     if (target) {
       target.addEventListener('scroll', handleScroll, { passive: true });
       computeActiveYear();
@@ -736,7 +743,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       if (target) target.removeEventListener('scroll', handleScroll);
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
-  }, [items, header_offset, isExpanded]);
+  }, [items, header_offset, showAsOverlay]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -906,7 +913,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const nav = navRef.current;
     if (!container || !nav || !items.length || isMobile) return;
     const containerRect = container.getBoundingClientRect();
-    const viewportH = isExpanded && scrollContainerRef.current
+    const viewportH = showAsOverlay && scrollContainerRef.current
       ? scrollContainerRef.current.clientHeight
       : window.innerHeight;
     const lines = [];
@@ -974,7 +981,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       connectorLinesRef.current = lines;
       setConnectorLines(lines);
     }
-  }, [items, activeYear, isMobile, isExpanded, show_connectors]);
+  }, [items, activeYear, isMobile, showAsOverlay, show_connectors]);
 
   const scheduleConnectorUpdate = useCallback(() => {
     if (connectorTickingRef.current) return;
@@ -997,7 +1004,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   useEffect(() => {
     if (isMobile || !items.length || show_connectors === false) return;
-    const target = isExpanded ? scrollContainerRef.current : window;
+    const target = showAsOverlay ? scrollContainerRef.current : window;
     if (!target) return;
     target.addEventListener('scroll', scheduleConnectorUpdate, { passive: true });
     const ro = new ResizeObserver(scheduleConnectorUpdate);
@@ -1009,7 +1016,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       ro.disconnect();
       if (connectorRafRef.current) cancelAnimationFrame(connectorRafRef.current);
     };
-  }, [scheduleConnectorUpdate, isMobile, isExpanded, items, show_connectors]);
+  }, [scheduleConnectorUpdate, isMobile, showAsOverlay, items, show_connectors]);
 
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
@@ -1023,7 +1030,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     const markerEl = navRef.current?.querySelector(`[data-testid="timeline-marker-${year}"]`);
 
-    if (container && isExpanded) {
+    if (container && showAsOverlay) {
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const viewH = container.clientHeight;
@@ -1052,14 +1059,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       window.scrollTo({ top: Math.max(0, top), behavior });
     }
 
-    if (!isExpanded && typeof window !== 'undefined' && window.history) {
+    if (!showAsOverlay && typeof window !== 'undefined' && window.history) {
       window.history.replaceState(null, '', `#year-${year}`);
     }
 
     setTimeout(() => {
       isClickScrolling.current = false;
     }, 800);
-  }, [header_offset, isExpanded]);
+  }, [header_offset, showAsOverlay]);
 
   const setSectionRef = useCallback((year, el) => {
     sectionRefs.current[year] = el;
@@ -1073,7 +1080,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   }
 
-  const expandButton = (
+  const expandButton = isMobile ? null : (
     <button
       onClick={() => setIsExpanded(!isExpanded)}
       className="absolute top-0 right-0 z-30 p-2 rounded-md bg-white/80 hover:bg-white border border-slate-200 shadow-sm transition-colors"
@@ -1293,7 +1300,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               key={subKey}
               ref={(el) => setSectionRef(subKey, el)}
               data-year={subKey}
-              style={{ scrollMarginTop: `${(isExpanded ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
+              style={{ scrollMarginTop: `${(showAsOverlay ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
               data-testid={`timeline-section-${subKey}`}
             >
               {(() => {
@@ -1402,7 +1409,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   const contentSection = (item, idx, inOverlay = false) => {
     const isActive = activeYear === item.year;
-    const effectiveOffset = isExpanded ? 16 : header_offset;
+    const effectiveOffset = showAsOverlay ? 16 : header_offset;
     const widthStyle = getContentWidthStyle(content, inOverlay);
     const hlStyle = getHighlightStyle(item.highlight);
     const isHighlighted = !!hlStyle;
@@ -1612,7 +1619,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   const subContentSection = (sub, subKey, inOverlay = false, parentItem = {}) => {
     const isActive = activeYear === subKey;
-    const effectiveOffset = isExpanded ? 16 : header_offset;
+    const effectiveOffset = showAsOverlay ? 16 : header_offset;
     const widthStyle = getContentWidthStyle(content, inOverlay);
     const subDecoration = sub.decoration || 'line';
     const SubIcon = subDecoration !== 'line' ? getMarkerShapeIcon(subDecoration) : null;
@@ -2104,7 +2111,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   ) : null;
 
   const hasBg = hasContentBg || hasRailBg;
-  if (isExpanded) {
+  if (showAsOverlay) {
     return (
       <>
         {popupModal}
@@ -2115,7 +2122,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div
           className={`fixed inset-0 z-[9999] flex items-center justify-center ${timelineScopeClass}`}
           style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setIsExpanded(false); }}
+          onClick={(e) => { if (!isMobile && e.target === e.currentTarget) setIsExpanded(false); }}
           data-testid="timeline-overlay"
         >
           <div
@@ -2126,14 +2133,16 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               <h2 className="text-2xl font-bold text-slate-900" data-testid="timeline-overlay-title">
                 {title || 'Timeline'}
               </h2>
-              <button
-                onClick={() => setIsExpanded(false)}
-                className="p-2 rounded-md hover:bg-slate-100 transition-colors"
-                aria-label="Close fullscreen"
-                data-testid="button-timeline-close-overlay"
-              >
-                <X className="w-5 h-5 text-slate-600" />
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={() => setIsExpanded(false)}
+                  className="p-2 rounded-md hover:bg-slate-100 transition-colors"
+                  aria-label="Close fullscreen"
+                  data-testid="button-timeline-close-overlay"
+                >
+                  <X className="w-5 h-5 text-slate-600" />
+                </button>
+              )}
             </div>
             <div
               ref={(el) => { scrollContainerRef.current = el; overlayScrollRef.current = el; }}
