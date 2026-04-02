@@ -54,6 +54,7 @@ const isFieldValueFilled = (field, value) => {
   
   if (field.type === 'contact') {
     if (typeof value !== 'object') return false;
+    if (!field.required) return Object.values(value).some(v => typeof v === 'string' && v.trim());
     const subDefaults = { firstName: { visible: true, required: true }, lastName: { visible: true, required: true }, jobTitle: { visible: true, required: false }, organisation: { visible: true, required: false }, email: { visible: true, required: true } };
     const subFields = field.contact_sub_fields || subDefaults;
     const requiredKeys = Object.keys(subDefaults).filter(k => {

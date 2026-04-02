@@ -1507,6 +1507,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           { key: 'email', label: 'Email', type: 'email', placeholder: 'Email address' },
         ];
         const visibleSubFields = contactSubFieldDefs.filter(sf => isSubVisible(sf.key));
+        if (visibleSubFields.length === 0) return null;
         const topRowFields = visibleSubFields.filter(sf => sf.key === 'firstName' || sf.key === 'lastName');
         const restFields = visibleSubFields.filter(sf => sf.key !== 'firstName' && sf.key !== 'lastName');
         
