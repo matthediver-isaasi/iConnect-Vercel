@@ -3887,6 +3887,85 @@ function FieldCard({
               {field.type === 'contact' && (
                 <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    <Label className="text-xs font-medium">Sub-Field Configuration</Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Choose which sub-fields are visible and which are required
+                  </p>
+                  <div className="space-y-2">
+                    {[
+                      { key: 'firstName', label: 'First name', defaultVisible: true, defaultRequired: true },
+                      { key: 'lastName', label: 'Last name', defaultVisible: true, defaultRequired: true },
+                      { key: 'jobTitle', label: 'Job title', defaultVisible: true, defaultRequired: false },
+                      { key: 'organisation', label: 'Organisation', defaultVisible: true, defaultRequired: false },
+                      { key: 'email', label: 'Email', defaultVisible: true, defaultRequired: true },
+                    ].map((sf) => {
+                      const subConfig = field.contact_sub_fields?.[sf.key] || { visible: sf.defaultVisible, required: sf.defaultRequired };
+                      const isVisible = subConfig.visible !== false;
+                      const isRequired = subConfig.required === true;
+                      return (
+                        <div key={sf.key} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-white border border-slate-100 rounded-md" data-testid={`contact-subfield-config-${sf.key}-${field.id}`}>
+                          <span className="text-xs font-medium text-slate-700 min-w-[80px]">{sf.label}</span>
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1.5">
+                              <Eye className="w-3 h-3 text-slate-400" />
+                              <Label className="text-xs text-slate-500">Visible</Label>
+                              <Switch
+                                checked={isVisible}
+                                onCheckedChange={(checked) => {
+                                  const current = field.contact_sub_fields || {
+                                    firstName: { visible: true, required: true },
+                                    lastName: { visible: true, required: true },
+                                    jobTitle: { visible: true, required: false },
+                                    organisation: { visible: true, required: false },
+                                    email: { visible: true, required: true },
+                                  };
+                                  updateField(originalIndex, {
+                                    contact_sub_fields: {
+                                      ...current,
+                                      [sf.key]: { ...current[sf.key], visible: checked, required: checked ? (current[sf.key]?.required ?? sf.defaultRequired) : false }
+                                    }
+                                  });
+                                }}
+                                data-testid={`switch-contact-visible-${sf.key}-${field.id}`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Lock className="w-3 h-3 text-slate-400" />
+                              <Label className="text-xs text-slate-500">Required</Label>
+                              <Switch
+                                checked={isRequired}
+                                disabled={!isVisible}
+                                onCheckedChange={(checked) => {
+                                  const current = field.contact_sub_fields || {
+                                    firstName: { visible: true, required: true },
+                                    lastName: { visible: true, required: true },
+                                    jobTitle: { visible: true, required: false },
+                                    organisation: { visible: true, required: false },
+                                    email: { visible: true, required: true },
+                                  };
+                                  updateField(originalIndex, {
+                                    contact_sub_fields: {
+                                      ...current,
+                                      [sf.key]: { ...current[sf.key], required: checked }
+                                    }
+                                  });
+                                }}
+                                data-testid={`switch-contact-required-${sf.key}-${field.id}`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'contact' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2">
                     <FileSignature className="w-4 h-4 text-blue-600" />
                     <Label className="text-xs font-medium">Contract Template (Optional)</Label>
                   </div>

@@ -16,7 +16,13 @@ const isFieldValueFilled = (field, value) => {
   
   if (field.type === 'contact') {
     if (typeof value !== 'object') return false;
-    return !!(value.firstName?.trim() && value.lastName?.trim() && value.email?.trim());
+    const subDefaults = { firstName: { visible: true, required: true }, lastName: { visible: true, required: true }, jobTitle: { visible: true, required: false }, organisation: { visible: true, required: false }, email: { visible: true, required: true } };
+    const subFields = field.contact_sub_fields || subDefaults;
+    const requiredKeys = Object.keys(subDefaults).filter(k => {
+      const cfg = subFields[k] || subDefaults[k];
+      return cfg.visible !== false && cfg.required === true;
+    });
+    return requiredKeys.every(k => !!value[k]?.trim());
   }
 
   // For arrays (checkbox, list, etc.)

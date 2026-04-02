@@ -1467,14 +1467,25 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       case 'contact':
         const contactValue = typeof value === 'object' && value !== null ? value : {};
         
-        // Validate contact field - required sub-fields must be filled
+        const contactSubFieldDefaults = {
+          firstName: { visible: true, required: true },
+          lastName: { visible: true, required: true },
+          jobTitle: { visible: true, required: false },
+          organisation: { visible: true, required: false },
+          email: { visible: true, required: true },
+        };
+        const contactSubFields = field.contact_sub_fields || contactSubFieldDefaults;
+        const getSubFieldConfig = (key) => contactSubFields[key] || contactSubFieldDefaults[key];
+        const isSubVisible = (key) => getSubFieldConfig(key).visible !== false;
+        const isSubRequired = (key) => field.required && getSubFieldConfig(key).required === true;
+        
         const validateContactField = (contactData) => {
           if (!field.required) {
             onValidityChange?.(field.id, true);
             return true;
           }
-          // When required, first name, last name, and email must be filled
-          const isValid = !!(contactData.firstName?.trim() && contactData.lastName?.trim() && contactData.email?.trim());
+          const requiredSubs = ['firstName', 'lastName', 'jobTitle', 'organisation', 'email'].filter(k => isSubVisible(k) && isSubRequired(k));
+          const isValid = requiredSubs.every(k => !!contactData[k]?.trim());
           onValidityChange?.(field.id, isValid);
           return isValid;
         };
@@ -1487,97 +1498,63 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           onChange(newContactValue);
           validateContactField(newContactValue);
         };
-        
-        // Check if required sub-fields are missing (for visual feedback)
-        const contactMissingFirstName = field.required && !contactValue.firstName?.trim();
-        const contactMissingLastName = field.required && !contactValue.lastName?.trim();
-        const contactMissingEmail = field.required && !contactValue.email?.trim();
+
+        const contactSubFieldDefs = [
+          { key: 'firstName', label: 'First name', type: 'text', placeholder: 'First name' },
+          { key: 'lastName', label: 'Last name', type: 'text', placeholder: 'Last name' },
+          { key: 'jobTitle', label: 'Job title', type: 'text', placeholder: 'Job title' },
+          { key: 'organisation', label: 'Organisation', type: 'text', placeholder: 'Organisation' },
+          { key: 'email', label: 'Email', type: 'email', placeholder: 'Email address' },
+        ];
+        const visibleSubFields = contactSubFieldDefs.filter(sf => isSubVisible(sf.key));
+        const topRowFields = visibleSubFields.filter(sf => sf.key === 'firstName' || sf.key === 'lastName');
+        const restFields = visibleSubFields.filter(sf => sf.key !== 'firstName' && sf.key !== 'lastName');
         
         return (
           <div 
             className="space-y-4 p-4 bg-slate-50 border border-slate-200 rounded-lg"
             data-testid={`contact-field-${field.id}`}
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor={`${field.id}-firstName`} className="text-sm">
-                  First name
-                  {field.required && <span className="text-red-500 ml-1">*</span>}
+            {topRowFields.length > 0 && (
+              <div className={`grid grid-cols-1 ${topRowFields.length > 1 ? 'sm:grid-cols-2' : ''} gap-4`}>
+                {topRowFields.map(sf => (
+                  <div key={sf.key} className="space-y-1.5">
+                    <Label htmlFor={`${field.id}-${sf.key}`} className="text-sm">
+                      {sf.label}
+                      {isSubRequired(sf.key) && <span className="text-red-500 ml-1">*</span>}
+                    </Label>
+                    <Input
+                      id={`${field.id}-${sf.key}`}
+                      type={sf.type}
+                      value={contactValue[sf.key] || ''}
+                      onChange={(e) => handleContactChange(sf.key, e.target.value)}
+                      placeholder={sf.placeholder}
+                      disabled={isFieldDisabled}
+                      className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}`}
+                      data-testid={`input-contact-${sf.key.toLowerCase()}-${field.id}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            {restFields.map(sf => (
+              <div key={sf.key} className="space-y-1.5">
+                <Label htmlFor={`${field.id}-${sf.key}`} className="text-sm">
+                  {sf.label}
+                  {isSubRequired(sf.key) && <span className="text-red-500 ml-1">*</span>}
                 </Label>
                 <Input
-                  id={`${field.id}-firstName`}
-                  type="text"
-                  value={contactValue.firstName || ''}
-                  onChange={(e) => handleContactChange('firstName', e.target.value)}
-                  placeholder="First name"
+                  id={`${field.id}-${sf.key}`}
+                  type={sf.type}
+                  value={contactValue[sf.key] || ''}
+                  onChange={(e) => handleContactChange(sf.key, e.target.value)}
+                  placeholder={sf.placeholder}
                   disabled={isFieldDisabled}
-                  className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}`}
-                  data-testid={`input-contact-firstname-${field.id}`}
+                  className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
+                  data-testid={`input-contact-${sf.key.toLowerCase()}-${field.id}`}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor={`${field.id}-lastName`} className="text-sm">
-                  Last name
-                  {field.required && <span className="text-red-500 ml-1">*</span>}
-                </Label>
-                <Input
-                  id={`${field.id}-lastName`}
-                  type="text"
-                  value={contactValue.lastName || ''}
-                  onChange={(e) => handleContactChange('lastName', e.target.value)}
-                  placeholder="Last name"
-                  disabled={isFieldDisabled}
-                  className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}`}
-                  data-testid={`input-contact-lastname-${field.id}`}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${field.id}-jobTitle`} className="text-sm">
-                Job title
-              </Label>
-              <Input
-                id={`${field.id}-jobTitle`}
-                type="text"
-                value={contactValue.jobTitle || ''}
-                onChange={(e) => handleContactChange('jobTitle', e.target.value)}
-                placeholder="Job title"
-                disabled={isFieldDisabled}
-                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
-                data-testid={`input-contact-jobtitle-${field.id}`}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${field.id}-organisation`} className="text-sm">
-                Organisation
-              </Label>
-              <Input
-                id={`${field.id}-organisation`}
-                type="text"
-                value={contactValue.organisation || ''}
-                onChange={(e) => handleContactChange('organisation', e.target.value)}
-                placeholder="Organisation"
-                disabled={isFieldDisabled}
-                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
-                data-testid={`input-contact-organisation-${field.id}`}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${field.id}-email`} className="text-sm">
-                Email
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              <Input
-                id={`${field.id}-email`}
-                type="email"
-                value={contactValue.email || ''}
-                onChange={(e) => handleContactChange('email', e.target.value)}
-                placeholder="Email address"
-                disabled={isFieldDisabled}
-                className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}`}
-                data-testid={`input-contact-email-${field.id}`}
-              />
-            </div>
+            ))}
           </div>
         );
 
