@@ -2190,7 +2190,7 @@ export default function ReviewSubmissionPage() {
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <Card className="shadow-lg">
-            <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
+            <CardHeader ref={cardContentRef} className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
               <CardTitle>Application Fields Review</CardTitle>
               <p className="text-blue-100 text-sm">Review each field and approve or amend as needed</p>
               {hasPages && (
@@ -2220,7 +2220,7 @@ export default function ReviewSubmissionPage() {
                 </div>
               )}
             </CardHeader>
-            <CardContent ref={cardContentRef} className="p-6 space-y-2">
+            <CardContent className="p-6 space-y-2">
               {currentPageFields.length > 0 ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
