@@ -115,6 +115,8 @@ export default async function handler(req, res) {
     const newSigner = {
       first_name: signer.firstName,
       last_name: signer.lastName || '',
+      job_title: signer.jobTitle || '',
+      organisation: signer.organisation || '',
       email: signer.email,
       signed: false,
       added_at: new Date().toISOString()
