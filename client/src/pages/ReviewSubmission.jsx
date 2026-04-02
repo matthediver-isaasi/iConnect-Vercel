@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1122,6 +1122,7 @@ export default function ReviewSubmissionPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const cardContentRef = useRef(null);
   const [agentSelectionModal, setAgentSelectionModal] = useState({ open: false, agents: [], pendingStatus: null, meetingActions: [], requiresCustomMessage: false, emailActions: [] });
   const [skipWarningModal, setSkipWarningModal] = useState({ open: false, pendingStatus: null, skippedStages: [] });
   const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -1826,19 +1827,31 @@ export default function ReviewSubmissionPage() {
   const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
   const currentPage = hasPages ? pages[currentPageIndex] : null;
 
+  const scrollCardToTop = () => {
+    if (cardContentRef.current) {
+      cardContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const goToNextPage = () => {
     if (!isLastPage) {
       setCurrentPageIndex(prev => prev + 1);
-      // Scroll to top of page for better UX
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollCardToTop();
     }
   };
 
   const goToPreviousPage = () => {
     if (!isFirstPage) {
       setCurrentPageIndex(prev => prev - 1);
-      // Scroll to top of page for better UX
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollCardToTop();
+    }
+  };
+
+  const goToPage = (index) => {
+    if (index >= 0 && index < pages.length) {
+      setCurrentPageIndex(index);
+      scrollCardToTop();
     }
   };
 
@@ -2188,10 +2201,14 @@ export default function ReviewSubmissionPage() {
                     </span>
                   </div>
                   <div className="flex gap-1">
-                    {pages.map((_, index) => (
-                      <div
+                    {pages.map((page, index) => (
+                      <button
                         key={index}
-                        className={`h-1.5 flex-1 rounded-full transition-colors ${
+                        type="button"
+                        onClick={() => goToPage(index)}
+                        aria-label={`Go to page ${index + 1}: ${page?.title || `Page ${index + 1}`}`}
+                        data-testid={`button-progress-page-${index}`}
+                        className={`h-1.5 flex-1 rounded-full transition-colors cursor-pointer hover:opacity-80 ${
                           index <= currentPageIndex ? 'bg-white' : 'bg-blue-400'
                         }`}
                       />
@@ -2200,7 +2217,7 @@ export default function ReviewSubmissionPage() {
                 </div>
               )}
             </CardHeader>
-            <CardContent className="p-6 space-y-2">
+            <CardContent ref={cardContentRef} className="p-6 space-y-2">
               {currentPageFields.length > 0 ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
