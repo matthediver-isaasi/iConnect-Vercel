@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 // Helper to strip HTML tags from text
 function stripHtml(html) {
@@ -21,6 +22,11 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
+    const tenant = await resolveTenantFromRequest(req);
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
     const { q, limit = '20' } = req.query;
     
     if (!q || q.trim().length < 2) {
@@ -37,6 +43,7 @@ export default async function handler(req, res) {
       supabase
         .from('event')
         .select('id, title, description, start_date, end_date, image_url, status')
+        .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .gte('start_date', new Date().toISOString())
         .limit(limitNum),
@@ -44,6 +51,7 @@ export default async function handler(req, res) {
       supabase
         .from('blog_post')
         .select('id, title, summary, feature_image_url, feature_image_focal_point, published_date, slug')
+        .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
@@ -51,14 +59,15 @@ export default async function handler(req, res) {
       supabase
         .from('news_post')
         .select('id, title, summary, feature_image_url, feature_image_focal_point, published_date, slug')
+        .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
       
-      // Resources - show all active resources regardless of member-only status
       supabase
         .from('resource')
         .select('id, title, description, image_url, resource_type, is_public')
+        .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .eq('status', 'active')
         .limit(limitNum),
@@ -66,6 +75,7 @@ export default async function handler(req, res) {
       supabase
         .from('i_edit_page')
         .select('id, title, slug, description, published_at')
+        .eq('tenant_id', tenant.id)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum)
