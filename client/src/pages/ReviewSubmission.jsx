@@ -1828,7 +1828,9 @@ export default function ReviewSubmissionPage() {
   const currentPage = hasPages ? pages[currentPageIndex] : null;
 
   const scrollCardToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 0);
   };
 
   const goToNextPage = () => {
