@@ -1232,7 +1232,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
-  const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, colIndex) => {
+  const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, colIndex, itemLinkColor) => {
     const headingEl = colData.heading ? (
       <div className={`${isSideLayout ? 'mb-2' : 'mb-3'}`}>
         <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{colData.heading}</h3>
@@ -1260,7 +1260,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const colBodyBlock = hasColBody ? (
       <div>
         <div
-          className="prose max-w-none"
+          className={`prose max-w-none${itemLinkColor ? ' tl-link-styled' : ''}`}
           style={{
             fontSize: `${itemBodySize}px`,
             ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
@@ -1270,6 +1270,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
             } : {}),
+            ...(itemLinkColor ? { '--tl-link-color': itemLinkColor } : {}),
           }}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(colData.body) }}
         />
@@ -1278,7 +1279,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             type="button"
             onClick={() => setExpandedTexts(prev => ({ ...prev, [colExpandKey]: !prev[colExpandKey] }))}
             className="mt-2 text-sm font-medium transition-colors"
-            style={{ color: textColor || active_color }}
+            style={{ color: itemLinkColor || active_color }}
             data-testid={`button-read-more-${colExpandKey}`}
           >
             {isColTextExpanded ? 'Read less' : 'Read more'}
@@ -1313,10 +1314,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                 const colSubTextLines = sub.text_lines || 0;
                 const isColSubTextExpanded = !!expandedTexts[subKey];
                 const shouldClampColSub = colSubTextLines > 0 && !isColSubTextExpanded;
+                const colSubLinkColor = sub.link_color || itemLinkColor;
                 const colSubBodyBlock = !isEmptyHtml(sub.body) ? (
                   <div>
                     <div
-                      className="prose prose-sm max-w-none"
+                      className={`prose prose-sm max-w-none${colSubLinkColor ? ' tl-link-styled' : ''}`}
                       style={{
                         fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`,
                         ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}),
@@ -1326,6 +1328,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
                         } : {}),
+                        ...(colSubLinkColor ? { '--tl-link-color': colSubLinkColor } : {}),
                       }}
                       dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
                     />
@@ -1334,7 +1337,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         type="button"
                         onClick={() => setExpandedTexts(prev => ({ ...prev, [subKey]: !prev[subKey] }))}
                         className="mt-1 text-sm font-medium transition-colors"
-                        style={{ color: active_color }}
+                        style={{ color: colSubLinkColor || active_color }}
                         data-testid={`button-read-more-sub-${subKey}`}
                       >
                         {isColSubTextExpanded ? 'Read less' : 'Read more'}
@@ -1420,6 +1423,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const itemHeadingColor = item.heading_color || heading_color || '#1e293b';
     const itemBodySize = item.body_size || body_size;
     const itemBodyColor = item.body_color || body_color || '';
+    const itemLinkColor = item.link_color || link_color || '';
 
     const itemLayout = item.content_layout || content_layout;
     const isSideBySide = itemLayout === 'side-by-side';
@@ -1463,7 +1467,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               if (colBg) { colStyle.backgroundColor = colBg; colStyle.padding = '1rem'; colStyle.borderRadius = '8px'; }
               return (
                 <div key={cIdx} style={colStyle}>
-                  {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
+                  {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx, itemLinkColor)}
                 </div>
               );
             })}
@@ -1514,7 +1518,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const bodyBlock = !isEmptyHtml(item.body) ? (
         <div>
           <div
-            className="prose max-w-none"
+            className={`prose max-w-none${itemLinkColor ? ' tl-link-styled' : ''}`}
             style={{
               fontSize: `${itemBodySize}px`,
               ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
@@ -1524,6 +1528,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
               } : {}),
+              ...(itemLinkColor ? { '--tl-link-color': itemLinkColor } : {}),
             }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
           />
@@ -1532,7 +1537,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               type="button"
               onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
               className="mt-2 text-sm font-medium transition-colors"
-              style={{ color: textColor || active_color }}
+              style={{ color: itemLinkColor || active_color }}
               data-testid={`button-read-more-${item.year}`}
             >
               {isTextExpanded ? 'Read less' : 'Read more'}
@@ -1624,6 +1629,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const subDecoration = sub.decoration || 'line';
     const SubIcon = subDecoration !== 'line' ? getMarkerShapeIcon(subDecoration) : null;
     const subIconColor = sub.icon_color || (isActive ? active_color : line_color);
+    const subLinkColor = sub.link_color || parentItem.link_color || link_color || '';
 
     const subMediaImages = getMediaItems(sub);
     const subInner = (
@@ -1644,7 +1650,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           return !isEmptyHtml(sub.body) ? (
             <div>
               <div
-                className="prose prose-sm max-w-none"
+                className={`prose prose-sm max-w-none${subLinkColor ? ' tl-link-styled' : ''}`}
                 style={{
                   fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`,
                   ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}),
@@ -1654,6 +1660,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     WebkitBoxOrient: 'vertical',
                     overflow: 'hidden',
                   } : {}),
+                  ...(subLinkColor ? { '--tl-link-color': subLinkColor } : {}),
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
               />
@@ -1662,7 +1669,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   type="button"
                   onClick={() => setExpandedTexts(prev => ({ ...prev, [subKey]: !prev[subKey] }))}
                   className="mt-1 text-sm font-medium transition-colors"
-                  style={{ color: active_color }}
+                  style={{ color: subLinkColor || active_color }}
                   data-testid={`button-read-more-sub-${subKey}`}
                 >
                   {isSubTextExpanded ? 'Read less' : 'Read more'}
@@ -1702,6 +1709,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const isHighlighted = !!hlStyle;
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
+    const mobileItemLinkColor = item.link_color || link_color || '';
 
     const innerContent = (
       <>
@@ -1775,7 +1783,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           return !isEmptyHtml(item.body) ? (
             <div>
               <div
-                className="prose prose-sm max-w-none"
+                className={`prose prose-sm max-w-none${mobileItemLinkColor ? ' tl-link-styled' : ''}`}
                 style={{
                   fontSize: `${Math.round((item.body_size || body_size) * 0.9)}px`,
                   ...(textColor ? { color: textColor } : (item.body_color || body_color) ? { color: item.body_color || body_color } : {}),
@@ -1785,6 +1793,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     WebkitBoxOrient: 'vertical',
                     overflow: 'hidden',
                   } : {}),
+                  ...(mobileItemLinkColor ? { '--tl-link-color': mobileItemLinkColor } : {}),
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
               />
@@ -1793,7 +1802,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   type="button"
                   onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
                   className="mt-2 text-sm font-medium transition-colors"
-                  style={{ color: textColor || active_color }}
+                  style={{ color: mobileItemLinkColor || active_color }}
                   data-testid={`button-read-more-mobile-${item.year}`}
                 >
                   {mobileIsTextExpanded ? 'Read less' : 'Read more'}
@@ -2106,9 +2115,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   ) : null;
 
   /* ── Expanded overlay ── */
-  const linkColorStyle = link_color ? (
-    <style dangerouslySetInnerHTML={{ __html: `.${timelineScopeClass} .prose a { color: ${link_color}; }` }} />
-  ) : null;
+  const linkColorStyle = (
+    <style dangerouslySetInnerHTML={{ __html: `.${timelineScopeClass} .tl-link-styled a { color: var(--tl-link-color); }` }} />
+  );
 
   const hasBg = hasContentBg || hasRailBg;
   if (showAsOverlay) {
@@ -3115,6 +3124,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const headingColor = item.heading_color || content.heading_color || '#1e293b';
     const bodyColor = item.body_color || content.body_color || '';
     const textColor = hlStyle && item.highlight?.text_color ? item.highlight.text_color : '';
+    const pvLinkColor = item.link_color || content.link_color || '';
 
     const renderMediaItems = (mediaList) => {
       if (!mediaList || mediaList.length === 0) return null;
@@ -3157,7 +3167,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       return (
       <div>
         {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
-        {!isEmptyHtml(item.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...(pvTextLines > 0 ? { display: '-webkit-box', WebkitLineClamp: pvTextLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
+        {!isEmptyHtml(item.body) && <div className={`prose prose-sm max-w-none mt-1${pvLinkColor ? ' tl-link-styled' : ''}`} style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...(pvTextLines > 0 ? { display: '-webkit-box', WebkitLineClamp: pvTextLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}), ...(pvLinkColor ? { '--tl-link-color': pvLinkColor } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
         {renderMediaItems(getItemMediaItems(item))}
         {(item.sub_items || []).length > 0 && (
           <div style={{ marginTop: '0.5rem' }}>
@@ -3182,7 +3192,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
             return (
               <div key={ci} style={pvColStyle}>
                 {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
-                {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...((col.text_lines || 0) > 0 ? { display: '-webkit-box', WebkitLineClamp: col.text_lines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
+                {!isEmptyHtml(col.body) && <div className={`prose prose-sm max-w-none mt-1${pvLinkColor ? ' tl-link-styled' : ''}`} style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...((col.text_lines || 0) > 0 ? { display: '-webkit-box', WebkitLineClamp: col.text_lines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}), ...(pvLinkColor ? { '--tl-link-color': pvLinkColor } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
                 {renderMediaItems(getColumnMediaItems(col))}
                 {(col.sub_items || []).length > 0 && (
                   <div style={{ marginTop: '0.5rem' }}>
@@ -3864,7 +3874,8 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         </div>
 
         {expandedItem !== null && items[expandedItem] && (
-          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/30 p-3">
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/30 p-3 tl-preview-scope">
+            <style dangerouslySetInnerHTML={{ __html: `.tl-preview-scope .tl-link-styled a { color: var(--tl-link-color); }` }} />
             <Label className="text-xs text-blue-600 font-medium mb-2 block">Live Preview</Label>
             {renderPreviewCard(items[expandedItem])}
           </div>
@@ -4221,6 +4232,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           />
                           {item.body_color && (
                             <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'body_color', '')} data-testid={`button-clear-body-color-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Link Colour</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            value={item.link_color || content.link_color || '#2563eb'}
+                            onChange={(e) => updateItem(index, 'link_color', e.target.value)}
+                            className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <Input
+                            value={item.link_color || ''}
+                            onChange={(e) => updateItem(index, 'link_color', e.target.value)}
+                            placeholder="Default"
+                            className="flex-1"
+                            data-testid={`input-link-color-${index}`}
+                          />
+                          {item.link_color && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'link_color', '')} data-testid={`button-clear-link-color-${index}`}>
                               <X className="w-3 h-3" />
                             </Button>
                           )}
@@ -4740,6 +4774,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                                 )}
                                               </div>
                                             </div>
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Link Colour</Label>
+                                              <div className="flex items-center gap-1 mt-0.5">
+                                                <input
+                                                  type="color"
+                                                  value={sub.link_color || content.link_color || '#2563eb'}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'link_color', e.target.value)}
+                                                  className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                                />
+                                                <input
+                                                  value={sub.link_color || ''}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'link_color', e.target.value)}
+                                                  placeholder="Default"
+                                                  className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                                  data-testid={`input-col-sub-link-color-${index}-${cIdx}-${sIdx}`}
+                                                />
+                                                {sub.link_color && (
+                                                  <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'link_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                                    <X className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
                                           </div>
                                           <div>
                                             <Label className="text-[10px] text-slate-500">Body</Label>
@@ -5059,6 +5116,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       />
                                       {sub.body_color && (
                                         <button type="button" onClick={() => updateSubItem(index, sIdx, 'body_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Link Colour</Label>
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <input
+                                        type="color"
+                                        value={sub.link_color || content.link_color || '#2563eb'}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'link_color', e.target.value)}
+                                        className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                      />
+                                      <input
+                                        value={sub.link_color || ''}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'link_color', e.target.value)}
+                                        placeholder="Default"
+                                        className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                        data-testid={`input-sub-link-color-${index}-${sIdx}`}
+                                      />
+                                      {sub.link_color && (
+                                        <button type="button" onClick={() => updateSubItem(index, sIdx, 'link_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
                                           <X className="w-3 h-3" />
                                         </button>
                                       )}
