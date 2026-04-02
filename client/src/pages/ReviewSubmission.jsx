@@ -1828,9 +1828,6 @@ export default function ReviewSubmissionPage() {
   const currentPage = hasPages ? pages[currentPageIndex] : null;
 
   const scrollCardToTop = () => {
-    if (cardContentRef.current) {
-      cardContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
