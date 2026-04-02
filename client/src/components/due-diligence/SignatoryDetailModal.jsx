@@ -123,14 +123,18 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, isSending, is
 function AddAlternativeSignerForm({ onSubmit, isSubmitting, isDisabled, isLegacyAmbiguous }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [organisation, setOrganisation] = useState('');
   const [email, setEmail] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!firstName.trim() || !email.trim()) return;
-    onSubmit({ firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim() });
+    onSubmit({ firstName: firstName.trim(), lastName: lastName.trim(), jobTitle: jobTitle.trim(), organisation: organisation.trim(), email: email.trim() });
     setFirstName('');
     setLastName('');
+    setJobTitle('');
+    setOrganisation('');
     setEmail('');
   };
 
@@ -185,6 +189,26 @@ function AddAlternativeSignerForm({ onSubmit, isSubmitting, isDisabled, isLegacy
             data-testid="input-alt-last-name"
           />
         </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="alt-job-title" className="text-xs">Job Title</Label>
+        <Input
+          id="alt-job-title"
+          value={jobTitle}
+          onChange={(e) => setJobTitle(e.target.value)}
+          placeholder="Job title"
+          data-testid="input-alt-job-title"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="alt-organisation" className="text-xs">Organisation</Label>
+        <Input
+          id="alt-organisation"
+          value={organisation}
+          onChange={(e) => setOrganisation(e.target.value)}
+          placeholder="Organisation"
+          data-testid="input-alt-organisation"
+        />
       </div>
       <div className="space-y-1">
         <Label htmlFor="alt-email" className="text-xs">Email Address *</Label>
