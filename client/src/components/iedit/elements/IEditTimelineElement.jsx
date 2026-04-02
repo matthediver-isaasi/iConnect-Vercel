@@ -2205,7 +2205,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (!href) return;
     try {
       const url = new URL(href, window.location.origin);
-      if (/\.pdf(\?.*)?$/i.test(url.pathname)) {
+      if (/\.pdf$/i.test(url.pathname)) {
         e.preventDefault();
         e.stopPropagation();
         setPdfModal(url.toString());
