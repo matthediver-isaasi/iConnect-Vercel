@@ -30,6 +30,8 @@ function SignatoryItem({ signer, contractName, status, onClick }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{fullName}</p>
+        {signer.job_title && <p className="text-xs text-muted-foreground truncate">{signer.job_title}</p>}
+        {signer.organisation && <p className="text-xs text-muted-foreground truncate">{signer.organisation}</p>}
         <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <Badge 
@@ -344,7 +346,9 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
                 signer={{
                   first_name: signatory.firstName,
                   last_name: signatory.lastName,
-                  email: signatory.email
+                  email: signatory.email,
+                  job_title: signatory.jobTitle,
+                  organisation: signatory.organisation
                 }}
                 contractName={signatory.contractName}
                 status={signatory.status}

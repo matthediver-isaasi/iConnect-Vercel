@@ -51,6 +51,8 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, isSending, is
             <Badge variant="secondary" className="text-xs flex-shrink-0">Original</Badge>
           )}
         </div>
+        {signer.jobTitle && <p className="text-xs text-muted-foreground truncate">{signer.jobTitle}</p>}
+        {signer.organisation && <p className="text-xs text-muted-foreground truncate">{signer.organisation}</p>}
         <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
       </div>
       <Badge 
