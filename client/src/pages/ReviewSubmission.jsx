@@ -1829,7 +1829,11 @@ export default function ReviewSubmissionPage() {
 
   const scrollCardToTop = () => {
     setTimeout(() => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (cardContentRef.current) {
+        cardContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     }, 0);
   };
 
