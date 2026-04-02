@@ -3924,7 +3924,7 @@ function FieldCard({
                                   updateField(originalIndex, {
                                     contact_sub_fields: {
                                       ...current,
-                                      [sf.key]: { ...current[sf.key], visible: checked, required: checked ? (current[sf.key]?.required ?? sf.defaultRequired) : false }
+                                      [sf.key]: { ...current[sf.key], visible: checked }
                                     }
                                   });
                                 }}
