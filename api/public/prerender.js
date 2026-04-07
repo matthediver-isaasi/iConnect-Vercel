@@ -480,6 +480,7 @@ function buildElementSection(el) {
     if (an && !isPlaceholderText(an)) parts.push(`<p>${escapeHtml(an)}</p>`);
   }
 
+  const seenInSection = new Set();
   const arrayKeys = ['items', 'quotes', 'column_content', 'sub_items'];
   for (const key of arrayKeys) {
     if (Array.isArray(content[key])) {
@@ -488,7 +489,11 @@ function buildElementSection(el) {
           const texts = extractTextFromContent(item);
           for (const t of texts) {
             if (!isPlaceholderText(t)) {
-              parts.push(`<p>${escapeHtml(t)}</p>`);
+              const norm = t.toLowerCase().replace(/\s+/g, ' ').trim();
+              if (!seenInSection.has(norm)) {
+                seenInSection.add(norm);
+                parts.push(`<p>${escapeHtml(t)}</p>`);
+              }
             }
           }
         }
@@ -497,6 +502,8 @@ function buildElementSection(el) {
   }
 
   if (parts.length === 0) return '';
+  const hasBodyContent = parts.some(p => !p.startsWith('<h2>') && !p.startsWith('<h3>'));
+  if (!hasBodyContent) return '';
   return `<section>${parts.join('\n')}</section>`;
 }
 
@@ -552,6 +559,16 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   const pageTitle = page.meta_title || page.title;
   const pageDesc = page.meta_description || page.description || truncate(textContent);
 
+  const seenTexts = new Set();
+  const deduplicatedSections = bodySections.filter(section => {
+    const sectionText = stripHtml(section);
+    if (!sectionText || sectionText.length < 10) return false;
+    const normalised = sectionText.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seenTexts.has(normalised)) return false;
+    seenTexts.add(normalised);
+    return true;
+  });
+
   const result = {
     title: `${pageTitle} | ${tenant.name}`,
     description: truncate(pageDesc),
@@ -560,7 +577,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
       <article>
         <h1>${escapeHtml(pageTitle)}</h1>
         ${pageDesc ? `<p>${escapeHtml(truncate(pageDesc, 300))}</p>` : ''}
-        ${bodySections.join('\n')}
+        ${deduplicatedSections.join('\n')}
       </article>`
   };
 
