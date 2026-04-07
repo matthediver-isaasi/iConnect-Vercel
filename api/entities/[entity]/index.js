@@ -1023,6 +1023,19 @@ export default async function handler(req, res) {
         dispatchWpWebhook(data.tenant_id, 'article.created', data.id);
       }
 
+      if (entityNorm === 'articlebrief' && data && data.tenant_id) {
+        supabase.from('article_brief_activity').insert({
+          article_brief_id: data.id,
+          action: 'brief_created',
+          description: `Brief created: ${data.title || 'Untitled'}`,
+          performed_by: data.created_by || null,
+          metadata: { title: data.title, priority: data.priority, status: data.status },
+          tenant_id: data.tenant_id
+        }).then(() => {}).catch(err => {
+          console.error('[Entity POST] ArticleBrief activity log error:', err);
+        });
+      }
+
       // If there are pending workflow confirmations, include them in the response
       if (pendingWorkflowConfirmations.length > 0) {
         return res.status(201).json({

@@ -233,8 +233,10 @@ export default async function handler(req, res) {
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
       
       // For Organization/Member/JobPosting, fetch before data for workflow evaluation
+      // Also fetch before data for ArticleBrief to track key field changes in activity log
       let beforeData = null;
       const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting';
+      const isArticleBrief = entityNormalized === 'articlebrief';
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
       let prefValueBefore = undefined;
@@ -253,7 +255,7 @@ export default async function handler(req, res) {
         }
       }
 
-      if (isWorkflowEntity) {
+      if (isWorkflowEntity || isArticleBrief) {
         try {
           let beforeQuery = supabase
             .from(tableName)
@@ -520,6 +522,50 @@ export default async function handler(req, res) {
 
       if (entity === 'BlogPost' && responseData && tenantCtx.tenantId) {
         dispatchWpWebhook(tenantCtx.tenantId, 'article.updated', id);
+      }
+
+      if (isArticleBrief && data && beforeData && tenantCtx.tenantId) {
+        try {
+          const activities = [];
+          const performedBy = tenantCtx.memberId || null;
+
+          if (beforeData.status !== data.status) {
+            let action = 'status_changed';
+            if (data.status === 'approved') action = 'approved';
+            else if (data.status === 'rejected') action = 'rejected';
+
+            activities.push({
+              article_brief_id: id,
+              action,
+              description: `Status changed from ${beforeData.status} to ${data.status}`,
+              performed_by: performedBy,
+              metadata: { old_status: beforeData.status, new_status: data.status },
+              tenant_id: tenantCtx.tenantId
+            });
+          }
+
+          if (beforeData.assigned_writer_id !== data.assigned_writer_id) {
+            activities.push({
+              article_brief_id: id,
+              action: 'writer_assigned',
+              description: data.assigned_writer_id
+                ? 'Writer assigned'
+                : 'Writer unassigned',
+              performed_by: performedBy,
+              metadata: {
+                old_writer_id: beforeData.assigned_writer_id || null,
+                new_writer_id: data.assigned_writer_id || null
+              },
+              tenant_id: tenantCtx.tenantId
+            });
+          }
+
+          if (activities.length > 0) {
+            await supabase.from('article_brief_activity').insert(activities);
+          }
+        } catch (actErr) {
+          console.error('[Entity PATCH] Error creating ArticleBrief activity:', actErr);
+        }
       }
 
       if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0) {
