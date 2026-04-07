@@ -337,6 +337,9 @@ import DueDiligenceConfig from "./DueDiligenceConfig";
 import ReviewSubmission from "./ReviewSubmission";
 import DueDiligenceReports from "./DueDiligenceReports";
 
+import BriefManagement from "./BriefManagement";
+import BriefDetail from "./BriefDetail";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -628,6 +631,9 @@ const PAGES = {
     DueDiligenceConfig: DueDiligenceConfig,
     ReviewSubmission: ReviewSubmission,
     
+    BriefManagement: BriefManagement,
+    BriefDetail: BriefDetail,
+    
     Forum: Forum,
     ForumThread: ForumThread,
     ForumManagement: ForumManagement,
@@ -881,6 +887,9 @@ function PagesContent() {
                 <Route path="/DueDiligenceConfig" element={<DueDiligenceConfig />} />
                 <Route path="/ReviewSubmission" element={<ReviewSubmission />} />
                 <Route path="/DueDiligenceReports" element={<DueDiligenceReports />} />
+                
+                <Route path="/BriefManagement" element={<BriefManagement />} />
+                <Route path="/BriefDetail" element={<BriefDetail />} />
                 
                 <Route path="/Forum" element={<Forum />} />
                 <Route path="/ForumThread" element={<ForumThread />} />
