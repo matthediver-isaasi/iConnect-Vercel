@@ -47,7 +47,8 @@ import {
   Save,
   FileUp,
   ExternalLink,
-  User,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -109,7 +110,13 @@ export default function BriefDetailPage() {
   const [searchParams] = useSearchParams();
   const briefId = searchParams.get("id");
   const queryClient = useQueryClient();
-  const { isAccessReady, memberInfo } = useMemberAccess();
+  const { isAccessReady, memberInfo, isFeatureExcluded } = useMemberAccess();
+
+  const canManage = !isFeatureExcluded("content.briefs.manage");
+  const canAssign = !isFeatureExcluded("content.briefs.assign");
+  const canChangeStatus = !isFeatureExcluded("content.briefs.change-status");
+  const canUploadDraft = !isFeatureExcluded("content.briefs.upload-draft");
+  const canReviewComment = !isFeatureExcluded("content.briefs.review-comments");
 
   const [activeTab, setActiveTab] = useState("overview");
   const [isEditing, setIsEditing] = useState(false);
@@ -121,6 +128,8 @@ export default function BriefDetailPage() {
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [statusConfirm, setStatusConfirm] = useState(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const editAttachmentRef = useRef(null);
 
   const [commentText, setCommentText] = useState("");
   const [commentCategory, setCommentCategory] = useState("other");
@@ -200,6 +209,10 @@ export default function BriefDetailPage() {
     return { grouped, unlinked };
   }, [comments]);
 
+  const isWriter = brief?.assigned_writer_id === memberInfo?.id;
+  const isReviewer = brief?.review_owner_id === memberInfo?.id;
+  const isCreator = brief?.created_by === memberInfo?.id;
+
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       return await base44.entities.ArticleBrief.update(briefId, data);
@@ -264,6 +277,7 @@ export default function BriefDetailPage() {
   });
 
   const handleStartEdit = () => {
+    const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
     setEditData({
       title: brief.title || "",
       summary: brief.summary || "",
@@ -278,8 +292,39 @@ export default function BriefDetailPage() {
       assigned_writer_id: brief.assigned_writer_id || "",
       review_owner_id: brief.review_owner_id || "",
       assignment_note: brief.assignment_note || "",
+      attachments: existingAttachments,
     });
     setIsEditing(true);
+  };
+
+  const handleEditAttachmentUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAttachmentUploading(true);
+    try {
+      const result = await uploadFileWithProgress(file, {
+        type: UPLOAD_TYPES.ATTACHMENT,
+        entityId: briefId,
+        isPrivate: true,
+      });
+      setEditData((p) => ({
+        ...p,
+        attachments: [...(p.attachments || []), { file_url: result.file_url, file_name: file.name, size: file.size }],
+      }));
+      toast.success("File attached");
+    } catch (err) {
+      toast.error(err.message || "Failed to upload attachment");
+    } finally {
+      setAttachmentUploading(false);
+      if (editAttachmentRef.current) editAttachmentRef.current.value = "";
+    }
+  };
+
+  const removeEditAttachment = (index) => {
+    setEditData((p) => ({
+      ...p,
+      attachments: p.attachments.filter((_, i) => i !== index),
+    }));
   };
 
   const handleSaveEdit = () => {
@@ -299,6 +344,7 @@ export default function BriefDetailPage() {
       assigned_writer_id: writerId,
       review_owner_id: reviewerId,
       assignment_note: editData.assignment_note.trim() || null,
+      attachments: editData.attachments || [],
     };
     updateMutation.mutate(payload);
   };
@@ -359,9 +405,6 @@ export default function BriefDetailPage() {
     });
   };
 
-  const isWriter = brief?.assigned_writer_id === memberInfo?.id;
-  const isReviewer = brief?.review_owner_id === memberInfo?.id;
-
   const getCommentStatusOptions = () => {
     if (isReviewer) return ["open", "closed"];
     if (isWriter) return ["acknowledged", "actioned"];
@@ -400,6 +443,7 @@ export default function BriefDetailPage() {
   const priorityCfg = PRIORITY_CONFIG[brief.priority] || PRIORITY_CONFIG.medium;
   const StatusIcon = statusCfg.icon;
   const openComments = comments.filter((c) => c.status === "open" || c.status === "acknowledged");
+  const briefAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
 
   function renderCommentCard(comment) {
     const catColor = CATEGORY_COLORS[comment.category] || CATEGORY_COLORS.other;
@@ -485,42 +529,46 @@ export default function BriefDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {!isEditing && (
+            {canManage && !isEditing && (
               <Button variant="outline" size="sm" onClick={handleStartEdit} data-testid="button-edit-brief">
                 <Pencil className="w-4 h-4 mr-1" />
                 Edit
               </Button>
             )}
-            <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version">
-              <Upload className="w-4 h-4 mr-1" />
-              Upload Draft
-            </Button>
+            {canUploadDraft && (isWriter || canManage) && (
+              <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version">
+                <Upload className="w-4 h-4 mr-1" />
+                Upload Draft
+              </Button>
+            )}
           </div>
         </div>
 
-        <div className="mb-6">
-          <Label className="text-sm text-muted-foreground mb-2 block">Update Status</Label>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-              <Button
-                key={key}
-                variant={brief.status === key ? "default" : "outline"}
-                size="sm"
-                onClick={() => setStatusConfirm(key)}
-                disabled={statusMutation.isPending || brief.status === key}
-                className="toggle-elevate"
-                style={
-                  brief.status === key
-                    ? { backgroundColor: cfg.color, borderColor: cfg.color, color: "#fff" }
-                    : {}
-                }
-                data-testid={`button-status-${key}`}
-              >
-                {cfg.label}
-              </Button>
-            ))}
+        {canChangeStatus && (
+          <div className="mb-6">
+            <Label className="text-sm text-muted-foreground mb-2 block">Update Status</Label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                <Button
+                  key={key}
+                  variant={brief.status === key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setStatusConfirm(key)}
+                  disabled={statusMutation.isPending || brief.status === key}
+                  className="toggle-elevate"
+                  style={
+                    brief.status === key
+                      ? { backgroundColor: cfg.color, borderColor: cfg.color, color: "#fff" }
+                      : {}
+                  }
+                  data-testid={`button-status-${key}`}
+                >
+                  {cfg.label}
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList data-testid="tabs-brief-detail">
@@ -586,48 +634,87 @@ export default function BriefDetailPage() {
                       <Label htmlFor="edit-deadline">Deadline</Label>
                       <Input id="edit-deadline" type="date" value={editData.deadline} onChange={(e) => setEditData((p) => ({ ...p, deadline: e.target.value }))} data-testid="input-edit-deadline" />
                     </div>
-                    <div className="space-y-1">
-                      <Label>Writer</Label>
-                      <Select value={editData.assigned_writer_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}>
-                        <SelectTrigger data-testid="select-edit-writer"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                          {members.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {canAssign && (
+                      <div className="space-y-1">
+                        <Label>Writer</Label>
+                        <Select value={editData.assigned_writer_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}>
+                          <SelectTrigger data-testid="select-edit-writer"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                            {members.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label>Reviewer</Label>
-                      <Select value={editData.review_owner_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}>
-                        <SelectTrigger data-testid="select-edit-reviewer"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                          {members.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  {canAssign && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label>Reviewer</Label>
+                        <Select value={editData.review_owner_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}>
+                          <SelectTrigger data-testid="select-edit-reviewer"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                            {members.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="edit-assign-note">Assignment Note</Label>
+                        <Input id="edit-assign-note" value={editData.assignment_note} onChange={(e) => setEditData((p) => ({ ...p, assignment_note: e.target.value }))} data-testid="input-edit-assignment-note" />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="edit-assign-note">Assignment Note</Label>
-                      <Input id="edit-assign-note" value={editData.assignment_note} onChange={(e) => setEditData((p) => ({ ...p, assignment_note: e.target.value }))} data-testid="input-edit-assignment-note" />
-                    </div>
-                  </div>
+                  )}
                   <div className="space-y-1">
                     <Label htmlFor="edit-notes">Additional Notes</Label>
                     <Textarea id="edit-notes" value={editData.notes} onChange={(e) => setEditData((p) => ({ ...p, notes: e.target.value }))} className="resize-none" rows={2} data-testid="input-edit-notes" />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Attachments</Label>
+                    <input
+                      ref={editAttachmentRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleEditAttachmentUpload}
+                      data-testid="input-edit-attachment-file"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {(editData.attachments || []).map((att, i) => (
+                        <Badge key={i} variant="secondary" className="flex items-center gap-1" data-testid={`badge-edit-attachment-${i}`}>
+                          <Paperclip className="w-3 h-3" />
+                          <span className="text-xs max-w-[150px] truncate">{att.file_name}</span>
+                          <button type="button" onClick={() => removeEditAttachment(i)} className="ml-1" data-testid={`button-remove-edit-attachment-${i}`}>
+                            <X className="w-3 h-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => editAttachmentRef.current?.click()}
+                      disabled={attachmentUploading}
+                      data-testid="button-add-edit-attachment"
+                    >
+                      {attachmentUploading ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Paperclip className="w-4 h-4 mr-1" />
+                      )}
+                      {attachmentUploading ? "Uploading..." : "Add Attachment"}
+                    </Button>
+                  </div>
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">Cancel</Button>
-                    <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} data-testid="button-save-edit">
+                    <Button onClick={handleSaveEdit} disabled={updateMutation.isPending || attachmentUploading} data-testid="button-save-edit">
                       {updateMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                       <Save className="w-4 h-4 mr-1" />
                       Save
@@ -676,7 +763,23 @@ export default function BriefDetailPage() {
                         <p className="text-sm mt-1" data-testid="text-brief-assignment-note">{brief.assignment_note}</p>
                       </div>
                     )}
-                    {!brief.summary && !brief.instructions && !brief.notes && (
+                    {briefAttachments.length > 0 && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Attachments</Label>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {briefAttachments.map((att, i) => (
+                            <a key={i} href={att.file_url} target="_blank" rel="noopener noreferrer" data-testid={`link-attachment-${i}`}>
+                              <Badge variant="secondary" className="flex items-center gap-1 cursor-pointer">
+                                <Paperclip className="w-3 h-3" />
+                                <span className="text-xs max-w-[200px] truncate">{att.file_name}</span>
+                                <ExternalLink className="w-3 h-3 ml-0.5" />
+                              </Badge>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {!brief.summary && !brief.instructions && !brief.notes && briefAttachments.length === 0 && (
                       <p className="text-sm text-muted-foreground" data-testid="text-no-details">No description or instructions provided.</p>
                     )}
                   </CardContent>
@@ -733,10 +836,12 @@ export default function BriefDetailPage() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-lg">Draft Versions</CardTitle>
-                  <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version-tab">
-                    <Upload className="w-4 h-4 mr-1" />
-                    Upload Draft
-                  </Button>
+                  {canUploadDraft && (isWriter || canManage) && (
+                    <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version-tab">
+                      <Upload className="w-4 h-4 mr-1" />
+                      Upload Draft
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -831,61 +936,63 @@ export default function BriefDetailPage() {
                 </Card>
               </div>
 
-              <Card>
-                <CardHeader><CardTitle className="text-lg">Add Comment</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-1">
-                    <Label>Category</Label>
-                    <Select value={commentCategory} onValueChange={setCommentCategory}>
-                      <SelectTrigger data-testid="select-comment-category"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {COMMENT_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {versions.length > 0 && (
+              {canReviewComment && (
+                <Card>
+                  <CardHeader><CardTitle className="text-lg">Add Comment</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
                     <div className="space-y-1">
-                      <Label>Version (optional)</Label>
-                      <Select value={commentVersionId} onValueChange={setCommentVersionId}>
-                        <SelectTrigger data-testid="select-comment-version"><SelectValue placeholder="Select version" /></SelectTrigger>
+                      <Label>Category</Label>
+                      <Select value={commentCategory} onValueChange={setCommentCategory}>
+                        <SelectTrigger data-testid="select-comment-category"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">No specific version</SelectItem>
-                          {versions.map((v) => (
-                            <SelectItem key={v.id} value={v.id}>Version {v.version_number}</SelectItem>
+                          {COMMENT_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-                  )}
-                  <div className="space-y-1">
-                    <Label htmlFor="comment-text">Comment *</Label>
-                    <Textarea
-                      id="comment-text"
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                      placeholder="Your feedback..."
-                      className="resize-none"
-                      rows={4}
-                      data-testid="input-comment-text"
-                    />
-                  </div>
-                  <Button
-                    className="w-full"
-                    onClick={handleAddComment}
-                    disabled={addCommentMutation.isPending || !commentText.trim()}
-                    data-testid="button-submit-comment"
-                  >
-                    {addCommentMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4 mr-2" />
+                    {versions.length > 0 && (
+                      <div className="space-y-1">
+                        <Label>Version (optional)</Label>
+                        <Select value={commentVersionId} onValueChange={setCommentVersionId}>
+                          <SelectTrigger data-testid="select-comment-version"><SelectValue placeholder="Select version" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No specific version</SelectItem>
+                            {versions.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>Version {v.version_number}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     )}
-                    Add Comment
-                  </Button>
-                </CardContent>
-              </Card>
+                    <div className="space-y-1">
+                      <Label htmlFor="comment-text">Comment *</Label>
+                      <Textarea
+                        id="comment-text"
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        placeholder="Your feedback..."
+                        className="resize-none"
+                        rows={4}
+                        data-testid="input-comment-text"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={handleAddComment}
+                      disabled={addCommentMutation.isPending || !commentText.trim()}
+                      data-testid="button-submit-comment"
+                    >
+                      {addCommentMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      Add Comment
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </TabsContent>
 

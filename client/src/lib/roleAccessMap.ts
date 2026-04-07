@@ -305,6 +305,18 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "content.files",
         label: "File Repository"
+      },
+      {
+        id: "content.briefs",
+        label: "Article Briefs",
+        features: [
+          { id: "content.briefs.manage", label: "Create & Edit Briefs" },
+          { id: "content.briefs.assign", label: "Assign Writer & Reviewer" },
+          { id: "content.briefs.change-status", label: "Change Brief Status" },
+          { id: "content.briefs.upload-draft", label: "Upload Draft Versions" },
+          { id: "content.briefs.review-comments", label: "Add Review Comments" },
+          { id: "content.briefs.delete", label: "Delete Briefs" }
+        ]
       }
     ]
   },
@@ -989,7 +1001,11 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_ProjectBoards": "projects.boards",
   "page_admin_ProjectBoard": "projects.board-view",
   "page_AIReports": "admin.ai-reports",
-  "page_admin_AIReports": "admin.ai-reports"
+  "page_admin_AIReports": "admin.ai-reports",
+  "page_BriefManagement": "content.briefs",
+  "page_BriefDetail": "content.briefs",
+  "page_admin_BriefManagement": "content.briefs",
+  "page_admin_BriefDetail": "content.briefs"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

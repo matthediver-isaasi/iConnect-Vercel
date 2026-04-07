@@ -188,6 +188,12 @@ const adminNavigationItems = [
     ]
   },
   {
+    title: "Article Briefs",
+    url: createPageUrl("BriefManagement"),
+    icon: FileText,
+    featureId: "page_BriefManagement"
+  },
+  {
     title: "Role Management",
     icon: Shield,
     featureId: "page_RoleManagement",

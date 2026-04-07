@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,13 +43,14 @@ import {
   Trash2,
   XCircle,
   ArrowUpDown,
-  User,
-  Users,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
+import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 
 const STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
@@ -100,7 +101,10 @@ export default function BriefManagementPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { isAccessReady, memberInfo } = useMemberAccess();
+  const { isAccessReady, memberInfo, isFeatureExcluded } = useMemberAccess();
+
+  const canManage = !isFeatureExcluded("content.briefs.manage");
+  const canDelete = !isFeatureExcluded("content.briefs.delete");
 
   const initialView = searchParams.get("view") || "all";
 
@@ -113,22 +117,16 @@ export default function BriefManagementPage() {
   const [activeView, setActiveView] = useState(initialView);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [briefToDelete, setBriefToDelete] = useState(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const attachmentInputRef = useRef(null);
 
-  const [newBrief, setNewBrief] = useState({
-    title: "",
-    summary: "",
-    instructions: "",
-    target_audience: "",
-    tone_guidance: "",
-    word_count_target: "",
-    deadline: "",
-    priority: "medium",
-    category: "",
-    notes: "",
-    assigned_writer_id: "",
-    review_owner_id: "",
-    assignment_note: "",
-  });
+  const emptyBrief = {
+    title: "", summary: "", instructions: "", target_audience: "",
+    tone_guidance: "", word_count_target: "", deadline: "", priority: "medium",
+    category: "", notes: "", assigned_writer_id: "", review_owner_id: "",
+    assignment_note: "", attachments: [],
+  };
+  const [newBrief, setNewBrief] = useState(emptyBrief);
 
   const { data: briefs = [], isLoading } = useQuery({
     queryKey: ["article-briefs"],
@@ -167,9 +165,7 @@ export default function BriefManagementPage() {
 
   const membersById = useMemo(() => {
     const map = {};
-    members.forEach((m) => {
-      map[m.id] = m;
-    });
+    members.forEach((m) => { map[m.id] = m; });
     return map;
   }, [members]);
 
@@ -180,11 +176,7 @@ export default function BriefManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
       setCreateDialogOpen(false);
-      setNewBrief({
-        title: "", summary: "", instructions: "", target_audience: "",
-        tone_guidance: "", word_count_target: "", deadline: "", priority: "medium",
-        category: "", notes: "", assigned_writer_id: "", review_owner_id: "", assignment_note: "",
-      });
+      setNewBrief(emptyBrief);
       toast.success("Brief created successfully");
     },
     onError: (err) => {
@@ -304,6 +296,35 @@ export default function BriefManagementPage() {
     return sorted;
   }, [briefs, activeView, memberInfo, statusFilter, priorityFilter, writerFilter, reviewerFilter, searchQuery, sortBy]);
 
+  const handleAttachmentUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAttachmentUploading(true);
+    try {
+      const result = await uploadFileWithProgress(file, {
+        type: UPLOAD_TYPES.ATTACHMENT,
+        isPrivate: true,
+      });
+      setNewBrief((p) => ({
+        ...p,
+        attachments: [...(p.attachments || []), { file_url: result.file_url, file_name: file.name, size: file.size }],
+      }));
+      toast.success("File attached");
+    } catch (err) {
+      toast.error(err.message || "Failed to upload attachment");
+    } finally {
+      setAttachmentUploading(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (index) => {
+    setNewBrief((p) => ({
+      ...p,
+      attachments: p.attachments.filter((_, i) => i !== index),
+    }));
+  };
+
   const handleCreate = () => {
     if (!newBrief.title.trim()) {
       toast.error("Title is required");
@@ -325,6 +346,7 @@ export default function BriefManagementPage() {
       assigned_writer_id: writerId,
       review_owner_id: reviewerId,
       assignment_note: newBrief.assignment_note.trim() || null,
+      attachments: newBrief.attachments.length > 0 ? newBrief.attachments : [],
       status: writerId ? "assigned" : "new",
       assigned_date: writerId ? new Date().toISOString() : null,
       created_by: memberInfo?.id || null,
@@ -362,10 +384,12 @@ export default function BriefManagementPage() {
                 Article Briefs
               </h1>
             </div>
-            <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
-              <Plus className="w-4 h-4 mr-2" />
-              New Brief
-            </Button>
+            {canManage && (
+              <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
+                <Plus className="w-4 h-4 mr-2" />
+                New Brief
+              </Button>
+            )}
           </div>
           <p className="text-muted-foreground" data-testid="text-brief-count">
             {filteredAndSorted.length} {filteredAndSorted.length === 1 ? "brief" : "briefs"}
@@ -473,13 +497,13 @@ export default function BriefManagementPage() {
                   <TableHead className="min-w-[120px]">Reviewer</TableHead>
                   <TableHead className="min-w-[100px]">Deadline</TableHead>
                   <TableHead className="min-w-[110px]">Latest Draft</TableHead>
-                  <TableHead className="min-w-[60px]">Actions</TableHead>
+                  {canDelete && <TableHead className="min-w-[60px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredAndSorted.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={canDelete ? 8 : 7} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
@@ -542,19 +566,21 @@ export default function BriefManagementPage() {
                               : `v${latestVersion.version_number}`
                             : "--"}
                         </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setBriefToDelete(brief);
-                            }}
-                            data-testid={`button-delete-brief-${brief.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </TableCell>
+                        {canDelete && (
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBriefToDelete(brief);
+                              }}
+                              data-testid={`button-delete-brief-${brief.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })
@@ -741,15 +767,55 @@ export default function BriefManagementPage() {
                   data-testid="input-brief-notes"
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Attachments</Label>
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleAttachmentUpload}
+                  data-testid="input-attachment-file"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {(newBrief.attachments || []).map((att, i) => (
+                    <Badge key={i} variant="secondary" className="flex items-center gap-1" data-testid={`badge-attachment-${i}`}>
+                      <Paperclip className="w-3 h-3" />
+                      <span className="text-xs max-w-[150px] truncate">{att.file_name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(i)}
+                        className="ml-1"
+                        data-testid={`button-remove-attachment-${i}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => attachmentInputRef.current?.click()}
+                  disabled={attachmentUploading}
+                  data-testid="button-add-attachment"
+                >
+                  {attachmentUploading ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-4 h-4 mr-1" />
+                  )}
+                  {attachmentUploading ? "Uploading..." : "Add Attachment"}
+                </Button>
+              </div>
             </div>
           </ScrollArea>
           <DialogFooter className="flex-shrink-0">
-            <Button variant="outline" onClick={() => setCreateDialogOpen(false)} data-testid="button-cancel-create">
+            <Button variant="outline" onClick={() => { setCreateDialogOpen(false); setNewBrief(emptyBrief); }} data-testid="button-cancel-create">
               Cancel
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || attachmentUploading}
               data-testid="button-submit-create"
             >
               {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
