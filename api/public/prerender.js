@@ -395,6 +395,26 @@ function extractFirstImage(obj, seen) {
   return null;
 }
 
+const PLACEHOLDER_PATTERNS = [
+  /^your\s+(heading|title|text|content|subtitle|name|description|quote)\s*\.?$/i,
+  /^click\s+here\s*\.?$/i,
+  /^(add|enter|type|write|put)\s+(your|a|the)\s+/i,
+  /^this\s+is\s+(a|an)\s+(inspiring|example|sample|placeholder|default)\s+/i,
+  /^(lorem\s+ipsum|placeholder\s+text)/i,
+  /^(example|sample)\s+(heading|title|text|content|quote)\s*\.?$/i,
+  /^author\s+name\s*\.?$/i,
+  /^(customize|customise)\s+(this|your|with)\s+/i,
+  /that\s+can\s+be\s+customized\s+with\s+your\s+own\s+content/i,
+  /^untitled\s*(page|section|block)?\s*$/i,
+];
+
+function isPlaceholderText(text) {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (trimmed.length < 3) return true;
+  return PLACEHOLDER_PATTERNS.some(p => p.test(trimmed));
+}
+
 function buildElementSection(el) {
   if (!el.content || typeof el.content !== 'object') return '';
 
@@ -405,7 +425,7 @@ function buildElementSection(el) {
   for (const f of headingFields) {
     if (typeof content[f] === 'string') {
       const cleaned = stripHtml(content[f]);
-      if (cleaned) {
+      if (cleaned && !isPlaceholderText(cleaned)) {
         parts.push(`<h2>${escapeHtml(cleaned)}</h2>`);
         break;
       }
@@ -416,7 +436,7 @@ function buildElementSection(el) {
   for (const f of subheadingFields) {
     if (typeof content[f] === 'string') {
       const cleaned = stripHtml(content[f]);
-      if (cleaned) {
+      if (cleaned && !isPlaceholderText(cleaned)) {
         parts.push(`<h3>${escapeHtml(cleaned)}</h3>`);
         break;
       }
@@ -430,7 +450,7 @@ function buildElementSection(el) {
   for (const f of bodyFields) {
     if (typeof content[f] === 'string') {
       const cleaned = stripHtml(content[f]);
-      if (cleaned) {
+      if (cleaned && !isPlaceholderText(cleaned)) {
         parts.push(`<p>${escapeHtml(cleaned)}</p>`);
       }
     }
@@ -443,21 +463,21 @@ function buildElementSection(el) {
   for (const [hf, tf] of pairFields) {
     if (typeof content[hf] === 'string') {
       const h = stripHtml(content[hf]);
-      if (h) parts.push(`<h3>${escapeHtml(h)}</h3>`);
+      if (h && !isPlaceholderText(h)) parts.push(`<h3>${escapeHtml(h)}</h3>`);
     }
     if (typeof content[tf] === 'string') {
       const t = stripHtml(content[tf]);
-      if (t) parts.push(`<p>${escapeHtml(t)}</p>`);
+      if (t && !isPlaceholderText(t)) parts.push(`<p>${escapeHtml(t)}</p>`);
     }
   }
 
   if (typeof content.quote_text === 'string') {
     const qt = stripHtml(content.quote_text);
-    if (qt) parts.push(`<blockquote>${escapeHtml(qt)}</blockquote>`);
+    if (qt && !isPlaceholderText(qt)) parts.push(`<blockquote>${escapeHtml(qt)}</blockquote>`);
   }
   if (typeof content.author_name === 'string') {
     const an = stripHtml(content.author_name);
-    if (an) parts.push(`<p>${escapeHtml(an)}</p>`);
+    if (an && !isPlaceholderText(an)) parts.push(`<p>${escapeHtml(an)}</p>`);
   }
 
   const arrayKeys = ['items', 'quotes', 'column_content', 'sub_items'];
@@ -467,7 +487,9 @@ function buildElementSection(el) {
         if (item && typeof item === 'object') {
           const texts = extractTextFromContent(item);
           for (const t of texts) {
-            parts.push(`<p>${escapeHtml(t)}</p>`);
+            if (!isPlaceholderText(t)) {
+              parts.push(`<p>${escapeHtml(t)}</p>`);
+            }
           }
         }
       }
@@ -771,16 +793,19 @@ export default async function handler(req, res) {
     try {
       const { data: navItems } = await supabase
         .from('navigation_item')
-        .select('label, url, display_order')
+        .select('title, url, display_order, location, parent_id')
         .eq('tenant_id', tenant.id)
-        .eq('is_visible', true)
+        .eq('is_active', true)
+        .is('parent_id', null)
         .order('display_order', { ascending: true })
         .limit(20);
       if (navItems && navItems.length > 0) {
-        navLinks = navItems.map(n => ({
-          label: n.label,
-          url: n.url?.startsWith('http') ? n.url : `${baseUrl}${n.url?.startsWith('/') ? '' : '/'}${n.url || ''}`,
-        }));
+        navLinks = navItems
+          .filter(n => n.title && n.url)
+          .map(n => ({
+            label: n.title,
+            url: n.url.startsWith('http') ? n.url : `${baseUrl}${n.url.startsWith('/') ? '' : '/'}${n.url}`,
+          }));
       }
     } catch (navErr) {
     }
