@@ -51,6 +51,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import MemberCombobox from "@/components/MemberCombobox";
 
 const STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
@@ -104,6 +106,7 @@ export default function BriefManagementPage() {
   const { isAccessReady, memberInfo, isFeatureExcluded } = useMemberAccess();
 
   const canManage = !isFeatureExcluded("content.briefs.manage");
+  const canAssign = !isFeatureExcluded("content.briefs.assign");
   const canDelete = !isFeatureExcluded("content.briefs.delete");
 
   const initialView = searchParams.get("view") || "all";
@@ -621,15 +624,11 @@ export default function BriefManagementPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="brief-instructions">Full Instructions</Label>
-                <Textarea
-                  id="brief-instructions"
-                  value={newBrief.instructions}
-                  onChange={(e) => setNewBrief((p) => ({ ...p, instructions: e.target.value }))}
+                <Label>Full Instructions</Label>
+                <SimpleRichTextEditor
+                  content={newBrief.instructions}
+                  onChange={(html) => setNewBrief((p) => ({ ...p, instructions: html }))}
                   placeholder="Detailed writing instructions, key points to cover..."
-                  className="resize-none"
-                  rows={4}
-                  data-testid="input-brief-instructions"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -693,68 +692,52 @@ export default function BriefManagementPage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="brief-deadline">Deadline</Label>
-                  <Input
-                    id="brief-deadline"
-                    type="date"
-                    value={newBrief.deadline}
-                    onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
-                    data-testid="input-brief-deadline"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Assign Writer</Label>
-                  <Select
-                    value={newBrief.assigned_writer_id || "unassigned"}
-                    onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
-                  >
-                    <SelectTrigger data-testid="select-brief-writer">
-                      <SelectValue placeholder="Select writer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                      {members.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-1">
+                <Label htmlFor="brief-deadline">Deadline</Label>
+                <Input
+                  id="brief-deadline"
+                  type="date"
+                  value={newBrief.deadline}
+                  onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
+                  data-testid="input-brief-deadline"
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Assign Reviewer</Label>
-                  <Select
-                    value={newBrief.review_owner_id || "unassigned"}
-                    onValueChange={(v) => setNewBrief((p) => ({ ...p, review_owner_id: v }))}
-                  >
-                    <SelectTrigger data-testid="select-brief-reviewer">
-                      <SelectValue placeholder="Select reviewer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                      {members.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="brief-assign-note">Assignment Note</Label>
-                  <Input
-                    id="brief-assign-note"
-                    value={newBrief.assignment_note}
-                    onChange={(e) => setNewBrief((p) => ({ ...p, assignment_note: e.target.value }))}
-                    placeholder="Any notes for the writer"
-                    data-testid="input-brief-assignment-note"
-                  />
-                </div>
-              </div>
+              {canAssign && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>Assign Writer</Label>
+                      <MemberCombobox
+                        members={members}
+                        value={newBrief.assigned_writer_id || "unassigned"}
+                        onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
+                        placeholder="Search writer..."
+                        testId="combobox-brief-writer"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Assign Reviewer</Label>
+                      <MemberCombobox
+                        members={members}
+                        value={newBrief.review_owner_id || "unassigned"}
+                        onValueChange={(v) => setNewBrief((p) => ({ ...p, review_owner_id: v }))}
+                        placeholder="Search reviewer..."
+                        testId="combobox-brief-reviewer"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="brief-assign-note">Assignment Note</Label>
+                    <Input
+                      id="brief-assign-note"
+                      value={newBrief.assignment_note}
+                      onChange={(e) => setNewBrief((p) => ({ ...p, assignment_note: e.target.value }))}
+                      placeholder="Any notes for the writer"
+                      data-testid="input-brief-assignment-note"
+                    />
+                  </div>
+                </>
+              )}
               <div className="space-y-1">
                 <Label htmlFor="brief-notes">Additional Notes</Label>
                 <Textarea

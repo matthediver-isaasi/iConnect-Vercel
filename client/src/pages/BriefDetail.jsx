@@ -55,6 +55,9 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import MemberCombobox from "@/components/MemberCombobox";
+import DOMPurify from "dompurify";
 
 const STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
@@ -449,6 +452,7 @@ export default function BriefDetailPage() {
     const catColor = CATEGORY_COLORS[comment.category] || CATEGORY_COLORS.other;
     const catLabel = COMMENT_CATEGORIES.find((c) => c.value === comment.category)?.label || comment.category;
     const statusOptions = getCommentStatusOptions();
+    const canUpdateStatus = canReviewComment || isWriter || isReviewer;
 
     return (
       <div key={comment.id} className="p-3 rounded-lg border space-y-2" data-testid={`comment-row-${comment.id}`}>
@@ -456,19 +460,25 @@ export default function BriefDetailPage() {
           <Badge variant="outline" className="text-xs" style={{ borderColor: catColor, color: catColor }}>
             {catLabel}
           </Badge>
-          <Select
-            value={comment.status}
-            onValueChange={(v) => updateCommentMutation.mutate({ commentId: comment.id, status: v })}
-          >
-            <SelectTrigger className="w-[130px]" data-testid={`select-comment-status-${comment.id}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((s) => (
-                <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {canUpdateStatus ? (
+            <Select
+              value={comment.status}
+              onValueChange={(v) => updateCommentMutation.mutate({ commentId: comment.id, status: v })}
+            >
+              <SelectTrigger className="w-[130px]" data-testid={`select-comment-status-${comment.id}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {statusOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Badge variant="secondary" className="text-xs" data-testid={`badge-comment-status-${comment.id}`}>
+              {comment.status?.charAt(0).toUpperCase() + comment.status?.slice(1)}
+            </Badge>
+          )}
         </div>
         <p className="text-sm whitespace-pre-wrap" data-testid={`text-comment-${comment.id}`}>{comment.comment_text}</p>
         <p className="text-xs text-muted-foreground">
@@ -595,8 +605,11 @@ export default function BriefDetailPage() {
                     <Textarea id="edit-summary" value={editData.summary} onChange={(e) => setEditData((p) => ({ ...p, summary: e.target.value }))} className="resize-none" data-testid="input-edit-summary" />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="edit-instructions">Full Instructions</Label>
-                    <Textarea id="edit-instructions" value={editData.instructions} onChange={(e) => setEditData((p) => ({ ...p, instructions: e.target.value }))} className="resize-none" rows={4} data-testid="input-edit-instructions" />
+                    <Label>Full Instructions</Label>
+                    <SimpleRichTextEditor
+                      content={editData.instructions}
+                      onChange={(html) => setEditData((p) => ({ ...p, instructions: html }))}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -637,17 +650,13 @@ export default function BriefDetailPage() {
                     {canAssign && (
                       <div className="space-y-1">
                         <Label>Writer</Label>
-                        <Select value={editData.assigned_writer_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}>
-                          <SelectTrigger data-testid="select-edit-writer"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="unassigned">Unassigned</SelectItem>
-                            {members.map((m) => (
-                              <SelectItem key={m.id} value={m.id}>
-                                {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <MemberCombobox
+                          members={members}
+                          value={editData.assigned_writer_id || "unassigned"}
+                          onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
+                          placeholder="Search writer..."
+                          testId="combobox-edit-writer"
+                        />
                       </div>
                     )}
                   </div>
@@ -655,17 +664,13 @@ export default function BriefDetailPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label>Reviewer</Label>
-                        <Select value={editData.review_owner_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}>
-                          <SelectTrigger data-testid="select-edit-reviewer"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="unassigned">Unassigned</SelectItem>
-                            {members.map((m) => (
-                              <SelectItem key={m.id} value={m.id}>
-                                {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <MemberCombobox
+                          members={members}
+                          value={editData.review_owner_id || "unassigned"}
+                          onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}
+                          placeholder="Search reviewer..."
+                          testId="combobox-edit-reviewer"
+                        />
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="edit-assign-note">Assignment Note</Label>
@@ -736,7 +741,7 @@ export default function BriefDetailPage() {
                     {brief.instructions && (
                       <div>
                         <Label className="text-xs text-muted-foreground">Instructions</Label>
-                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-instructions">{brief.instructions}</p>
+                        <div className="text-sm mt-1 prose prose-sm max-w-none" data-testid="text-brief-instructions" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.instructions) }} />
                       </div>
                     )}
                     {brief.target_audience && (
