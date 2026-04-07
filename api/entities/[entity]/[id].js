@@ -107,6 +107,10 @@ const entityToTable = {
   'EventSponsor': 'event_sponsor',
   'EventSponsorCategory': 'event_sponsor_category',
   'EventSponsorAssignment': 'event_sponsor_assignment',
+  'ArticleBrief': 'article_brief',
+  'ArticleBriefVersion': 'article_brief_version',
+  'ArticleBriefComment': 'article_brief_comment',
+  'ArticleBriefActivity': 'article_brief_activity',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -205,7 +209,8 @@ export default async function handler(req, res) {
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
-            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
+            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -283,7 +288,8 @@ export default async function handler(req, res) {
                 'DynamicDirectory',
                 'IEditPage', 'IEditPageElement',
                 'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession',
-                'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
+                'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+                'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -424,7 +430,8 @@ export default async function handler(req, res) {
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
-            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
+            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -558,7 +565,8 @@ export default async function handler(req, res) {
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
-            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment'
+            'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

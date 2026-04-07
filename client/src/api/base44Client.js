@@ -281,6 +281,10 @@ class EntitiesProxy {
   get EventSponsor() { return this._getEntity('EventSponsor'); }
   get EventSponsorCategory() { return this._getEntity('EventSponsorCategory'); }
   get EventSponsorAssignment() { return this._getEntity('EventSponsorAssignment'); }
+  get ArticleBrief() { return this._getEntity('ArticleBrief'); }
+  get ArticleBriefVersion() { return this._getEntity('ArticleBriefVersion'); }
+  get ArticleBriefComment() { return this._getEntity('ArticleBriefComment'); }
+  get ArticleBriefActivity() { return this._getEntity('ArticleBriefActivity'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

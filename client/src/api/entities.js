@@ -141,5 +141,13 @@ export const ForumReport = base44.entities.ForumReport;
 
 export const ForumModerationLog = base44.entities.ForumModerationLog;
 
+export const ArticleBrief = base44.entities.ArticleBrief;
+
+export const ArticleBriefVersion = base44.entities.ArticleBriefVersion;
+
+export const ArticleBriefComment = base44.entities.ArticleBriefComment;
+
+export const ArticleBriefActivity = base44.entities.ArticleBriefActivity;
+
 // auth sdk:
 export const User = base44.auth;
