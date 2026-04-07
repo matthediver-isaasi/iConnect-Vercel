@@ -59,28 +59,45 @@ export default async function handler(req, res) {
 
     const uploaderId = tenantCtx.memberId || null;
 
-    const { data: version, error: versionError } = await supabase
-      .from('article_brief_version')
-      .insert({
-        article_brief_id,
-        version_number: nextVersionNumber,
-        uploaded_by: uploaderId,
-        submission_note: submission_note || null,
-        file_url,
-        file_name: file_name || null,
-        status_at_upload: brief.status,
-        tenant_id: tenantCtx.tenantId
-      })
-      .select()
-      .single();
+    let version = null;
+    let versionNumber = nextVersionNumber;
+    const MAX_RETRIES = 3;
 
-    if (versionError) {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const { data: insertedVersion, error: versionError } = await supabase
+        .from('article_brief_version')
+        .insert({
+          article_brief_id,
+          version_number: versionNumber,
+          uploaded_by: uploaderId,
+          submission_note: submission_note || null,
+          file_url,
+          file_name: file_name || null,
+          status_at_upload: brief.status,
+          tenant_id: tenantCtx.tenantId
+        })
+        .select()
+        .single();
+
+      if (!versionError) {
+        version = insertedVersion;
+        break;
+      }
+
+      if (versionError.code === '23505' && attempt < MAX_RETRIES - 1) {
+        versionNumber++;
+        continue;
+      }
+
       console.error('[UploadVersion] Error creating version:', versionError);
       return res.status(500).json({ error: 'Failed to create version: ' + versionError.message });
     }
 
+    const finalVersionNumber = versionNumber;
+
     const statusesToTransition = ['in_progress', 'assigned', 'changes_requested'];
-    if (statusesToTransition.includes(brief.status)) {
+    const didTransitionStatus = statusesToTransition.includes(brief.status);
+    if (didTransitionStatus) {
       await supabase
         .from('article_brief')
         .update({ status: 'under_review', updated_at: new Date().toISOString() })
@@ -88,25 +105,40 @@ export default async function handler(req, res) {
         .eq('tenant_id', tenantCtx.tenantId);
     }
 
-    await supabase
-      .from('article_brief_activity')
-      .insert({
+    const activityEntries = [
+      {
         article_brief_id,
         action: 'version_uploaded',
-        description: `Version ${nextVersionNumber} uploaded${file_name ? ': ' + file_name : ''}`,
+        description: `Version ${finalVersionNumber} uploaded${file_name ? ': ' + file_name : ''}`,
         performed_by: uploaderId,
         metadata: {
-          version_number: nextVersionNumber,
+          version_number: finalVersionNumber,
           file_name: file_name || null,
           previous_status: brief.status
         },
         tenant_id: tenantCtx.tenantId
+      }
+    ];
+
+    if (didTransitionStatus) {
+      activityEntries.push({
+        article_brief_id,
+        action: 'status_changed',
+        description: `Status changed from ${brief.status} to under_review`,
+        performed_by: uploaderId,
+        metadata: { old_status: brief.status, new_status: 'under_review' },
+        tenant_id: tenantCtx.tenantId
       });
+    }
+
+    await supabase
+      .from('article_brief_activity')
+      .insert(activityEntries);
 
     return res.json({
       success: true,
       version,
-      version_number: nextVersionNumber
+      version_number: finalVersionNumber
     });
 
   } catch (error) {
