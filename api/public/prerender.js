@@ -10,9 +10,24 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function stripHtml(html) {
   if (!html) return '';
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const stripped = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return decodeHtmlEntities(stripped);
 }
 
 function truncate(str, maxLen = 160) {
@@ -21,7 +36,29 @@ function truncate(str, maxLen = 160) {
   return clean.length < str.length ? clean + '...' : clean;
 }
 
-function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, ogUrl, canonicalUrl, bodyContent, tenantName, favicon }) {
+function buildJsonLd({ title, description, ogUrl, ogImage, tenantName }) {
+  const ld = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    'name': title || '',
+    'description': description || '',
+  };
+  if (ogUrl) ld.url = ogUrl;
+  if (ogImage) ld.image = ogImage;
+  if (tenantName) {
+    ld.publisher = {
+      '@type': 'Organization',
+      'name': tenantName,
+    };
+  }
+  return JSON.stringify(ld);
+}
+
+function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, ogUrl, canonicalUrl, bodyContent, tenantName, favicon, navLinks }) {
+  const navHtml = (navLinks && navLinks.length > 0)
+    ? `<nav aria-label="Main navigation"><ul>${navLinks.map(n => `<li><a href="${escapeHtml(n.url)}">${escapeHtml(n.label)}</a></li>`).join('')}</ul></nav>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -41,12 +78,17 @@ function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, og
   ${canonicalUrl ? `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">` : ''}
   ${favicon ? `<link rel="icon" href="${escapeHtml(favicon)}">` : ''}
   <meta name="robots" content="index, follow">
+  <script type="application/ld+json">${buildJsonLd({ title, description, ogUrl, ogImage, tenantName })}</script>
 </head>
 <body>
-  <header><h1>${escapeHtml(tenantName || '')}</h1></header>
+  <header>
+    <h1>${escapeHtml(tenantName || '')}</h1>
+    ${navHtml}
+  </header>
   <main>
     ${bodyContent}
   </main>
+  <footer><p>&copy; ${new Date().getFullYear()} ${escapeHtml(tenantName || '')}</p></footer>
 </body>
 </html>`;
 }
@@ -725,6 +767,24 @@ export default async function handler(req, res) {
       return res.status(404).send('<html><body>Page not found</body></html>');
     }
 
+    let navLinks = [];
+    try {
+      const { data: navItems } = await supabase
+        .from('navigation_item')
+        .select('label, url, display_order')
+        .eq('tenant_id', tenant.id)
+        .eq('is_visible', true)
+        .order('display_order', { ascending: true })
+        .limit(20);
+      if (navItems && navItems.length > 0) {
+        navLinks = navItems.map(n => ({
+          label: n.label,
+          url: n.url?.startsWith('http') ? n.url : `${baseUrl}${n.url?.startsWith('/') ? '' : '/'}${n.url || ''}`,
+        }));
+      }
+    } catch (navErr) {
+    }
+
     const html = buildHtmlPage({
       title: pageData.title,
       description: pageData.description,
@@ -735,7 +795,8 @@ export default async function handler(req, res) {
       canonicalUrl: pageData.ogUrl,
       bodyContent: pageData.bodyContent,
       tenantName: tenant.name,
-      favicon: tenant.favicon_url
+      favicon: tenant.favicon_url,
+      navLinks,
     });
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
