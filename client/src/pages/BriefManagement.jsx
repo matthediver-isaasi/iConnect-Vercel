@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -40,10 +41,10 @@ import {
   Pencil,
   Eye,
   Trash2,
-  RefreshCw,
-  Send,
   XCircle,
-  Filter,
+  ArrowUpDown,
+  User,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -67,6 +68,16 @@ const PRIORITY_CONFIG = {
   urgent: { label: "Urgent", color: "#ef4444" },
 };
 
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest First" },
+  { value: "oldest", label: "Oldest First" },
+  { value: "deadline_asc", label: "Deadline (Earliest)" },
+  { value: "deadline_desc", label: "Deadline (Latest)" },
+  { value: "priority_desc", label: "Priority (Highest)" },
+];
+
+const PRIORITY_ORDER = { urgent: 4, high: 3, medium: 2, low: 1 };
+
 function StatCard({ title, value, icon: Icon, color }) {
   return (
     <Card data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -74,7 +85,7 @@ function StatCard({ title, value, icon: Icon, color }) {
         <div className="flex items-center justify-between gap-2">
           <div>
             <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-3xl font-bold">{value}</p>
+            <p className="text-3xl font-bold" data-testid={`stat-value-${title.toLowerCase().replace(/\s+/g, "-")}`}>{value}</p>
           </div>
           <div className="p-3 rounded-full" style={{ backgroundColor: `${color}20` }}>
             <Icon className="w-6 h-6" style={{ color }} />
@@ -87,30 +98,42 @@ function StatCard({ title, value, icon: Icon, color }) {
 
 export default function BriefManagementPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isAccessReady, memberInfo } = useMemberAccess();
+
+  const initialView = searchParams.get("view") || "all";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [writerFilter, setWriterFilter] = useState("all");
+  const [reviewerFilter, setReviewerFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [activeView, setActiveView] = useState(initialView);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [briefToDelete, setBriefToDelete] = useState(null);
 
   const [newBrief, setNewBrief] = useState({
     title: "",
-    description: "",
-    priority: "medium",
-    target_word_count: "",
+    summary: "",
+    instructions: "",
+    target_audience: "",
+    tone_guidance: "",
+    word_count_target: "",
     deadline: "",
-    assigned_to: "",
-    guidelines: "",
+    priority: "medium",
+    category: "",
+    notes: "",
+    assigned_writer_id: "",
+    review_owner_id: "",
+    assignment_note: "",
   });
 
   const { data: briefs = [], isLoading } = useQuery({
     queryKey: ["article-briefs"],
     queryFn: async () => {
-      const data = await base44.entities.ArticleBrief.list();
-      return data.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+      return await base44.entities.ArticleBrief.list();
     },
     enabled: isAccessReady,
   });
@@ -122,6 +145,25 @@ export default function BriefManagementPage() {
     },
     enabled: isAccessReady,
   });
+
+  const { data: allVersions = [] } = useQuery({
+    queryKey: ["article-brief-versions-all"],
+    queryFn: async () => {
+      return await base44.entities.ArticleBriefVersion.list();
+    },
+    enabled: isAccessReady,
+  });
+
+  const latestVersionByBrief = useMemo(() => {
+    const map = {};
+    allVersions.forEach((v) => {
+      const existing = map[v.article_brief_id];
+      if (!existing || v.version_number > existing.version_number) {
+        map[v.article_brief_id] = v;
+      }
+    });
+    return map;
+  }, [allVersions]);
 
   const membersById = useMemo(() => {
     const map = {};
@@ -139,13 +181,9 @@ export default function BriefManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
       setCreateDialogOpen(false);
       setNewBrief({
-        title: "",
-        description: "",
-        priority: "medium",
-        target_word_count: "",
-        deadline: "",
-        assigned_to: "",
-        guidelines: "",
+        title: "", summary: "", instructions: "", target_audience: "",
+        tone_guidance: "", word_count_target: "", deadline: "", priority: "medium",
+        category: "", notes: "", assigned_writer_id: "", review_owner_id: "", assignment_note: "",
       });
       toast.success("Brief created successfully");
     },
@@ -182,40 +220,113 @@ export default function BriefManagementPage() {
     };
   }, [briefs]);
 
-  const filteredBriefs = useMemo(() => {
+  const uniqueWriters = useMemo(() => {
+    const ids = new Set();
+    briefs.forEach((b) => { if (b.assigned_writer_id) ids.add(b.assigned_writer_id); });
+    return Array.from(ids).map((id) => ({ id, name: getMemberName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [briefs, membersById]);
+
+  const uniqueReviewers = useMemo(() => {
+    const ids = new Set();
+    briefs.forEach((b) => { if (b.review_owner_id) ids.add(b.review_owner_id); });
+    return Array.from(ids).map((id) => ({ id, name: getMemberName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [briefs, membersById]);
+
+  const filteredAndSorted = useMemo(() => {
     let filtered = briefs;
+
+    if (activeView === "my_briefs" && memberInfo?.id) {
+      filtered = filtered.filter((b) => b.assigned_writer_id === memberInfo.id);
+    } else if (activeView === "review_queue" && memberInfo?.id) {
+      filtered = filtered.filter(
+        (b) => b.review_owner_id === memberInfo.id && (b.status === "under_review" || b.status === "changes_requested")
+      );
+    }
+
     if (statusFilter !== "all") {
       filtered = filtered.filter((b) => b.status === statusFilter);
     }
     if (priorityFilter !== "all") {
       filtered = filtered.filter((b) => b.priority === priorityFilter);
     }
+    if (writerFilter !== "all") {
+      if (writerFilter === "__unassigned__") {
+        filtered = filtered.filter((b) => !b.assigned_writer_id);
+      } else {
+        filtered = filtered.filter((b) => b.assigned_writer_id === writerFilter);
+      }
+    }
+    if (reviewerFilter !== "all") {
+      if (reviewerFilter === "__unassigned__") {
+        filtered = filtered.filter((b) => !b.review_owner_id);
+      } else {
+        filtered = filtered.filter((b) => b.review_owner_id === reviewerFilter);
+      }
+    }
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (b) =>
           b.title?.toLowerCase().includes(query) ||
-          b.description?.toLowerCase().includes(query)
+          b.summary?.toLowerCase().includes(query) ||
+          b.category?.toLowerCase().includes(query)
       );
     }
-    return filtered;
-  }, [briefs, statusFilter, priorityFilter, searchQuery]);
+
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case "newest":
+        sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        break;
+      case "oldest":
+        sorted.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+        break;
+      case "deadline_asc":
+        sorted.sort((a, b) => {
+          if (!a.deadline) return 1;
+          if (!b.deadline) return -1;
+          return new Date(a.deadline) - new Date(b.deadline);
+        });
+        break;
+      case "deadline_desc":
+        sorted.sort((a, b) => {
+          if (!a.deadline) return 1;
+          if (!b.deadline) return -1;
+          return new Date(b.deadline) - new Date(a.deadline);
+        });
+        break;
+      case "priority_desc":
+        sorted.sort((a, b) => (PRIORITY_ORDER[b.priority] || 0) - (PRIORITY_ORDER[a.priority] || 0));
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  }, [briefs, activeView, memberInfo, statusFilter, priorityFilter, writerFilter, reviewerFilter, searchQuery, sortBy]);
 
   const handleCreate = () => {
     if (!newBrief.title.trim()) {
       toast.error("Title is required");
       return;
     }
-    const assignee = newBrief.assigned_to && newBrief.assigned_to !== "unassigned" ? newBrief.assigned_to : null;
+    const writerId = newBrief.assigned_writer_id && newBrief.assigned_writer_id !== "unassigned" ? newBrief.assigned_writer_id : null;
+    const reviewerId = newBrief.review_owner_id && newBrief.review_owner_id !== "unassigned" ? newBrief.review_owner_id : null;
     const payload = {
       title: newBrief.title.trim(),
-      description: newBrief.description.trim() || null,
-      priority: newBrief.priority,
-      target_word_count: newBrief.target_word_count ? parseInt(newBrief.target_word_count) : null,
+      summary: newBrief.summary.trim() || null,
+      instructions: newBrief.instructions.trim() || null,
+      target_audience: newBrief.target_audience.trim() || null,
+      tone_guidance: newBrief.tone_guidance.trim() || null,
+      word_count_target: newBrief.word_count_target ? parseInt(newBrief.word_count_target) : null,
       deadline: newBrief.deadline || null,
-      assigned_to: assignee,
-      guidelines: newBrief.guidelines.trim() || null,
-      status: assignee ? "assigned" : "new",
+      priority: newBrief.priority,
+      category: newBrief.category.trim() || null,
+      notes: newBrief.notes.trim() || null,
+      assigned_writer_id: writerId,
+      review_owner_id: reviewerId,
+      assignment_note: newBrief.assignment_note.trim() || null,
+      status: writerId ? "assigned" : "new",
+      assigned_date: writerId ? new Date().toISOString() : null,
       created_by: memberInfo?.id || null,
     };
     createMutation.mutate(payload);
@@ -225,16 +336,16 @@ export default function BriefManagementPage() {
     navigate(createPageUrl("BriefDetail") + "?id=" + briefId);
   };
 
-  const getMemberName = (memberId) => {
+  function getMemberName(memberId) {
     if (!memberId) return "--";
     const member = membersById[memberId];
     if (!member) return "Unknown";
     return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
-  };
+  }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-spinner">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -256,8 +367,8 @@ export default function BriefManagementPage() {
               New Brief
             </Button>
           </div>
-          <p className="text-muted-foreground">
-            {filteredBriefs.length} {filteredBriefs.length === 1 ? "brief" : "briefs"}
+          <p className="text-muted-foreground" data-testid="text-brief-count">
+            {filteredAndSorted.length} {filteredAndSorted.length === 1 ? "brief" : "briefs"}
           </p>
         </div>
 
@@ -267,6 +378,14 @@ export default function BriefManagementPage() {
           <StatCard title="Under Review" value={stats.underReview} icon={Eye} color="#a855f7" />
           <StatCard title="Approved" value={stats.approved} icon={CheckCircle} color="#22c55e" />
         </div>
+
+        <Tabs value={activeView} onValueChange={setActiveView} className="mb-6">
+          <TabsList data-testid="tabs-view-selector">
+            <TabsTrigger value="all" data-testid="tab-all-briefs">All Briefs</TabsTrigger>
+            <TabsTrigger value="my_briefs" data-testid="tab-my-briefs">My Briefs</TabsTrigger>
+            <TabsTrigger value="review_queue" data-testid="tab-review-queue">Review Queue</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <Card className="mb-6">
           <CardContent className="pt-6">
@@ -288,9 +407,7 @@ export default function BriefManagementPage() {
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
                   {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>
-                      {cfg.label}
-                    </SelectItem>
+                    <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -301,9 +418,42 @@ export default function BriefManagementPage() {
                 <SelectContent>
                   <SelectItem value="all">All Priorities</SelectItem>
                   {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>
-                      {cfg.label}
-                    </SelectItem>
+                    <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={writerFilter} onValueChange={setWriterFilter}>
+                <SelectTrigger className="w-[150px]" data-testid="select-writer-filter">
+                  <SelectValue placeholder="Writer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Writers</SelectItem>
+                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                  {uniqueWriters.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={reviewerFilter} onValueChange={setReviewerFilter}>
+                <SelectTrigger className="w-[150px]" data-testid="select-reviewer-filter">
+                  <SelectValue placeholder="Reviewer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Reviewers</SelectItem>
+                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                  {uniqueReviewers.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-[170px]" data-testid="select-sort-by">
+                  <ArrowUpDown className="w-3 h-3 mr-1" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -316,28 +466,34 @@ export default function BriefManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[250px]">Title</TableHead>
+                  <TableHead className="min-w-[220px]">Title</TableHead>
                   <TableHead className="min-w-[120px]">Status</TableHead>
-                  <TableHead className="min-w-[100px]">Priority</TableHead>
-                  <TableHead className="min-w-[140px]">Assigned To</TableHead>
-                  <TableHead className="min-w-[110px]">Deadline</TableHead>
-                  <TableHead className="min-w-[110px]">Created</TableHead>
-                  <TableHead className="min-w-[80px]">Actions</TableHead>
+                  <TableHead className="min-w-[90px]">Priority</TableHead>
+                  <TableHead className="min-w-[120px]">Writer</TableHead>
+                  <TableHead className="min-w-[120px]">Reviewer</TableHead>
+                  <TableHead className="min-w-[100px]">Deadline</TableHead>
+                  <TableHead className="min-w-[110px]">Latest Draft</TableHead>
+                  <TableHead className="min-w-[60px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredBriefs.length === 0 ? (
+                {filteredAndSorted.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
+                        : activeView === "my_briefs"
+                        ? "No briefs assigned to you."
+                        : activeView === "review_queue"
+                        ? "No briefs awaiting your review."
                         : "No briefs match your filters."}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredBriefs.map((brief) => {
+                  filteredAndSorted.map((brief) => {
                     const statusCfg = STATUS_CONFIG[brief.status] || STATUS_CONFIG.new;
                     const priorityCfg = PRIORITY_CONFIG[brief.priority] || PRIORITY_CONFIG.medium;
+                    const latestVersion = latestVersionByBrief[brief.id];
                     return (
                       <TableRow
                         key={brief.id}
@@ -346,12 +502,10 @@ export default function BriefManagementPage() {
                         data-testid={`brief-row-${brief.id}`}
                       >
                         <TableCell className="font-medium">
-                          <div className="max-w-[300px]">
-                            <p className="truncate">{brief.title}</p>
-                            {brief.description && (
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                {brief.description}
-                              </p>
+                          <div className="max-w-[280px]">
+                            <p className="truncate" data-testid={`text-brief-title-${brief.id}`}>{brief.title}</p>
+                            {brief.category && (
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">{brief.category}</p>
                             )}
                           </div>
                         </TableCell>
@@ -373,16 +527,19 @@ export default function BriefManagementPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {getMemberName(brief.assigned_to)}
+                          {getMemberName(brief.assigned_writer_id)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {brief.deadline
-                            ? format(new Date(brief.deadline), "MMM d, yyyy")
-                            : "--"}
+                          {getMemberName(brief.review_owner_id)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {brief.created_date
-                            ? format(new Date(brief.created_date), "MMM d, yyyy")
+                          {brief.deadline ? format(new Date(brief.deadline), "MMM d, yyyy") : "--"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {latestVersion
+                            ? latestVersion.created_at
+                              ? format(new Date(latestVersion.created_at), "MMM d")
+                              : `v${latestVersion.version_number}`
                             : "--"}
                         </TableCell>
                         <TableCell>
@@ -409,113 +566,184 @@ export default function BriefManagementPage() {
       </div>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-lg" data-testid="dialog-create-brief">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-create-brief">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Create Article Brief</DialogTitle>
-            <DialogDescription>
-              Define the writing assignment details.
-            </DialogDescription>
+            <DialogDescription>Define the writing assignment details.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="brief-title">Title *</Label>
-              <Input
-                id="brief-title"
-                value={newBrief.title}
-                onChange={(e) => setNewBrief((p) => ({ ...p, title: e.target.value }))}
-                placeholder="Article title or topic"
-                data-testid="input-brief-title"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="brief-desc">Description</Label>
-              <Textarea
-                id="brief-desc"
-                value={newBrief.description}
-                onChange={(e) => setNewBrief((p) => ({ ...p, description: e.target.value }))}
-                placeholder="Brief description of the article"
-                className="resize-none"
-                data-testid="input-brief-description"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="space-y-4 py-2 pr-4">
               <div className="space-y-1">
-                <Label>Priority</Label>
-                <Select
-                  value={newBrief.priority}
-                  onValueChange={(v) => setNewBrief((p) => ({ ...p, priority: v }))}
-                >
-                  <SelectTrigger data-testid="select-brief-priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                      <SelectItem key={key} value={key}>
-                        {cfg.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="brief-words">Target Word Count</Label>
+                <Label htmlFor="brief-title">Title *</Label>
                 <Input
-                  id="brief-words"
-                  type="number"
-                  value={newBrief.target_word_count}
-                  onChange={(e) =>
-                    setNewBrief((p) => ({ ...p, target_word_count: e.target.value }))
-                  }
-                  placeholder="e.g. 1500"
-                  data-testid="input-brief-word-count"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="brief-deadline">Deadline</Label>
-                <Input
-                  id="brief-deadline"
-                  type="date"
-                  value={newBrief.deadline}
-                  onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
-                  data-testid="input-brief-deadline"
+                  id="brief-title"
+                  value={newBrief.title}
+                  onChange={(e) => setNewBrief((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="Article title or topic"
+                  data-testid="input-brief-title"
                 />
               </div>
               <div className="space-y-1">
-                <Label>Assign To</Label>
-                <Select
-                  value={newBrief.assigned_to}
-                  onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_to: v }))}
-                >
-                  <SelectTrigger data-testid="select-brief-assignee">
-                    <SelectValue placeholder="Select member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {members.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="brief-summary">Summary</Label>
+                <Textarea
+                  id="brief-summary"
+                  value={newBrief.summary}
+                  onChange={(e) => setNewBrief((p) => ({ ...p, summary: e.target.value }))}
+                  placeholder="Brief summary of the article"
+                  className="resize-none"
+                  data-testid="input-brief-summary"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="brief-instructions">Full Instructions</Label>
+                <Textarea
+                  id="brief-instructions"
+                  value={newBrief.instructions}
+                  onChange={(e) => setNewBrief((p) => ({ ...p, instructions: e.target.value }))}
+                  placeholder="Detailed writing instructions, key points to cover..."
+                  className="resize-none"
+                  rows={4}
+                  data-testid="input-brief-instructions"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="brief-audience">Target Audience</Label>
+                  <Input
+                    id="brief-audience"
+                    value={newBrief.target_audience}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, target_audience: e.target.value }))}
+                    placeholder="e.g. Industry professionals"
+                    data-testid="input-brief-audience"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-tone">Tone Guidance</Label>
+                  <Input
+                    id="brief-tone"
+                    value={newBrief.tone_guidance}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, tone_guidance: e.target.value }))}
+                    placeholder="e.g. Professional, conversational"
+                    data-testid="input-brief-tone"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label>Priority</Label>
+                  <Select
+                    value={newBrief.priority}
+                    onValueChange={(v) => setNewBrief((p) => ({ ...p, priority: v }))}
+                  >
+                    <SelectTrigger data-testid="select-brief-priority">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
+                        <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-words">Word Count Target</Label>
+                  <Input
+                    id="brief-words"
+                    type="number"
+                    value={newBrief.word_count_target}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, word_count_target: e.target.value }))}
+                    placeholder="e.g. 1500"
+                    data-testid="input-brief-word-count"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-category">Category</Label>
+                  <Input
+                    id="brief-category"
+                    value={newBrief.category}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, category: e.target.value }))}
+                    placeholder="e.g. Thought leadership"
+                    data-testid="input-brief-category"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="brief-deadline">Deadline</Label>
+                  <Input
+                    id="brief-deadline"
+                    type="date"
+                    value={newBrief.deadline}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
+                    data-testid="input-brief-deadline"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Assign Writer</Label>
+                  <Select
+                    value={newBrief.assigned_writer_id || "unassigned"}
+                    onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
+                  >
+                    <SelectTrigger data-testid="select-brief-writer">
+                      <SelectValue placeholder="Select writer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {members.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Assign Reviewer</Label>
+                  <Select
+                    value={newBrief.review_owner_id || "unassigned"}
+                    onValueChange={(v) => setNewBrief((p) => ({ ...p, review_owner_id: v }))}
+                  >
+                    <SelectTrigger data-testid="select-brief-reviewer">
+                      <SelectValue placeholder="Select reviewer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {members.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-assign-note">Assignment Note</Label>
+                  <Input
+                    id="brief-assign-note"
+                    value={newBrief.assignment_note}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, assignment_note: e.target.value }))}
+                    placeholder="Any notes for the writer"
+                    data-testid="input-brief-assignment-note"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="brief-notes">Additional Notes</Label>
+                <Textarea
+                  id="brief-notes"
+                  value={newBrief.notes}
+                  onChange={(e) => setNewBrief((p) => ({ ...p, notes: e.target.value }))}
+                  placeholder="Any other relevant information..."
+                  className="resize-none"
+                  rows={2}
+                  data-testid="input-brief-notes"
+                />
               </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="brief-guidelines">Guidelines</Label>
-              <Textarea
-                id="brief-guidelines"
-                value={newBrief.guidelines}
-                onChange={(e) => setNewBrief((p) => ({ ...p, guidelines: e.target.value }))}
-                placeholder="Style guidelines, tone, key points to cover..."
-                className="resize-none"
-                rows={3}
-                data-testid="input-brief-guidelines"
-              />
-            </div>
-          </div>
-          <DialogFooter>
+          </ScrollArea>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)} data-testid="button-cancel-create">
               Cancel
             </Button>
@@ -536,7 +764,7 @@ export default function BriefManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Brief</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{briefToDelete?.title}"? This action cannot be undone.
+              Are you sure you want to delete "{briefToDelete?.title}"? This will also remove all versions, comments, and activity. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

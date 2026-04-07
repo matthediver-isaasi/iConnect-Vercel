@@ -18,6 +18,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import {
@@ -31,13 +41,13 @@ import {
   Eye,
   XCircle,
   Upload,
-  Download,
   MessageSquare,
   Send,
   History,
   Save,
   FileUp,
   ExternalLink,
+  User,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -81,11 +91,7 @@ const CATEGORY_COLORS = {
 };
 
 async function apiRequest(method, url, body = null) {
-  const options = {
-    method,
-    credentials: "include",
-    headers: {},
-  };
+  const options = { method, credentials: "include", headers: {} };
   if (body) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
@@ -114,6 +120,7 @@ export default function BriefDetailPage() {
   const [submissionNote, setSubmissionNote] = useState("");
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [statusConfirm, setStatusConfirm] = useState(null);
 
   const [commentText, setCommentText] = useState("");
   const [commentCategory, setCommentCategory] = useState("other");
@@ -145,7 +152,7 @@ export default function BriefDetailPage() {
       const allComments = await base44.entities.ArticleBriefComment.list();
       return allComments
         .filter((c) => c.article_brief_id === briefId)
-        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     },
     enabled: isAccessReady && !!briefId,
   });
@@ -168,9 +175,7 @@ export default function BriefDetailPage() {
 
   const membersById = useMemo(() => {
     const map = {};
-    members.forEach((m) => {
-      map[m.id] = m;
-    });
+    members.forEach((m) => { map[m.id] = m; });
     return map;
   }, [members]);
 
@@ -181,6 +186,20 @@ export default function BriefDetailPage() {
     return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
   };
 
+  const commentsByVersion = useMemo(() => {
+    const grouped = {};
+    const unlinked = [];
+    comments.forEach((c) => {
+      if (c.version_id) {
+        if (!grouped[c.version_id]) grouped[c.version_id] = [];
+        grouped[c.version_id].push(c);
+      } else {
+        unlinked.push(c);
+      }
+    });
+    return { grouped, unlinked };
+  }, [comments]);
+
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       return await base44.entities.ArticleBrief.update(briefId, data);
@@ -188,6 +207,7 @@ export default function BriefDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
       setIsEditing(false);
       toast.success("Brief updated");
     },
@@ -204,10 +224,12 @@ export default function BriefDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+      setStatusConfirm(null);
       toast.success("Status updated");
     },
     onError: () => {
       toast.error("Failed to update status");
+      setStatusConfirm(null);
     },
   });
 
@@ -244,34 +266,46 @@ export default function BriefDetailPage() {
   const handleStartEdit = () => {
     setEditData({
       title: brief.title || "",
-      description: brief.description || "",
+      summary: brief.summary || "",
+      instructions: brief.instructions || "",
+      target_audience: brief.target_audience || "",
+      tone_guidance: brief.tone_guidance || "",
+      word_count_target: brief.word_count_target || "",
+      deadline: brief.deadline ? brief.deadline.split("T")[0] : "",
       priority: brief.priority || "medium",
-      target_word_count: brief.target_word_count || "",
-      deadline: brief.deadline || "",
-      assigned_to: brief.assigned_to || "",
-      guidelines: brief.guidelines || "",
+      category: brief.category || "",
+      notes: brief.notes || "",
+      assigned_writer_id: brief.assigned_writer_id || "",
+      review_owner_id: brief.review_owner_id || "",
+      assignment_note: brief.assignment_note || "",
     });
     setIsEditing(true);
   };
 
   const handleSaveEdit = () => {
+    const writerId = editData.assigned_writer_id && editData.assigned_writer_id !== "unassigned" ? editData.assigned_writer_id : null;
+    const reviewerId = editData.review_owner_id && editData.review_owner_id !== "unassigned" ? editData.review_owner_id : null;
     const payload = {
       title: editData.title.trim(),
-      description: editData.description.trim() || null,
-      priority: editData.priority,
-      target_word_count: editData.target_word_count ? parseInt(editData.target_word_count) : null,
+      summary: editData.summary.trim() || null,
+      instructions: editData.instructions.trim() || null,
+      target_audience: editData.target_audience.trim() || null,
+      tone_guidance: editData.tone_guidance.trim() || null,
+      word_count_target: editData.word_count_target ? parseInt(editData.word_count_target) : null,
       deadline: editData.deadline || null,
-      assigned_to: editData.assigned_to === "unassigned" ? null : editData.assigned_to || null,
-      guidelines: editData.guidelines.trim() || null,
+      priority: editData.priority,
+      category: editData.category.trim() || null,
+      notes: editData.notes.trim() || null,
+      assigned_writer_id: writerId,
+      review_owner_id: reviewerId,
+      assignment_note: editData.assignment_note.trim() || null,
     };
     updateMutation.mutate(payload);
   };
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
+    if (file) setSelectedFile(file);
   };
 
   const handleUploadVersion = async () => {
@@ -288,16 +322,15 @@ export default function BriefDetailPage() {
         isPrivate: true,
         onProgress: (p) => setUploadProgress(p),
       });
-
       await apiRequest("POST", "/api/article-briefs/upload-version", {
         article_brief_id: briefId,
         file_url: uploadResult.file_url,
         file_name: uploadResult.file_name,
         submission_note: submissionNote.trim() || null,
       });
-
       queryClient.invalidateQueries({ queryKey: ["article-brief-versions", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-brief-versions-all"] });
       setUploadDialogOpen(false);
       setSelectedFile(null);
       setSubmissionNote("");
@@ -322,13 +355,22 @@ export default function BriefDetailPage() {
       comment_text: commentText.trim(),
       category: commentCategory,
       status: "open",
-      author_id: memberInfo?.id || null,
+      created_by: memberInfo?.id || null,
     });
+  };
+
+  const isWriter = brief?.assigned_writer_id === memberInfo?.id;
+  const isReviewer = brief?.review_owner_id === memberInfo?.id;
+
+  const getCommentStatusOptions = () => {
+    if (isReviewer) return ["open", "closed"];
+    if (isWriter) return ["acknowledged", "actioned"];
+    return ["open", "acknowledged", "actioned", "closed"];
   };
 
   if (!briefId) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="text-no-brief-id">
         <p className="text-muted-foreground">No brief ID provided.</p>
       </div>
     );
@@ -336,7 +378,7 @@ export default function BriefDetailPage() {
 
   if (briefLoading) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-spinner">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -344,9 +386,9 @@ export default function BriefDetailPage() {
 
   if (!brief) {
     return (
-      <div className="min-h-screen p-4 md:p-8 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen p-4 md:p-8 flex flex-col items-center justify-center gap-4" data-testid="text-brief-not-found">
         <p className="text-muted-foreground">Brief not found.</p>
-        <Button variant="outline" onClick={() => navigate(createPageUrl("BriefManagement"))}>
+        <Button variant="outline" onClick={() => navigate(createPageUrl("BriefManagement"))} data-testid="button-back-not-found">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Briefs
         </Button>
@@ -357,8 +399,41 @@ export default function BriefDetailPage() {
   const statusCfg = STATUS_CONFIG[brief.status] || STATUS_CONFIG.new;
   const priorityCfg = PRIORITY_CONFIG[brief.priority] || PRIORITY_CONFIG.medium;
   const StatusIcon = statusCfg.icon;
-
   const openComments = comments.filter((c) => c.status === "open" || c.status === "acknowledged");
+
+  function renderCommentCard(comment) {
+    const catColor = CATEGORY_COLORS[comment.category] || CATEGORY_COLORS.other;
+    const catLabel = COMMENT_CATEGORIES.find((c) => c.value === comment.category)?.label || comment.category;
+    const statusOptions = getCommentStatusOptions();
+
+    return (
+      <div key={comment.id} className="p-3 rounded-lg border space-y-2" data-testid={`comment-row-${comment.id}`}>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <Badge variant="outline" className="text-xs" style={{ borderColor: catColor, color: catColor }}>
+            {catLabel}
+          </Badge>
+          <Select
+            value={comment.status}
+            onValueChange={(v) => updateCommentMutation.mutate({ commentId: comment.id, status: v })}
+          >
+            <SelectTrigger className="w-[130px]" data-testid={`select-comment-status-${comment.id}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {statusOptions.map((s) => (
+                <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="text-sm whitespace-pre-wrap" data-testid={`text-comment-${comment.id}`}>{comment.comment_text}</p>
+        <p className="text-xs text-muted-foreground">
+          {getMemberName(comment.created_by)}
+          {comment.created_at && ` \u00B7 ${formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}`}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -397,10 +472,15 @@ export default function BriefDetailPage() {
               >
                 {priorityCfg.label} Priority
               </Badge>
-              {brief.target_word_count && (
+              {brief.word_count_target && (
                 <span className="text-xs text-muted-foreground" data-testid="text-word-count">
-                  Target: {brief.target_word_count.toLocaleString()} words
+                  Target: {brief.word_count_target.toLocaleString()} words
                 </span>
+              )}
+              {brief.category && (
+                <Badge variant="secondary" className="text-xs" data-testid="badge-brief-category">
+                  {brief.category}
+                </Badge>
               )}
             </div>
           </div>
@@ -411,11 +491,7 @@ export default function BriefDetailPage() {
                 Edit
               </Button>
             )}
-            <Button
-              size="sm"
-              onClick={() => setUploadDialogOpen(true)}
-              data-testid="button-upload-version"
-            >
+            <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version">
               <Upload className="w-4 h-4 mr-1" />
               Upload Draft
             </Button>
@@ -430,7 +506,7 @@ export default function BriefDetailPage() {
                 key={key}
                 variant={brief.status === key ? "default" : "outline"}
                 size="sm"
-                onClick={() => statusMutation.mutate(key)}
+                onClick={() => setStatusConfirm(key)}
                 disabled={statusMutation.isPending || brief.status === key}
                 className="toggle-elevate"
                 style={
@@ -464,73 +540,56 @@ export default function BriefDetailPage() {
                 <CardContent className="pt-6 space-y-4">
                   <div className="space-y-1">
                     <Label htmlFor="edit-title">Title</Label>
-                    <Input
-                      id="edit-title"
-                      value={editData.title}
-                      onChange={(e) => setEditData((p) => ({ ...p, title: e.target.value }))}
-                      data-testid="input-edit-title"
-                    />
+                    <Input id="edit-title" value={editData.title} onChange={(e) => setEditData((p) => ({ ...p, title: e.target.value }))} data-testid="input-edit-title" />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="edit-desc">Description</Label>
-                    <Textarea
-                      id="edit-desc"
-                      value={editData.description}
-                      onChange={(e) => setEditData((p) => ({ ...p, description: e.target.value }))}
-                      className="resize-none"
-                      data-testid="input-edit-description"
-                    />
+                    <Label htmlFor="edit-summary">Summary</Label>
+                    <Textarea id="edit-summary" value={editData.summary} onChange={(e) => setEditData((p) => ({ ...p, summary: e.target.value }))} className="resize-none" data-testid="input-edit-summary" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-instructions">Full Instructions</Label>
+                    <Textarea id="edit-instructions" value={editData.instructions} onChange={(e) => setEditData((p) => ({ ...p, instructions: e.target.value }))} className="resize-none" rows={4} data-testid="input-edit-instructions" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
+                      <Label htmlFor="edit-audience">Target Audience</Label>
+                      <Input id="edit-audience" value={editData.target_audience} onChange={(e) => setEditData((p) => ({ ...p, target_audience: e.target.value }))} data-testid="input-edit-audience" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-tone">Tone Guidance</Label>
+                      <Input id="edit-tone" value={editData.tone_guidance} onChange={(e) => setEditData((p) => ({ ...p, tone_guidance: e.target.value }))} data-testid="input-edit-tone" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
                       <Label>Priority</Label>
-                      <Select
-                        value={editData.priority}
-                        onValueChange={(v) => setEditData((p) => ({ ...p, priority: v }))}
-                      >
-                        <SelectTrigger data-testid="select-edit-priority">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={editData.priority} onValueChange={(v) => setEditData((p) => ({ ...p, priority: v }))}>
+                        <SelectTrigger data-testid="select-edit-priority"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                            <SelectItem key={key} value={key}>
-                              {cfg.label}
-                            </SelectItem>
+                            <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="edit-words">Target Word Count</Label>
-                      <Input
-                        id="edit-words"
-                        type="number"
-                        value={editData.target_word_count}
-                        onChange={(e) => setEditData((p) => ({ ...p, target_word_count: e.target.value }))}
-                        data-testid="input-edit-word-count"
-                      />
+                      <Label htmlFor="edit-words">Word Count Target</Label>
+                      <Input id="edit-words" type="number" value={editData.word_count_target} onChange={(e) => setEditData((p) => ({ ...p, word_count_target: e.target.value }))} data-testid="input-edit-word-count" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-category">Category</Label>
+                      <Input id="edit-category" value={editData.category} onChange={(e) => setEditData((p) => ({ ...p, category: e.target.value }))} data-testid="input-edit-category" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label htmlFor="edit-deadline">Deadline</Label>
-                      <Input
-                        id="edit-deadline"
-                        type="date"
-                        value={editData.deadline}
-                        onChange={(e) => setEditData((p) => ({ ...p, deadline: e.target.value }))}
-                        data-testid="input-edit-deadline"
-                      />
+                      <Input id="edit-deadline" type="date" value={editData.deadline} onChange={(e) => setEditData((p) => ({ ...p, deadline: e.target.value }))} data-testid="input-edit-deadline" />
                     </div>
                     <div className="space-y-1">
-                      <Label>Assign To</Label>
-                      <Select
-                        value={editData.assigned_to || "unassigned"}
-                        onValueChange={(v) => setEditData((p) => ({ ...p, assigned_to: v }))}
-                      >
-                        <SelectTrigger data-testid="select-edit-assignee">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Label>Writer</Label>
+                      <Select value={editData.assigned_writer_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}>
+                        <SelectTrigger data-testid="select-edit-writer"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="unassigned">Unassigned</SelectItem>
                           {members.map((m) => (
@@ -542,26 +601,33 @@ export default function BriefDetailPage() {
                       </Select>
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>Reviewer</Label>
+                      <Select value={editData.review_owner_id || "unassigned"} onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}>
+                        <SelectTrigger data-testid="select-edit-reviewer"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {members.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              {[m.first_name, m.last_name].filter(Boolean).join(" ") || m.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-assign-note">Assignment Note</Label>
+                      <Input id="edit-assign-note" value={editData.assignment_note} onChange={(e) => setEditData((p) => ({ ...p, assignment_note: e.target.value }))} data-testid="input-edit-assignment-note" />
+                    </div>
+                  </div>
                   <div className="space-y-1">
-                    <Label htmlFor="edit-guidelines">Guidelines</Label>
-                    <Textarea
-                      id="edit-guidelines"
-                      value={editData.guidelines}
-                      onChange={(e) => setEditData((p) => ({ ...p, guidelines: e.target.value }))}
-                      className="resize-none"
-                      rows={4}
-                      data-testid="input-edit-guidelines"
-                    />
+                    <Label htmlFor="edit-notes">Additional Notes</Label>
+                    <Textarea id="edit-notes" value={editData.notes} onChange={(e) => setEditData((p) => ({ ...p, notes: e.target.value }))} className="resize-none" rows={2} data-testid="input-edit-notes" />
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSaveEdit}
-                      disabled={updateMutation.isPending}
-                      data-testid="button-save-edit"
-                    >
+                    <Button variant="outline" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">Cancel</Button>
+                    <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} data-testid="button-save-edit">
                       {updateMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                       <Save className="w-4 h-4 mr-1" />
                       Save
@@ -572,75 +638,89 @@ export default function BriefDetailPage() {
             ) : (
               <div className="grid md:grid-cols-3 gap-4">
                 <Card className="md:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Brief Details</CardTitle>
-                  </CardHeader>
+                  <CardHeader><CardTitle className="text-lg">Brief Details</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {brief.description && (
+                    {brief.summary && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Description</Label>
-                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-description">
-                          {brief.description}
-                        </p>
+                        <Label className="text-xs text-muted-foreground">Summary</Label>
+                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-summary">{brief.summary}</p>
                       </div>
                     )}
-                    {brief.guidelines && (
+                    {brief.instructions && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Guidelines</Label>
-                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-guidelines">
-                          {brief.guidelines}
-                        </p>
+                        <Label className="text-xs text-muted-foreground">Instructions</Label>
+                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-instructions">{brief.instructions}</p>
                       </div>
                     )}
-                    {!brief.description && !brief.guidelines && (
-                      <p className="text-sm text-muted-foreground">No description or guidelines provided.</p>
+                    {brief.target_audience && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Target Audience</Label>
+                        <p className="text-sm mt-1" data-testid="text-brief-audience">{brief.target_audience}</p>
+                      </div>
+                    )}
+                    {brief.tone_guidance && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Tone Guidance</Label>
+                        <p className="text-sm mt-1" data-testid="text-brief-tone">{brief.tone_guidance}</p>
+                      </div>
+                    )}
+                    {brief.notes && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Notes</Label>
+                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-notes">{brief.notes}</p>
+                      </div>
+                    )}
+                    {brief.assignment_note && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Assignment Note</Label>
+                        <p className="text-sm mt-1" data-testid="text-brief-assignment-note">{brief.assignment_note}</p>
+                      </div>
+                    )}
+                    {!brief.summary && !brief.instructions && !brief.notes && (
+                      <p className="text-sm text-muted-foreground" data-testid="text-no-details">No description or instructions provided.</p>
                     )}
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Info</CardTitle>
-                  </CardHeader>
+                  <CardHeader><CardTitle className="text-lg">Info</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     <div>
-                      <Label className="text-xs text-muted-foreground">Assigned To</Label>
-                      <p className="text-sm font-medium" data-testid="text-assignee">
-                        {getMemberName(brief.assigned_to)}
+                      <Label className="text-xs text-muted-foreground">Writer</Label>
+                      <p className="text-sm font-medium" data-testid="text-writer">
+                        {brief.assigned_writer_id ? getMemberName(brief.assigned_writer_id) : "--"}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Reviewer</Label>
+                      <p className="text-sm font-medium" data-testid="text-reviewer">
+                        {brief.review_owner_id ? getMemberName(brief.review_owner_id) : "--"}
                       </p>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Created By</Label>
-                      <p className="text-sm" data-testid="text-creator">
-                        {getMemberName(brief.created_by)}
-                      </p>
+                      <p className="text-sm" data-testid="text-creator">{brief.created_by ? getMemberName(brief.created_by) : "--"}</p>
                     </div>
                     {brief.deadline && (
                       <div>
                         <Label className="text-xs text-muted-foreground">Deadline</Label>
-                        <p className="text-sm" data-testid="text-deadline">
-                          {format(new Date(brief.deadline), "MMM d, yyyy")}
-                        </p>
+                        <p className="text-sm" data-testid="text-deadline">{format(new Date(brief.deadline), "MMM d, yyyy")}</p>
                       </div>
                     )}
-                    {brief.target_word_count && (
+                    {brief.word_count_target && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Target Word Count</Label>
-                        <p className="text-sm" data-testid="text-target-words">
-                          {brief.target_word_count.toLocaleString()}
-                        </p>
+                        <Label className="text-xs text-muted-foreground">Word Count Target</Label>
+                        <p className="text-sm" data-testid="text-target-words">{brief.word_count_target.toLocaleString()}</p>
                       </div>
                     )}
                     <div>
                       <Label className="text-xs text-muted-foreground">Created</Label>
                       <p className="text-sm" data-testid="text-created-date">
-                        {brief.created_date ? format(new Date(brief.created_date), "MMM d, yyyy 'at' h:mm a") : "--"}
+                        {brief.created_at ? format(new Date(brief.created_at), "MMM d, yyyy 'at' h:mm a") : "--"}
                       </p>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Versions</Label>
-                      <p className="text-sm" data-testid="text-version-count">
-                        {versions.length} draft{versions.length !== 1 ? "s" : ""} uploaded
-                      </p>
+                      <p className="text-sm" data-testid="text-version-count">{versions.length} draft{versions.length !== 1 ? "s" : ""} uploaded</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -653,11 +733,7 @@ export default function BriefDetailPage() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-lg">Draft Versions</CardTitle>
-                  <Button
-                    size="sm"
-                    onClick={() => setUploadDialogOpen(true)}
-                    data-testid="button-upload-version-tab"
-                  >
+                  <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version-tab">
                     <Upload className="w-4 h-4 mr-1" />
                     Upload Draft
                   </Button>
@@ -665,59 +741,36 @@ export default function BriefDetailPage() {
               </CardHeader>
               <CardContent>
                 {versionsLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
+                  <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                 ) : versions.length === 0 ? (
-                  <div className="text-center py-12">
+                  <div className="text-center py-12" data-testid="text-no-versions">
                     <FileUp className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
                     <p className="text-sm text-muted-foreground">No drafts uploaded yet.</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Upload a draft to start the review process.
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Upload a draft to start the review process.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {versions.map((version) => (
-                      <div
-                        key={version.id}
-                        className="flex items-start gap-3 p-3 rounded-lg border"
-                        data-testid={`version-row-${version.id}`}
-                      >
+                      <div key={version.id} className="flex items-start gap-3 p-3 rounded-lg border" data-testid={`version-row-${version.id}`}>
                         <div className="p-2 bg-muted rounded-md flex-shrink-0 mt-0.5">
                           <FileText className="w-4 h-4 text-muted-foreground" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium">
-                              Version {version.version_number}
-                            </span>
-                            <Badge variant="secondary" className="text-xs">
-                              {version.status_at_upload || "N/A"}
-                            </Badge>
+                            <span className="text-sm font-medium">Version {version.version_number}</span>
+                            <Badge variant="secondary" className="text-xs">{version.status_at_upload || "N/A"}</Badge>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                            {version.file_name || "Untitled file"}
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{version.file_name || "Untitled file"}</p>
                           {version.submission_note && (
-                            <p className="text-xs text-muted-foreground mt-1 italic">
-                              "{version.submission_note}"
-                            </p>
+                            <p className="text-xs text-muted-foreground mt-1 italic">"{version.submission_note}"</p>
                           )}
                           <p className="text-xs text-muted-foreground mt-1">
                             Uploaded by {getMemberName(version.uploaded_by)}
-                            {version.created_date &&
-                              ` \u00B7 ${formatDistanceToNow(new Date(version.created_date), { addSuffix: true })}`}
+                            {version.created_at && ` \u00B7 ${formatDistanceToNow(new Date(version.created_at), { addSuffix: true })}`}
                           </p>
                         </div>
                         {version.file_url && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => window.open(version.file_url, "_blank")}
-                            title="Open file"
-                            data-testid={`button-open-version-${version.id}`}
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => window.open(version.file_url, "_blank")} title="Open file" data-testid={`button-open-version-${version.id}`}>
                             <ExternalLink className="w-4 h-4" />
                           </Button>
                         )}
@@ -733,74 +786,45 @@ export default function BriefDetailPage() {
             <div className="grid md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Review Comments</CardTitle>
-                  </CardHeader>
+                  <CardHeader><CardTitle className="text-lg">Review Comments</CardTitle></CardHeader>
                   <CardContent>
                     {commentsLoading ? (
-                      <div className="flex justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      </div>
+                      <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                     ) : comments.length === 0 ? (
-                      <div className="text-center py-12">
+                      <div className="text-center py-12" data-testid="text-no-comments">
                         <MessageSquare className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
                         <p className="text-sm text-muted-foreground">No review comments yet.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {comments.map((comment) => {
-                          const catColor = CATEGORY_COLORS[comment.category] || CATEGORY_COLORS.other;
-                          const catLabel = COMMENT_CATEGORIES.find((c) => c.value === comment.category)?.label || comment.category;
-                          const linkedVersion = versions.find((v) => v.id === comment.version_id);
+                      <div className="space-y-6">
+                        {versions.map((version) => {
+                          const versionComments = commentsByVersion.grouped[version.id];
+                          if (!versionComments || versionComments.length === 0) return null;
                           return (
-                            <div
-                              key={comment.id}
-                              className="p-3 rounded-lg border space-y-2"
-                              data-testid={`comment-row-${comment.id}`}
-                            >
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <Badge
-                                    variant="outline"
-                                    className="text-xs"
-                                    style={{ borderColor: catColor, color: catColor }}
-                                  >
-                                    {catLabel}
-                                  </Badge>
-                                  {linkedVersion && (
-                                    <span className="text-xs text-muted-foreground">
-                                      on v{linkedVersion.version_number}
-                                    </span>
-                                  )}
-                                </div>
-                                <Select
-                                  value={comment.status}
-                                  onValueChange={(v) =>
-                                    updateCommentMutation.mutate({ commentId: comment.id, status: v })
-                                  }
-                                >
-                                  <SelectTrigger className="w-[130px]" data-testid={`select-comment-status-${comment.id}`}>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="open">Open</SelectItem>
-                                    <SelectItem value="acknowledged">Acknowledged</SelectItem>
-                                    <SelectItem value="actioned">Actioned</SelectItem>
-                                    <SelectItem value="closed">Closed</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                            <div key={version.id} data-testid={`comment-group-version-${version.id}`}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <FileText className="w-4 h-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">Version {version.version_number}</span>
+                                <Badge variant="secondary" className="text-xs">{versionComments.length} comment{versionComments.length !== 1 ? "s" : ""}</Badge>
                               </div>
-                              <p className="text-sm whitespace-pre-wrap" data-testid={`text-comment-${comment.id}`}>
-                                {comment.comment_text}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {getMemberName(comment.author_id)}
-                                {comment.created_date &&
-                                  ` \u00B7 ${formatDistanceToNow(new Date(comment.created_date), { addSuffix: true })}`}
-                              </p>
+                              <div className="space-y-2 pl-6 border-l-2 border-border">
+                                {versionComments.map(renderCommentCard)}
+                              </div>
                             </div>
                           );
                         })}
+                        {commentsByVersion.unlinked.length > 0 && (
+                          <div data-testid="comment-group-general">
+                            <div className="flex items-center gap-2 mb-2">
+                              <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                              <span className="text-sm font-medium">General Comments</span>
+                              <Badge variant="secondary" className="text-xs">{commentsByVersion.unlinked.length}</Badge>
+                            </div>
+                            <div className="space-y-2 pl-6 border-l-2 border-border">
+                              {commentsByVersion.unlinked.map(renderCommentCard)}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -808,21 +832,15 @@ export default function BriefDetailPage() {
               </div>
 
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Add Comment</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-lg">Add Comment</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                   <div className="space-y-1">
                     <Label>Category</Label>
                     <Select value={commentCategory} onValueChange={setCommentCategory}>
-                      <SelectTrigger data-testid="select-comment-category">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger data-testid="select-comment-category"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {COMMENT_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.value} value={cat.value}>
-                            {cat.label}
-                          </SelectItem>
+                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -831,15 +849,11 @@ export default function BriefDetailPage() {
                     <div className="space-y-1">
                       <Label>Version (optional)</Label>
                       <Select value={commentVersionId} onValueChange={setCommentVersionId}>
-                        <SelectTrigger data-testid="select-comment-version">
-                          <SelectValue placeholder="Select version" />
-                        </SelectTrigger>
+                        <SelectTrigger data-testid="select-comment-version"><SelectValue placeholder="Select version" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">No specific version</SelectItem>
                           {versions.map((v) => (
-                            <SelectItem key={v.id} value={v.id}>
-                              Version {v.version_number}
-                            </SelectItem>
+                            <SelectItem key={v.id} value={v.id}>Version {v.version_number}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -885,32 +899,24 @@ export default function BriefDetailPage() {
               </CardHeader>
               <CardContent>
                 {activitiesLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
+                  <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                 ) : activities.length === 0 ? (
-                  <div className="text-center py-12">
+                  <div className="text-center py-12" data-testid="text-no-activity">
                     <History className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
                     <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
                   </div>
                 ) : (
                   <div className="space-y-0">
                     {activities.map((activity, index) => (
-                      <div
-                        key={activity.id}
-                        className="flex gap-3 pb-4"
-                        data-testid={`activity-row-${activity.id}`}
-                      >
+                      <div key={activity.id} className="flex gap-3 pb-4" data-testid={`activity-row-${activity.id}`}>
                         <div className="flex flex-col items-center">
                           <div className="w-2 h-2 rounded-full bg-muted-foreground mt-2 flex-shrink-0" />
-                          {index < activities.length - 1 && (
-                            <div className="w-px flex-1 bg-border mt-1" />
-                          )}
+                          {index < activities.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm" data-testid={`text-activity-${activity.id}`}>
-                            <span className="font-medium">{getMemberName(activity.actor_id)}</span>{" "}
-                            {activity.description || activity.action_type}
+                            <span className="font-medium">{getMemberName(activity.performed_by)}</span>{" "}
+                            {activity.description || activity.action}
                           </p>
                           {activity.metadata && typeof activity.metadata === "object" && activity.metadata.changes && (
                             <p className="text-xs text-muted-foreground mt-0.5">
@@ -920,9 +926,7 @@ export default function BriefDetailPage() {
                             </p>
                           )}
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {activity.created_date
-                              ? formatDistanceToNow(new Date(activity.created_date), { addSuffix: true })
-                              : "--"}
+                            {activity.created_at ? formatDistanceToNow(new Date(activity.created_at), { addSuffix: true }) : "--"}
                           </p>
                         </div>
                       </div>
@@ -939,9 +943,7 @@ export default function BriefDetailPage() {
         <DialogContent className="max-w-md" data-testid="dialog-upload-version">
           <DialogHeader>
             <DialogTitle>Upload Draft</DialogTitle>
-            <DialogDescription>
-              Upload a new version of your article draft.
-            </DialogDescription>
+            <DialogDescription>Upload a new version of your article draft.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
@@ -961,21 +963,15 @@ export default function BriefDetailPage() {
                 />
                 {selectedFile ? (
                   <div>
-                    <FileText className="w-8 h-8 mx-auto mb-2 text-primary" />
-                    <p className="text-sm font-medium">{selectedFile.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm font-medium" data-testid="text-selected-file">{selectedFile.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
                   </div>
                 ) : (
                   <div>
                     <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      Click to select a file
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      DOC, DOCX, PDF, TXT, RTF, ODT, MD (max 25MB)
-                    </p>
+                    <p className="text-sm text-muted-foreground">Click to select a file</p>
+                    <p className="text-xs text-muted-foreground mt-1">DOC, DOCX, PDF, TXT, RTF, ODT, MD (max 25MB)</p>
                   </div>
                 )}
               </div>
@@ -993,48 +989,49 @@ export default function BriefDetailPage() {
               />
             </div>
             {isUploading && (
-              <div className="space-y-1">
+              <div className="space-y-1" data-testid="upload-progress">
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Uploading...</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
-                  <div
-                    className="bg-primary h-2 rounded-full transition-all"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
+                  <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
                 </div>
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setUploadDialogOpen(false);
-                setSelectedFile(null);
-                setSubmissionNote("");
-              }}
-              disabled={isUploading}
-              data-testid="button-cancel-upload"
-            >
+            <Button variant="outline" onClick={() => { setUploadDialogOpen(false); setSelectedFile(null); setSubmissionNote(""); }} disabled={isUploading} data-testid="button-cancel-upload">
               Cancel
             </Button>
-            <Button
-              onClick={handleUploadVersion}
-              disabled={isUploading || !selectedFile}
-              data-testid="button-confirm-upload"
-            >
-              {isUploading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4 mr-2" />
-              )}
+            <Button onClick={handleUploadVersion} disabled={isUploading || !selectedFile} data-testid="button-confirm-upload">
+              {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
               Upload
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!statusConfirm} onOpenChange={(open) => !open && setStatusConfirm(null)}>
+        <AlertDialogContent data-testid="dialog-confirm-status">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Status</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to change the status to "{statusConfirm ? STATUS_CONFIG[statusConfirm]?.label : ""}"?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-status">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => statusMutation.mutate(statusConfirm)}
+              data-testid="button-confirm-status"
+            >
+              {statusMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
