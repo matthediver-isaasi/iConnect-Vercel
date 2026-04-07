@@ -451,7 +451,10 @@ export default function BriefDetailPage() {
   function renderCommentCard(comment) {
     const catColor = CATEGORY_COLORS[comment.category] || CATEGORY_COLORS.other;
     const catLabel = COMMENT_CATEGORIES.find((c) => c.value === comment.category)?.label || comment.category;
-    const statusOptions = getCommentStatusOptions();
+    const baseStatusOptions = getCommentStatusOptions();
+    const statusOptions = comment.status && !baseStatusOptions.includes(comment.status)
+      ? [comment.status, ...baseStatusOptions]
+      : baseStatusOptions;
     const canUpdateStatus = canReviewComment || isWriter || isReviewer;
 
     return (
