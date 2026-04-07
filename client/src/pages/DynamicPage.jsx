@@ -321,50 +321,44 @@ export default function DynamicPage() {
 
   if (pageLoading || elementsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" data-testid="loading-dynamic-page">
-        <div className="text-slate-600">Loading page...</div>
+      <div className="min-h-screen" data-testid="loading-dynamic-page" aria-busy="true">
+        <div className="sr-only">Loading content</div>
       </div>
     );
   }
 
   if (!page) {
-    // Show loading state while redirect is processing
     return (
-      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found-redirecting">
-        <div className="text-slate-600">Redirecting...</div>
+      <div className="min-h-screen" data-testid="page-not-found-redirecting" aria-busy="true">
+        <div className="sr-only">Loading content</div>
       </div>
     );
   }
 
-  // Page exists but not published
   if (!isPublished) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="page-not-published">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-slate-900 mb-4">Page Not Available</h1>
           <p className="text-slate-600">
-            This page is currently in draft mode and not publicly accessible.
+            This page is currently being updated. Please check back soon.
           </p>
         </div>
       </div>
     );
   }
 
-  // For member pages, wait for access to be ready before showing member-only gate
   if (isMemberPage && !isAccessReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center" data-testid="loading-access-check">
-        <div className="text-slate-600">Checking access...</div>
+      <div className="min-h-screen" data-testid="loading-access-check" aria-busy="true">
+        <div className="sr-only">Loading content</div>
       </div>
     );
   }
 
-  // Member page but user not logged in (only check after access is ready)
   if (isMemberPage && !isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="page-requires-login">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-slate-900 mb-4">Members Only</h1>
           <p className="text-slate-600 mb-6">
             This page is only accessible to logged-in members.
           </p>
@@ -402,7 +396,7 @@ export default function DynamicPage() {
       {elements.length === 0 && (
         <div className="min-h-screen flex items-center justify-center" data-testid="page-no-content">
           <div className="text-center">
-            <p className="text-slate-600">This page has no content yet.</p>
+            <p className="text-slate-600">This page is currently being updated. Please check back soon.</p>
           </div>
         </div>
       )}

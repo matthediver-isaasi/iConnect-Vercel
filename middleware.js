@@ -1,5 +1,8 @@
 const CRAWLER_USER_AGENTS = [
   'googlebot',
+  'google-inspectiontool',
+  'google-structured-data-testing-tool',
+  'storebot-google',
   'bingbot',
   'slurp',
   'duckduckbot',
