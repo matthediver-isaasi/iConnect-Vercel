@@ -51,6 +51,7 @@ export default function MemberCombobox({
       setResolvedMember(initialMember);
       return;
     }
+    setResolvedMember(null);
     let cancelled = false;
     fetch(`/api/members/by-ids`, {
       method: "POST",
