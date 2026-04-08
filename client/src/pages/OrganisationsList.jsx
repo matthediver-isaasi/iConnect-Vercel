@@ -454,10 +454,6 @@ export default function OrganisationsListPage() {
     }
   };
 
-  const allPageSelected = paginatedOrganizations.filter(org => !org.is_primary).length > 0 &&
-    paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id));
-  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
-
   const selectedMemberCount = useMemo(() => {
     const activeMembers = members.filter(m => !isDeletedMember(m));
     if (singleDeleteOrg) {
@@ -570,6 +566,10 @@ export default function OrganisationsListPage() {
   }, [filteredOrganizations, currentPage, itemsPerPage]);
 
   const totalPages = Math.ceil(filteredOrganizations.length / itemsPerPage);
+
+  const allPageSelected = paginatedOrganizations.filter(org => !org.is_primary).length > 0 &&
+    paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id));
+  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
 
   const resetFilters = () => {
     setSearchQuery('');

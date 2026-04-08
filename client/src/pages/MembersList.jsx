@@ -421,10 +421,6 @@ export default function MembersListPage() {
     }
   };
 
-  const allPageSelected = paginatedMembers.length > 0 &&
-    paginatedMembers.every(m => selectedMembers.includes(m.id));
-  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
-
   const orgMap = useMemo(() => {
     const map = {};
     organizations.forEach(org => { map[org.id] = org; });
@@ -487,6 +483,10 @@ export default function MembersListPage() {
   }, [members, coreFieldFilters, customFieldFilters, memberValuesMap]);
 
   const paginatedMembers = filteredMembers;
+
+  const allPageSelected = paginatedMembers.length > 0 &&
+    paginatedMembers.every(m => selectedMembers.includes(m.id));
+  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
 
   const resetFilters = () => {
     setSearchQuery('');
