@@ -40,7 +40,8 @@ import {
   Calendar,
   Trash2,
   AlertTriangle,
-  ShieldCheck
+  ShieldCheck,
+  Download
 } from "lucide-react";
 import {
   Dialog,
@@ -113,6 +114,8 @@ export default function OrganisationsListPage() {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteOrg, setSingleDeleteOrg] = useState(null);
@@ -354,6 +357,7 @@ export default function OrganisationsListPage() {
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
       queryClient.invalidateQueries({ queryKey: ['all-members-for-org-list'] });
       setSelectedOrgs([]);
+      setSelectAllFiltered(false);
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
       setSingleDeleteOrg(null);
@@ -374,6 +378,7 @@ export default function OrganisationsListPage() {
   // Selection handlers
   const toggleOrgSelection = (orgId, e) => {
     e.stopPropagation();
+    if (selectAllFiltered) setSelectAllFiltered(false);
     setSelectedOrgs(prev => 
       prev.includes(orgId) 
         ? prev.filter(id => id !== orgId)
@@ -382,10 +387,10 @@ export default function OrganisationsListPage() {
   };
 
   const toggleSelectAll = () => {
-    // Only include non-primary organizations in select all
     const selectableOrgs = paginatedOrganizations.filter(org => !org.is_primary);
     const currentPageIds = selectableOrgs.map(org => org.id);
     const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedOrgs.includes(id));
+    if (selectAllFiltered) setSelectAllFiltered(false);
     if (allSelected) {
       setSelectedOrgs(prev => prev.filter(id => !currentPageIds.includes(id)));
     } else {
@@ -406,6 +411,52 @@ export default function OrganisationsListPage() {
       batchDeleteMutation.mutate(selectedOrgs);
     }
   };
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectAllFiltered) {
+        if (searchQuery.trim()) params.set('search', searchQuery.trim());
+        params.set('excludePrimary', 'true');
+        Object.entries(coreFieldFilters).forEach(([key, val]) => {
+          if (val && val.trim()) params.set(key, val.trim());
+        });
+        const activeCustomFilters = {};
+        let hasCustom = false;
+        Object.entries(customFieldFilters).forEach(([fieldId, val]) => {
+          if (val && val !== 'all' && val.trim() !== '') {
+            activeCustomFilters[fieldId] = val;
+            hasCustom = true;
+          }
+        });
+        if (hasCustom) params.set('customFieldFilters', JSON.stringify(activeCustomFilters));
+      } else {
+        params.set('ids', selectedOrgs.join(','));
+      }
+      const response = await fetch(`/api/admin/organisations/export-csv?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      link.download = `organisations_export_${today}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Export complete", description: `CSV file downloaded successfully.` });
+    } catch (err) {
+      toast({ title: "Export failed", description: err.message || "Could not export organisations.", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const allPageSelected = paginatedOrganizations.filter(org => !org.is_primary).length > 0 &&
+    paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id));
+  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
 
   const selectedMemberCount = useMemo(() => {
     const activeMembers = members.filter(m => !isDeletedMember(m));
@@ -876,16 +927,44 @@ export default function OrganisationsListPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                {selectedOrgs.length > 0 && (
-                  <Button 
-                    variant="destructive"
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="gap-1"
-                    data-testid="button-delete-selected"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete Selected ({selectedOrgs.length})
-                  </Button>
+                {(selectedOrgs.length > 0 || selectAllFiltered) && (
+                  <>
+                    <Button 
+                      variant="outline"
+                      onClick={handleExportCSV}
+                      disabled={isExporting}
+                      className="gap-1"
+                      data-testid="button-export-csv-orgs"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                      Export CSV {selectAllFiltered ? `(${filteredOrganizations.filter(o => !o.is_primary).length})` : `(${selectedOrgs.length})`}
+                    </Button>
+                    {selectedOrgs.length > 0 && (
+                      <Button 
+                        variant="destructive"
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="gap-1"
+                        data-testid="button-delete-selected"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Selected ({selectedOrgs.length})
+                      </Button>
+                    )}
+                    <Button 
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSelectedOrgs([]); setSelectAllFiltered(false); }}
+                      className="text-slate-500"
+                      data-testid="button-clear-selection-orgs"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear selection
+                    </Button>
+                  </>
                 )}
                 <Button 
                   onClick={() => setIsCreatingNew(true)}
@@ -997,6 +1076,34 @@ export default function OrganisationsListPage() {
               </div>
             </div>
           </header>
+
+          {(showSelectAllBanner || selectAllFiltered) && (
+            <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-700 flex items-center justify-center gap-2" data-testid="banner-select-all-orgs">
+              {selectAllFiltered ? (
+                <>
+                  All {filteredOrganizations.filter(o => !o.is_primary).length} organisations are selected.
+                  <button 
+                    className="font-semibold underline"
+                    onClick={() => { setSelectAllFiltered(false); setSelectedOrgs([]); }}
+                    data-testid="button-clear-all-selection-orgs"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              ) : (
+                <>
+                  All {paginatedOrganizations.filter(o => !o.is_primary).length} on this page selected.
+                  <button 
+                    className="font-semibold underline"
+                    onClick={() => setSelectAllFiltered(true)}
+                    data-testid="button-select-all-filtered-orgs"
+                  >
+                    Select all {filteredOrganizations.filter(o => !o.is_primary).length} organisations
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="flex-1 overflow-auto p-6">
             {orgsLoading ? (

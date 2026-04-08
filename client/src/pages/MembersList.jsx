@@ -19,6 +19,7 @@ import {
   Loader2, 
   ChevronLeft, 
   ChevronRight,
+  X,
   LayoutList,
   LayoutGrid,
   SlidersHorizontal,
@@ -35,7 +36,8 @@ import {
   Briefcase,
   Save,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Download
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -128,6 +130,8 @@ export default function MembersListPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [selectedMembers, setSelectedMembers] = useState([]);
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteMember, setSingleDeleteMember] = useState(null);
@@ -331,6 +335,7 @@ export default function MembersListPage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       setSelectedMembers([]);
+      setSelectAllFiltered(false);
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
       setSingleDeleteMember(null);
@@ -351,6 +356,7 @@ export default function MembersListPage() {
   // Selection handlers
   const toggleMemberSelection = (memberId, e) => {
     if (e?.stopPropagation) e.stopPropagation();
+    if (selectAllFiltered) setSelectAllFiltered(false);
     setSelectedMembers(prev => 
       prev.includes(memberId) 
         ? prev.filter(id => id !== memberId)
@@ -361,6 +367,7 @@ export default function MembersListPage() {
   const toggleSelectAll = () => {
     const currentPageIds = paginatedMembers.map(m => m.id);
     const allSelected = currentPageIds.every(id => selectedMembers.includes(id));
+    if (selectAllFiltered) setSelectAllFiltered(false);
     if (allSelected) {
       setSelectedMembers(prev => prev.filter(id => !currentPageIds.includes(id)));
     } else {
@@ -381,6 +388,42 @@ export default function MembersListPage() {
       batchDeleteMutation.mutate(selectedMembers);
     }
   };
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectAllFiltered) {
+        if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+        if (orgFilter && orgFilter !== 'all') params.set('organizationId', orgFilter);
+        if (roleFilter && roleFilter !== 'all') params.set('roleId', roleFilter);
+        if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+      } else {
+        params.set('ids', selectedMembers.join(','));
+      }
+      const response = await fetch(`/api/admin/members/export-csv?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      link.download = `members_export_${today}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Export complete", description: `CSV file downloaded successfully.` });
+    } catch (err) {
+      toast({ title: "Export failed", description: err.message || "Could not export members.", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const allPageSelected = paginatedMembers.length > 0 &&
+    paginatedMembers.every(m => selectedMembers.includes(m.id));
+  const showSelectAllBanner = allPageSelected && totalPages > 1 && !selectAllFiltered;
 
   const orgMap = useMemo(() => {
     const map = {};
@@ -928,16 +971,44 @@ export default function MembersListPage() {
                     </PopoverContent>
                   </Popover>
                 )}
-                {selectedMembers.length > 0 && (
-                  <Button 
-                    variant="destructive"
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="gap-1"
-                    data-testid="button-delete-selected-members"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete Selected ({selectedMembers.length})
-                  </Button>
+                {(selectedMembers.length > 0 || selectAllFiltered) && (
+                  <>
+                    <Button 
+                      variant="outline"
+                      onClick={handleExportCSV}
+                      disabled={isExporting}
+                      className="gap-1"
+                      data-testid="button-export-csv-members"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                      Export CSV {selectAllFiltered ? `(${pagination.total})` : `(${selectedMembers.length})`}
+                    </Button>
+                    {selectedMembers.length > 0 && (
+                      <Button 
+                        variant="destructive"
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="gap-1"
+                        data-testid="button-delete-selected-members"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Selected ({selectedMembers.length})
+                      </Button>
+                    )}
+                    <Button 
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSelectedMembers([]); setSelectAllFiltered(false); }}
+                      className="text-slate-500"
+                      data-testid="button-clear-selection-members"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear selection
+                    </Button>
+                  </>
                 )}
                 <Button 
                   onClick={() => setIsCreatingNew(true)}
@@ -972,6 +1043,34 @@ export default function MembersListPage() {
               </div>
             </div>
           </header>
+
+          {(showSelectAllBanner || selectAllFiltered) && (
+            <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-700 flex items-center justify-center gap-2" data-testid="banner-select-all-members">
+              {selectAllFiltered ? (
+                <>
+                  All {pagination.total} members are selected.
+                  <button 
+                    className="font-semibold underline"
+                    onClick={() => { setSelectAllFiltered(false); setSelectedMembers([]); }}
+                    data-testid="button-clear-all-selection-members"
+                  >
+                    Clear selection
+                  </button>
+                </>
+              ) : (
+                <>
+                  All {paginatedMembers.length} on this page selected.
+                  <button 
+                    className="font-semibold underline"
+                    onClick={() => setSelectAllFiltered(true)}
+                    data-testid="button-select-all-filtered-members"
+                  >
+                    Select all {pagination.total} members
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="flex-1 overflow-auto p-6">
             {membersLoading ? (
