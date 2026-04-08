@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       }
 
       const sanitizedValues = orgFilter.values
-        .map(v => String(v).replace(/[%_.*+?^${}()|[\]\\,]/g, '').trim())
+        .map(v => String(v).trim())
         .filter(v => v.length > 0 && v.length <= 200);
 
       if (sanitizedValues.length === 0) {

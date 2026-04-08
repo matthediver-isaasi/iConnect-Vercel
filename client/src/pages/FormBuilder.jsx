@@ -3051,7 +3051,7 @@ function FieldCard({
                 const filterValues = orgFilter?.values || [];
 
                 const setOrgFilter = (update) => {
-                  const current = field.org_filter || { type: 'none', field: '', values: [] };
+                  const current = orgFilter || { type: 'none', field: '', values: [] };
                   const newFilter = { ...current, ...update };
                   if (newFilter.type === 'none') {
                     updateField(originalIndex, { org_filter: null, allowed_org_statuses: [] });
