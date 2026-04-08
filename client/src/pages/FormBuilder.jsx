@@ -3032,7 +3032,10 @@ function FieldCard({
                 ];
                 const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
 
-                const orgFilter = field.org_filter || null;
+                let orgFilter = field.org_filter || null;
+                if (!orgFilter && field.allowed_org_statuses?.length > 0) {
+                  orgFilter = { type: 'custom', field: 'application_status', values: field.allowed_org_statuses };
+                }
                 const filterType = orgFilter?.type || 'none';
                 const filterField = orgFilter?.field || '';
                 const filterValues = orgFilter?.values || [];

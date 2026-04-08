@@ -114,8 +114,6 @@ export default async function handler(req, res) {
       if (orgFilter.field === 'is_active') {
         const boolVal = sanitizedValues[0] === 'true';
         query = query.eq('is_active', boolVal);
-      } else if (sanitizedValues.length === 1) {
-        query = query.ilike(orgFilter.field, `%${sanitizedValues[0]}%`);
       } else {
         query = query.in(orgFilter.field, sanitizedValues);
       }
