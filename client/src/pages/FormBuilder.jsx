@@ -3023,12 +3023,22 @@ function FieldCard({
               {field.type === 'organisation_dropdown' && (() => {
                 const ORG_CORE_FIELDS = [
                   { key: 'name', label: 'Name' },
+                  { key: 'slug', label: 'Slug' },
+                  { key: 'description', label: 'Description' },
+                  { key: 'website_url', label: 'Website URL' },
+                  { key: 'email', label: 'Email' },
+                  { key: 'phone', label: 'Phone' },
+                  { key: 'address', label: 'Address' },
                   { key: 'city', label: 'City' },
                   { key: 'country', label: 'Country' },
                   { key: 'postcode', label: 'Postcode' },
                   { key: 'status', label: 'Status' },
-                  { key: 'is_active', label: 'Is Active' },
                   { key: 'external_id', label: 'External ID' },
+                  { key: 'is_active', label: 'Is Active' },
+                  { key: 'twitter_url', label: 'Twitter URL' },
+                  { key: 'linkedin_url', label: 'LinkedIn URL' },
+                  { key: 'facebook_url', label: 'Facebook URL' },
+                  { key: 'instagram_url', label: 'Instagram URL' },
                 ];
                 const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
 
