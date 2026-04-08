@@ -177,19 +177,40 @@ export default function BriefDetailPage() {
     enabled: isAccessReady && !!briefId,
   });
 
-  const { data: members = [] } = useQuery({
-    queryKey: ["members-list-brief"],
+  const referencedMemberIds = useMemo(() => {
+    const ids = new Set();
+    if (brief) {
+      if (brief.assigned_writer_id) ids.add(brief.assigned_writer_id);
+      if (brief.review_owner_id) ids.add(brief.review_owner_id);
+      if (brief.created_by) ids.add(brief.created_by);
+    }
+    comments.forEach((c) => { if (c.created_by) ids.add(c.created_by); });
+    versions.forEach((v) => { if (v.uploaded_by) ids.add(v.uploaded_by); });
+    activities.forEach((a) => { if (a.performed_by) ids.add(a.performed_by); });
+    return Array.from(ids);
+  }, [brief, comments, versions, activities]);
+
+  const { data: referencedMembers = [] } = useQuery({
+    queryKey: ["members-by-ids", referencedMemberIds],
     queryFn: async () => {
-      return await base44.entities.Member.list();
+      if (referencedMemberIds.length === 0) return [];
+      const resp = await fetch(`/api/members/by-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: referencedMemberIds }),
+      });
+      if (!resp.ok) return [];
+      return await resp.json();
     },
-    enabled: isAccessReady,
+    enabled: isAccessReady && referencedMemberIds.length > 0,
   });
 
   const membersById = useMemo(() => {
     const map = {};
-    members.forEach((m) => { map[m.id] = m; });
+    referencedMembers.forEach((m) => { map[m.id] = m; });
     return map;
-  }, [members]);
+  }, [referencedMembers]);
 
   const getMemberName = (memberId) => {
     if (!memberId) return "Unknown";
@@ -654,11 +675,11 @@ export default function BriefDetailPage() {
                       <div className="space-y-1">
                         <Label>Writer</Label>
                         <MemberCombobox
-                          members={members}
                           value={editData.assigned_writer_id || "unassigned"}
                           onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
                           placeholder="Search writer..."
                           testId="combobox-edit-writer"
+                          initialMember={brief?.assigned_writer_id ? membersById[brief.assigned_writer_id] : null}
                         />
                       </div>
                     )}
@@ -668,11 +689,11 @@ export default function BriefDetailPage() {
                       <div className="space-y-1">
                         <Label>Reviewer</Label>
                         <MemberCombobox
-                          members={members}
                           value={editData.review_owner_id || "unassigned"}
                           onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}
                           placeholder="Search reviewer..."
                           testId="combobox-edit-reviewer"
+                          initialMember={brief?.review_owner_id ? membersById[brief.review_owner_id] : null}
                         />
                       </div>
                       <div className="space-y-1">

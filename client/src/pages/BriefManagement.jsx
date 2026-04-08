@@ -139,12 +139,30 @@ export default function BriefManagementPage() {
     enabled: isAccessReady,
   });
 
-  const { data: members = [] } = useQuery({
-    queryKey: ["members-list-brief"],
+  const referencedMemberIds = useMemo(() => {
+    const ids = new Set();
+    briefs.forEach((b) => {
+      if (b.assigned_writer_id) ids.add(b.assigned_writer_id);
+      if (b.review_owner_id) ids.add(b.review_owner_id);
+      if (b.created_by) ids.add(b.created_by);
+    });
+    return Array.from(ids);
+  }, [briefs]);
+
+  const { data: referencedMembers = [] } = useQuery({
+    queryKey: ["members-by-ids", referencedMemberIds],
     queryFn: async () => {
-      return await base44.entities.Member.list();
+      if (referencedMemberIds.length === 0) return [];
+      const resp = await fetch(`/api/members/by-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: referencedMemberIds }),
+      });
+      if (!resp.ok) return [];
+      return await resp.json();
     },
-    enabled: isAccessReady,
+    enabled: isAccessReady && referencedMemberIds.length > 0,
   });
 
   const { data: allVersions = [] } = useQuery({
@@ -168,9 +186,9 @@ export default function BriefManagementPage() {
 
   const membersById = useMemo(() => {
     const map = {};
-    members.forEach((m) => { map[m.id] = m; });
+    referencedMembers.forEach((m) => { map[m.id] = m; });
     return map;
-  }, [members]);
+  }, [referencedMembers]);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -708,7 +726,6 @@ export default function BriefManagementPage() {
                     <div className="space-y-1">
                       <Label>Assign Writer</Label>
                       <MemberCombobox
-                        members={members}
                         value={newBrief.assigned_writer_id || "unassigned"}
                         onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
                         placeholder="Search writer..."
@@ -718,7 +735,6 @@ export default function BriefManagementPage() {
                     <div className="space-y-1">
                       <Label>Assign Reviewer</Label>
                       <MemberCombobox
-                        members={members}
                         value={newBrief.review_owner_id || "unassigned"}
                         onValueChange={(v) => setNewBrief((p) => ({ ...p, review_owner_id: v }))}
                         placeholder="Search reviewer..."

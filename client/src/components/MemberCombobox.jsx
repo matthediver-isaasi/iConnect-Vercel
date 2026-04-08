@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, ChevronsUpDown, User } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,11 +20,116 @@ function getMemberLabel(member) {
   return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
 }
 
-export default function MemberCombobox({ members = [], value, onValueChange, placeholder = "Select member...", unassignedLabel = "Unassigned", testId = "combobox-member" }) {
+export default function MemberCombobox({
+  value,
+  onValueChange,
+  placeholder = "Search member...",
+  unassignedLabel = "Unassigned",
+  testId = "combobox-member",
+  initialMember = null,
+}) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [resolvedMember, setResolvedMember] = useState(initialMember);
+  const timerRef = useRef(null);
+  const abortRef = useRef(null);
 
-  const selectedMember = value && value !== "unassigned" ? members.find((m) => m.id === value) : null;
-  const displayLabel = selectedMember ? getMemberLabel(selectedMember) : (value === "unassigned" || !value ? unassignedLabel : "Unknown");
+  useEffect(() => {
+    if (initialMember) {
+      setResolvedMember(initialMember);
+    }
+  }, [initialMember]);
+
+  useEffect(() => {
+    if (value && value !== "unassigned" && !resolvedMember && !initialMember) {
+      let cancelled = false;
+      fetch(`/api/members/by-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: [value] }),
+      })
+        .then((r) => r.ok ? r.json() : [])
+        .then((data) => {
+          if (!cancelled && data.length > 0) {
+            setResolvedMember(data[0]);
+          }
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  const searchMembers = useCallback((query) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    if (!query || query.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    timerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const resp = await fetch(
+          `/api/members/search?q=${encodeURIComponent(query)}&limit=15`,
+          { credentials: "include", signal: controller.signal }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          setResults(data);
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") {
+          console.error("Member search error:", e);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      searchMembers(searchQuery);
+    }
+  }, [searchQuery, open]);
+
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+      setResults([]);
+    }
+  }, [open]);
+
+  const handleSelect = (memberId) => {
+    if (memberId === "unassigned") {
+      setResolvedMember(null);
+      onValueChange("unassigned");
+    } else {
+      const member = results.find((m) => m.id === memberId);
+      if (member) setResolvedMember(member);
+      onValueChange(memberId);
+    }
+    setOpen(false);
+  };
+
+  const displayLabel = resolvedMember
+    ? getMemberLabel(resolvedMember)
+    : (value && value !== "unassigned" ? "Loading..." : unassignedLabel);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -41,32 +146,41 @@ export default function MemberCombobox({ members = [], value, onValueChange, pla
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Search members..." data-testid={`${testId}-search`} />
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder={placeholder}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            data-testid={`${testId}-search`}
+          />
           <CommandList>
-            <CommandEmpty>No members found.</CommandEmpty>
+            {loading && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loading && searchQuery.length >= 2 && results.length === 0 && (
+              <CommandEmpty>No members found.</CommandEmpty>
+            )}
+            {!loading && searchQuery.length < 2 && results.length === 0 && (
+              <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
+            )}
             <CommandGroup>
               <CommandItem
                 value="unassigned"
-                onSelect={() => {
-                  onValueChange("unassigned");
-                  setOpen(false);
-                }}
+                onSelect={() => handleSelect("unassigned")}
                 data-testid={`${testId}-option-unassigned`}
               >
                 <Check className={cn("mr-2 h-4 w-4", (!value || value === "unassigned") ? "opacity-100" : "opacity-0")} />
                 {unassignedLabel}
               </CommandItem>
-              {members.map((m) => {
+              {results.map((m) => {
                 const label = getMemberLabel(m);
                 return (
                   <CommandItem
                     key={m.id}
-                    value={`${label} ${m.email || ""}`}
-                    onSelect={() => {
-                      onValueChange(m.id);
-                      setOpen(false);
-                    }}
+                    value={m.id}
+                    onSelect={() => handleSelect(m.id)}
                     data-testid={`${testId}-option-${m.id}`}
                   >
                     <Check className={cn("mr-2 h-4 w-4", value === m.id ? "opacity-100" : "opacity-0")} />
