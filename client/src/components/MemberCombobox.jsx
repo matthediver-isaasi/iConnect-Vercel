@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -43,23 +42,30 @@ export default function MemberCombobox({
   }, [initialMember]);
 
   useEffect(() => {
-    if (value && value !== "unassigned" && !resolvedMember && !initialMember) {
-      let cancelled = false;
-      fetch(`/api/members/by-ids`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ ids: [value] }),
-      })
-        .then((r) => r.ok ? r.json() : [])
-        .then((data) => {
-          if (!cancelled && data.length > 0) {
-            setResolvedMember(data[0]);
-          }
-        })
-        .catch(() => {});
-      return () => { cancelled = true; };
+    if (!value || value === "unassigned") {
+      setResolvedMember(null);
+      return;
     }
+    if (resolvedMember && resolvedMember.id === value) return;
+    if (initialMember && initialMember.id === value) {
+      setResolvedMember(initialMember);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/members/by-ids`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ ids: [value] }),
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!cancelled && data.length > 0) {
+          setResolvedMember(data[0]);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [value]);
 
   useEffect(() => {
@@ -160,10 +166,10 @@ export default function MemberCombobox({
               </div>
             )}
             {!loading && searchQuery.length >= 2 && results.length === 0 && (
-              <CommandEmpty>No members found.</CommandEmpty>
+              <p className="py-4 text-center text-sm text-muted-foreground">No members found.</p>
             )}
-            {!loading && searchQuery.length < 2 && results.length === 0 && (
-              <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
+            {!loading && searchQuery.length > 0 && searchQuery.length < 2 && (
+              <p className="py-4 text-center text-sm text-muted-foreground">Type at least 2 characters to search.</p>
             )}
             <CommandGroup>
               <CommandItem
