@@ -157,6 +157,16 @@ export default async function handler(req, res) {
       console.error('[OrgExportCSV] Query error:', error);
       return res.status(500).json({ error: 'Failed to fetch organisations' });
     }
+    console.log(`[OrgExportCSV] Fetched ${(organizations || []).length} organizations`);
+    if (organizations.length > 0) {
+      console.log(`[OrgExportCSV] Org table columns: ${Object.keys(organizations[0]).join(', ')}`);
+      const sampleOrg = organizations[0];
+      const coreFieldCheck = ['name', 'slug', 'description', 'website_url', 'email', 'phone', 'address', 'city', 'country', 'postcode', 'invoicing_email', 'invoicing_address', 'external_id'];
+      const populated = coreFieldCheck.filter(f => sampleOrg[f] != null && sampleOrg[f] !== '');
+      const missing = coreFieldCheck.filter(f => sampleOrg[f] == null || sampleOrg[f] === '');
+      console.log(`[OrgExportCSV] Sample org populated core fields: ${populated.join(', ')}`);
+      console.log(`[OrgExportCSV] Sample org missing core fields: ${missing.join(', ')}`);
+    }
 
     const { data: prefFields } = await supabase
       .from('preference_field')
@@ -171,16 +181,41 @@ export default async function handler(req, res) {
     let prefValues = [];
     if (organizations.length > 0) {
       const orgIds = organizations.map(o => o.id);
-      const { data: pvData } = await supabase
-        .from('organization_preference_value')
-        .select('*')
-        .in('organization_id', orgIds);
-      prefValues = pvData || [];
+      const batchSize = 50;
+      for (let i = 0; i < orgIds.length; i += batchSize) {
+        const batch = orgIds.slice(i, i + batchSize);
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: pvData, error: pvError } = await supabase
+            .from('organization_preference_value')
+            .select('*')
+            .in('organization_id', batch)
+            .range(from, from + pageSize - 1);
+          if (pvError) {
+            console.error('[OrgExportCSV] Preference values query error:', pvError);
+            break;
+          }
+          if (pvData && pvData.length > 0) {
+            prefValues.push(...pvData);
+          }
+          if (!pvData || pvData.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+      console.log(`[OrgExportCSV] Fetched ${prefValues.length} preference values for ${orgIds.length} orgs`);
+      if (prefValues.length > 0) {
+        const samplePV = prefValues[0];
+        console.log(`[OrgExportCSV] Sample preference value keys: ${Object.keys(samplePV).join(', ')}`);
+        console.log(`[OrgExportCSV] Sample PV: org_id=${samplePV.organization_id}, field_id=${samplePV.field_id}, preference_field_id=${samplePV.preference_field_id}, value=${String(samplePV.value).substring(0, 100)}`);
+      }
     }
 
     const orgPrefMap = {};
     prefValues.forEach(pv => {
       if (!orgPrefMap[pv.organization_id]) orgPrefMap[pv.organization_id] = {};
+      const fieldIdKey = pv.field_id || pv.preference_field_id;
+      if (!fieldIdKey) return;
       let normalizedValue = pv.value;
       if (typeof pv.value === 'string') {
         const trimmed = pv.value.trim();
@@ -189,7 +224,7 @@ export default async function handler(req, res) {
         }
       }
       normalizedValue = normalizePreferenceValue(normalizedValue);
-      orgPrefMap[pv.organization_id][pv.field_id] = normalizedValue;
+      orgPrefMap[pv.organization_id][fieldIdKey] = normalizedValue;
     });
 
     let customFilterMap = {};
@@ -265,7 +300,7 @@ export default async function handler(req, res) {
         if (rawValue === null || rawValue === undefined) return '';
         if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
           const originalValue = prefValues.find(
-            pv => pv.organization_id === org.id && pv.field_id === f.id
+            pv => pv.organization_id === org.id && (pv.field_id === f.id || pv.preference_field_id === f.id)
           )?.value;
           return resolvePicklistValue(originalValue || '', f);
         }

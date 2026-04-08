@@ -29,6 +29,20 @@ function formatDate(dateStr) {
   }
 }
 
+function normalizePreferenceValue(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
+    return val.label || val.value;
+  }
+  if (Array.isArray(val)) {
+    return val.map(v => {
+      if (typeof v === 'object' && v !== null && v.value !== undefined) return v.label || v.value;
+      return v;
+    }).join(', ');
+  }
+  return val;
+}
+
 function resolvePicklistValue(rawValue, field) {
   if (!rawValue || !field) return rawValue || '';
   const options = field.options || [];
@@ -122,6 +136,7 @@ export default async function handler(req, res) {
       console.error('[MemberExportCSV] Query error:', error);
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
+    console.log(`[MemberExportCSV] Fetched ${(members || []).length} members`);
 
     const { data: prefFields } = await supabase
       .from('preference_field')
@@ -136,17 +151,42 @@ export default async function handler(req, res) {
     let prefValues = [];
     if (customFields.length > 0 && members.length > 0) {
       const memberIds = members.map(m => m.id);
-      const { data: pvData } = await supabase
-        .from('member_preference_value')
-        .select('*')
-        .in('member_id', memberIds);
-      prefValues = pvData || [];
+      const batchSize = 50;
+      for (let i = 0; i < memberIds.length; i += batchSize) {
+        const batch = memberIds.slice(i, i + batchSize);
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: pvData, error: pvError } = await supabase
+            .from('member_preference_value')
+            .select('*')
+            .in('member_id', batch)
+            .range(from, from + pageSize - 1);
+          if (pvError) {
+            console.error('[MemberExportCSV] Preference values query error:', pvError);
+            break;
+          }
+          if (pvData && pvData.length > 0) {
+            prefValues.push(...pvData);
+          }
+          if (!pvData || pvData.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+      console.log(`[MemberExportCSV] Fetched ${prefValues.length} preference values for ${memberIds.length} members`);
+      if (prefValues.length > 0) {
+        const samplePV = prefValues[0];
+        console.log(`[MemberExportCSV] Sample preference value keys: ${Object.keys(samplePV).join(', ')}`);
+        console.log(`[MemberExportCSV] Sample PV: member_id=${samplePV.member_id}, field_id=${samplePV.field_id}, preference_field_id=${samplePV.preference_field_id}, value=${String(samplePV.value).substring(0, 100)}`);
+      }
     }
 
     const memberPrefMap = {};
     prefValues.forEach(pv => {
       if (!memberPrefMap[pv.member_id]) memberPrefMap[pv.member_id] = {};
-      memberPrefMap[pv.member_id][pv.field_id] = pv.value;
+      const fieldIdKey = pv.field_id || pv.preference_field_id;
+      if (!fieldIdKey) return;
+      memberPrefMap[pv.member_id][fieldIdKey] = pv.value;
     });
 
     const coreHeaders = [
@@ -180,11 +220,22 @@ export default async function handler(req, res) {
       });
 
       const customValues = customFields.map(f => {
-        const rawValue = memberPrefMap[member.id]?.[f.id];
-        if (!rawValue) return '';
-        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
-          return resolvePicklistValue(rawValue, f);
+        let rawValue = memberPrefMap[member.id]?.[f.id];
+        if (rawValue === null || rawValue === undefined) return '';
+        if (typeof rawValue === 'string') {
+          const trimmed = rawValue.trim();
+          if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+            try { rawValue = JSON.parse(trimmed); } catch {}
+          }
         }
+        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
+          const originalValue = prefValues.find(
+            pv => pv.member_id === member.id && (pv.field_id === f.id || pv.preference_field_id === f.id)
+          )?.value;
+          return resolvePicklistValue(originalValue || '', f);
+        }
+        rawValue = normalizePreferenceValue(rawValue);
+        if (Array.isArray(rawValue)) return rawValue.join(', ');
         return String(rawValue);
       });
 
