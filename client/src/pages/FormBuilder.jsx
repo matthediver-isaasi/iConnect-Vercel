@@ -2500,6 +2500,72 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
   );
 }
 
+function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange, fieldId }) {
+  const { data: distinctValues = [], isLoading, isError } = useQuery({
+    queryKey: ['org-field-values', fieldType, fieldName],
+    queryFn: async () => await publicClient.listOrganizationFieldValues(fieldType, fieldName) || [],
+    enabled: !!fieldType && !!fieldName,
+    staleTime: 2 * 60 * 1000
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading values...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+        Failed to load values. Please try again.
+      </div>
+    );
+  }
+
+  if (distinctValues.length === 0) {
+    return (
+      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+        No values found for this field in the database.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 max-h-48 overflow-y-auto">
+      {distinctValues.map((val) => {
+        const isSelected = selectedValues.includes(val);
+        return (
+          <div
+            key={val}
+            className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            <Checkbox
+              id={`org-fv-${fieldId}-${val}`}
+              checked={isSelected}
+              onCheckedChange={(checked) => {
+                const newVals = checked
+                  ? [...selectedValues, val]
+                  : selectedValues.filter(s => s !== val);
+                onChange(newVals);
+              }}
+              data-testid={`checkbox-org-fv-${fieldId}-${String(val).toLowerCase().replace(/\s+/g, '-')}`}
+            />
+            <Label
+              htmlFor={`org-fv-${fieldId}-${val}`}
+              className="text-xs font-medium cursor-pointer flex-1"
+            >
+              {val}
+            </Label>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -4364,72 +4430,6 @@ function FieldCard({
         </div>
       )}
     </Draggable>
-  );
-}
-
-function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange, fieldId }) {
-  const { data: distinctValues = [], isLoading, isError } = useQuery({
-    queryKey: ['org-field-values', fieldType, fieldName],
-    queryFn: async () => await publicClient.listOrganizationFieldValues(fieldType, fieldName) || [],
-    enabled: !!fieldType && !!fieldName,
-    staleTime: 2 * 60 * 1000
-  });
-
-  if (isLoading) {
-    return (
-      <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading values...
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-        Failed to load values. Please try again.
-      </div>
-    );
-  }
-
-  if (distinctValues.length === 0) {
-    return (
-      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
-        No values found for this field in the database.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2 max-h-48 overflow-y-auto">
-      {distinctValues.map((val) => {
-        const isSelected = selectedValues.includes(val);
-        return (
-          <div
-            key={val}
-            className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
-          >
-            <Checkbox
-              id={`org-fv-${fieldId}-${val}`}
-              checked={isSelected}
-              onCheckedChange={(checked) => {
-                const newVals = checked
-                  ? [...selectedValues, val]
-                  : selectedValues.filter(s => s !== val);
-                onChange(newVals);
-              }}
-              data-testid={`checkbox-org-fv-${fieldId}-${String(val).toLowerCase().replace(/\s+/g, '-')}`}
-            />
-            <Label
-              htmlFor={`org-fv-${fieldId}-${val}`}
-              className="text-xs font-medium cursor-pointer flex-1"
-            >
-              {val}
-            </Label>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
