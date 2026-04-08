@@ -294,7 +294,9 @@ class PublicClient {
   // Organizations
   async listOrganizations(options = {}) {
     const params = new URLSearchParams();
-    if (options.allowedStatuses && options.allowedStatuses.length > 0) {
+    if (options.orgFilter && options.orgFilter.type && options.orgFilter.field && options.orgFilter.values?.length > 0) {
+      params.set('orgFilter', JSON.stringify(options.orgFilter));
+    } else if (options.allowedStatuses && options.allowedStatuses.length > 0) {
       params.set('allowedStatuses', JSON.stringify(options.allowedStatuses));
     }
     const queryString = params.toString();

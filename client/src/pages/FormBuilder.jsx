@@ -3021,63 +3021,190 @@ function FieldCard({
               )}
 
               {field.type === 'organisation_dropdown' && (() => {
-                const applicationStatusField = customFields.find(
-                  cf => cf.name === 'application_status' && cf.entity_scope === 'organization'
-                );
-                const statusOptions = applicationStatusField?.options?.map(opt => {
-                  if (typeof opt === 'string') return { value: opt, label: opt };
-                  return { value: opt.value || opt, label: opt.label || opt.value || opt };
-                }) || [];
-                
+                const ORG_CORE_FIELDS = [
+                  { key: 'name', label: 'Name' },
+                  { key: 'city', label: 'City' },
+                  { key: 'country', label: 'Country' },
+                  { key: 'postcode', label: 'Postcode' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'is_active', label: 'Is Active' },
+                  { key: 'external_id', label: 'External ID' },
+                ];
+                const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
+
+                const orgFilter = field.org_filter || null;
+                const filterType = orgFilter?.type || 'none';
+                const filterField = orgFilter?.field || '';
+                const filterValues = orgFilter?.values || [];
+
+                const setOrgFilter = (update) => {
+                  const current = field.org_filter || { type: 'none', field: '', values: [] };
+                  const newFilter = { ...current, ...update };
+                  if (newFilter.type === 'none') {
+                    updateField(originalIndex, { org_filter: null, allowed_org_statuses: [] });
+                  } else {
+                    updateField(originalIndex, { org_filter: newFilter, allowed_org_statuses: [] });
+                  }
+                };
+
+                const selectedCustomField = filterType === 'custom'
+                  ? orgCustomFields.find(cf => cf.name === filterField)
+                  : null;
+                const hasPicklistOptions = selectedCustomField &&
+                  (selectedCustomField.field_type === 'picklist' || selectedCustomField.field_type === 'dropdown') &&
+                  selectedCustomField.options?.length > 0;
+                const picklistOptions = hasPicklistOptions
+                  ? selectedCustomField.options.map(opt =>
+                      typeof opt === 'string' ? { value: opt, label: opt } : { value: opt.value || opt, label: opt.label || opt.value || opt }
+                    )
+                  : [];
+
                 return (
-                  <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                    <Label className="text-xs font-medium">Filter by Application Status</Label>
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <Label className="text-xs font-medium">Filter Organisations</Label>
                     <p className="text-xs text-slate-500">
-                      Only show organisations with specific status values. If none selected, all organisations will appear.
+                      Restrict which organisations appear in this dropdown. If set to "No filter", all organisations will appear.
                     </p>
-                    {statusOptions.length === 0 ? (
-                      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
-                        No application_status field found for organisations. Create one in Preference Settings to enable filtering.
+                    <Select
+                      value={filterType}
+                      onValueChange={(v) => setOrgFilter({ type: v, field: '', values: [] })}
+                    >
+                      <SelectTrigger data-testid={`select-org-filter-type-${field.id}`}>
+                        <SelectValue placeholder="Select filter type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No filter</SelectItem>
+                        <SelectItem value="core">Core organisation field</SelectItem>
+                        <SelectItem value="custom">Custom organisation field</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {filterType === 'core' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs">Select field</Label>
+                        <Select
+                          value={filterField}
+                          onValueChange={(v) => setOrgFilter({ field: v, values: [] })}
+                        >
+                          <SelectTrigger data-testid={`select-org-filter-core-field-${field.id}`}>
+                            <SelectValue placeholder="Choose a field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ORG_CORE_FIELDS.map(cf => (
+                              <SelectItem key={cf.key} value={cf.key}>{cf.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {filterField && filterField === 'is_active' && (
+                          <Select
+                            value={filterValues[0] || ''}
+                            onValueChange={(v) => setOrgFilter({ values: [v] })}
+                          >
+                            <SelectTrigger data-testid={`select-org-filter-bool-${field.id}`}>
+                              <SelectValue placeholder="Select value" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">Yes (Active)</SelectItem>
+                              <SelectItem value="false">No (Inactive)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                        {filterField && filterField !== 'is_active' && (
+                          <div className="space-y-1">
+                            <Label className="text-xs">Filter value(s) — comma-separated for multiple</Label>
+                            <Input
+                              value={filterValues.join(', ')}
+                              onChange={(e) => {
+                                const vals = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                                setOrgFilter({ values: vals });
+                              }}
+                              placeholder="e.g. London, Manchester"
+                              data-testid={`input-org-filter-core-value-${field.id}`}
+                            />
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {statusOptions.map((opt) => {
-                            const isSelected = (field.allowed_org_statuses || []).includes(opt.value);
-                            return (
-                              <div
-                                key={opt.value}
-                                className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
-                              >
-                                <Checkbox
-                                  id={`org-status-${field.id}-${opt.value}`}
-                                  checked={isSelected}
-                                  onCheckedChange={(checked) => {
-                                    const currentStatuses = field.allowed_org_statuses || [];
-                                    const newStatuses = checked
-                                      ? [...currentStatuses, opt.value]
-                                      : currentStatuses.filter(s => s !== opt.value);
-                                    updateField(originalIndex, { allowed_org_statuses: newStatuses });
-                                  }}
-                                  data-testid={`checkbox-org-status-${field.id}-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
-                                />
-                                <Label 
-                                  htmlFor={`org-status-${field.id}-${opt.value}`}
-                                  className="text-xs font-medium cursor-pointer flex-1"
-                                >
-                                  {opt.label}
-                                </Label>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-2">
-                          {(field.allowed_org_statuses || []).length === 0 
-                            ? "No filter applied - all organisations will be shown"
-                            : `Showing organisations with status: ${(field.allowed_org_statuses || []).join(', ')}`}
-                        </p>
-                      </>
                     )}
+
+                    {filterType === 'custom' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs">Select custom field</Label>
+                        {orgCustomFields.length === 0 ? (
+                          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                            No custom fields found for organisations. Create one in Preference Settings to enable filtering.
+                          </div>
+                        ) : (
+                          <>
+                            <Select
+                              value={filterField}
+                              onValueChange={(v) => setOrgFilter({ field: v, values: [] })}
+                            >
+                              <SelectTrigger data-testid={`select-org-filter-custom-field-${field.id}`}>
+                                <SelectValue placeholder="Choose a custom field..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {orgCustomFields.map(cf => (
+                                  <SelectItem key={cf.id} value={cf.name}>{cf.label || cf.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {filterField && hasPicklistOptions && (
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {picklistOptions.map((opt) => {
+                                  const isSelected = filterValues.includes(opt.value);
+                                  return (
+                                    <div
+                                      key={opt.value}
+                                      className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                                    >
+                                      <Checkbox
+                                        id={`org-cf-${field.id}-${opt.value}`}
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                          const newVals = checked
+                                            ? [...filterValues, opt.value]
+                                            : filterValues.filter(s => s !== opt.value);
+                                          setOrgFilter({ values: newVals });
+                                        }}
+                                        data-testid={`checkbox-org-cf-${field.id}-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                                      />
+                                      <Label
+                                        htmlFor={`org-cf-${field.id}-${opt.value}`}
+                                        className="text-xs font-medium cursor-pointer flex-1"
+                                      >
+                                        {opt.label}
+                                      </Label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {filterField && !hasPicklistOptions && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">Filter value(s) — comma-separated for multiple</Label>
+                                <Input
+                                  value={filterValues.join(', ')}
+                                  onChange={(e) => {
+                                    const vals = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                                    setOrgFilter({ values: vals });
+                                  }}
+                                  placeholder="Enter value(s) to match"
+                                  data-testid={`input-org-filter-custom-value-${field.id}`}
+                                />
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      {filterType === 'none'
+                        ? "No filter applied — all organisations will be shown"
+                        : filterValues.length === 0
+                          ? "Select filter values to apply the filter"
+                          : `Filtering by ${filterType === 'core' ? 'core' : 'custom'} field "${filterField}": ${filterValues.join(', ')}`}
+                    </p>
                   </div>
                 );
               })()}

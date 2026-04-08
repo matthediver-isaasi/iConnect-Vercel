@@ -408,17 +408,20 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   };
 
-  // Fetch organisations for organisation_dropdown field type (uses public endpoint)
-  // Pass allowed_org_statuses filter if configured on the field
-  // Use JSON.stringify for stable query key to prevent unnecessary refetches
-  const allowedOrgStatusesKey = JSON.stringify(field.allowed_org_statuses || []);
+  const orgFilterKey = JSON.stringify(field.org_filter || field.allowed_org_statuses || []);
   const { data: organisations = [], isLoading: orgsLoading } = useQuery({
-    queryKey: ['public-organisations-for-form', allowedOrgStatusesKey],
-    queryFn: async () => await publicClient.listOrganizations({
-      allowedStatuses: field.allowed_org_statuses || []
-    }) || [],
+    queryKey: ['public-organisations-for-form', orgFilterKey],
+    queryFn: async () => {
+      const opts = {};
+      if (field.org_filter && field.org_filter.type && field.org_filter.field && field.org_filter.values?.length > 0) {
+        opts.orgFilter = field.org_filter;
+      } else if (field.allowed_org_statuses && field.allowed_org_statuses.length > 0) {
+        opts.allowedStatuses = field.allowed_org_statuses;
+      }
+      return await publicClient.listOrganizations(opts) || [];
+    },
     enabled: field.type === 'organisation_dropdown',
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+    staleTime: 5 * 60 * 1000
   });
 
   // Fetch resource categories for category_multiselect and category_dropdown field types (uses public endpoint)
