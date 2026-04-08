@@ -3123,18 +3123,13 @@ function FieldCard({
                           </Select>
                         )}
                         {filterField && filterField !== 'is_active' && (
-                          <div className="space-y-1">
-                            <Label className="text-xs">Filter value(s) — comma-separated for multiple</Label>
-                            <Input
-                              value={filterValues.join(', ')}
-                              onChange={(e) => {
-                                const vals = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                                setOrgFilter({ values: vals });
-                              }}
-                              placeholder="e.g. London, Manchester"
-                              data-testid={`input-org-filter-core-value-${field.id}`}
-                            />
-                          </div>
+                          <OrgFieldValueSelector
+                            fieldType="core"
+                            fieldName={filterField}
+                            selectedValues={filterValues}
+                            onChange={(vals) => setOrgFilter({ values: vals })}
+                            fieldId={field.id}
+                          />
                         )}
                       </div>
                     )}
@@ -3193,18 +3188,13 @@ function FieldCard({
                               </div>
                             )}
                             {filterField && !hasPicklistOptions && (
-                              <div className="space-y-1">
-                                <Label className="text-xs">Filter value(s) — comma-separated for multiple</Label>
-                                <Input
-                                  value={filterValues.join(', ')}
-                                  onChange={(e) => {
-                                    const vals = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                                    setOrgFilter({ values: vals });
-                                  }}
-                                  placeholder="Enter value(s) to match"
-                                  data-testid={`input-org-filter-custom-value-${field.id}`}
-                                />
-                              </div>
+                              <OrgFieldValueSelector
+                                fieldType="custom"
+                                fieldName={filterField}
+                                selectedValues={filterValues}
+                                onChange={(vals) => setOrgFilter({ values: vals })}
+                                fieldId={field.id}
+                              />
                             )}
                           </>
                         )}
@@ -4374,6 +4364,64 @@ function FieldCard({
         </div>
       )}
     </Draggable>
+  );
+}
+
+function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange, fieldId }) {
+  const { data: distinctValues = [], isLoading } = useQuery({
+    queryKey: ['org-field-values', fieldType, fieldName],
+    queryFn: async () => await publicClient.listOrganizationFieldValues(fieldType, fieldName) || [],
+    enabled: !!fieldType && !!fieldName,
+    staleTime: 2 * 60 * 1000
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading values...
+      </div>
+    );
+  }
+
+  if (distinctValues.length === 0) {
+    return (
+      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+        No values found for this field in the database.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 max-h-48 overflow-y-auto">
+      {distinctValues.map((val) => {
+        const isSelected = selectedValues.includes(val);
+        return (
+          <div
+            key={val}
+            className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            <Checkbox
+              id={`org-fv-${fieldId}-${val}`}
+              checked={isSelected}
+              onCheckedChange={(checked) => {
+                const newVals = checked
+                  ? [...selectedValues, val]
+                  : selectedValues.filter(s => s !== val);
+                onChange(newVals);
+              }}
+              data-testid={`checkbox-org-fv-${fieldId}-${String(val).toLowerCase().replace(/\s+/g, '-')}`}
+            />
+            <Label
+              htmlFor={`org-fv-${fieldId}-${val}`}
+              className="text-xs font-medium cursor-pointer flex-1"
+            >
+              {val}
+            </Label>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

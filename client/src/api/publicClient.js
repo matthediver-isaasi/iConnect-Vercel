@@ -308,6 +308,12 @@ class PublicClient {
     return this._fetch(`/api/public/organisation/${id}`);
   }
 
+  async listOrganizationFieldValues(fieldType, fieldName) {
+    if (!fieldType || !fieldName) return [];
+    const params = new URLSearchParams({ fieldType, fieldName });
+    return this._fetch(`/api/public/organisation-field-values?${params.toString()}`);
+  }
+
   async getPrefillMember(memberId, formSlug) {
     if (!memberId || !formSlug) return null;
     return this._fetch(`/api/public/form/prefill-member?member_id=${encodeURIComponent(memberId)}&form_slug=${encodeURIComponent(formSlug)}`);
