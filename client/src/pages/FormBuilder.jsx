@@ -4368,7 +4368,7 @@ function FieldCard({
 }
 
 function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange, fieldId }) {
-  const { data: distinctValues = [], isLoading } = useQuery({
+  const { data: distinctValues = [], isLoading, isError } = useQuery({
     queryKey: ['org-field-values', fieldType, fieldName],
     queryFn: async () => await publicClient.listOrganizationFieldValues(fieldType, fieldName) || [],
     enabled: !!fieldType && !!fieldName,
@@ -4380,6 +4380,14 @@ function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange,
       <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
         <Loader2 className="h-3 w-3 animate-spin" />
         Loading values...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+        Failed to load values. Please try again.
       </div>
     );
   }
