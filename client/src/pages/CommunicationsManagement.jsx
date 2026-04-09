@@ -213,6 +213,39 @@ export default function CommunicationsManagementPage() {
     staleTime: 30000,
   });
 
+  const { data: blankPageSetting } = useQuery({
+    queryKey: ['email-preferences-blank-page-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'email_preferences_blank_page') || null;
+    },
+  });
+
+  const blankPageEnabled = blankPageSetting?.setting_value === 'true';
+
+  const toggleBlankPageMutation = useMutation({
+    mutationFn: async (enabled) => {
+      if (blankPageSetting?.id) {
+        return await base44.entities.SystemSettings.update(blankPageSetting.id, {
+          setting_value: String(enabled)
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'email_preferences_blank_page',
+          setting_value: String(enabled),
+          description: 'Show email preferences as standalone page without header/footer'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['email-preferences-blank-page-setting'] });
+      toast.success('Email preferences page setting updated');
+    },
+    onError: () => {
+      toast.error('Failed to update setting');
+    }
+  });
+
   const { data: memberGroups = [] } = useQuery({
     queryKey: ['member-groups'],
     queryFn: () => base44.entities.MemberGroup.list(),
@@ -1246,6 +1279,23 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     </Button>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium text-slate-900">Hide header & footer on email preferences page</Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, the email preferences page renders as a standalone page without the site header and footer. Useful for embedding in an iframe.
+                  </p>
+                </div>
+                <Switch
+                  checked={blankPageEnabled}
+                  onCheckedChange={(checked) => toggleBlankPageMutation.mutate(checked)}
+                  disabled={toggleBlankPageMutation.isPending}
+                  data-testid="switch-email-preferences-blank-page"
+                />
               </div>
             </div>
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import PublicLayout from "@/components/layouts/PublicLayout";
 import { useToast } from "@/components/ui/use-toast";
+import { publicClient } from "@/api/publicClient";
 
 export default function EmailPreferences() {
   const [searchParams] = useSearchParams();
@@ -17,6 +18,24 @@ export default function EmailPreferences() {
   const [error, setError] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [data, setData] = useState(null);
+  const [blankPage, setBlankPage] = useState(false);
+  const [layoutResolved, setLayoutResolved] = useState(false);
+
+  useEffect(() => {
+    const fetchBlankPageSetting = async () => {
+      try {
+        const setting = await publicClient.getSystemSetting('email_preferences_blank_page');
+        if (setting?.setting_value === 'true') {
+          setBlankPage(true);
+        }
+      } catch (e) {
+        // ignore - default to showing with layout
+      } finally {
+        setLayoutResolved(true);
+      }
+    };
+    fetchBlankPageSetting();
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -139,19 +158,42 @@ export default function EmailPreferences() {
     }
   };
 
-  if (loading) {
+  if (!layoutResolved) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" data-testid="spinner-loading" />
+      </div>
+    );
+  }
+
+  const Wrapper = ({ children }) => {
+    if (blankPage) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+          {children}
+        </div>
+      );
+    }
     return (
       <PublicLayout currentPageName="EmailPreferences">
+        {children}
+      </PublicLayout>
+    );
+  };
+
+  if (loading) {
+    return (
+      <Wrapper>
         <div className="flex items-center justify-center min-h-[400px]">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" data-testid="spinner-loading" />
         </div>
-      </PublicLayout>
+      </Wrapper>
     );
   }
 
   if (error) {
     return (
-      <PublicLayout currentPageName="EmailPreferences">
+      <Wrapper>
         <div className="container max-w-lg mx-auto py-12 px-4">
           <Card>
             <CardContent className="pt-6">
@@ -163,12 +205,12 @@ export default function EmailPreferences() {
             </CardContent>
           </Card>
         </div>
-      </PublicLayout>
+      </Wrapper>
     );
   }
 
   return (
-    <PublicLayout currentPageName="EmailPreferences">
+    <Wrapper>
       <div className="container max-w-2xl mx-auto py-12 px-4">
         <Card>
           <CardHeader className="text-center">
@@ -257,6 +299,6 @@ export default function EmailPreferences() {
           </CardContent>
         </Card>
       </div>
-    </PublicLayout>
+    </Wrapper>
   );
 }
