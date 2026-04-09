@@ -205,9 +205,7 @@ export default async function handler(req, res) {
       }
       console.log(`[OrgExportCSV] Fetched ${prefValues.length} preference values for ${orgIds.length} orgs`);
       if (prefValues.length > 0) {
-        const samplePV = prefValues[0];
-        console.log(`[OrgExportCSV] Sample preference value keys: ${Object.keys(samplePV).join(', ')}`);
-        console.log(`[OrgExportCSV] Sample PV: org_id=${samplePV.organization_id}, field_id=${samplePV.field_id}, preference_field_id=${samplePV.preference_field_id}, value=${String(samplePV.value).substring(0, 100)}`);
+        console.log(`[OrgExportCSV] Preference value columns: ${Object.keys(prefValues[0]).join(', ')}`);
       }
     }
 

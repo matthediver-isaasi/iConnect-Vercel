@@ -402,7 +402,7 @@ export default function ImportManager() {
 
   const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || []), ...(availableFields?.communication || [])];
   const identifierOptions = activeTab === 'organization' 
-    ? ['name', 'email', 'external_id', 'slug']
+    ? ['name', 'id']
     : ['email', 'external_id'];
 
   return (
@@ -537,13 +537,13 @@ export default function ImportManager() {
                             <SelectContent>
                               {identifierOptions.map(opt => (
                                 <SelectItem key={opt} value={opt}>
-                                  {opt.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                  {opt === 'id' ? 'UUID (Internal ID)' : opt.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           <p className="text-sm text-blue-700">
-                            Records with matching {identifierField} will be updated; new values will create records.
+                            Records with matching {identifierField === 'id' ? 'UUID' : identifierField.replace(/_/g, ' ')} will be updated; new values will create records.
                           </p>
                         </div>
 

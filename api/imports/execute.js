@@ -571,7 +571,8 @@ export default async function handler(req, res) {
           }
           
           if (mapping.targetField.startsWith('custom:')) {
-            // Skip custom fields for now - handle after entity creation
+            continue;
+          } else if (mapping.targetField === 'id') {
             continue;
           } else {
             if (value === null || (typeof value === 'string' && value.trim() !== '')) {

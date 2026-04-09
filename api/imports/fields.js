@@ -24,6 +24,7 @@ const MEMBER_CORE_FIELDS = [
 ];
 
 const ORGANIZATION_CORE_FIELDS = [
+  { key: 'id', label: 'UUID (Internal ID)', type: 'text' },
   { key: 'name', label: 'Name', type: 'text' },
   { key: 'slug', label: 'Slug', type: 'text' },
   { key: 'description', label: 'Description', type: 'text' },
