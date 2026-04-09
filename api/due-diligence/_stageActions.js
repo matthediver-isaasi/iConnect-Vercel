@@ -1706,6 +1706,64 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     
     const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
     
+    const resolveFileUrl = async (url) => {
+      if (!url || typeof url !== 'string') return null;
+      if (url.startsWith('http')) return url;
+      if (url.startsWith('/api/storage/secure-url') || url.startsWith('/api/storage/')) {
+        try {
+          const qs = url.split('?')[1];
+          if (!qs) return null;
+          const params = new URLSearchParams(qs);
+          const bucket = params.get('bucket');
+          const path = params.get('path') || params.get('storagePath');
+          if (!bucket || !path) return null;
+          const decodedPath = decodeURIComponent(path);
+          const isPrivate = bucket.toLowerCase().includes('private');
+          if (!isPrivate) {
+            const { data: pubData } = supabase.storage.from(bucket).getPublicUrl(decodedPath);
+            if (pubData?.publicUrl) return pubData.publicUrl;
+          }
+          const { data: signedData, error: signedErr } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(decodedPath, 60 * 60 * 24 * 365);
+          if (!signedErr && signedData?.signedUrl) return signedData.signedUrl;
+        } catch (err) {
+          console.error('[DD Field Mapping] Error resolving secure-url:', err.message);
+        }
+      }
+      return null;
+    };
+
+    const extractLogoFileMetadata = (value, depth = 0) => {
+      if (!value || depth > 3) return null;
+      if (typeof value === 'string') {
+        if (value.startsWith('{') || value.startsWith('[')) {
+          try { return extractLogoFileMetadata(JSON.parse(value), depth + 1); } catch { return null; }
+        }
+        if (value.startsWith('http')) return { directUrl: value };
+        return null;
+      }
+      if (Array.isArray(value)) {
+        return value.length > 0 ? extractLogoFileMetadata(value[0], depth + 1) : null;
+      }
+      if (typeof value === 'object') {
+        if (value.storage_path && value.bucket) {
+          return { bucket: value.bucket, storagePath: value.storage_path };
+        }
+        const directUrl = value.file_url || value.url || value.publicUrl || value.signedUrl || value.downloadUrl || value.src;
+        if (directUrl && typeof directUrl === 'string' && directUrl.startsWith('http')) {
+          return { directUrl };
+        }
+        if (value.value) return extractLogoFileMetadata(value.value, depth + 1);
+        if (value.data) return extractLogoFileMetadata(value.data, depth + 1);
+        if (value.file) return extractLogoFileMetadata(value.file, depth + 1);
+        if (value.files) return extractLogoFileMetadata(value.files, depth + 1);
+        if (value.metadata?.url) return { directUrl: value.metadata.url };
+        return null;
+      }
+      return null;
+    };
+
     for (const fma of fieldMappingActions) {
       const mappings = fma.field_mappings || [];
       const mappingResults = [];
@@ -1769,7 +1827,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         
         if (target_type === 'core') {
           // Valid core fields for organization
-          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description'];
+          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description', 'logo_url'];
           // Composite core fields (stored as JSONB with sub-fields)
           const COMPOSITE_CORE_FIELDS = {
             address: ['line1', 'line2', 'city', 'region', 'postcode', 'country']
@@ -1825,6 +1883,74 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
             } else {
               mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
+            }
+          } else if (target_field === 'logo_url') {
+            let resolvedLogoUrl = null;
+
+            if (typeof storedValue === 'string' && storedValue.startsWith('http')) {
+              resolvedLogoUrl = storedValue;
+            } else {
+              const fileVal = sourceValue;
+              const metadata = extractLogoFileMetadata(fileVal);
+              if (metadata) {
+                if (metadata.directUrl) {
+                  resolvedLogoUrl = metadata.directUrl;
+                } else if (metadata.bucket && metadata.storagePath) {
+                  const isPrivateBucket = metadata.bucket.toLowerCase().includes('private');
+                  if (!isPrivateBucket) {
+                    const { data: publicData } = supabase.storage
+                      .from(metadata.bucket)
+                      .getPublicUrl(metadata.storagePath);
+                    if (publicData?.publicUrl) {
+                      resolvedLogoUrl = publicData.publicUrl;
+                    }
+                  }
+                  if (!resolvedLogoUrl) {
+                    const { data: signedData, error: signedErr } = await supabase.storage
+                      .from(metadata.bucket)
+                      .createSignedUrl(metadata.storagePath, 60 * 60 * 24 * 365);
+                    if (!signedErr && signedData?.signedUrl) {
+                      resolvedLogoUrl = signedData.signedUrl;
+                    }
+                  }
+                }
+              }
+
+              if (!resolvedLogoUrl && source_field_id) {
+                const { data: subDocs } = await supabase
+                  .from('submission_document')
+                  .select('file_url')
+                  .eq('form_submission_id', ddSubmission.form_submission_id)
+                  .eq('tenant_id', tenantId)
+                  .eq('field_name', source_field_id)
+                  .order('version', { ascending: false })
+                  .limit(1);
+
+                const docUrl = subDocs?.[0]?.file_url;
+                if (docUrl) {
+                  resolvedLogoUrl = await resolveFileUrl(docUrl);
+                }
+              }
+            }
+
+            if (!resolvedLogoUrl) {
+              console.warn(`[DD Field Mapping] Could not resolve a usable URL for logo_url, skipping`);
+              mappingResults.push({ field: target_field, status: 'error', error: 'Could not resolve file URL for logo' });
+              continue;
+            }
+
+            console.log(`[DD Field Mapping] Resolved logo_url: ${resolvedLogoUrl.substring(0, 80)}...`);
+            const { error: updateError } = await supabase
+              .from('organization')
+              .update({ logo_url: resolvedLogoUrl })
+              .eq('id', organizationId)
+              .eq('tenant_id', tenantId);
+
+            if (updateError) {
+              console.error(`[DD Field Mapping] Error updating logo_url:`, updateError);
+              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            } else {
+              mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
             }
           } else {
             // Update simple core organization field
