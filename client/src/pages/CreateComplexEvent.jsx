@@ -17,7 +17,7 @@ import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
-  Layers, Building2, Handshake
+  Layers, Building2, Handshake, AlertTriangle
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -1033,6 +1033,10 @@ export default function CreateComplexEvent() {
     }
     return overlaps;
   };
+
+  const liveSessionClashes = useMemo(() => {
+    return checkSessionOverlaps(sessionForm, editingSession);
+  }, [sessionForm.start_time, sessionForm.end_time, sessionForm.track_ids, sessions, tracks, editingSession]);
 
   const saveSession = () => {
     if (!sessionForm.title.trim()) {
@@ -3321,6 +3325,22 @@ export default function CreateComplexEvent() {
               )}
             </div>
           </div>
+
+          {liveSessionClashes.length > 0 && (
+            <div className="flex items-start gap-2 p-3 mt-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800" data-testid="session-clash-warning">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div className="text-sm text-amber-800 dark:text-amber-300">
+                <p className="font-medium mb-1">Time clash detected</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {liveSessionClashes.map((clash, i) => (
+                    <li key={i}>
+                      "{clash.session}" on track{clash.tracks.length > 1 ? 's' : ''}: {clash.tracks.join(', ')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={closeSessionDialog} data-testid="button-cancel-session">
