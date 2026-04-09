@@ -436,13 +436,13 @@ export default function ImportManager() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="member">
+          {(activeTab === 'member' || activeTab === 'organization') && (
+            <TabsContent value={activeTab}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Main Import Panel */}
               <div className="lg:col-span-2">
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
                         <CardTitle>
                           {activeTab === 'organization' ? 'Organisation' : 'Member'} Import
@@ -464,7 +464,6 @@ export default function ImportManager() {
                       )}
                     </div>
                     
-                    {/* Progress Steps */}
                     <div className="flex items-center gap-2 mt-4">
                       {[1, 2, 3, 4].map((s) => (
                         <div key={s} className="flex items-center">
@@ -484,7 +483,6 @@ export default function ImportManager() {
                   </CardHeader>
                   
                   <CardContent className="space-y-6">
-                    {/* Step 1: Upload */}
                     {step === 1 && (
                       <div className="space-y-4">
                         <div 
@@ -520,10 +518,9 @@ export default function ImportManager() {
                       </div>
                     )}
 
-                    {/* Step 2: Map Columns */}
                     {step === 2 && csvData && (
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg">
+                        <div className="flex items-center justify-between flex-wrap gap-2 bg-slate-50 p-3 rounded-lg">
                           <div className="flex items-center gap-2">
                             <FileSpreadsheet className="w-5 h-5 text-blue-600" />
                             <span className="font-medium">{csvFile?.name}</span>
@@ -531,7 +528,6 @@ export default function ImportManager() {
                           <Badge variant="secondary">{csvData.rowCount} rows</Badge>
                         </div>
 
-                        {/* Identifier Field Selection */}
                         <div className="bg-blue-50 p-4 rounded-lg space-y-2">
                           <Label className="text-blue-800 font-medium">Identifier Field (for matching existing records)</Label>
                           <Select value={identifierField} onValueChange={setIdentifierField}>
@@ -553,7 +549,6 @@ export default function ImportManager() {
 
                         <Separator />
 
-                        {/* Column Mappings */}
                         <div className="space-y-3">
                           <Label className="text-lg font-medium">Column Mappings</Label>
                           <div className="max-h-[400px] overflow-y-auto pr-4 space-y-3">
@@ -585,20 +580,16 @@ export default function ImportManager() {
                                   </SelectTrigger>
                                   <SelectContent position="popper" sideOffset={4}>
                                     <SelectItem value="__skip__">-- Skip this column --</SelectItem>
-                                    {activeTab === 'organization' && (
-                                      <>
-                                        <SelectItem disabled value="__actions_header__">
-                                          <span className="font-semibold text-slate-500">Actions</span>
-                                        </SelectItem>
-                                        <SelectItem value="__add_note__">Add Note (create note from content)</SelectItem>
-                                      </>
-                                    )}
-                                    {availableFields?.core?.length > 0 && (
+                                    <SelectItem disabled value="__actions_header__">
+                                      <span className="font-semibold text-slate-500">Actions</span>
+                                    </SelectItem>
+                                    <SelectItem value="__add_note__">Add Note (create note from content)</SelectItem>
+                                    {availableFields?.core?.filter(f => f.key !== '__add_note__').length > 0 && (
                                       <>
                                         <SelectItem disabled value="__core_header__">
                                           <span className="font-semibold text-slate-500">Core Fields</span>
                                         </SelectItem>
-                                        {availableFields.core.map(f => (
+                                        {availableFields.core.filter(f => f.key !== '__add_note__').map(f => (
                                           <SelectItem key={f.key} value={f.key}>
                                             {f.label}
                                           </SelectItem>
@@ -648,7 +639,6 @@ export default function ImportManager() {
                                   </Label>
                                 </div>
                                 
-                                {/* Date format selector for date fields */}
                                 {mapping.targetType === 'date' && mapping.targetField && (
                                   <Select
                                     value={mapping.dateFormat || 'dd/mm/yyyy'}
@@ -693,7 +683,6 @@ export default function ImportManager() {
                       </div>
                     )}
 
-                    {/* Step 3: Preview */}
                     {step === 3 && previewResult && (
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -737,7 +726,6 @@ export default function ImportManager() {
                           </Alert>
                         )}
 
-                        {/* Mapping Summary */}
                         <div className="bg-slate-50 p-4 rounded-lg">
                           <p className="font-medium mb-2">Field Mappings:</p>
                           <div className="flex flex-wrap gap-2">
@@ -780,7 +768,6 @@ export default function ImportManager() {
                       </div>
                     )}
 
-                    {/* Step 4: Results */}
                     {step === 4 && importResult && (
                       <div className="space-y-4">
                         <div className="text-center py-6">
@@ -847,7 +834,6 @@ export default function ImportManager() {
                 </Card>
               </div>
 
-              {/* Recent Imports Sidebar */}
               <div className="lg:col-span-1">
                 <Card>
                   <CardHeader>
@@ -874,7 +860,7 @@ export default function ImportManager() {
                               className="p-3 bg-slate-50 rounded-lg space-y-2"
                               data-testid={`job-card-${job.id}`}
                             >
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between flex-wrap gap-1">
                                 <p className="text-sm font-medium truncate" title={job.file_name}>
                                   {job.file_name || 'Import'}
                                 </p>
@@ -907,7 +893,6 @@ export default function ImportManager() {
                   </CardContent>
                 </Card>
 
-                {/* Help Card */}
                 <Card className="mt-4 border-blue-200 bg-blue-50">
                   <CardContent className="p-4">
                     <div className="text-sm text-blue-800 space-y-2">
@@ -923,164 +908,7 @@ export default function ImportManager() {
               </div>
             </div>
           </TabsContent>
-
-          {/* Organization Import Tab - Same content as member */}
-          <TabsContent value="organization">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Main Import Panel */}
-              <div className="lg:col-span-2">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>
-                          Organisation Import
-                        </CardTitle>
-                        <CardDescription>
-                          Step {step} of 4: {
-                            step === 1 ? 'Upload CSV' :
-                            step === 2 ? 'Map Columns' :
-                            step === 3 ? 'Preview Changes' :
-                            'Import Complete'
-                          }
-                        </CardDescription>
-                      </div>
-                      {step > 1 && (
-                        <Button variant="outline" size="sm" onClick={resetImport} data-testid="button-reset-import-org">
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          Start Over
-                        </Button>
-                      )}
-                    </div>
-                    
-                    {/* Progress Steps */}
-                    <div className="flex items-center gap-2 mt-4">
-                      {[1, 2, 3, 4].map((s) => (
-                        <div key={s} className="flex items-center">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                            s < step ? 'bg-green-500 text-white' :
-                            s === step ? 'bg-blue-600 text-white' :
-                            'bg-slate-200 text-slate-500'
-                          }`}>
-                            {s < step ? <Check className="w-4 h-4" /> : s}
-                          </div>
-                          {s < 4 && (
-                            <ChevronRight className={`w-4 h-4 mx-1 ${s < step ? 'text-green-500' : 'text-slate-300'}`} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </CardHeader>
-                  
-                  <CardContent className="space-y-6">
-                    {/* Step 1: Upload */}
-                    {step === 1 && (
-                      <div className="space-y-4">
-                        <div 
-                          className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <Upload className="w-12 h-12 mx-auto text-slate-400 mb-4" />
-                          <p className="text-lg font-medium text-slate-700">
-                            {isUploading ? 'Parsing CSV...' : 'Click to upload CSV file'}
-                          </p>
-                          <p className="text-sm text-slate-500 mt-1">
-                            Maximum file size: 10MB
-                          </p>
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".csv"
-                            onChange={handleFileSelect}
-                            className="hidden"
-                            disabled={isUploading}
-                            data-testid="input-csv-file-org"
-                          />
-                          {isUploading && <Loader2 className="w-6 h-6 animate-spin mx-auto mt-4 text-blue-600" />}
-                        </div>
-
-                        <Alert>
-                          <AlertCircle className="w-4 h-4" />
-                          <AlertDescription>
-                            Your CSV file should have column headers in the first row. 
-                            Each row represents one organisation record.
-                          </AlertDescription>
-                        </Alert>
-                      </div>
-                    )}
-
-                    {/* Import steps 2-4 for organization are handled by the same component logic */}
-                    {step >= 2 && (
-                      <div className="text-center py-8 text-slate-500">
-                        <p>Organisation import uses the same interface as member import.</p>
-                        <p className="text-sm mt-2">Please use the Member Import tab - the organisation option is selected.</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Recent Imports Sidebar */}
-              <div className="lg:col-span-1">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <History className="w-5 h-5" />
-                      Recent Imports
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {jobsLoading ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-                      </div>
-                    ) : recentJobs.length === 0 ? (
-                      <p className="text-sm text-slate-500 text-center py-8">
-                        No recent imports
-                      </p>
-                    ) : (
-                      <ScrollArea className="h-[400px]">
-                        <div className="space-y-3">
-                          {recentJobs.map((job) => (
-                            <div 
-                              key={job.id} 
-                              className="p-3 bg-slate-50 rounded-lg space-y-2"
-                            >
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium truncate" title={job.file_name}>
-                                  {job.file_name || 'Import'}
-                                </p>
-                                <Badge 
-                                  variant={
-                                    job.status === 'completed' ? 'default' :
-                                    job.status === 'completed_with_errors' ? 'secondary' :
-                                    job.status === 'failed' ? 'destructive' : 'outline'
-                                  }
-                                  className="text-xs"
-                                >
-                                  {job.status}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-3 text-xs text-slate-500">
-                                <span className="text-green-600">+{job.created_rows || 0}</span>
-                                <span className="text-amber-600">~{job.updated_rows || 0}</span>
-                                {job.error_rows > 0 && (
-                                  <span className="text-red-600">!{job.error_rows}</span>
-                                )}
-                              </div>
-                              <p className="text-xs text-slate-400">
-                                {new Date(job.created_at).toLocaleDateString()} {new Date(job.created_at).toLocaleTimeString()}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
+          )}
 
           {/* Deduplicate Tab Content */}
           <TabsContent value="dedupe">
