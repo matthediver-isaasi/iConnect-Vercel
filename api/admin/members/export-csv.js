@@ -58,12 +58,18 @@ function resolvePicklistValue(rawValue, field) {
 
   if (Array.isArray(parsed)) {
     return parsed.map(v => {
-      const opt = options.find(o => o.value === v);
-      return opt?.label || v;
+      const itemVal = (typeof v === 'object' && v !== null && v.value !== undefined) ? v.value : v;
+      const opt = options.find(o => o.value === itemVal);
+      return opt?.label || (typeof v === 'object' && v !== null && v.label) || itemVal;
     }).join(', ');
   }
 
-  const lookupVal = typeof parsed === 'string' ? parsed : rawValue;
+  if (typeof parsed === 'object' && parsed !== null && parsed.value !== undefined) {
+    const opt = options.find(o => o.value === parsed.value);
+    return opt?.label || parsed.label || parsed.value;
+  }
+
+  const lookupVal = typeof parsed === 'string' ? parsed : String(rawValue);
   const opt = options.find(o => o.value === lookupVal);
   return opt?.label || lookupVal;
 }

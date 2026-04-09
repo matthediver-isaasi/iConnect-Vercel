@@ -44,12 +44,18 @@ function resolvePicklistValue(rawValue, field) {
 
   if (Array.isArray(parsed)) {
     return parsed.map(v => {
-      const opt = options.find(o => o.value === v);
-      return opt?.label || v;
+      const itemVal = (typeof v === 'object' && v !== null && v.value !== undefined) ? v.value : v;
+      const opt = options.find(o => o.value === itemVal);
+      return opt?.label || (typeof v === 'object' && v !== null && v.label) || itemVal;
     }).join(', ');
   }
 
-  const lookupVal = typeof parsed === 'string' ? parsed : rawValue;
+  if (typeof parsed === 'object' && parsed !== null && parsed.value !== undefined) {
+    const opt = options.find(o => o.value === parsed.value);
+    return opt?.label || parsed.label || parsed.value;
+  }
+
+  const lookupVal = typeof parsed === 'string' ? parsed : String(rawValue);
   const opt = options.find(o => o.value === lookupVal);
   return opt?.label || lookupVal;
 }
@@ -158,15 +164,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch organisations' });
     }
     console.log(`[OrgExportCSV] Fetched ${(organizations || []).length} organizations`);
-    if (organizations.length > 0) {
-      console.log(`[OrgExportCSV] Org table columns: ${Object.keys(organizations[0]).join(', ')}`);
-      const sampleOrg = organizations[0];
-      const coreFieldCheck = ['name', 'slug', 'description', 'website_url', 'email', 'phone', 'address', 'city', 'country', 'postcode', 'invoicing_email', 'invoicing_address', 'external_id'];
-      const populated = coreFieldCheck.filter(f => sampleOrg[f] != null && sampleOrg[f] !== '');
-      const missing = coreFieldCheck.filter(f => sampleOrg[f] == null || sampleOrg[f] === '');
-      console.log(`[OrgExportCSV] Sample org populated core fields: ${populated.join(', ')}`);
-      console.log(`[OrgExportCSV] Sample org missing core fields: ${missing.join(', ')}`);
-    }
 
     const { data: prefFields } = await supabase
       .from('preference_field')
