@@ -163,7 +163,7 @@ export default async function handler(req, res) {
       console.error('[OrgExportCSV] Query error:', error);
       return res.status(500).json({ error: 'Failed to fetch organisations' });
     }
-    console.log(`[OrgExportCSV] Fetched ${(organizations || []).length} organizations`);
+    
 
     const { data: prefFields } = await supabase
       .from('preference_field')
@@ -200,10 +200,7 @@ export default async function handler(req, res) {
           from += pageSize;
         }
       }
-      console.log(`[OrgExportCSV] Fetched ${prefValues.length} preference values for ${orgIds.length} orgs`);
-      if (prefValues.length > 0) {
-        console.log(`[OrgExportCSV] Preference value columns: ${Object.keys(prefValues[0]).join(', ')}`);
-      }
+      
     }
 
     const orgPrefMap = {};

@@ -142,7 +142,7 @@ export default async function handler(req, res) {
       console.error('[MemberExportCSV] Query error:', error);
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
-    console.log(`[MemberExportCSV] Fetched ${(members || []).length} members`);
+    
 
     const { data: prefFields } = await supabase
       .from('preference_field')
@@ -179,10 +179,7 @@ export default async function handler(req, res) {
           from += pageSize;
         }
       }
-      console.log(`[MemberExportCSV] Fetched ${prefValues.length} preference values for ${memberIds.length} members`);
-      if (prefValues.length > 0) {
-        console.log(`[MemberExportCSV] Preference value columns: ${Object.keys(prefValues[0]).join(', ')}`);
-      }
+      
     }
 
     const memberPrefMap = {};
