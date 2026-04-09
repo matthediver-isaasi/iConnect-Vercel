@@ -984,7 +984,7 @@ export default function AdminIntegrations() {
                   <div>
                     <CardTitle className="text-white">Zoom</CardTitle>
                     <CardDescription className="text-slate-400">
-                      Enable Zoom meetings for your booking agents
+                      Connect your organisation's Zoom account for event webinars and meetings
                     </CardDescription>
                   </div>
                 </div>

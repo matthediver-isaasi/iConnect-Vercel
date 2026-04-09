@@ -206,10 +206,17 @@ export default function ZoomWebinarProvisioning() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
+  const { data: zoomStatus, isLoading: loadingZoomStatus } = useQuery({
+    queryKey: ['/api/zoom/status'],
+    queryFn: () => apiRequest('/api/zoom/status'),
+    enabled: accessChecked,
+    staleTime: 30000
+  });
+
   const { data: webinars = [], isLoading: loadingWebinars, refetch: refetchWebinars } = useQuery({
     queryKey: ['/api/zoom/webinars'],
     queryFn: () => apiRequest('/api/zoom/webinars'),
-    enabled: accessChecked,
+    enabled: accessChecked && zoomStatus?.connected === true,
     staleTime: 0,
     refetchOnMount: true
   });
@@ -218,7 +225,7 @@ export default function ZoomWebinarProvisioning() {
   const { data: meetings = [], isLoading: loadingMeetings, refetch: refetchMeetings } = useQuery({
     queryKey: ['/api/zoom/meetings'],
     queryFn: () => apiRequest('/api/zoom/meetings'),
-    enabled: accessChecked,
+    enabled: accessChecked && zoomStatus?.connected === true,
     staleTime: 0,
     refetchOnMount: true
   });
@@ -226,7 +233,7 @@ export default function ZoomWebinarProvisioning() {
   const { data: zoomUsers = [], isLoading: loadingUsers } = useQuery({
     queryKey: ['/api/zoom/users'],
     queryFn: () => apiRequest('/api/zoom/users'),
-    enabled: accessChecked,
+    enabled: accessChecked && zoomStatus?.connected === true,
     staleTime: 60000
   });
 
@@ -873,10 +880,39 @@ export default function ZoomWebinarProvisioning() {
     });
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || loadingZoomStatus) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
+      </div>
+    );
+  }
+
+  if (zoomStatus && !zoomStatus.connected) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-2xl mx-auto mt-16">
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+                <AlertCircle className="h-6 w-6 text-amber-600" />
+              </div>
+              <CardTitle data-testid="text-zoom-not-configured">Zoom Not Configured</CardTitle>
+              <CardDescription>
+                Your organisation does not have Zoom credentials set up yet. To use Zoom webinars and meetings, an administrator needs to configure Zoom integration credentials.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <Button
+                variant="default"
+                onClick={() => window.location.href = '/admin/integrations'}
+                data-testid="button-go-to-integrations"
+              >
+                Go to Admin Integrations
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }

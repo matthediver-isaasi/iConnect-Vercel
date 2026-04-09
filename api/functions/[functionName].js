@@ -5,7 +5,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
-import { getZoomAccessToken, getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
+import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
@@ -1029,8 +1029,8 @@ const functionHandlers = {
           return { success: false, error: 'Webinar has already started' };
         }
         
-        console.log(`[createBooking] Getting Zoom access token...`);
-        const token = await getZoomAccessToken();
+        console.log(`[createBooking] Getting Zoom access token for tenant ${webinar.tenant_id}...`);
+        const token = await getZoomAccessTokenForTenant(webinar.tenant_id);
         console.log(`[createBooking] Got token, registering ${attendee.email} for webinar ${webinar.zoom_webinar_id}`);
         
         const zoomResponse = await fetch(
@@ -2069,7 +2069,7 @@ const functionHandlers = {
             console.log('[createOneOffEventBooking] Registering', bookingAttendees.length, 'attendees with Zoom');
             
             try {
-              const zoomToken = await getZoomAccessToken();
+              const zoomToken = await getZoomAccessTokenForTenant(event.tenant_id);
               
               // Register each attendee with Zoom
               for (let i = 0; i < bookingAttendees.length; i++) {
@@ -2200,9 +2200,7 @@ const functionHandlers = {
             }
 
             try {
-              const zoomToken = event.tenant_id
-                ? await getZoomAccessTokenForTenant(event.tenant_id)
-                : await getZoomAccessToken();
+              const zoomToken = await getZoomAccessTokenForTenant(event.tenant_id);
 
               for (const attendee of bookingAttendees) {
                 try {
@@ -4625,7 +4623,7 @@ const functionHandlers = {
 
     // Register the attendee to Zoom
     try {
-      const token = await getZoomAccessToken();
+      const token = await getZoomAccessTokenForTenant(event.tenant_id);
       
       console.log(`[Zoom] Registering ${attendeeEmail} for webinar ${webinar.zoom_webinar_id}`);
       
@@ -4724,7 +4722,7 @@ const functionHandlers = {
       return { success: true, message: 'Webinar does not require registration', registered: 0 };
     }
 
-    const token = await getZoomAccessToken();
+    const token = await getZoomAccessTokenForTenant(event.tenant_id);
     const results = [];
 
     for (const booking of bookings) {

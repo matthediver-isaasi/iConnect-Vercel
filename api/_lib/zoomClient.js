@@ -4,8 +4,6 @@ import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
-const REQUIRE_TENANT_CREDENTIALS = process.env.REQUIRE_TENANT_ZOOM_CREDENTIALS === 'true';
-
 function decrypt(encryptedText) {
   if (!encryptedText) return null;
   if (!ENCRYPTION_KEY) {
@@ -80,6 +78,10 @@ export async function getTenantZoomCredentials(tenantId) {
 }
 
 export async function getZoomAccessTokenForTenant(tenantId) {
+  if (!tenantId) {
+    throw new Error('Zoom is not configured for your organisation. Please set up Zoom credentials in Admin > Integrations.');
+  }
+
   const cached = tokenCacheByTenant.get(tenantId);
   if (cached && Date.now() < cached.expiresAt - 60000) {
     return cached.token;
@@ -88,15 +90,7 @@ export async function getZoomAccessTokenForTenant(tenantId) {
   const credentials = await getTenantZoomCredentials(tenantId);
   
   if (!credentials) {
-    const accountId = process.env.ZOOM_ACCOUNT_ID;
-    const clientId = process.env.ZOOM_CLIENT_ID;
-    const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-    
-    if (!accountId || !clientId || !clientSecret) {
-      throw new Error('Zoom credentials not configured');
-    }
-    
-    return getZoomTokenWithCredentials('__global__', accountId, clientId, clientSecret);
+    throw new Error('Zoom is not configured for your organisation. Please set up Zoom credentials in Admin > Integrations.');
   }
 
   return getZoomTokenWithCredentials(
@@ -156,39 +150,18 @@ export async function getTenantIdFromSession(req) {
   return null;
 }
 
-export async function getZoomAccessToken(req, options = {}) {
-  const { allowGlobalFallback = true } = options;
+export async function getZoomAccessToken(req) {
   let tenantId = null;
   
   if (req && typeof req === 'object' && (req.headers || req.method)) {
     tenantId = await getTenantIdFromSession(req);
   }
   
-  if (tenantId) {
-    try {
-      const token = await getZoomAccessTokenForTenant(tenantId);
-      if (token) return token;
-    } catch (e) {
-      console.log('[ZoomClient] Tenant credentials failed:', e.message);
-      if (!allowGlobalFallback) {
-        throw new Error('Zoom credentials not configured for this tenant');
-      }
-    }
+  if (!tenantId) {
+    throw new Error('Zoom is not configured for your organisation. Please set up Zoom credentials in Admin > Integrations.');
   }
 
-  if (!allowGlobalFallback && REQUIRE_TENANT_CREDENTIALS) {
-    throw new Error('Zoom credentials not configured - tenant-specific credentials required');
-  }
-
-  const accountId = process.env.ZOOM_ACCOUNT_ID;
-  const clientId = process.env.ZOOM_CLIENT_ID;
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-
-  if (!accountId || !clientId || !clientSecret) {
-    throw new Error('Zoom credentials not configured');
-  }
-
-  return getZoomTokenWithCredentials('__global__', accountId, clientId, clientSecret);
+  return getZoomAccessTokenForTenant(tenantId);
 }
 
 export async function deleteZoomMeeting(tenantId, meetingId) {

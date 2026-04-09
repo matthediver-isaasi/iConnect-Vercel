@@ -17,9 +17,11 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 const DEST_SUPABASE_URL = 'https://lvmzliemqnieeoruhkik.supabase.co';
 const supabaseKey = process.env.DEST_SUPABASE_KEY;
+const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
 if (!supabaseKey) {
   console.error('Error: DEST_SUPABASE_KEY environment variable is required');
@@ -30,23 +32,66 @@ const supabase = createClient(DEST_SUPABASE_URL, supabaseKey, {
   auth: { persistSession: false }
 });
 
+function decrypt(encryptedText) {
+  if (!encryptedText) return null;
+  if (!ENCRYPTION_KEY) return null;
+  try {
+    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
+    const parts = encryptedText.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const encrypted = parts[1];
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (e) {
+    return null;
+  }
+}
+
+function decryptCredentials(credentials) {
+  if (!credentials) return {};
+  const decrypted = {};
+  for (const [key, value] of Object.entries(credentials)) {
+    if (value && typeof value === 'string' && value.includes(':')) {
+      decrypted[key] = decrypt(value);
+    } else {
+      decrypted[key] = value;
+    }
+  }
+  return decrypted;
+}
+
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
-async function getZoomAccessToken() {
+async function getZoomAccessTokenForTenant(tenantId) {
   if (cachedToken && Date.now() < tokenExpiresAt - 60000) {
     return cachedToken;
   }
 
-  const accountId = process.env.ZOOM_ACCOUNT_ID;
-  const clientId = process.env.ZOOM_CLIENT_ID;
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
+  const { data: integration, error } = await supabase
+    .from('tenant_integrations')
+    .select('credentials, is_enabled')
+    .eq('tenant_id', tenantId)
+    .eq('integration_type', 'zoom')
+    .single();
 
-  if (!accountId || !clientId || !clientSecret) {
-    throw new Error('Zoom credentials not configured (ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET)');
+  if (error || !integration) {
+    throw new Error(`No Zoom integration found for tenant ${tenantId}. Configure credentials in Admin > Integrations.`);
   }
 
-  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  if (!integration.is_enabled) {
+    throw new Error(`Zoom integration is disabled for tenant ${tenantId}. Enable it in Admin > Integrations.`);
+  }
+
+  const credentials = decryptCredentials(integration.credentials);
+
+  if (!credentials.account_id || !credentials.client_id || !credentials.client_secret) {
+    throw new Error(`Incomplete Zoom credentials for tenant ${tenantId}. Update credentials in Admin > Integrations.`);
+  }
+
+  const basicAuth = Buffer.from(`${credentials.client_id}:${credentials.client_secret}`).toString('base64');
 
   const response = await fetch('https://zoom.us/oauth/token', {
     method: 'POST',
@@ -54,7 +99,7 @@ async function getZoomAccessToken() {
       'Authorization': `Basic ${basicAuth}`,
       'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: `grant_type=account_credentials&account_id=${accountId}`
+    body: `grant_type=account_credentials&account_id=${credentials.account_id}`
   });
 
   if (!response.ok) {
@@ -199,8 +244,8 @@ async function syncZoomMeetingTimes(tenantId, dryRun = false) {
   };
 
   try {
-    const token = await getZoomAccessToken();
-    console.log('Got Zoom access token\n');
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    console.log('Got Zoom access token from tenant credentials\n');
 
     console.log('Fetching all Zoom users...');
     const zoomUsers = await fetchAllZoomUsers(token);
