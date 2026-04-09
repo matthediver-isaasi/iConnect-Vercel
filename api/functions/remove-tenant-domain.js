@@ -2,7 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSessionTenantUser } from '../_lib/session.js';
 
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+const VERCEL_TOKEN = process.env.VERCEL_API_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID;
 
