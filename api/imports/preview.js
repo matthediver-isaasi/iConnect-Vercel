@@ -188,15 +188,40 @@ export default async function handler(req, res) {
       });
     }
     
+    const allIdentifierValues = records
+      .map(row => row[identifierMapping.sourceColumn]?.trim())
+      .filter(Boolean);
+
+    let existingCount = 0;
+    let emptyCount = records.length - allIdentifierValues.length;
+
+    if (allIdentifierValues.length > 0) {
+      const batchSize = 200;
+      const existingIds = new Set();
+      for (let i = 0; i < allIdentifierValues.length; i += batchSize) {
+        const batch = allIdentifierValues.slice(i, i + batchSize);
+        const { data: matches } = await supabase
+          .from(tableName)
+          .select(identifierField)
+          .in(identifierField, batch);
+        if (matches) {
+          matches.forEach(m => existingIds.add(m[identifierField]));
+        }
+      }
+      existingCount = allIdentifierValues.filter(v => existingIds.has(v)).length;
+    }
+
+    const toUpdate = existingCount;
+    const toCreate = allIdentifierValues.length - existingCount;
+    const toSkip = emptyCount;
+
     res.json({
       totalRows: records.length,
+      toCreate,
+      toUpdate,
+      toSkip,
       previewRows: previewResults,
-      summary: {
-        creates: previewResults.filter(r => r.action === 'create').length,
-        updates: previewResults.filter(r => r.action === 'update').length,
-        skips: previewResults.filter(r => r.action === 'skip').length
-      },
-      errors: errors.slice(0, 10) // Return first 10 date validation errors
+      errors: errors.slice(0, 10)
     });
   } catch (error) {
     console.error('[Import Preview] Error:', error);
