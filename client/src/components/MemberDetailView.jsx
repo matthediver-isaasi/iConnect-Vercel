@@ -53,7 +53,8 @@ import {
   Key,
   Copy,
   Check,
-  Wallet
+  Wallet,
+  Tag
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -79,6 +80,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
+import CrmTagInput from "@/components/crm/CrmTagInput";
 
 export default function MemberDetailView({ 
   member, 
@@ -1408,6 +1410,33 @@ export default function MemberDetailView({
                     })()}
                   </CardContent>
                 </Card>
+
+                {!isNew && (
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-blue-600" />
+                        Tags
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="py-3">
+                      <CrmTagInput
+                        tags={member?.tags || []}
+                        entityType="member"
+                        onChange={async (newTags) => {
+                          try {
+                            await base44.entities.Member.update(member.id, { tags: newTags });
+                            queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+                            queryClient.invalidateQueries({ queryKey: ['member-direct', member.id] });
+                            queryClient.invalidateQueries({ queryKey: ['admin-members-tags'] });
+                          } catch (err) {
+                            toast.error('Failed to update tags: ' + err.message);
+                          }
+                        }}
+                      />
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
 

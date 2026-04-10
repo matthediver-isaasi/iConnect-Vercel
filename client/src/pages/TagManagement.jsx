@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Tag, Trash2, AlertCircle, Search, X, FileText, BookOpen } from "lucide-react";
+import { Tag, Trash2, AlertCircle, Search, X, FileText, BookOpen, Building2, Users, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -16,9 +16,15 @@ export default function TagManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [resourceSearchQuery, setResourceSearchQuery] = useState("");
   const [articleSearchQuery, setArticleSearchQuery] = useState("");
+  const [orgSearchQuery, setOrgSearchQuery] = useState("");
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [tagToDelete, setTagToDelete] = useState(null);
   const [deleteType, setDeleteType] = useState(null);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [tagToRename, setTagToRename] = useState(null);
+  const [renameType, setRenameType] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -60,121 +66,135 @@ export default function TagManagementPage() {
     refetchOnMount: true,
   });
 
-  const resourceTagStats = useMemo(() => {
+  const { data: organizations = [], isLoading: orgsLoading } = useQuery({
+    queryKey: ['admin-organizations-tags'],
+    queryFn: () => base44.entities.Organization.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['admin-members-tags'],
+    queryFn: () => base44.entities.Member.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const buildTagStats = (items) => {
     const tagMap = new Map();
-    
-    resources.forEach(resource => {
-      if (resource.tags && Array.isArray(resource.tags)) {
-        resource.tags.forEach(tag => {
+    items.forEach(item => {
+      if (item.tags && Array.isArray(item.tags)) {
+        item.tags.forEach(tag => {
           if (tagMap.has(tag)) {
             tagMap.set(tag, {
               count: tagMap.get(tag).count + 1,
-              ids: [...tagMap.get(tag).ids, resource.id]
+              ids: [...tagMap.get(tag).ids, item.id]
             });
           } else {
-            tagMap.set(tag, {
-              count: 1,
-              ids: [resource.id]
-            });
+            tagMap.set(tag, { count: 1, ids: [item.id] });
           }
         });
       }
     });
-
     return Array.from(tagMap.entries())
       .map(([tag, data]) => ({ tag, ...data }))
       .sort((a, b) => a.tag.localeCompare(b.tag));
-  }, [resources]);
+  };
 
-  const articleTagStats = useMemo(() => {
-    const tagMap = new Map();
-    
-    articles.forEach(article => {
-      if (article.tags && Array.isArray(article.tags)) {
-        article.tags.forEach(tag => {
-          if (tagMap.has(tag)) {
-            tagMap.set(tag, {
-              count: tagMap.get(tag).count + 1,
-              ids: [...tagMap.get(tag).ids, article.id]
-            });
-          } else {
-            tagMap.set(tag, {
-              count: 1,
-              ids: [article.id]
-            });
-          }
-        });
-      }
-    });
+  const resourceTagStats = useMemo(() => buildTagStats(resources), [resources]);
+  const articleTagStats = useMemo(() => buildTagStats(articles), [articles]);
+  const orgTagStats = useMemo(() => buildTagStats(organizations), [organizations]);
+  const memberTagStats = useMemo(() => buildTagStats(members), [members]);
 
-    return Array.from(tagMap.entries())
-      .map(([tag, data]) => ({ tag, ...data }))
-      .sort((a, b) => a.tag.localeCompare(b.tag));
-  }, [articles]);
+  const filterTags = (tagStats, query) => {
+    if (!query.trim()) return tagStats;
+    const searchLower = query.toLowerCase();
+    return tagStats.filter(item => item.tag.toLowerCase().includes(searchLower));
+  };
 
-  const filteredResourceTags = useMemo(() => {
-    if (!resourceSearchQuery.trim()) return resourceTagStats;
-    const searchLower = resourceSearchQuery.toLowerCase();
-    return resourceTagStats.filter(item => item.tag.toLowerCase().includes(searchLower));
-  }, [resourceTagStats, resourceSearchQuery]);
+  const filteredResourceTags = useMemo(() => filterTags(resourceTagStats, resourceSearchQuery), [resourceTagStats, resourceSearchQuery]);
+  const filteredArticleTags = useMemo(() => filterTags(articleTagStats, articleSearchQuery), [articleTagStats, articleSearchQuery]);
+  const filteredOrgTags = useMemo(() => filterTags(orgTagStats, orgSearchQuery), [orgTagStats, orgSearchQuery]);
+  const filteredMemberTags = useMemo(() => filterTags(memberTagStats, memberSearchQuery), [memberTagStats, memberSearchQuery]);
 
-  const filteredArticleTags = useMemo(() => {
-    if (!articleSearchQuery.trim()) return articleTagStats;
-    const searchLower = articleSearchQuery.toLowerCase();
-    return articleTagStats.filter(item => item.tag.toLowerCase().includes(searchLower));
-  }, [articleTagStats, articleSearchQuery]);
+  const entityMap = {
+    resource: { entity: base44.entities.Resource, items: resources, queryKey: 'admin-resources', label: 'resources' },
+    article: { entity: base44.entities.BlogPost, items: articles, queryKey: 'admin-articles', label: articleDisplayName.toLowerCase() },
+    organization: { entity: base44.entities.Organization, items: organizations, queryKey: 'admin-organizations-tags', label: 'organisations' },
+    member: { entity: base44.entities.Member, items: members, queryKey: 'admin-members-tags', label: 'members' },
+  };
 
-  const removeResourceTagMutation = useMutation({
-    mutationFn: async (tagToRemove) => {
-      const resourcesToUpdate = resources.filter(r => 
-        r.tags && r.tags.includes(tagToRemove)
+  const deleteTagMutation = useMutation({
+    mutationFn: async ({ tagName, type }) => {
+      const config = entityMap[type];
+      const itemsToUpdate = config.items.filter(item =>
+        item.tags && item.tags.includes(tagName)
       );
-
       await Promise.all(
-        resourcesToUpdate.map(resource =>
-          base44.entities.Resource.update(resource.id, {
-            ...resource,
-            tags: resource.tags.filter(t => t !== tagToRemove)
+        itemsToUpdate.map(item =>
+          config.entity.update(item.id, {
+            ...item,
+            tags: item.tags.filter(t => t !== tagName)
           })
         )
       );
+      return { type };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-resources'] });
+    onSuccess: (_, { type }) => {
+      const config = entityMap[type];
+      queryClient.invalidateQueries({ queryKey: [config.queryKey] });
+      if (type === 'member') {
+        queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+        queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'member-direct' });
+      }
+      if (type === 'organization') {
+        queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      }
       setShowDeleteConfirm(false);
       setTagToDelete(null);
       setDeleteType(null);
-      toast.success('Tag removed from all resources');
+      toast.success(`Tag removed from all ${entityMap[type].label}`);
     },
     onError: (error) => {
       toast.error('Failed to remove tag: ' + error.message);
     }
   });
 
-  const removeArticleTagMutation = useMutation({
-    mutationFn: async (tagToRemove) => {
-      const articlesToUpdate = articles.filter(a => 
-        a.tags && a.tags.includes(tagToRemove)
+  const renameTagMutation = useMutation({
+    mutationFn: async ({ oldName, newName, type }) => {
+      const config = entityMap[type];
+      const itemsToUpdate = config.items.filter(item =>
+        item.tags && item.tags.includes(oldName)
       );
-
       await Promise.all(
-        articlesToUpdate.map(article =>
-          base44.entities.BlogPost.update(article.id, {
-            ...article,
-            tags: article.tags.filter(t => t !== tagToRemove)
-          })
-        )
+        itemsToUpdate.map(item => {
+          const updatedTags = [...new Set(item.tags.map(t => t === oldName ? newName : t))];
+          return config.entity.update(item.id, {
+            ...item,
+            tags: updatedTags
+          });
+        })
       );
+      return { type };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-articles'] });
-      setShowDeleteConfirm(false);
-      setTagToDelete(null);
-      setDeleteType(null);
-      toast.success(`Tag removed from all ${articleDisplayName.toLowerCase()}`);
+    onSuccess: (_, { type }) => {
+      const config = entityMap[type];
+      queryClient.invalidateQueries({ queryKey: [config.queryKey] });
+      if (type === 'member') {
+        queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+        queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'member-direct' });
+      }
+      if (type === 'organization') {
+        queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      }
+      setShowRenameDialog(false);
+      setTagToRename(null);
+      setRenameType(null);
+      setRenameValue("");
+      toast.success('Tag renamed successfully');
     },
     onError: (error) => {
-      toast.error('Failed to remove tag: ' + error.message);
+      toast.error('Failed to rename tag: ' + error.message);
     }
   });
 
@@ -184,17 +204,42 @@ export default function TagManagementPage() {
     setShowDeleteConfirm(true);
   };
 
+  const handleRenameTag = (tagName, type) => {
+    setTagToRename(tagName);
+    setRenameType(type);
+    setRenameValue(tagName);
+    setShowRenameDialog(true);
+  };
+
   const confirmDelete = () => {
-    if (tagToDelete) {
-      if (deleteType === 'resource') {
-        removeResourceTagMutation.mutate(tagToDelete);
-      } else {
-        removeArticleTagMutation.mutate(tagToDelete);
-      }
+    if (tagToDelete && deleteType) {
+      deleteTagMutation.mutate({ tagName: tagToDelete, type: deleteType });
     }
   };
 
-  const isDeleting = removeResourceTagMutation.isPending || removeArticleTagMutation.isPending;
+  const confirmRename = () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      toast.error('Tag name cannot be empty');
+      return;
+    }
+    if (trimmed === tagToRename) {
+      setShowRenameDialog(false);
+      return;
+    }
+    if (tagToRename && renameType) {
+      const statsMap = { resource: resourceTagStats, article: articleTagStats, organization: orgTagStats, member: memberTagStats };
+      const existingTags = statsMap[renameType] || [];
+      const duplicateExists = existingTags.some(t => t.tag.toLowerCase() === trimmed.toLowerCase() && t.tag !== tagToRename);
+      if (duplicateExists) {
+        toast.info(`A tag "${trimmed}" already exists on some records. Tags will be merged.`);
+      }
+      renameTagMutation.mutate({ oldName: tagToRename, newName: trimmed, type: renameType });
+    }
+  };
+
+  const isDeleting = deleteTagMutation.isPending;
+  const isRenaming = renameTagMutation.isPending;
 
   if (!accessChecked) {
     return (
@@ -268,15 +313,26 @@ export default function TagManagementPage() {
                   </div>
                 </div>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteTag(item.tag, type)}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  data-testid={`button-delete-${type}-tag-${item.tag}`}
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRenameTag(item.tag, type)}
+                    className="text-slate-600 hover:text-blue-700 hover:bg-blue-50"
+                    data-testid={`button-rename-${type}-tag-${item.tag}`}
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteTag(item.tag, type)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    data-testid={`button-delete-${type}-tag-${item.tag}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -293,7 +349,7 @@ export default function TagManagementPage() {
             Manage Tags
           </h1>
           <p className="text-slate-600">
-            View and manage tags used across resources and {articleDisplayName.toLowerCase()}
+            View and manage tags used across resources, {articleDisplayName.toLowerCase()}, organisations, and members
           </p>
         </div>
 
@@ -319,6 +375,28 @@ export default function TagManagementPage() {
             articleDisplayName,
             BookOpen
           )}
+
+          {renderTagList(
+            filteredOrgTags,
+            'organization',
+            orgsLoading,
+            orgSearchQuery,
+            setOrgSearchQuery,
+            'Organisation',
+            'Organisations',
+            Building2
+          )}
+
+          {renderTagList(
+            filteredMemberTags,
+            'member',
+            membersLoading,
+            memberSearchQuery,
+            setMemberSearchQuery,
+            'Member',
+            'Members',
+            Users
+          )}
         </div>
 
         <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
@@ -334,7 +412,7 @@ export default function TagManagementPage() {
                     Are you sure you want to remove the tag "{tagToDelete}"?
                   </p>
                   <p className="text-xs text-red-700 mt-2">
-                    This will remove this tag from all {deleteType === 'resource' ? 'resources' : articleDisplayName.toLowerCase()} that currently use it. This action cannot be undone.
+                    This will remove this tag from all {deleteType ? entityMap[deleteType]?.label : 'records'} that currently use it. This action cannot be undone.
                   </p>
                 </div>
               </div>
@@ -356,6 +434,53 @@ export default function TagManagementPage() {
                 className="bg-red-600 hover:bg-red-700"
               >
                 {isDeleting ? 'Removing...' : 'Remove Tag'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename Tag</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-slate-600 mb-2">
+                  Renaming "{tagToRename}" will update it across all {renameType ? entityMap[renameType]?.label : 'records'} that use this tag.
+                </p>
+                <Input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="Enter new tag name"
+                  data-testid="input-rename-tag"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      confirmRename();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowRenameDialog(false);
+                  setTagToRename(null);
+                  setRenameType(null);
+                  setRenameValue("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmRename}
+                disabled={isRenaming || !renameValue.trim()}
+                data-testid="button-confirm-rename-tag"
+              >
+                {isRenaming ? 'Renaming...' : 'Rename Tag'}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -32,6 +32,7 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **Complex Event Sessions:** Multi-session (complex) events support individual sessions with per-session Zoom meeting/webinar integration. Each virtual/hybrid session can have its own Zoom link, host, and registration settings. Sessions are stored in the `complex_event_session` table. Booking confirmation auto-registers attendees for Zoom webinar sessions. Session schedules with join links (for booked attendees) are displayed on the public event detail page.
 -   **Discount Codes:** Supports targeting discounts by organization, member, role, or member group, with per-member usage tracking. Discount codes can also be restricted to specific events.
 -   **Organization Directory Type Filter:** Allows filtering visible organizations in the directory based on their type.
+-   **CRM Tags:** Free-text tagging on Organisation and Member records (stored as `text[]` columns). Tag Management page supports four sections (Resources, Articles, Organisations, Members) with rename and delete for all tag types.
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.

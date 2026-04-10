@@ -69,7 +69,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
-  Settings2
+  Settings2,
+  Tag
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -82,6 +83,7 @@ import OrgMembershipTab from "@/components/OrgMembershipTab";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import MemberDetailView from "@/components/MemberDetailView";
+import CrmTagInput from "@/components/crm/CrmTagInput";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 
@@ -1409,6 +1411,30 @@ export default function OrganisationDetailView({
                       </p>
                       <p className="text-sm text-slate-500 mt-1">Available Balance</p>
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-blue-600" />
+                      Tags
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CrmTagInput
+                      tags={organization?.tags || []}
+                      entityType="organization"
+                      onChange={async (newTags) => {
+                        try {
+                          await base44.entities.Organization.update(organization.id, { tags: newTags });
+                          queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+                          queryClient.invalidateQueries({ queryKey: ['admin-organizations-tags'] });
+                        } catch (err) {
+                          toast.error('Failed to update tags: ' + err.message);
+                        }
+                      }}
+                    />
                   </CardContent>
                 </Card>
 
