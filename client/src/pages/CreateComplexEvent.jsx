@@ -739,8 +739,8 @@ export default function CreateComplexEvent() {
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
-  const [dirtySnapshot, setDirtySnapshot] = useState(null);
-  const [snapshotPending, setSnapshotPending] = useState(false);
+  const [isDirtyState, setIsDirtyState] = useState(false);
+  const baselineSnapshotRef = useRef(null);
   const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
@@ -833,11 +833,7 @@ export default function CreateComplexEvent() {
     return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent });
   }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent]);
 
-  const isDirty = useMemo(() => {
-    if (!isEditMode) return true;
-    if (!dirtySnapshot || snapshotPending) return false;
-    return buildSnapshot() !== dirtySnapshot;
-  }, [isEditMode, dirtySnapshot, snapshotPending, buildSnapshot]);
+  const isDirty = !isEditMode || isDirtyState;
 
   useEffect(() => {
     if (isEditMode && existingTicketClasses.length > 0 && !ticketsInitialized) {
@@ -987,10 +983,17 @@ export default function CreateComplexEvent() {
 
   useEffect(() => {
     if (!isEditMode || !allEditDataReady) return;
-    if (!snapshotPending && dirtySnapshot) return;
-    setDirtySnapshot(buildSnapshot());
-    if (snapshotPending) setSnapshotPending(false);
-  }, [isEditMode, allEditDataReady, dirtySnapshot, snapshotPending, buildSnapshot]);
+    if (!baselineSnapshotRef.current) {
+      baselineSnapshotRef.current = buildSnapshot();
+      setIsDirtyState(false);
+    }
+  }, [isEditMode, allEditDataReady, buildSnapshot]);
+
+  useEffect(() => {
+    if (!isEditMode || !baselineSnapshotRef.current) return;
+    const current = buildSnapshot();
+    setIsDirtyState(current !== baselineSnapshotRef.current);
+  }, [isEditMode, buildSnapshot]);
 
   useEffect(() => {
     if (formData.title && !slugManuallyEdited) {
@@ -1664,8 +1667,9 @@ export default function CreateComplexEvent() {
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
         toast.success("Complex event updated");
+        setIsDirtyState(false);
+        baselineSnapshotRef.current = null;
         setSponsorsInitialized(false);
-        setSnapshotPending(true);
       } else {
         toast.success("Complex event created");
         window.location.href = createPageUrl("Events");
