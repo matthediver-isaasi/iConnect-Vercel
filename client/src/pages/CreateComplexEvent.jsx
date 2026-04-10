@@ -172,18 +172,17 @@ function computeGapSlots(sessions, layout, timezone, formatDateForInput) {
   }
 
   const lastMarker = markers[markers.length - 1];
-  const lastMarkerBottom = lastMarker.top;
   const maxOccupiedBottom = merged.length > 0 ? merged[merged.length - 1].bottom : 0;
-  const trailingTop = Math.max(lastMarkerBottom, maxOccupiedBottom);
-  if (trailingTop > 0) {
-    const trailingMs = layout.snappedEarliestMs + lastMarker.minutes * 60000;
-    gaps.push({
-      top: trailingTop + 4,
-      startTime: formatDateForInput(trailingMs),
-    });
-  }
+  const trailingTop = Math.max(lastMarker.top, maxOccupiedBottom);
+  const slotInterval = markers.length >= 2 ? markers[1].top - markers[0].top : 60;
+  const trailingMs = layout.snappedEarliestMs + lastMarker.minutes * 60000;
+  gaps.push({
+    top: trailingTop + (slotInterval / 2) - (BUTTON_HEIGHT / 2),
+    startTime: formatDateForInput(trailingMs),
+  });
+  const extraHeight = trailingTop + slotInterval - layout.totalHeight;
 
-  return gaps;
+  return { gaps, extraHeight: Math.max(extraHeight, 0) };
 }
 
 function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onEdit, onDelete, fixedHeight }) {
@@ -359,9 +358,11 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
     <div className="space-y-6">
       {sessionsByDay.map((day, dayIndex) => {
         const layout = computeTimelineLayout(day.sessions, { timezone, pixelsPerMinute: 2, minCardHeight: 40 });
+        const slotInterval = layout.timeMarkers.length >= 2 ? layout.timeMarkers[1].top - layout.timeMarkers[0].top : 60;
+        const gridHeight = layout.totalHeight + slotInterval;
 
         return (
-          <div key={dayIndex} data-testid={`admin-schedule-day-${dayIndex}`}>
+          <div key={dayIndex} className="mb-4" data-testid={`admin-schedule-day-${dayIndex}`}>
             <button
               type="button"
               onClick={() => toggleDay(day.date)}
@@ -404,14 +405,14 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
 
                 {layout.totalHeight > 0 ? (
                   <div className="flex gap-1">
-                    <div className="relative sticky left-0 bg-white z-[1]" style={{ width: 80, minWidth: 80, height: layout.totalHeight }}>
+                    <div className="relative sticky left-0 bg-white z-[1]" style={{ width: 80, minWidth: 80, height: gridHeight }}>
                       {layout.timeMarkers.map((marker, i) => (
                         <div key={i} className="absolute text-xs font-medium text-slate-600 pr-2 w-full text-right" style={{ top: marker.top }}>
                           {marker.label}
                         </div>
                       ))}
                     </div>
-                    <div className="flex gap-1 flex-1" style={{ height: layout.totalHeight }}>
+                    <div className="flex gap-1 flex-1" style={{ height: gridHeight }}>
                       {(allTrackNames.length > 0 ? allTrackNames : [null]).map(trackName => {
                         const isUntracked = trackName === null;
                         const trackSessions = day.sessions.filter(s => {
@@ -438,7 +439,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                             })}
                             {onAddAtSlot && (() => {
                               const trackId = isUntracked ? null : trackNameToId[trackName];
-                              const gaps = computeGapSlots(trackSessions, layout, timezone, formatDateForInput);
+                              const { gaps } = computeGapSlots(trackSessions, layout, timezone, formatDateForInput);
                               return gaps.map((gap, gi) => (
                                 <div
                                   key={`gap-${gi}`}
@@ -476,7 +477,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                           })}
                           {onAddAtSlot && (() => {
                             const untrackedSessions = day.sessions.filter(s => (s.track_names || []).length === 0);
-                            const gaps = computeGapSlots(untrackedSessions, layout, timezone, formatDateForInput);
+                            const { gaps } = computeGapSlots(untrackedSessions, layout, timezone, formatDateForInput);
                             return gaps.map((gap, gi) => (
                               <div
                                 key={`gap-${gi}`}
