@@ -146,13 +146,23 @@ function ImageBlockPreview({ block, isChild }) {
     imgStyle.marginRight = 'auto';
   }
 
+  const imgTag = (
+    <img
+      src={block.src}
+      alt={block.alt}
+      style={imgStyle}
+    />
+  );
+
   const imgEl = (
     <div style={paddingStyle}>
-      <img
-        src={block.src}
-        alt={block.alt}
-        style={imgStyle}
-      />
+      {block.href ? (
+        <a href={block.href} onClick={e => e.preventDefault()} style={{ pointerEvents: 'none' }}>
+          {imgTag}
+        </a>
+      ) : (
+        imgTag
+      )}
     </div>
   );
 
@@ -166,23 +176,33 @@ function ButtonBlockPreview({ block, isChild, globalFontFamily }) {
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
   const innerPaddingStyle = getSpacingStyle(block.styles, 'innerPadding', 'padding');
 
+  const buttonSpan = (
+    <span
+      style={{
+        display: 'inline-block',
+        backgroundColor: block.styles.backgroundColor,
+        color: block.styles.color,
+        fontFamily: block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif',
+        fontSize: block.styles.fontSize,
+        fontWeight: block.styles.fontWeight,
+        ...innerPaddingStyle,
+        borderRadius: block.styles.borderRadius,
+        cursor: 'pointer',
+      }}
+    >
+      {block.content}
+    </span>
+  );
+
   const btnEl = (
     <div style={{ ...paddingStyle, textAlign: block.styles.textAlign }}>
-      <span
-        style={{
-          display: 'inline-block',
-          backgroundColor: block.styles.backgroundColor,
-          color: block.styles.color,
-          fontFamily: block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif',
-          fontSize: block.styles.fontSize,
-          fontWeight: block.styles.fontWeight,
-          ...innerPaddingStyle,
-          borderRadius: block.styles.borderRadius,
-          cursor: 'pointer',
-        }}
-      >
-        {block.content}
-      </span>
+      {block.href ? (
+        <a href={block.href} onClick={e => e.preventDefault()} style={{ pointerEvents: 'none', textDecoration: 'none', color: 'inherit' }}>
+          {buttonSpan}
+        </a>
+      ) : (
+        buttonSpan
+      )}
     </div>
   );
 
