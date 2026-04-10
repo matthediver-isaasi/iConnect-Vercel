@@ -113,7 +113,7 @@ export default async function handler(req, res) {
               ...signer,
               submission_id: signerSubmission?.id || signer.submission_id
             });
-          } else if (signerSubmission) {
+          } else if (signerSubmission && !signer.demoted_at) {
             signedSigners.push({
               ...signer,
               signed: true,

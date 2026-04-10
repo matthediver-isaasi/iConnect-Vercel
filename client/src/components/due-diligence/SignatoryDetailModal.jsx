@@ -8,8 +8,19 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink, Eye, FileEdit
+  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink, Eye, FileEdit, ChevronDown
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/components/ui/use-toast";
@@ -24,7 +35,7 @@ const STATUS_CONFIG = {
   expired: { label: 'Expired', color: '#ef4444', bgColor: '#fee2e2', icon: AlertCircle }
 };
 
-function SignerRow({ signer, onSend, onDownload, onManualOverride, isSending, isDownloading, isFieldSigned, isLegacyAmbiguous }) {
+function SignerRow({ signer, onSend, onDownload, onManualOverride, onDemote, isSending, isDownloading, isDemoting, isFieldSigned, isLegacyAmbiguous }) {
   const statusConfig = STATUS_CONFIG[signer.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
@@ -111,10 +122,50 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, isSending, is
           )}
         </Button>
       ) : isWinner ? (
-        <Badge className="flex-shrink-0 bg-green-100 text-green-700 border-green-300">
-          <CheckCircle2 className="w-3 h-3 mr-1" />
-          Winner
-        </Badge>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Badge className="bg-green-100 text-green-700 border-green-300">
+            <CheckCircle2 className="w-3 h-3 mr-1" />
+            Winner
+          </Badge>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isDemoting}
+                className="text-destructive border-destructive/50"
+                data-testid={`button-demote-${signer.email}`}
+              >
+                {isDemoting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4 mr-1" />
+                    Demote
+                  </>
+                )}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent data-testid="demote-confirmation-dialog">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Demote Winner</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will remove the winner status from {fullName} ({signer.email}). The contract will revert to an unsigned state, and you will be able to add a new recipient.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-demote-cancel">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => onDemote(signer)}
+                  className="bg-destructive text-destructive-foreground"
+                  data-testid="button-demote-confirm"
+                >
+                  Demote Winner
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       ) : null}
     </div>
   );
@@ -320,6 +371,31 @@ export default function SignatoryDetailModal({
     }
   });
 
+  const demoteWinnerMutation = useMutation({
+    mutationFn: async (signer) => {
+      return apiRequest('POST', `/api/contracts/demote-winner`, {
+        formSubmissionId,
+        fieldId: signatory?.fieldId,
+        contractFormId: signatory?.contractFormId,
+        signerEmail: signer.email
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Winner Demoted",
+        description: "The winner status has been removed. You can now add a new recipient.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/contracts/by-submission', formSubmissionId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to demote winner.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const manualOverrideMutation = useMutation({
     mutationFn: async ({ signer, submissionData, overrideDate }) => {
       return apiRequest('POST', `/api/contracts/manual-override`, {
@@ -359,6 +435,10 @@ export default function SignatoryDetailModal({
 
   const handleAddSigner = (newSigner) => {
     addSignerMutation.mutate(newSigner);
+  };
+
+  const handleDemote = (signer) => {
+    demoteWinnerMutation.mutate(signer);
   };
 
   const handleManualOverride = (signer) => {
@@ -482,8 +562,10 @@ export default function SignatoryDetailModal({
                           onSend={handleSend}
                           onDownload={handleDownload}
                           onManualOverride={handleManualOverride}
+                          onDemote={handleDemote}
                           isSending={sendingEmail === signer.email}
                           isDownloading={downloadingSubmissionId === signer.submission_id}
+                          isDemoting={demoteWinnerMutation.isPending}
                           isFieldSigned={isFieldSigned}
                           isLegacyAmbiguous={isLegacyAmbiguous}
                         />
