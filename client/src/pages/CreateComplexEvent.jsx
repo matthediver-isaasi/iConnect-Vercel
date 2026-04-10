@@ -1247,7 +1247,7 @@ export default function CreateComplexEvent() {
 
   const liveSessionClashes = useMemo(() => {
     return checkSessionOverlaps(sessionForm, editingSession);
-  }, [sessionForm.start_time, sessionForm.end_time, sessionForm.track_ids, sessions, tracks, editingSession]);
+  }, [sessionForm.start_time, sessionForm.end_time, sessionForm.track_ids, sessions, tracks, editingSession, formData.timezone]);
 
   const saveSession = () => {
     if (!sessionForm.title.trim()) {
