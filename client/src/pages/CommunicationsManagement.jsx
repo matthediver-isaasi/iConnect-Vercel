@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save, Search, UserX } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save, Search, UserX, Eye } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -54,6 +54,14 @@ export default function CommunicationsManagementPage() {
   const [indMemberSearchResults, setIndMemberSearchResults] = useState([]);
   const [indMemberSearchLoading, setIndMemberSearchLoading] = useState(false);
   const [indSelectedMembers, setIndSelectedMembers] = useState([]);
+
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewListName, setPreviewListName] = useState('');
+  const [previewRecipients, setPreviewRecipients] = useState([]);
+  const [previewTotalCount, setPreviewTotalCount] = useState(0);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewPageSize = 20;
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -382,6 +390,43 @@ export default function CommunicationsManagementPage() {
     resetIndMemberSearch();
     setShowEditListDialog(true);
   };
+
+  const openPreviewModal = async (list) => {
+    setPreviewListName(list.name);
+    setPreviewRecipients([]);
+    setPreviewTotalCount(0);
+    setPreviewPage(1);
+    setPreviewLoading(true);
+    setShowPreviewModal(true);
+    try {
+      const response = await fetch('/api/audience-lists/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ listId: list.id })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPreviewRecipients(data.recipients || []);
+        setPreviewTotalCount(data.totalCount || 0);
+      } else {
+        const err = await response.json();
+        toast.error(err.error || 'Failed to load audience preview');
+        setShowPreviewModal(false);
+      }
+    } catch (e) {
+      toast.error('Failed to load audience preview');
+      setShowPreviewModal(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const previewTotalPages = Math.max(1, Math.ceil(previewTotalCount / previewPageSize));
+  const previewPagedRecipients = previewRecipients.slice(
+    (previewPage - 1) * previewPageSize,
+    previewPage * previewPageSize
+  );
 
   const handleSaveListEdit = async () => {
     if (!editListName.trim()) { toast.error('Please enter a list name'); return; }
@@ -1204,6 +1249,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openPreviewModal(list)}
+                                data-testid={`button-preview-list-${list.id}`}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -2168,6 +2221,81 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 </TabsContent>
               </Tabs>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showPreviewModal} onOpenChange={setShowPreviewModal}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle data-testid="text-preview-list-name">{previewListName}</DialogTitle>
+              <DialogDescription>
+                {previewLoading ? 'Loading audience members...' : `${previewTotalCount} total recipient${previewTotalCount !== 1 ? 's' : ''}`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {previewLoading ? (
+                <div className="flex items-center justify-center py-12" data-testid="preview-loading">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  <span className="ml-2 text-sm text-slate-500">Resolving audience...</span>
+                </div>
+              ) : previewTotalCount === 0 ? (
+                <div className="text-center py-12 text-sm text-slate-400" data-testid="preview-empty">
+                  No recipients found for this audience list.
+                </div>
+              ) : (
+                <Table data-testid="table-preview-recipients">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-16">#</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewPagedRecipients.map((r, idx) => (
+                      <TableRow key={r.email + idx} data-testid={`row-preview-recipient-${idx}`}>
+                        <TableCell className="text-slate-400 text-xs">
+                          {(previewPage - 1) * previewPageSize + idx + 1}
+                        </TableCell>
+                        <TableCell data-testid={`text-recipient-name-${idx}`}>
+                          {[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}
+                        </TableCell>
+                        <TableCell className="text-slate-600" data-testid={`text-recipient-email-${idx}`}>
+                          {r.email}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            {previewTotalCount > previewPageSize && (
+              <div className="flex items-center justify-between gap-4 pt-3 border-t" data-testid="preview-pagination">
+                <span className="text-sm text-slate-500">
+                  Page {previewPage} of {previewTotalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={previewPage <= 1}
+                    onClick={() => setPreviewPage(p => Math.max(1, p - 1))}
+                    data-testid="button-preview-prev"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={previewPage >= previewTotalPages}
+                    onClick={() => setPreviewPage(p => Math.min(previewTotalPages, p + 1))}
+                    data-testid="button-preview-next"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
 
