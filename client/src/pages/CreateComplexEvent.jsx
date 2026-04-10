@@ -124,6 +124,76 @@ const scheduleFormatDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "E
   }
 };
 
+function getSessionEndTime(session, timezone, formatDateForInput) {
+  if (session.end_time) {
+    const endDate = toDateTz(session.end_time, timezone);
+    return endDate ? formatDateForInput(endDate.getTime()) : session.end_time;
+  }
+  if (session.start_time) {
+    const startDate = toDateTz(session.start_time, timezone);
+    const startMs = startDate ? startDate.getTime() : 0;
+    return formatDateForInput(startMs + (session.duration_minutes || 30) * 60000);
+  }
+  return "";
+}
+
+function computeGapSlots(sessions, layout, timezone, formatDateForInput) {
+  const MIN_GAP_HEIGHT = 28;
+  const sorted = sessions
+    .filter(s => layout.sessionLayouts[s._localId])
+    .sort((a, b) => layout.sessionLayouts[a._localId].top - layout.sessionLayouts[b._localId].top);
+
+  if (sorted.length === 0) {
+    return [{ top: 0, startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "" }];
+  }
+
+  const intervals = sorted.map(s => {
+    const sl = layout.sessionLayouts[s._localId];
+    return { top: sl.top, bottom: sl.top + sl.height, session: s };
+  });
+
+  const merged = [];
+  let cur = { top: intervals[0].top, bottom: intervals[0].bottom, lastSession: intervals[0].session };
+  for (let i = 1; i < intervals.length; i++) {
+    const iv = intervals[i];
+    if (iv.top <= cur.bottom) {
+      if (iv.bottom > cur.bottom) {
+        cur.bottom = iv.bottom;
+        cur.lastSession = iv.session;
+      }
+    } else {
+      merged.push(cur);
+      cur = { top: iv.top, bottom: iv.bottom, lastSession: iv.session };
+    }
+  }
+  merged.push(cur);
+
+  const gaps = [];
+  if (merged[0].top >= MIN_GAP_HEIGHT) {
+    gaps.push({
+      top: Math.max(0, merged[0].top / 2 - 14),
+      startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "",
+    });
+  }
+  for (let i = 0; i < merged.length - 1; i++) {
+    const gapStart = merged[i].bottom;
+    const gapSize = merged[i + 1].top - gapStart;
+    if (gapSize >= MIN_GAP_HEIGHT) {
+      gaps.push({
+        top: gapStart + (gapSize / 2) - 14,
+        startTime: getSessionEndTime(merged[i].lastSession, timezone, formatDateForInput),
+      });
+    }
+  }
+  const last = merged[merged.length - 1];
+  gaps.push({
+    top: last.bottom + 4,
+    startTime: getSessionEndTime(last.lastSession, timezone, formatDateForInput),
+  });
+
+  return gaps;
+}
+
 function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onEdit, onDelete, fixedHeight }) {
   const hasCustomColors = colors?.lightStyle;
   const fallbackClass = "bg-slate-50 border-slate-300";
@@ -439,45 +509,24 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                               );
                             })}
                             {onAddAtSlot && (() => {
-                              const lastSession = trackSessions
-                                .filter(s => layout.sessionLayouts[s._localId])
-                                .sort((a, b) => {
-                                  const la = layout.sessionLayouts[a._localId];
-                                  const lb = layout.sessionLayouts[b._localId];
-                                  return (lb.top + lb.height) - (la.top + la.height);
-                                })[0];
-                              const slotTop = lastSession
-                                ? layout.sessionLayouts[lastSession._localId].top + layout.sessionLayouts[lastSession._localId].height + 4
-                                : 0;
-                              let lastEndTime;
-                              if (lastSession && lastSession.end_time) {
-                                const endDate = toDateTz(lastSession.end_time, timezone);
-                                lastEndTime = endDate ? formatDateForInput(endDate.getTime()) : lastSession.end_time;
-                              } else if (lastSession && lastSession.start_time) {
-                                const startDate = toDateTz(lastSession.start_time, timezone);
-                                const startMs = startDate ? startDate.getTime() : 0;
-                                lastEndTime = formatDateForInput(startMs + (lastSession.duration_minutes || 30) * 60000);
-                              } else if (layout.snappedEarliestMs) {
-                                lastEndTime = formatDateForInput(layout.snappedEarliestMs);
-                              } else {
-                                lastEndTime = "";
-                              }
                               const trackId = isUntracked ? null : trackNameToId[trackName];
-                              return (
+                              const gaps = computeGapSlots(trackSessions, layout, timezone, formatDateForInput);
+                              return gaps.map((gap, gi) => (
                                 <div
+                                  key={`gap-${gi}`}
                                   className="absolute left-0 right-0 px-0.5 flex justify-center"
-                                  style={{ top: slotTop }}
+                                  style={{ top: gap.top }}
                                 >
                                   <button
                                     type="button"
-                                    onClick={() => onAddAtSlot({ startTime: lastEndTime, trackId })}
+                                    onClick={() => onAddAtSlot({ startTime: gap.startTime, trackId })}
                                     className="w-full mx-1 py-1.5 border border-dashed border-slate-300 rounded-md flex items-center justify-center gap-1 text-slate-400 hover:text-slate-600 hover:border-slate-400 transition-colors"
-                                    data-testid={`button-quick-add-${trackName || 'untracked'}`}
+                                    data-testid={`button-quick-add-${trackName || 'untracked'}-${gi}`}
                                   >
                                     <Plus className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
-                              );
+                              ));
                             })()}
                           </div>
                         );
@@ -499,44 +548,23 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                           })}
                           {onAddAtSlot && (() => {
                             const untrackedSessions = day.sessions.filter(s => (s.track_names || []).length === 0);
-                            const lastSession = untrackedSessions
-                              .filter(s => layout.sessionLayouts[s._localId])
-                              .sort((a, b) => {
-                                const la = layout.sessionLayouts[a._localId];
-                                const lb = layout.sessionLayouts[b._localId];
-                                return (lb.top + lb.height) - (la.top + la.height);
-                              })[0];
-                            const slotTop = lastSession
-                              ? layout.sessionLayouts[lastSession._localId].top + layout.sessionLayouts[lastSession._localId].height + 4
-                              : 0;
-                            let lastEndTime;
-                            if (lastSession && lastSession.end_time) {
-                              const endDate = toDateTz(lastSession.end_time, timezone);
-                              lastEndTime = endDate ? formatDateForInput(endDate.getTime()) : lastSession.end_time;
-                            } else if (lastSession && lastSession.start_time) {
-                              const startDate = toDateTz(lastSession.start_time, timezone);
-                              const startMs = startDate ? startDate.getTime() : 0;
-                              lastEndTime = formatDateForInput(startMs + (lastSession.duration_minutes || 30) * 60000);
-                            } else if (layout.snappedEarliestMs) {
-                              lastEndTime = formatDateForInput(layout.snappedEarliestMs);
-                            } else {
-                              lastEndTime = "";
-                            }
-                            return (
+                            const gaps = computeGapSlots(untrackedSessions, layout, timezone, formatDateForInput);
+                            return gaps.map((gap, gi) => (
                               <div
+                                key={`gap-${gi}`}
                                 className="absolute left-0 right-0 px-0.5 flex justify-center"
-                                style={{ top: slotTop }}
+                                style={{ top: gap.top }}
                               >
                                 <button
                                   type="button"
-                                  onClick={() => onAddAtSlot({ startTime: lastEndTime, trackId: null })}
+                                  onClick={() => onAddAtSlot({ startTime: gap.startTime, trackId: null })}
                                   className="w-full mx-1 py-1.5 border border-dashed border-slate-300 rounded-md flex items-center justify-center gap-1 text-slate-400 hover:text-slate-600 hover:border-slate-400 transition-colors"
-                                  data-testid="button-quick-add-untracked"
+                                  data-testid={`button-quick-add-untracked-${gi}`}
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>
                               </div>
-                            );
+                            ));
                           })()}
                         </div>
                       )}
