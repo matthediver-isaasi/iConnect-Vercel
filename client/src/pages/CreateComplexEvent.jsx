@@ -94,10 +94,19 @@ function buildTrackColorStyles(hex) {
   };
 }
 
+function toDateTz(dateStr, tz) {
+  if (!dateStr) return null;
+  if (typeof dateStr !== "string") return new Date(dateStr);
+  const hasOffset = /[+-]\d{2}(:\d{2})?$/.test(dateStr) || dateStr.endsWith("Z");
+  if (hasOffset) return parseISO(dateStr);
+  return fromZonedTime(dateStr, tz);
+}
+
 const scheduleFormatTime = (dateStr, timezone = DEFAULT_TIMEZONE) => {
   if (!dateStr) return "";
   try {
-    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
+    const date = toDateTz(dateStr, timezone);
+    if (!date) return "";
     return formatInTimeZone(date, timezone, "h:mm a");
   } catch {
     return format(new Date(dateStr), "h:mm a");
@@ -107,7 +116,8 @@ const scheduleFormatTime = (dateStr, timezone = DEFAULT_TIMEZONE) => {
 const scheduleFormatDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "EEEE, MMMM d, yyyy") => {
   if (!dateStr) return "";
   try {
-    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
+    const date = toDateTz(dateStr, timezone);
+    if (!date) return "";
     return formatInTimeZone(date, timezone, formatStr);
   } catch {
     return format(new Date(dateStr), formatStr);
@@ -267,14 +277,6 @@ function AdminHScrollContainer({ children, trackCount }) {
       )}
     </div>
   );
-}
-
-function toDateTz(dateStr, tz) {
-  if (!dateStr) return null;
-  if (typeof dateStr !== "string") return new Date(dateStr);
-  const hasOffset = /[+-]\d{2}(:\d{2})?$/.test(dateStr) || dateStr.endsWith("Z");
-  if (hasOffset) return parseISO(dateStr);
-  return fromZonedTime(dateStr, tz);
 }
 
 function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete, onAddAtSlot }) {
@@ -1213,20 +1215,25 @@ export default function CreateComplexEvent() {
     setEditingSession(null);
   };
 
-  const checkSessionOverlaps = (formData, currentLocalId) => {
-    if (!formData.start_time || !formData.end_time || !(formData.track_ids || []).length) return [];
-    const newStart = new Date(formData.start_time).getTime();
-    const newEnd = new Date(formData.end_time).getTime();
+  const checkSessionOverlaps = (sessionData, currentLocalId) => {
+    if (!sessionData.start_time || !sessionData.end_time || !(sessionData.track_ids || []).length) return [];
+    const tz = formData.timezone || DEFAULT_TIMEZONE;
+    const newStartDate = toDateTz(sessionData.start_time, tz);
+    const newEndDate = toDateTz(sessionData.end_time, tz);
+    const newStart = newStartDate ? newStartDate.getTime() : NaN;
+    const newEnd = newEndDate ? newEndDate.getTime() : NaN;
     if (isNaN(newStart) || isNaN(newEnd) || newEnd <= newStart) return [];
 
     const overlaps = [];
     for (const s of sessions) {
       if (s._localId === currentLocalId) continue;
       if (!s.start_time || !s.end_time) continue;
-      const sStart = new Date(s.start_time).getTime();
-      const sEnd = new Date(s.end_time).getTime();
+      const sStartDate = toDateTz(s.start_time, tz);
+      const sEndDate = toDateTz(s.end_time, tz);
+      const sStart = sStartDate ? sStartDate.getTime() : NaN;
+      const sEnd = sEndDate ? sEndDate.getTime() : NaN;
       if (isNaN(sStart) || isNaN(sEnd)) continue;
-      const sharedTracks = (formData.track_ids || []).filter(tid => (s.track_ids || []).includes(tid));
+      const sharedTracks = (sessionData.track_ids || []).filter(tid => (s.track_ids || []).includes(tid));
       if (sharedTracks.length > 0 && newStart < sEnd && newEnd > sStart) {
         const trackLabels = sharedTracks.map(tid => {
           const t = tracks.find(tr => (tr.id || tr._localId) === tid);
