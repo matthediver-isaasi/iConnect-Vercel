@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,8 @@ import {
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
   ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
-  RefreshCw, Monitor, Smartphone, Reply, Forward, Archive, MoreHorizontal, Star, Paperclip
+  RefreshCw, Monitor, Smartphone, Reply, Forward, Archive, MoreHorizontal, Star, Paperclip,
+  Flame
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -63,6 +64,8 @@ export default function EmailCampaigns() {
   const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
   const [emailPreviewMode, setEmailPreviewMode] = useState('desktop');
   const [emailPreviewFooter, setEmailPreviewFooter] = useState(null);
+  const [emailPreviewHeatmap, setEmailPreviewHeatmap] = useState(null);
+  const heatmapPreviewRef = useRef(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -402,6 +405,7 @@ export default function EmailCampaigns() {
     setEmailPreviewLoading(true);
     setEmailPreviewData(null);
     setEmailPreviewFooter(null);
+    setEmailPreviewHeatmap(null);
     setEmailPreviewMode('desktop');
     try {
       const [campaignRes, footerRes] = await Promise.all([
@@ -442,6 +446,175 @@ export default function EmailCampaigns() {
       setEmailPreviewLoading(false);
     }
   };
+
+  const handleHeatmapPreview = async () => {
+    if (!statsCampaignId || !statsData?.heatmapData) return;
+    setShowEmailPreview(true);
+    setEmailPreviewLoading(true);
+    setEmailPreviewData(null);
+    setEmailPreviewFooter(null);
+    setEmailPreviewHeatmap(statsData.heatmapData);
+    setEmailPreviewMode('desktop');
+    try {
+      const [campaignRes, footerRes] = await Promise.all([
+        fetch(`/api/email-campaigns/${statsCampaignId}`, { credentials: 'include' }),
+        fetch('/api/email-campaigns/preview-footer', { credentials: 'include' })
+      ]);
+      if (!campaignRes.ok) throw new Error('Failed to fetch campaign');
+      const campaignData = await campaignRes.json();
+      let parsedDesign = campaignData.design_json;
+      if (typeof parsedDesign === 'string') {
+        try { parsedDesign = JSON.parse(parsedDesign); } catch (e) { parsedDesign = null; }
+      }
+      const hasDesign = parsedDesign && typeof parsedDesign === 'object' &&
+        (parsedDesign.type === 'custom-email-builder' || Array.isArray(parsedDesign.blocks));
+      if (hasDesign) {
+        parsedDesign = {
+          ...parsedDesign,
+          globalStyles: { ...defaultEmailDesign.globalStyles, ...(parsedDesign.globalStyles || {}) },
+        };
+      }
+      campaignData.design_json = hasDesign ? parsedDesign : null;
+      setEmailPreviewData(campaignData);
+      if (footerRes.ok) {
+        const footerData = await footerRes.json();
+        setEmailPreviewFooter(footerData);
+      }
+    } catch (error) {
+      toast.error('Failed to load email preview');
+      setShowEmailPreview(false);
+      setEmailPreviewHeatmap(null);
+    } finally {
+      setEmailPreviewLoading(false);
+    }
+  };
+
+  const normalizeUrl = useCallback((rawUrl) => {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    try {
+      const parsed = new URL(rawUrl);
+      return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
+    } catch {
+      return rawUrl.replace(/\/+$/, '').toLowerCase();
+    }
+  }, []);
+
+  const heatmapClickMap = useMemo(() => {
+    if (!emailPreviewHeatmap || emailPreviewHeatmap.length === 0) return null;
+    const map = {};
+    emailPreviewHeatmap.forEach(item => {
+      if (!item || typeof item.url !== 'string') return;
+      const clicks = typeof item.clicks === 'number' ? item.clicks : 0;
+      const normalized = normalizeUrl(item.url);
+      if (normalized) {
+        map[normalized] = (map[normalized] || 0) + clicks;
+      }
+    });
+    return map;
+  }, [emailPreviewHeatmap, normalizeUrl]);
+
+  const applyHeatmapOverlay = useCallback(() => {
+    if (!heatmapPreviewRef.current || !heatmapClickMap) return;
+
+    const container = heatmapPreviewRef.current;
+    container.querySelectorAll('[data-heatmap-badge]').forEach(el => el.remove());
+
+    const links = container.querySelectorAll('a[href]');
+    if (links.length === 0) return;
+
+    const aggregatedValues = Object.values(heatmapClickMap);
+    const maxClicks = Math.max(...aggregatedValues, 1);
+
+    links.forEach(link => {
+      const rawHref = link.getAttribute('href') || '';
+      if (!rawHref || rawHref === '#' || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+
+      const normalizedHref = normalizeUrl(rawHref);
+      const clicks = heatmapClickMap[normalizedHref];
+      if (clicks === undefined) return;
+
+      const intensity = maxClicks > 0 ? clicks / maxClicks : 0;
+
+      let bgColor, textColor, borderColor;
+      if (clicks === 0) {
+        bgColor = 'rgba(148, 163, 184, 0.15)';
+        textColor = 'rgb(100, 116, 139)';
+        borderColor = 'rgba(148, 163, 184, 0.3)';
+      } else if (intensity <= 0.25) {
+        bgColor = 'rgba(59, 130, 246, 0.15)';
+        textColor = 'rgb(37, 99, 235)';
+        borderColor = 'rgba(59, 130, 246, 0.3)';
+      } else if (intensity <= 0.5) {
+        bgColor = 'rgba(34, 197, 94, 0.2)';
+        textColor = 'rgb(22, 163, 74)';
+        borderColor = 'rgba(34, 197, 94, 0.4)';
+      } else if (intensity <= 0.75) {
+        bgColor = 'rgba(249, 115, 22, 0.2)';
+        textColor = 'rgb(234, 88, 12)';
+        borderColor = 'rgba(249, 115, 22, 0.4)';
+      } else {
+        bgColor = 'rgba(239, 68, 68, 0.2)';
+        textColor = 'rgb(220, 38, 38)';
+        borderColor = 'rgba(239, 68, 68, 0.4)';
+      }
+
+      const badge = document.createElement('span');
+      badge.setAttribute('data-heatmap-badge', 'true');
+      badge.textContent = `${clicks} click${clicks !== 1 ? 's' : ''}`;
+      badge.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        margin-left: 4px;
+        padding: 1px 6px;
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 16px;
+        border-radius: 9999px;
+        white-space: nowrap;
+        vertical-align: middle;
+        background: ${bgColor};
+        color: ${textColor};
+        border: 1px solid ${borderColor};
+        pointer-events: none;
+      `;
+      link.style.position = 'relative';
+      link.insertAdjacentElement('afterend', badge);
+    });
+  }, [heatmapClickMap, normalizeUrl]);
+
+  useEffect(() => {
+    if (!showEmailPreview || !heatmapClickMap || !emailPreviewData || emailPreviewLoading) return;
+
+    const timer = setTimeout(applyHeatmapOverlay, 100);
+
+    let observer;
+    let debounceTimer;
+    let isApplying = false;
+    if (heatmapPreviewRef.current) {
+      observer = new MutationObserver((mutations) => {
+        if (isApplying) return;
+        const isOnlyBadgeChange = mutations.every(m =>
+          [...m.addedNodes, ...m.removedNodes].every(n =>
+            n.nodeType === 1 && n.getAttribute && n.getAttribute('data-heatmap-badge')
+          )
+        );
+        if (isOnlyBadgeChange) return;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          isApplying = true;
+          applyHeatmapOverlay();
+          isApplying = false;
+        }, 150);
+      });
+      observer.observe(heatmapPreviewRef.current, { childList: true, subtree: true });
+    }
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(debounceTimer);
+      if (observer) observer.disconnect();
+    };
+  }, [showEmailPreview, heatmapClickMap, emailPreviewData, emailPreviewLoading, emailPreviewMode, applyHeatmapOverlay]);
 
   const handleViewStats = async (campaign) => {
     try {
@@ -1296,6 +1469,16 @@ export default function EmailCampaigns() {
                   <Download className="w-4 h-4 mr-1" />
                   Export CSV
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleHeatmapPreview}
+                  disabled={!statsData?.heatmapData?.length}
+                  data-testid="button-preview-with-stats"
+                >
+                  <Flame className="w-4 h-4 mr-1" />
+                  Preview with Stats
+                </Button>
                 {statsDetailView ? (
                   <Button
                     variant="outline"
@@ -1748,10 +1931,22 @@ export default function EmailCampaigns() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showEmailPreview} onOpenChange={setShowEmailPreview}>
+      <Dialog open={showEmailPreview} onOpenChange={(open) => {
+        setShowEmailPreview(open);
+        if (!open) setEmailPreviewHeatmap(null);
+      }}>
         <DialogContent className="max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh] p-0 gap-0 flex flex-col">
           <DialogHeader className="flex flex-row items-center justify-between px-4 py-3 border-b bg-background flex-shrink-0 space-y-0">
-            <DialogTitle className="text-sm font-semibold" data-testid="text-sent-preview-title">Email Preview</DialogTitle>
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2" data-testid="text-sent-preview-title">
+              {emailPreviewHeatmap ? (
+                <>
+                  <Flame className="w-4 h-4 text-orange-500" />
+                  Email Preview — Click Heatmap
+                </>
+              ) : (
+                'Email Preview'
+              )}
+            </DialogTitle>
             <DialogDescription className="sr-only">Preview how the sent email appeared to recipients</DialogDescription>
             <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
               <Button
@@ -1774,6 +1969,33 @@ export default function EmailCampaigns() {
               </Button>
             </div>
           </DialogHeader>
+          {emailPreviewHeatmap && (
+            <div className="flex-shrink-0 px-4 py-2 border-b bg-muted/20 flex items-center justify-between gap-4 flex-wrap" data-testid="heatmap-legend">
+              <span className="text-xs text-muted-foreground">Click intensity:</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: 'rgba(148, 163, 184, 0.4)' }} />
+                  <span className="text-xs text-muted-foreground">0</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: 'rgba(59, 130, 246, 0.5)' }} />
+                  <span className="text-xs text-muted-foreground">Low</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: 'rgba(34, 197, 94, 0.5)' }} />
+                  <span className="text-xs text-muted-foreground">Medium</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: 'rgba(249, 115, 22, 0.5)' }} />
+                  <span className="text-xs text-muted-foreground">High</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.5)' }} />
+                  <span className="text-xs text-muted-foreground">Max</span>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-auto bg-muted/30 flex justify-center p-6" data-testid="sent-preview-container">
             {emailPreviewLoading ? (
               <div className="flex items-center justify-center h-full">
@@ -1841,7 +2063,7 @@ export default function EmailCampaigns() {
                   </div>
                 </div>
 
-                <div data-testid="sent-preview-email-body" style={{ backgroundColor: emailPreviewData.design_json?.globalStyles?.backgroundColor || '#f4f4f4' }}>
+                <div ref={heatmapPreviewRef} data-testid="sent-preview-email-body" style={{ backgroundColor: emailPreviewData.design_json?.globalStyles?.backgroundColor || '#f4f4f4' }}>
                   {emailPreviewData.design_json && Array.isArray(emailPreviewData.design_json.blocks) ? (
                     <ReadOnlyBlockPreview
                       blocks={emailPreviewData.design_json.blocks}
