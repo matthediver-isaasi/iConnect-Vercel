@@ -69,10 +69,13 @@ export function computeTimelineLayout(sessions, {
     sessionLayouts[id] = { top, height, durationMinutes: durationMin, isCompressed: rawHeight < minCardHeight };
   });
 
-  const totalHeight = Math.max(maxBottom, totalMinutes * pixelsPerMinute, 100);
+  const endMinutesCeiledForHeight = Math.ceil(totalMinutes / markerInterval) * markerInterval;
+  const totalHeight = Math.max(maxBottom, endMinutesCeiledForHeight * pixelsPerMinute, 100);
+
+  const endMinutesCeiled = Math.ceil(totalMinutes / markerInterval) * markerInterval;
 
   const timeMarkers = [];
-  for (let min = 0; min <= totalMinutes; min += markerInterval) {
+  for (let min = 0; min <= endMinutesCeiled; min += markerInterval) {
     const markerDate = new Date(snappedEarliestMs + min * 60000);
     let label;
     try {

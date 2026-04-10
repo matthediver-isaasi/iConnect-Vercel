@@ -270,6 +270,9 @@ function AdminHScrollContainer({ children, trackCount }) {
 }
 
 function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete }) {
+  const [collapsedDays, setCollapsedDays] = useState({});
+  const toggleDay = (dateKey) => setCollapsedDays(prev => ({ ...prev, [dateKey]: !prev[dateKey] }));
+
   const trackColorMap = useMemo(() => {
     const map = {};
     tracks.forEach(track => {
@@ -331,12 +334,19 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
 
         return (
           <div key={dayIndex} data-testid={`admin-schedule-day-${dayIndex}`}>
-            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => toggleDay(day.date)}
+              className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2 hover-elevate active-elevate-2 rounded-md px-2 py-1 -ml-2 w-auto"
+              data-testid={`admin-schedule-day-toggle-${dayIndex}`}
+            >
+              {collapsedDays[day.date] ? <ChevronRight className="w-4 h-4 text-indigo-600" /> : <ChevronDown className="w-4 h-4 text-indigo-600" />}
               <Calendar className="w-4 h-4 text-indigo-600" />
               {scheduleFormatDate(day.date, timezone)}
-            </h3>
+              <span className="text-xs font-normal text-slate-500">({day.sessions.length} sessions)</span>
+            </button>
 
-            <AdminHScrollContainer trackCount={totalColumns}>
+            {collapsedDays[day.date] ? null : <AdminHScrollContainer trackCount={totalColumns}>
                 {allTrackNames.length > 0 && (
                   <div className="flex gap-1 mb-2">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]" style={{ width: 80, minWidth: 80 }}>Time</div>
@@ -427,7 +437,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                     </div>
                   ))
                 )}
-            </AdminHScrollContainer>
+            </AdminHScrollContainer>}
           </div>
         );
       })}

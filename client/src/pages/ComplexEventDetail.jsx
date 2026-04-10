@@ -12,7 +12,7 @@ import { parseEventTypes } from "@/lib/utils";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
-  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown,
+  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -149,6 +149,9 @@ function HScrollContainer({ children, trackCount }) {
 }
 
 function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {}, onSessionClick }) {
+  const [collapsedDays, setCollapsedDays] = useState({});
+  const toggleDay = (dateKey) => setCollapsedDays(prev => ({ ...prev, [dateKey]: !prev[dateKey] }));
+
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -198,12 +201,19 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
 
         return (
           <div key={dayIndex} data-testid={`schedule-day-${dayIndex}`}>
-            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => toggleDay(day.date)}
+              className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2 hover-elevate active-elevate-2 rounded-md px-2 py-1 -ml-2 w-auto"
+              data-testid={`schedule-day-toggle-${dayIndex}`}
+            >
+              {collapsedDays[day.date] ? <ChevronRight className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-indigo-600" />}
               <Calendar className="w-5 h-5 text-indigo-600" />
               {formatDate(day.date, timezone)}
-            </h3>
+              <span className="text-sm font-normal text-slate-500">({day.sessions.length} sessions)</span>
+            </button>
 
-            <HScrollContainer trackCount={totalColumns}>
+            {collapsedDays[day.date] ? null : <HScrollContainer trackCount={totalColumns}>
                 {(allTracks.length > 0) && (
                   <div className="flex gap-1 mb-2">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]" style={{ width: 100, minWidth: 100 }}>Time</div>
@@ -297,7 +307,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                     </div>
                   ))
                 )}
-            </HScrollContainer>
+            </HScrollContainer>}
           </div>
         );
       })}
