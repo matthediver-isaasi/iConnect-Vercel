@@ -741,6 +741,7 @@ export default function CreateComplexEvent() {
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [dirtySnapshot, setDirtySnapshot] = useState(null);
   const [snapshotPending, setSnapshotPending] = useState(false);
+  const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
     queryKey: ['/api/entities/Program'],
@@ -927,10 +928,9 @@ export default function CreateComplexEvent() {
       setShowSeatCount(existingEvent.show_seat_count !== false);
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
 
-      // Load sponsor assignments
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
-        .then(assignments => setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)))
-        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); });
+        .then(assignments => { setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)); setSponsorsInitialized(true); })
+        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorsInitialized(true); });
     }
   }, [existingEvent, isEditMode]);
 
@@ -979,20 +979,18 @@ export default function CreateComplexEvent() {
     }
   }, [existingSessions, isEditMode]);
 
+  const allEditDataReady = isEditMode && !!existingEvent
+    && !loadingTracks && !loadingSessions && !loadingTicketClasses
+    && (ticketsInitialized || existingTicketClasses.length === 0)
+    && sponsorsInitialized
+    && (filterTagsInitialized || eventCategories.length === 0);
+
   useEffect(() => {
-    if (!isEditMode) return;
-    const needsInitialSnapshot = !dirtySnapshot && !snapshotPending;
-    const needsPostSaveSnapshot = snapshotPending;
-    if (!needsInitialSnapshot && !needsPostSaveSnapshot) return;
-    if (!existingEvent) return;
-    if (loadingTracks || loadingSessions || loadingTicketClasses) return;
-    if (!ticketsInitialized && existingTicketClasses.length > 0) return;
-    const timer = setTimeout(() => {
-      setDirtySnapshot(buildSnapshot());
-      if (snapshotPending) setSnapshotPending(false);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [isEditMode, dirtySnapshot, snapshotPending, existingEvent, loadingTracks, loadingSessions, loadingTicketClasses, ticketsInitialized, existingTicketClasses, buildSnapshot]);
+    if (!isEditMode || !allEditDataReady) return;
+    if (!snapshotPending && dirtySnapshot) return;
+    setDirtySnapshot(buildSnapshot());
+    if (snapshotPending) setSnapshotPending(false);
+  }, [isEditMode, allEditDataReady, dirtySnapshot, snapshotPending, buildSnapshot]);
 
   useEffect(() => {
     if (formData.title && !slugManuallyEdited) {
@@ -1666,6 +1664,7 @@ export default function CreateComplexEvent() {
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
         toast.success("Complex event updated");
+        setSponsorsInitialized(false);
         setSnapshotPending(true);
       } else {
         toast.success("Complex event created");
