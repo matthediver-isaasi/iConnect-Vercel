@@ -96,5 +96,6 @@ export function computeTimelineLayout(sessions, {
     timeMarkers,
     startMinutes: 0,
     endMinutes: totalMinutes,
+    snappedEarliestMs,
   };
 }

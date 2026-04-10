@@ -269,7 +269,7 @@ function AdminHScrollContainer({ children, trackCount }) {
   );
 }
 
-function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete }) {
+function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete, onAddAtSlot }) {
   const [collapsedDays, setCollapsedDays] = useState({});
   const toggleDay = (dateKey) => setCollapsedDays(prev => ({ ...prev, [dateKey]: !prev[dateKey] }));
 
@@ -325,7 +325,23 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
     return enrichedSessions.some(s => (s.track_names || []).length === 0);
   }, [enrichedSessions]);
 
+  const trackNameToId = useMemo(() => {
+    const map = {};
+    tracks.forEach(track => {
+      const name = track.name || "Untitled Track";
+      map[name] = track.id || track._localId;
+    });
+    return map;
+  }, [tracks]);
+
   const totalColumns = allTrackNames.length + (hasAnyUntracked ? 1 : 0);
+
+  const formatDateForInput = (ms) => {
+    if (!ms || isNaN(ms)) return "";
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -408,6 +424,44 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                                 </div>
                               );
                             })}
+                            {onAddAtSlot && (() => {
+                              const lastSession = trackSessions
+                                .filter(s => layout.sessionLayouts[s._localId])
+                                .sort((a, b) => {
+                                  const la = layout.sessionLayouts[a._localId];
+                                  const lb = layout.sessionLayouts[b._localId];
+                                  return (lb.top + lb.height) - (la.top + la.height);
+                                })[0];
+                              const slotTop = lastSession
+                                ? layout.sessionLayouts[lastSession._localId].top + layout.sessionLayouts[lastSession._localId].height + 4
+                                : 0;
+                              let lastEndTime;
+                              if (lastSession && lastSession.end_time) {
+                                lastEndTime = lastSession.end_time;
+                              } else if (lastSession && lastSession.start_time) {
+                                lastEndTime = formatDateForInput(new Date(lastSession.start_time).getTime() + (lastSession.duration_minutes || 30) * 60000);
+                              } else if (layout.snappedEarliestMs) {
+                                lastEndTime = formatDateForInput(layout.snappedEarliestMs);
+                              } else {
+                                lastEndTime = "";
+                              }
+                              const trackId = isUntracked ? null : trackNameToId[trackName];
+                              return (
+                                <div
+                                  className="absolute left-0 right-0 px-0.5 flex justify-center"
+                                  style={{ top: slotTop }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => onAddAtSlot({ startTime: lastEndTime, trackId })}
+                                    className="w-full mx-1 py-1.5 border border-dashed border-slate-300 rounded-md flex items-center justify-center gap-1 text-slate-400 hover:text-slate-600 hover:border-slate-400 transition-colors"
+                                    data-testid={`button-quick-add-${trackName || 'untracked'}`}
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -426,6 +480,44 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                               </div>
                             );
                           })}
+                          {onAddAtSlot && (() => {
+                            const untrackedSessions = day.sessions.filter(s => (s.track_names || []).length === 0);
+                            const lastSession = untrackedSessions
+                              .filter(s => layout.sessionLayouts[s._localId])
+                              .sort((a, b) => {
+                                const la = layout.sessionLayouts[a._localId];
+                                const lb = layout.sessionLayouts[b._localId];
+                                return (lb.top + lb.height) - (la.top + la.height);
+                              })[0];
+                            const slotTop = lastSession
+                              ? layout.sessionLayouts[lastSession._localId].top + layout.sessionLayouts[lastSession._localId].height + 4
+                              : 0;
+                            let lastEndTime;
+                            if (lastSession && lastSession.end_time) {
+                              lastEndTime = lastSession.end_time;
+                            } else if (lastSession && lastSession.start_time) {
+                              lastEndTime = formatDateForInput(new Date(lastSession.start_time).getTime() + (lastSession.duration_minutes || 30) * 60000);
+                            } else if (layout.snappedEarliestMs) {
+                              lastEndTime = formatDateForInput(layout.snappedEarliestMs);
+                            } else {
+                              lastEndTime = "";
+                            }
+                            return (
+                              <div
+                                className="absolute left-0 right-0 px-0.5 flex justify-center"
+                                style={{ top: slotTop }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onAddAtSlot({ startTime: lastEndTime, trackId: null })}
+                                  className="w-full mx-1 py-1.5 border border-dashed border-slate-300 rounded-md flex items-center justify-center gap-1 text-slate-400 hover:text-slate-600 hover:border-slate-400 transition-colors"
+                                  data-testid="button-quick-add-untracked"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
@@ -556,6 +648,7 @@ export default function CreateComplexEvent() {
     zoom_webinar_id: null,
     zoom_join_url: null,
   });
+  const [sessionDuration, setSessionDuration] = useState("custom");
   const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
 
   const [ticketClasses, setTicketClasses] = useState([]);
@@ -967,7 +1060,47 @@ export default function CreateComplexEvent() {
     });
   };
 
-  const openSessionDialog = (session = null) => {
+  const DURATION_OPTIONS = useMemo(() => {
+    const options = [];
+    for (let mins = 15; mins <= 240; mins += 15) {
+      const hrs = Math.floor(mins / 60);
+      const remainMins = mins % 60;
+      let label;
+      if (hrs === 0) {
+        label = `${mins} min`;
+      } else if (remainMins === 0) {
+        label = `${hrs} hr${hrs > 1 ? 's' : ''}`;
+      } else {
+        label = `${hrs} hr ${remainMins} min`;
+      }
+      options.push({ value: String(mins), label });
+    }
+    options.push({ value: "custom", label: "Custom end time" });
+    return options;
+  }, []);
+
+  const detectDurationFromTimes = (startTime, endTime) => {
+    if (!startTime || !endTime) return "custom";
+    const startMs = new Date(startTime).getTime();
+    const endMs = new Date(endTime).getTime();
+    const diffMins = Math.round((endMs - startMs) / 60000);
+    if (diffMins >= 15 && diffMins <= 240 && diffMins % 15 === 0) {
+      return String(diffMins);
+    }
+    return "custom";
+  };
+
+  const computeEndTimeFromDuration = (startTime, durationMins) => {
+    if (!startTime || !durationMins || durationMins === "custom") return "";
+    const startMs = new Date(startTime).getTime();
+    if (isNaN(startMs)) return "";
+    const endMs = startMs + parseInt(durationMins) * 60000;
+    const endDate = new Date(endMs);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+  };
+
+  const openSessionDialog = (session = null, prefill = null) => {
     setSessionDialogOpen(true);
     if (session) {
       setEditingSession(session._localId);
@@ -994,8 +1127,14 @@ export default function CreateComplexEvent() {
         zoom_webinar_id: session.zoom_webinar_id || null,
         zoom_join_url: session.zoom_join_url || null,
       });
+      setSessionDuration(detectDurationFromTimes(
+        session.start_time ? session.start_time.slice(0, 16) : "",
+        session.end_time ? session.end_time.slice(0, 16) : ""
+      ));
     } else {
       setEditingSession(null);
+      const prefillStartTime = prefill?.start_time || "";
+      const prefillTrackIds = prefill?.track_ids || [];
       setSessionForm({
         title: "",
         description: "",
@@ -1003,11 +1142,11 @@ export default function CreateComplexEvent() {
         image_focal_point: null,
         use_event_image: true,
         speaker_ids: [],
-        start_time: "",
+        start_time: prefillStartTime,
         end_time: "",
         location: "",
         is_online: false,
-        track_ids: [],
+        track_ids: prefillTrackIds,
         zoom_type: "meeting",
         zoom_host_id: "",
         zoom_host_email: "",
@@ -1019,6 +1158,7 @@ export default function CreateComplexEvent() {
         zoom_webinar_id: null,
         zoom_join_url: null,
       });
+      setSessionDuration("custom");
     }
   };
 
@@ -2355,6 +2495,11 @@ export default function CreateComplexEvent() {
                   speakerMap={speakers.reduce((map, s) => { map[s.id] = s; return map; }, {})}
                   onEdit={(session) => openSessionDialog(session)}
                   onDelete={(localId) => removeSession(localId)}
+                  onAddAtSlot={({ startTime, trackId }) => {
+                    const prefillStartTime = startTime ? startTime.slice(0, 16) : "";
+                    const prefillTrackIds = trackId ? [trackId] : [];
+                    openSessionDialog(null, { start_time: prefillStartTime, track_ids: prefillTrackIds });
+                  }}
                 />
               )}
             </CardContent>
@@ -3159,29 +3304,66 @@ export default function CreateComplexEvent() {
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Start Time</Label>
-                <Input
-                  type="datetime-local"
-                  value={sessionForm.start_time}
-                  onChange={(e) =>
-                    setSessionForm((prev) => ({ ...prev, start_time: e.target.value }))
-                  }
-                  data-testid="input-session-start-time"
-                />
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Start Time</Label>
+                  <Input
+                    type="datetime-local"
+                    value={sessionForm.start_time}
+                    onChange={(e) => {
+                      const newStartTime = e.target.value;
+                      setSessionForm((prev) => {
+                        const updated = { ...prev, start_time: newStartTime };
+                        if (sessionDuration !== "custom" && newStartTime) {
+                          updated.end_time = computeEndTimeFromDuration(newStartTime, sessionDuration);
+                        }
+                        return updated;
+                      });
+                    }}
+                    data-testid="input-session-start-time"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Duration</Label>
+                  <Select
+                    value={sessionDuration}
+                    onValueChange={(val) => {
+                      setSessionDuration(val);
+                      if (val !== "custom" && sessionForm.start_time) {
+                        setSessionForm((prev) => ({
+                          ...prev,
+                          end_time: computeEndTimeFromDuration(prev.start_time, val),
+                        }));
+                      }
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-session-duration">
+                      <SelectValue placeholder="Select duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DURATION_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} data-testid={`duration-option-${opt.value}`}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>End Time</Label>
-                <Input
-                  type="datetime-local"
-                  value={sessionForm.end_time}
-                  onChange={(e) =>
-                    setSessionForm((prev) => ({ ...prev, end_time: e.target.value }))
-                  }
-                  data-testid="input-session-end-time"
-                />
-              </div>
+              {sessionDuration === "custom" && (
+                <div className="space-y-2">
+                  <Label>End Time</Label>
+                  <Input
+                    type="datetime-local"
+                    value={sessionForm.end_time}
+                    onChange={(e) =>
+                      setSessionForm((prev) => ({ ...prev, end_time: e.target.value }))
+                    }
+                    data-testid="input-session-end-time"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
