@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2 } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
+import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
@@ -1514,6 +1515,31 @@ export default function MemberDetail() {
                       </>
                     );
                   })()}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-blue-600" />
+                    Tags
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3">
+                  <CrmTagInput
+                    tags={member?.tags || []}
+                    entityType="member"
+                    onChange={async (newTags) => {
+                      try {
+                        await base44.entities.Member.update(member.id, { tags: newTags });
+                        queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
+                        queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+                        queryClient.invalidateQueries({ queryKey: ['admin-members-tags'] });
+                      } catch (err) {
+                        toast.error('Failed to update tags: ' + err.message);
+                      }
+                    }}
+                  />
                 </CardContent>
               </Card>
             </div>
