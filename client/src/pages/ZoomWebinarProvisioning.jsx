@@ -933,11 +933,11 @@ export default function ZoomWebinarProvisioning() {
           <TabsList>
             <TabsTrigger value="webinars" data-testid="tab-webinars">
               <Video className="w-4 h-4 mr-2" />
-              Webinars ({webinars.length})
+              Webinars ({webinars.filter(w => w.status !== 'cancelled').length})
             </TabsTrigger>
             <TabsTrigger value="meetings" data-testid="tab-meetings">
               <Users className="w-4 h-4 mr-2" />
-              Meetings ({meetings.length})
+              Meetings ({meetings.filter(m => m.status !== 'cancelled').length})
             </TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
