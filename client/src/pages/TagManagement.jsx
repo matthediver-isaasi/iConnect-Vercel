@@ -10,6 +10,38 @@ import { Tag, Trash2, AlertCircle, Search, X, FileText, BookOpen, Building2, Use
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { useTagColors, TAG_COLOR_PALETTE } from "@/hooks/useTagColors";
+
+function ColorPicker({ selectedColor, onSelect, palette }) {
+  return (
+    <div className="flex flex-wrap gap-1.5" data-testid="color-picker-manage">
+      {palette.map((color) => (
+        <button
+          key={color}
+          type="button"
+          onClick={() => onSelect(color)}
+          className={`w-6 h-6 rounded-full border-2 transition-transform ${
+            selectedColor === color
+              ? "border-slate-900 dark:border-white scale-110"
+              : "border-transparent hover:scale-110"
+          }`}
+          style={{ backgroundColor: color }}
+          data-testid={`manage-color-swatch-${color.replace("#", "")}`}
+        />
+      ))}
+      {selectedColor && (
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className="w-6 h-6 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 hover:scale-110 transition-transform"
+          data-testid="manage-color-swatch-clear"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function TagManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -25,8 +57,12 @@ export default function TagManagementPage() {
   const [tagToRename, setTagToRename] = useState(null);
   const [renameType, setRenameType] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renameColor, setRenameColor] = useState(null);
 
   const queryClient = useQueryClient();
+
+  const orgTagColors = useTagColors("organization");
+  const memberTagColors = useTagColors("member");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -124,6 +160,12 @@ export default function TagManagementPage() {
     member: { entity: base44.entities.Member, items: members, queryKey: 'admin-members-tags', label: 'members' },
   };
 
+  const getTagColorsHook = (type) => {
+    if (type === "organization") return orgTagColors;
+    if (type === "member") return memberTagColors;
+    return null;
+  };
+
   const deleteTagMutation = useMutation({
     mutationFn: async ({ tagName, type }) => {
       const config = entityMap[type];
@@ -138,9 +180,19 @@ export default function TagManagementPage() {
           })
         )
       );
-      return { type };
+      let colorWarning = false;
+      const colorsHook = getTagColorsHook(type);
+      if (colorsHook) {
+        try {
+          await colorsHook.removeTagColor(tagName);
+        } catch (err) {
+          console.error("Failed to remove tag color:", err);
+          colorWarning = true;
+        }
+      }
+      return { type, colorWarning };
     },
-    onSuccess: (_, { type }) => {
+    onSuccess: ({ colorWarning }, { type }) => {
       const config = entityMap[type];
       queryClient.invalidateQueries({ queryKey: [config.queryKey] });
       if (type === 'member') {
@@ -154,6 +206,9 @@ export default function TagManagementPage() {
       setTagToDelete(null);
       setDeleteType(null);
       toast.success(`Tag removed from all ${entityMap[type].label}`);
+      if (colorWarning) {
+        toast.warning('Tag colour record could not be removed.');
+      }
     },
     onError: (error) => {
       toast.error('Failed to remove tag: ' + error.message);
@@ -161,7 +216,7 @@ export default function TagManagementPage() {
   });
 
   const renameTagMutation = useMutation({
-    mutationFn: async ({ oldName, newName, type }) => {
+    mutationFn: async ({ oldName, newName, type, color }) => {
       const config = entityMap[type];
       const itemsToUpdate = config.items.filter(item =>
         item.tags && item.tags.includes(oldName)
@@ -175,11 +230,29 @@ export default function TagManagementPage() {
           });
         })
       );
-      return { type };
+      let colorWarning = false;
+      const colorsHook = getTagColorsHook(type);
+      if (colorsHook) {
+        try {
+          if (oldName !== newName) {
+            await colorsHook.renameTagColor(oldName, newName);
+          }
+          if (color) {
+            await colorsHook.setTagColor(newName, color);
+          } else if (color === null) {
+            await colorsHook.removeTagColor(newName);
+          }
+        } catch (err) {
+          console.error("Failed to update tag color:", err);
+          colorWarning = true;
+        }
+      }
+      return { type, colorWarning };
     },
-    onSuccess: (_, { type }) => {
+    onSuccess: ({ colorWarning }, { type }) => {
       const config = entityMap[type];
       queryClient.invalidateQueries({ queryKey: [config.queryKey] });
+      queryClient.invalidateQueries({ queryKey: ['crm-tag-colors', type] });
       if (type === 'member') {
         queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
         queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'member-direct' });
@@ -191,10 +264,14 @@ export default function TagManagementPage() {
       setTagToRename(null);
       setRenameType(null);
       setRenameValue("");
-      toast.success('Tag renamed successfully');
+      setRenameColor(null);
+      toast.success('Tag updated successfully');
+      if (colorWarning) {
+        toast.warning('Tag colour could not be updated.');
+      }
     },
     onError: (error) => {
-      toast.error('Failed to rename tag: ' + error.message);
+      toast.error('Failed to update tag: ' + error.message);
     }
   });
 
@@ -208,6 +285,8 @@ export default function TagManagementPage() {
     setTagToRename(tagName);
     setRenameType(type);
     setRenameValue(tagName);
+    const colorsHook = getTagColorsHook(type);
+    setRenameColor(colorsHook ? colorsHook.getTagColor(tagName) : null);
     setShowRenameDialog(true);
   };
 
@@ -223,18 +302,30 @@ export default function TagManagementPage() {
       toast.error('Tag name cannot be empty');
       return;
     }
-    if (trimmed === tagToRename) {
+    const colorsHook = getTagColorsHook(renameType);
+    const currentColor = colorsHook ? colorsHook.getTagColor(tagToRename) : null;
+    const colorChanged = renameColor !== currentColor;
+    const nameChanged = trimmed !== tagToRename;
+
+    if (!nameChanged && !colorChanged) {
       setShowRenameDialog(false);
       return;
     }
     if (tagToRename && renameType) {
       const statsMap = { resource: resourceTagStats, article: articleTagStats, organization: orgTagStats, member: memberTagStats };
       const existingTags = statsMap[renameType] || [];
-      const duplicateExists = existingTags.some(t => t.tag.toLowerCase() === trimmed.toLowerCase() && t.tag !== tagToRename);
-      if (duplicateExists) {
-        toast.info(`A tag "${trimmed}" already exists on some records. Tags will be merged.`);
+      if (nameChanged) {
+        const duplicateExists = existingTags.some(t => t.tag.toLowerCase() === trimmed.toLowerCase() && t.tag !== tagToRename);
+        if (duplicateExists) {
+          toast.info(`A tag "${trimmed}" already exists on some records. Tags will be merged.`);
+        }
       }
-      renameTagMutation.mutate({ oldName: tagToRename, newName: trimmed, type: renameType });
+      renameTagMutation.mutate({
+        oldName: tagToRename,
+        newName: nameChanged ? trimmed : tagToRename,
+        type: renameType,
+        color: colorChanged ? renameColor : undefined,
+      });
     }
   };
 
@@ -253,93 +344,113 @@ export default function TagManagementPage() {
     );
   }
 
-  const renderTagList = (tags, type, isLoading, searchQuery, setSearchQuery, entityName, entityNamePlural, Icon) => (
-    <Card className="border-slate-200 shadow-sm">
-      <CardHeader className="border-b border-slate-200">
-        <div className="flex items-center gap-2">
-          <Icon className="w-5 h-5 text-blue-600" />
-          <CardTitle className="text-lg">{entityNamePlural} Tags</CardTitle>
-          <Badge variant="outline" className="ml-auto">
-            {tags.length} tags
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <Input
-            placeholder={`Search ${entityNamePlural.toLowerCase()} tags...`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 pr-10"
-            data-testid={`input-search-${type}-tags`}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+  const renderTagList = (tags, type, isLoading, searchQuery, setSearchQuery, entityName, entityNamePlural, Icon) => {
+    const colorsHook = getTagColorsHook(type);
 
-        {isLoading ? (
-          <div className="text-center py-8 text-slate-500">Loading tags...</div>
-        ) : tags.length === 0 ? (
-          <div className="text-center py-8">
-            <Tag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-600">
-              No tags yet. Tags will appear here when used on {entityNamePlural.toLowerCase()}.
-            </p>
+    return (
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <Icon className="w-5 h-5 text-blue-600" />
+            <CardTitle className="text-lg">{entityNamePlural} Tags</CardTitle>
+            <Badge variant="outline" className="ml-auto no-default-hover-elevate no-default-active-elevate">
+              {tags.length} tags
+            </Badge>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-200 max-h-96 overflow-y-auto">
-            {tags.map((item) => (
-              <div
-                key={item.tag}
-                className="flex items-center justify-between py-3 hover:bg-slate-50 px-2 rounded transition-colors"
-                data-testid={`tag-${type}-${item.tag}`}
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder={`Search ${entityNamePlural.toLowerCase()} tags...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+              data-testid={`input-search-${type}-tags`}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <Tag className="w-4 h-4 text-blue-600 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium text-slate-900 truncate block">
-                      {item.tag}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {item.count} {item.count === 1 ? entityName.toLowerCase() : entityNamePlural.toLowerCase()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRenameTag(item.tag, type)}
-                    className="text-slate-600 hover:text-blue-700 hover:bg-blue-50"
-                    data-testid={`button-rename-${type}-tag-${item.tag}`}
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteTag(item.tag, type)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    data-testid={`button-delete-${type}-tag-${item.tag}`}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+
+          {isLoading ? (
+            <div className="text-center py-8 text-slate-500">Loading tags...</div>
+          ) : tags.length === 0 ? (
+            <div className="text-center py-8">
+              <Tag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-slate-600">
+                No tags yet. Tags will appear here when used on {entityNamePlural.toLowerCase()}.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-200 max-h-96 overflow-y-auto">
+              {tags.map((item) => {
+                const tagColor = colorsHook ? colorsHook.getTagColor(item.tag) : null;
+                const tagStyle = colorsHook ? colorsHook.getTagStyle(item.tag) : {};
+                return (
+                  <div
+                    key={item.tag}
+                    className="flex items-center justify-between py-3 hover:bg-slate-50 px-2 rounded transition-colors"
+                    data-testid={`tag-${type}-${item.tag}`}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {tagColor ? (
+                        <span
+                          className="w-4 h-4 rounded-full shrink-0 border border-slate-200"
+                          style={{ backgroundColor: tagColor }}
+                        />
+                      ) : (
+                        <Tag className="w-4 h-4 text-blue-600 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge
+                            variant="secondary"
+                            className="text-xs no-default-hover-elevate no-default-active-elevate"
+                            style={tagColor ? tagStyle : undefined}
+                          >
+                            {item.tag}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-slate-500">
+                          {item.count} {item.count === 1 ? entityName.toLowerCase() : entityNamePlural.toLowerCase()}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRenameTag(item.tag, type)}
+                        data-testid={`button-rename-${type}-tag-${item.tag}`}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteTag(item.tag, type)}
+                        className="text-red-600"
+                        data-testid={`button-delete-${type}-tag-${item.tag}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
@@ -442,7 +553,7 @@ export default function TagManagementPage() {
         <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Rename Tag</DialogTitle>
+              <DialogTitle>Edit Tag</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
@@ -462,6 +573,16 @@ export default function TagManagementPage() {
                   }}
                 />
               </div>
+              {(renameType === "organization" || renameType === "member") && (
+                <div>
+                  <p className="text-sm text-slate-600 mb-2">Tag colour:</p>
+                  <ColorPicker
+                    selectedColor={renameColor}
+                    onSelect={(c) => setRenameColor(c)}
+                    palette={TAG_COLOR_PALETTE}
+                  />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -471,6 +592,7 @@ export default function TagManagementPage() {
                   setTagToRename(null);
                   setRenameType(null);
                   setRenameValue("");
+                  setRenameColor(null);
                 }}
               >
                 Cancel
@@ -480,7 +602,7 @@ export default function TagManagementPage() {
                 disabled={isRenaming || !renameValue.trim()}
                 data-testid="button-confirm-rename-tag"
               >
-                {isRenaming ? 'Renaming...' : 'Rename Tag'}
+                {isRenaming ? 'Saving...' : 'Save'}
               </Button>
             </DialogFooter>
           </DialogContent>

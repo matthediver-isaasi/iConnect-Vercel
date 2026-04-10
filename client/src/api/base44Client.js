@@ -285,6 +285,7 @@ class EntitiesProxy {
   get ArticleBriefVersion() { return this._getEntity('ArticleBriefVersion'); }
   get ArticleBriefComment() { return this._getEntity('ArticleBriefComment'); }
   get ArticleBriefActivity() { return this._getEntity('ArticleBriefActivity'); }
+  get CrmTagColor() { return this._getEntity('CrmTagColor'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

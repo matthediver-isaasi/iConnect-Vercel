@@ -173,6 +173,9 @@ export const entityTenantScope = {
   'ComplexEventTrack': TENANT_SCOPE.TENANT,
   'ComplexEventSession': TENANT_SCOPE.TENANT,
   'ComplexEventTicketClass': TENANT_SCOPE.TENANT,
+
+  // CRM Tag colours - per-tenant tag colour assignments
+  'CrmTagColor': TENANT_SCOPE.TENANT,
 };
 
 /**

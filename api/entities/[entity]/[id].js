@@ -111,6 +111,7 @@ const entityToTable = {
   'ArticleBriefVersion': 'article_brief_version',
   'ArticleBriefComment': 'article_brief_comment',
   'ArticleBriefActivity': 'article_brief_activity',
+  'CrmTagColor': 'crm_tag_color',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -210,7 +211,8 @@ export default async function handler(req, res) {
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
-            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -291,7 +293,8 @@ export default async function handler(req, res) {
                 'IEditPage', 'IEditPageElement',
                 'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession',
                 'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
-                'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
+                'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+                'CrmTagColor'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -433,7 +436,8 @@ export default async function handler(req, res) {
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
-            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -612,7 +616,8 @@ export default async function handler(req, res) {
             'IEditPage', 'IEditPageElement',
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
-            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity'
+            'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

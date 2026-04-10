@@ -4,13 +4,57 @@ import { Badge } from "@/components/ui/badge";
 import { X, Plus, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { useTagColors } from "@/hooks/useTagColors";
+import { toast } from "sonner";
+
+function ColorPicker({ selectedColor, onSelect, palette }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 p-2" data-testid="color-picker">
+      {palette.map((color) => (
+        <button
+          key={color}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(color);
+          }}
+          className={`w-5 h-5 rounded-full border-2 transition-transform ${
+            selectedColor === color
+              ? "border-slate-900 dark:border-white scale-110"
+              : "border-transparent hover:scale-110"
+          }`}
+          style={{ backgroundColor: color }}
+          data-testid={`color-swatch-${color.replace("#", "")}`}
+        />
+      ))}
+      {selectedColor && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(null);
+          }}
+          className="w-5 h-5 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 hover:scale-110 transition-transform"
+          data-testid="color-swatch-clear"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function CrmTagInput({ tags = [], onChange, entityType, disabled = false }) {
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [showNewTagColorPicker, setShowNewTagColorPicker] = useState(false);
+  const [newTagColor, setNewTagColor] = useState(null);
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
+
+  const { getTagColor, getTagStyle, setTagColor, TAG_COLOR_PALETTE } =
+    useTagColors(entityType);
 
   const entityConfig = {
     organization: {
@@ -82,18 +126,29 @@ export default function CrmTagInput({ tags = [], onChange, entityType, disabled 
         !suggestionsRef.current.contains(e.target)
       ) {
         setShowSuggestions(false);
+        setShowNewTagColorPicker(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const addTag = (tag) => {
+  const addTag = async (tag, color) => {
     if (!tags.some(t => t.toLowerCase() === tag.toLowerCase())) {
       onChange([...tags, tag]);
     }
+    if (color) {
+      try {
+        await setTagColor(tag, color);
+      } catch (err) {
+        console.error("Failed to save tag color:", err);
+        toast.warning("Tag added but colour could not be saved.");
+      }
+    }
     setInputValue("");
     setShowSuggestions(false);
+    setShowNewTagColorPicker(false);
+    setNewTagColor(null);
     inputRef.current?.focus();
   };
 
@@ -110,12 +165,21 @@ export default function CrmTagInput({ tags = [], onChange, entityType, disabled 
       if (highlightedIndex >= 0 && highlightedIndex < filteredSuggestions.length) {
         addTag(filteredSuggestions[highlightedIndex]);
       } else if (highlightedIndex === filteredSuggestions.length && canAddNew) {
-        addTag(inputValue.trim());
+        if (showNewTagColorPicker) {
+          addTag(inputValue.trim(), newTagColor);
+        } else {
+          setShowNewTagColorPicker(true);
+        }
       } else if (inputValue.trim() && !alreadyHasTag) {
-        addTag(inputValue.trim());
+        if (showNewTagColorPicker) {
+          addTag(inputValue.trim(), newTagColor);
+        } else {
+          setShowNewTagColorPicker(true);
+        }
       }
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
+      setShowNewTagColorPicker(false);
     }
   };
 
@@ -146,34 +210,74 @@ export default function CrmTagInput({ tags = [], onChange, entityType, disabled 
           {showSuggestions && inputValue.trim() && (filteredSuggestions.length > 0 || canAddNew) && (
             <div
               ref={suggestionsRef}
-              className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+              className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-64 overflow-y-auto"
             >
-              {filteredSuggestions.map((tag, index) => (
-                <button
-                  key={tag}
-                  onClick={() => addTag(tag)}
-                  className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-100 flex items-center gap-2 ${
-                    highlightedIndex === index ? 'bg-slate-100' : ''
-                  }`}
-                  data-testid={`${entityType}-tag-suggestion-${index}`}
-                >
-                  <Badge variant="outline" className="text-xs">
-                    {tag}
-                  </Badge>
-                </button>
-              ))}
+              {filteredSuggestions.map((tag, index) => {
+                const tagStyle = getTagStyle(tag);
+                const hasColor = !!getTagColor(tag);
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => addTag(tag)}
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 ${
+                      highlightedIndex === index ? 'bg-slate-100 dark:bg-slate-700' : ''
+                    }`}
+                    data-testid={`${entityType}-tag-suggestion-${index}`}
+                  >
+                    {hasColor ? (
+                      <Badge
+                        variant="secondary"
+                        className="text-xs no-default-hover-elevate no-default-active-elevate"
+                        style={tagStyle}
+                      >
+                        {tag}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">
+                        {tag}
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })}
 
               {canAddNew && (
-                <button
-                  onClick={() => addTag(inputValue.trim())}
-                  className={`w-full px-3 py-2 text-left text-sm hover:bg-blue-50 flex items-center gap-2 border-t border-slate-100 ${
-                    highlightedIndex === filteredSuggestions.length ? 'bg-blue-50' : ''
-                  }`}
-                  data-testid={`button-add-new-${entityType}-tag`}
-                >
-                  <Plus className="w-4 h-4 text-blue-600" />
-                  <span className="text-blue-600">Add "{inputValue.trim()}"</span>
-                </button>
+                <div className="border-t border-slate-100 dark:border-slate-700">
+                  <button
+                    onClick={() => {
+                      if (showNewTagColorPicker) {
+                        addTag(inputValue.trim(), newTagColor);
+                      } else {
+                        setShowNewTagColorPicker(true);
+                      }
+                    }}
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-2 ${
+                      highlightedIndex === filteredSuggestions.length ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                    data-testid={`button-add-new-${entityType}-tag`}
+                  >
+                    <Plus className="w-4 h-4 text-blue-600" />
+                    <span className="text-blue-600">
+                      {showNewTagColorPicker ? `Confirm "${inputValue.trim()}"` : `Add "${inputValue.trim()}"`}
+                    </span>
+                    {newTagColor && (
+                      <span
+                        className="w-3 h-3 rounded-full ml-auto shrink-0"
+                        style={{ backgroundColor: newTagColor }}
+                      />
+                    )}
+                  </button>
+                  {showNewTagColorPicker && (
+                    <div className="px-2 pb-2">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 px-1 mb-1">Pick a colour (optional):</p>
+                      <ColorPicker
+                        selectedColor={newTagColor}
+                        onSelect={(c) => setNewTagColor(c)}
+                        palette={TAG_COLOR_PALETTE}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -182,20 +286,30 @@ export default function CrmTagInput({ tags = [], onChange, entityType, disabled 
 
       {safeTags.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {safeTags.map((tag, index) => (
-            <Badge key={index} variant="secondary" className="gap-1">
-              {tag}
-              {!disabled && (
-                <button
-                  onClick={() => removeTag(tag)}
-                  className="hover:text-red-600"
-                  data-testid={`button-remove-${entityType}-tag-${index}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </Badge>
-          ))}
+          {safeTags.map((tag, index) => {
+            const tagStyle = getTagStyle(tag);
+            const hasColor = !!getTagColor(tag);
+            return (
+              <Badge
+                key={index}
+                variant={hasColor ? "secondary" : "secondary"}
+                className="gap-1 no-default-hover-elevate no-default-active-elevate"
+                style={hasColor ? tagStyle : undefined}
+                data-testid={`badge-tag-${entityType}-${index}`}
+              >
+                {tag}
+                {!disabled && (
+                  <button
+                    onClick={() => removeTag(tag)}
+                    className="hover:opacity-70"
+                    data-testid={`button-remove-${entityType}-tag-${index}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </Badge>
+            );
+          })}
         </div>
       ) : (
         <p className="text-xs text-slate-500">No tags assigned</p>
