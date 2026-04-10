@@ -741,6 +741,7 @@ export default function CreateComplexEvent() {
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [isDirtyState, setIsDirtyState] = useState(false);
   const baselineSnapshotRef = useRef(null);
+  const pendingBaselineResetRef = useRef(false);
   const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
@@ -983,8 +984,9 @@ export default function CreateComplexEvent() {
 
   useEffect(() => {
     if (!isEditMode || !allEditDataReady) return;
-    if (!baselineSnapshotRef.current) {
+    if (!baselineSnapshotRef.current || pendingBaselineResetRef.current) {
       baselineSnapshotRef.current = buildSnapshot();
+      pendingBaselineResetRef.current = false;
       setIsDirtyState(false);
     }
   }, [isEditMode, allEditDataReady, buildSnapshot]);
@@ -1667,8 +1669,9 @@ export default function CreateComplexEvent() {
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
         toast.success("Complex event updated");
+        baselineSnapshotRef.current = buildSnapshot();
+        pendingBaselineResetRef.current = true;
         setIsDirtyState(false);
-        baselineSnapshotRef.current = null;
         setSponsorsInitialized(false);
       } else {
         toast.success("Complex event created");
