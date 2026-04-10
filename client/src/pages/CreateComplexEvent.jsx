@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
   Layers, Building2, Handshake, AlertTriangle
@@ -277,69 +277,6 @@ function AdminSessionCard({ session, timezone, colors, isMultiTrack = false, spe
   );
 }
 
-function AdminHScrollContainer({ children, trackCount }) {
-  const scrollRef = useRef(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 8);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
-  }, []);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    checkScroll();
-    const ro = new ResizeObserver(checkScroll);
-    ro.observe(el);
-    el.addEventListener('scroll', checkScroll, { passive: true });
-    return () => { ro.disconnect(); el.removeEventListener('scroll', checkScroll); };
-  }, [checkScroll, trackCount]);
-
-  const scrollBy = useCallback((direction) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const colWidth = (el.scrollWidth - 80) / (trackCount || 1);
-    el.scrollTo({ left: el.scrollLeft + (direction * colWidth), behavior: 'smooth' });
-  }, [trackCount]);
-
-  return (
-    <div className="relative">
-      {canScrollLeft && (
-        <>
-          <div className="absolute top-0 bottom-0 left-0 w-12 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
-          <button
-            onClick={() => scrollBy(-1)}
-            className="absolute top-1/2 left-1 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
-            data-testid="button-scroll-tracks-left"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        </>
-      )}
-      <div ref={scrollRef} className="overflow-x-auto">
-        <div className="min-w-[500px]">
-          {children}
-        </div>
-      </div>
-      {canScrollRight && (
-        <>
-          <div className="absolute top-0 bottom-0 right-0 w-12 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
-          <button
-            onClick={() => scrollBy(1)}
-            className="absolute top-1/2 right-1 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-lg transition-all"
-            data-testid="button-scroll-tracks-right"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
 
 function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete, onAddAtSlot }) {
   const [collapsedDays, setCollapsedDays] = useState({});
@@ -438,7 +375,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
               <span className="text-xs font-normal text-slate-500">({day.sessions.length} sessions)</span>
             </button>
 
-            {collapsedDays[day.date] ? null : <AdminHScrollContainer trackCount={totalColumns}>
+            {collapsedDays[day.date] ? null : <div>
                 {allTrackNames.length > 0 && (
                   <div className="flex gap-1 mb-2">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]" style={{ width: 80, minWidth: 80 }}>Time</div>
@@ -569,7 +506,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                     </div>
                   ))
                 )}
-            </AdminHScrollContainer>}
+            </div>}
           </div>
         );
       })}
