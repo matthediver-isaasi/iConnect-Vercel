@@ -343,7 +343,6 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
     return map;
   }, [tracks]);
 
-  const totalColumns = allTrackNames.length + (hasAnyUntracked ? 1 : 0);
 
   const formatDateForInput = (ms) => {
     if (!ms || isNaN(ms)) return "";
