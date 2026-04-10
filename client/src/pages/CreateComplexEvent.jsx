@@ -739,6 +739,8 @@ export default function CreateComplexEvent() {
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
+  const [dirtySnapshot, setDirtySnapshot] = useState(null);
+  const [snapshotPending, setSnapshotPending] = useState(false);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
     queryKey: ['/api/entities/Program'],
@@ -825,6 +827,16 @@ export default function CreateComplexEvent() {
       }),
     enabled: isEditMode,
   });
+
+  const buildSnapshot = useCallback(() => {
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent]);
+
+  const isDirty = useMemo(() => {
+    if (!isEditMode) return true;
+    if (!dirtySnapshot || snapshotPending) return false;
+    return buildSnapshot() !== dirtySnapshot;
+  }, [isEditMode, dirtySnapshot, snapshotPending, buildSnapshot]);
 
   useEffect(() => {
     if (isEditMode && existingTicketClasses.length > 0 && !ticketsInitialized) {
@@ -966,6 +978,21 @@ export default function CreateComplexEvent() {
       setSessions(loadedSessions);
     }
   }, [existingSessions, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    const needsInitialSnapshot = !dirtySnapshot && !snapshotPending;
+    const needsPostSaveSnapshot = snapshotPending;
+    if (!needsInitialSnapshot && !needsPostSaveSnapshot) return;
+    if (!existingEvent) return;
+    if (loadingTracks || loadingSessions || loadingTicketClasses) return;
+    if (!ticketsInitialized && existingTicketClasses.length > 0) return;
+    const timer = setTimeout(() => {
+      setDirtySnapshot(buildSnapshot());
+      if (snapshotPending) setSnapshotPending(false);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isEditMode, dirtySnapshot, snapshotPending, existingEvent, loadingTracks, loadingSessions, loadingTicketClasses, ticketsInitialized, existingTicketClasses, buildSnapshot]);
 
   useEffect(() => {
     if (formData.title && !slugManuallyEdited) {
@@ -1538,7 +1565,7 @@ export default function CreateComplexEvent() {
         }
 
         if (session.id) {
-          const resp = await fetch(`/api/complex-event-sessions/${session.id}`, {
+          const resp = await fetch(`/api/complex-event-sessions/${session.id}?skipOverlapCheck=true`, {
             method: 'PATCH',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -1549,7 +1576,7 @@ export default function CreateComplexEvent() {
             throw new Error(errData.error || `Failed to update session: ${session.title}`);
           }
         } else {
-          const resp = await fetch('/api/complex-event-sessions', {
+          const resp = await fetch('/api/complex-event-sessions?skipOverlapCheck=true', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -1634,8 +1661,16 @@ export default function CreateComplexEvent() {
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEvent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/EventSponsorAssignment"] });
-      toast.success(isEditMode ? "Complex event updated" : "Complex event created");
-      window.location.href = createPageUrl("Events");
+      if (isEditMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTrack", editId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
+        toast.success("Complex event updated");
+        setSnapshotPending(true);
+      } else {
+        toast.success("Complex event created");
+        window.location.href = createPageUrl("Events");
+      }
     } catch (err) {
       console.error("Save error:", err);
       toast.error("Failed to save: " + (err.message || "Unknown error"));
@@ -1669,7 +1704,7 @@ export default function CreateComplexEvent() {
               {isEditMode ? "Edit Complex Event" : "Create Complex Event"}
             </h1>
           </div>
-          <Button onClick={handleSave} disabled={saving} data-testid="button-save">
+          <Button onClick={handleSave} disabled={saving || !isDirty} data-testid="button-save">
             {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
             {isEditMode ? "Save Changes" : "Create Event"}
           </Button>

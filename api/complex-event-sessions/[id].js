@@ -5,8 +5,12 @@ import { fromZonedTime } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
 // in the given event timezone to a UTC ISO string for database storage.
-// The input is timezone-naive; `fromZonedTime` interprets it as the specified timezone.
+// If the input already contains a timezone offset (Z or +/-HH:MM), it is parsed
+// directly as UTC without double-converting through fromZonedTime.
 function convertLocalTimeToUTC(localTimeStr, timezone) {
+  if (/Z$|[+-]\d{2}(:\d{2})?$/.test(localTimeStr)) {
+    return new Date(localTimeStr).toISOString();
+  }
   const utcDate = fromZonedTime(localTimeStr, timezone);
   return utcDate.toISOString();
 }
@@ -202,6 +206,8 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
+      const skipOverlapCheck = req.query.skipOverlapCheck === 'true';
+
       if (body.track_ids && Array.isArray(body.track_ids)) {
         const newTrackIds = body.track_ids;
 
@@ -224,7 +230,7 @@ export default async function handler(req, res) {
         const tz = body.timezone || 'Europe/London';
         const effectiveStart = body.start_time ? convertLocalTimeToUTC(body.start_time, tz) : existing.start_time;
         const effectiveEnd = body.end_time ? convertLocalTimeToUTC(body.end_time, tz) : existing.end_time;
-        if (effectiveStart && effectiveEnd) {
+        if (!skipOverlapCheck && effectiveStart && effectiveEnd) {
           const overlaps = await checkTrackOverlaps(supabase, tenantId, newTrackIds, effectiveStart, effectiveEnd, id);
           if (overlaps.length > 0) {
             const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
@@ -270,7 +276,7 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Failed to update track assignments' });
           }
         }
-      } else if (body.start_time || body.end_time) {
+      } else if (!skipOverlapCheck && (body.start_time || body.end_time)) {
         const { data: currentJunctions } = await supabase
           .from('complex_event_session_track')
           .select('complex_event_track_id')

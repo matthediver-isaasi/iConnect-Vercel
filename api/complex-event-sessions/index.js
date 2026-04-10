@@ -5,8 +5,12 @@ import { fromZonedTime } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
 // in the given event timezone to a UTC ISO string for database storage.
-// The input is timezone-naive; `fromZonedTime` interprets it as the specified timezone.
+// If the input already contains a timezone offset (Z or +/-HH:MM), it is parsed
+// directly as UTC without double-converting through fromZonedTime.
 function convertLocalTimeToUTC(localTimeStr, timezone) {
+  if (/Z$|[+-]\d{2}(:\d{2})?$/.test(localTimeStr)) {
+    return new Date(localTimeStr).toISOString();
+  }
   const utcDate = fromZonedTime(localTimeStr, timezone);
   return utcDate.toISOString();
 }
@@ -320,8 +324,9 @@ export default async function handler(req, res) {
         sessionData.complex_event_track_id = complex_event_track_id;
       }
 
+      const skipOverlapCheck = req.query.skipOverlapCheck === 'true';
       const preCheckTrackIds = track_ids.length > 0 ? track_ids : (complex_event_track_id ? [complex_event_track_id] : []);
-      if (preCheckTrackIds.length > 0 && sessionData.start_time && sessionData.end_time) {
+      if (!skipOverlapCheck && preCheckTrackIds.length > 0 && sessionData.start_time && sessionData.end_time) {
         const overlaps = await checkTrackOverlaps(supabase, tenantId, preCheckTrackIds, sessionData.start_time, sessionData.end_time, null);
         if (overlaps.length > 0) {
           const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
