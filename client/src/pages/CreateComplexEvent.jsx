@@ -124,72 +124,64 @@ const scheduleFormatDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "E
   }
 };
 
-function getSessionEndTime(session, timezone, formatDateForInput) {
-  if (session.end_time) {
-    const endDate = toDateTz(session.end_time, timezone);
-    return endDate ? formatDateForInput(endDate.getTime()) : session.end_time;
-  }
-  if (session.start_time) {
-    const startDate = toDateTz(session.start_time, timezone);
-    const startMs = startDate ? startDate.getTime() : 0;
-    return formatDateForInput(startMs + (session.duration_minutes || 30) * 60000);
-  }
-  return "";
-}
-
 function computeGapSlots(sessions, layout, timezone, formatDateForInput) {
-  const MIN_GAP_HEIGHT = 28;
+  const markers = layout.timeMarkers;
+  if (!markers || markers.length < 2) {
+    return [{ top: 0, startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "" }];
+  }
+
   const sorted = sessions
     .filter(s => layout.sessionLayouts[s._localId])
     .sort((a, b) => layout.sessionLayouts[a._localId].top - layout.sessionLayouts[b._localId].top);
 
-  if (sorted.length === 0) {
-    return [{ top: 0, startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "" }];
-  }
-
-  const intervals = sorted.map(s => {
+  const occupied = sorted.map(s => {
     const sl = layout.sessionLayouts[s._localId];
-    return { top: sl.top, bottom: sl.top + sl.height, session: s };
+    return { top: sl.top, bottom: sl.top + sl.height };
   });
-
   const merged = [];
-  let cur = { top: intervals[0].top, bottom: intervals[0].bottom, lastSession: intervals[0].session };
-  for (let i = 1; i < intervals.length; i++) {
-    const iv = intervals[i];
-    if (iv.top <= cur.bottom) {
-      if (iv.bottom > cur.bottom) {
-        cur.bottom = iv.bottom;
-        cur.lastSession = iv.session;
-      }
+  for (const iv of occupied) {
+    if (merged.length > 0 && iv.top <= merged[merged.length - 1].bottom) {
+      merged[merged.length - 1].bottom = Math.max(merged[merged.length - 1].bottom, iv.bottom);
     } else {
-      merged.push(cur);
-      cur = { top: iv.top, bottom: iv.bottom, lastSession: iv.session };
+      merged.push({ top: iv.top, bottom: iv.bottom });
     }
   }
-  merged.push(cur);
+
+  function isSlotOccupied(slotTop, slotBottom) {
+    for (const m of merged) {
+      if (m.top < slotBottom && m.bottom > slotTop) return true;
+      if (m.top >= slotBottom) break;
+    }
+    return false;
+  }
 
   const gaps = [];
-  if (merged[0].top >= MIN_GAP_HEIGHT) {
+  const BUTTON_HEIGHT = 28;
+
+  for (let i = 0; i < markers.length - 1; i++) {
+    const slotTop = markers[i].top;
+    const slotBottom = markers[i + 1].top;
+    const slotHeight = slotBottom - slotTop;
+    if (slotHeight < BUTTON_HEIGHT) continue;
+    if (isSlotOccupied(slotTop, slotBottom)) continue;
+    const slotMs = layout.snappedEarliestMs + markers[i].minutes * 60000;
     gaps.push({
-      top: Math.max(0, merged[0].top / 2 - 14),
-      startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "",
+      top: slotTop + (slotHeight / 2) - (BUTTON_HEIGHT / 2),
+      startTime: formatDateForInput(slotMs),
     });
   }
-  for (let i = 0; i < merged.length - 1; i++) {
-    const gapStart = merged[i].bottom;
-    const gapSize = merged[i + 1].top - gapStart;
-    if (gapSize >= MIN_GAP_HEIGHT) {
-      gaps.push({
-        top: gapStart + (gapSize / 2) - 14,
-        startTime: getSessionEndTime(merged[i].lastSession, timezone, formatDateForInput),
-      });
-    }
+
+  const lastMarker = markers[markers.length - 1];
+  const lastMarkerBottom = lastMarker.top;
+  const maxOccupiedBottom = merged.length > 0 ? merged[merged.length - 1].bottom : 0;
+  const trailingTop = Math.max(lastMarkerBottom, maxOccupiedBottom);
+  if (trailingTop > 0) {
+    const trailingMs = layout.snappedEarliestMs + lastMarker.minutes * 60000;
+    gaps.push({
+      top: trailingTop + 4,
+      startTime: formatDateForInput(trailingMs),
+    });
   }
-  const last = merged[merged.length - 1];
-  gaps.push({
-    top: last.bottom + 4,
-    startTime: getSessionEndTime(last.lastSession, timezone, formatDateForInput),
-  });
 
   return gaps;
 }
