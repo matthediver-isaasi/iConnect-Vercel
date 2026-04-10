@@ -1463,14 +1463,13 @@ export default function EmailCampaigns() {
       }}>
         <DialogContent className={`transition-all duration-300 ${statsDetailView ? 'w-[95vw] max-w-[95vw] h-[95vh] max-h-[95vh]' : 'max-w-3xl w-[95vw] max-h-[85vh]'} overflow-hidden flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <DialogTitle>Campaign Statistics</DialogTitle>
-                <DialogDescription>
-                  Performance metrics for "{statsData?.name}"
-                </DialogDescription>
-              </div>
-              <div className="flex items-center gap-2">
+            <div>
+              <DialogTitle>Campaign Statistics</DialogTitle>
+              <DialogDescription>
+                Performance metrics for "{statsData?.name}"
+              </DialogDescription>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1532,7 +1531,6 @@ export default function EmailCampaigns() {
                   </Button>
                 )}
               </div>
-            </div>
           </DialogHeader>
           
           {statsData && (
