@@ -501,16 +501,28 @@ export default function EmailCampaigns() {
 
   const heatmapClickMap = useMemo(() => {
     if (!emailPreviewHeatmap || emailPreviewHeatmap.length === 0) return null;
-    const map = {};
+    const byIndex = {};
+    const byUrl = {};
     emailPreviewHeatmap.forEach(item => {
       if (!item || typeof item.url !== 'string') return;
       const clicks = typeof item.clicks === 'number' ? item.clicks : 0;
-      const normalized = normalizeUrl(item.url);
-      if (normalized) {
-        map[normalized] = (map[normalized] || 0) + clicks;
+      let key = null;
+      if (item.index != null) {
+        key = item.index;
+      } else if (item.position) {
+        const match = item.position.match(/^link-(\d+)$/);
+        if (match) key = parseInt(match[1], 10);
+      }
+      if (key != null) {
+        byIndex[key] = { clicks, url: item.url, index: key };
+      } else {
+        const normalized = normalizeUrl(item.url);
+        if (normalized) {
+          byUrl[normalized] = (byUrl[normalized] || 0) + clicks;
+        }
       }
     });
-    return map;
+    return { byIndex, byUrl };
   }, [emailPreviewHeatmap, normalizeUrl]);
 
   const applyHeatmapOverlay = useCallback(() => {
@@ -522,16 +534,30 @@ export default function EmailCampaigns() {
     const links = container.querySelectorAll('a[href]');
     if (links.length === 0) return;
 
-    const aggregatedValues = Object.values(heatmapClickMap);
-    const maxClicks = Math.max(...aggregatedValues, 1);
+    const { byIndex, byUrl } = heatmapClickMap;
+    const allClickValues = [
+      ...Object.values(byIndex).map(e => e.clicks),
+      ...Object.values(byUrl),
+    ];
+    const maxClicks = Math.max(...allClickValues, 1);
 
+    let linkIndex = 0;
     links.forEach(link => {
       const rawHref = link.getAttribute('href') || '';
-      if (!rawHref || rawHref === '#' || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+      if (!rawHref || rawHref === '#' || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.includes('/email-preferences')) return;
 
-      const normalizedHref = normalizeUrl(rawHref);
-      const clicks = heatmapClickMap[normalizedHref];
-      if (clicks === undefined) return;
+      const currentIndex = linkIndex;
+      linkIndex++;
+
+      let clicks;
+      const indexEntry = byIndex[currentIndex];
+      if (indexEntry) {
+        clicks = indexEntry.clicks;
+      } else {
+        const normalizedHref = normalizeUrl(rawHref);
+        clicks = byUrl[normalizedHref];
+      }
+      if (clicks === undefined || clicks === 0) return;
 
       const intensity = maxClicks > 0 ? clicks / maxClicks : 0;
 
