@@ -20,6 +20,7 @@ import ColleagueSelector from "@/components/booking/ColleagueSelector";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
+import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { publicClient } from "@/api/publicClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
@@ -187,25 +188,13 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
   }, [sessions]);
 
   const totalColumns = allTracks.length + (hasAnyUntracked ? 1 : 0);
-  const gridTemplateColumns = totalColumns > 0 ? `100px repeat(${totalColumns}, minmax(180px, 1fr))` : undefined;
 
   if (sessionsByDay.length === 0) return null;
 
   return (
     <div className="space-y-8">
       {sessionsByDay.map((day, dayIndex) => {
-        const timeSlots = [];
-        const slotMap = {};
-        day.sessions
-          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-          .forEach(session => {
-            const timeKey = formatTime(session.start_time, timezone);
-            if (!slotMap[timeKey]) {
-              slotMap[timeKey] = { time: timeKey, startTime: session.start_time, sessions: [] };
-              timeSlots.push(slotMap[timeKey]);
-            }
-            slotMap[timeKey].sessions.push(session);
-          });
+        const layout = computeTimelineLayout(day.sessions, { timezone, pixelsPerMinute: 2, minCardHeight: 40 });
 
         return (
           <div key={dayIndex} data-testid={`schedule-day-${dayIndex}`}>
@@ -216,87 +205,98 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
 
             <HScrollContainer trackCount={totalColumns}>
                 {(allTracks.length > 0) && (
-                  <div className="grid gap-1 mb-2" style={{ gridTemplateColumns }}>
-                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]">Time</div>
-                    {allTracks.map(track => {
-                      const colors = trackColorMap[track];
-                      const hasCustom = colors?.bgStyle;
-                      return (
-                        <div
-                          key={track}
-                          className={`text-xs font-semibold p-2 rounded-md text-center ${hasCustom ? '' : 'bg-slate-100 text-slate-700'}`}
-                          style={hasCustom ? { ...colors.bgStyle, ...colors.textStyle } : undefined}
-                          data-testid={`track-header-${track}`}
-                        >
-                          {track}
+                  <div className="flex gap-1 mb-2">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2 sticky left-0 bg-white z-[1]" style={{ width: 100, minWidth: 100 }}>Time</div>
+                    <div className="flex gap-1 flex-1">
+                      {allTracks.map(track => {
+                        const colors = trackColorMap[track];
+                        const hasCustom = colors?.bgStyle;
+                        return (
+                          <div
+                            key={track}
+                            className={`text-xs font-semibold p-2 rounded-md text-center flex-1 ${hasCustom ? '' : 'bg-slate-100 text-slate-700'}`}
+                            style={{ ...(hasCustom ? { ...colors.bgStyle, ...colors.textStyle } : {}), minWidth: 180 }}
+                            data-testid={`track-header-${track}`}
+                          >
+                            {track}
+                          </div>
+                        );
+                      })}
+                      {hasAnyUntracked && (
+                        <div className="text-xs font-semibold p-2 rounded-md text-center flex-1 bg-slate-100 text-slate-700" style={{ minWidth: 180 }}>
+                          General
                         </div>
-                      );
-                    })}
-                    {hasAnyUntracked && (
-                      <div className="text-xs font-semibold p-2 rounded-md text-center bg-slate-100 text-slate-700">
-                        General
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {timeSlots.map((slot, slotIndex) => {
-                  if (allTracks.length === 0) {
-                    return (
-                      <div key={slotIndex} className="mb-2">
-                        {slot.sessions.map(session => (
-                          <SessionCard key={session.id} session={session} timezone={timezone} colors={trackColorMap[session.track_name]} speakerMap={speakerMap} onClick={onSessionClick} />
-                        ))}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={slotIndex}
-                      className="grid gap-1 mb-1"
-                      style={{ gridTemplateColumns }}
-                    >
-                      <div className="text-sm font-medium text-slate-600 p-2 flex items-start pt-3 sticky left-0 bg-white z-[1]">
-                        {slot.time}
-                      </div>
-                      {allTracks.map(track => {
-                        const trackSessions = slot.sessions.filter(s => {
+                {layout.totalHeight > 0 ? (
+                  <div className="flex gap-1">
+                    <div className="relative sticky left-0 bg-white z-[1]" style={{ width: 100, minWidth: 100, height: layout.totalHeight }}>
+                      {layout.timeMarkers.map((marker, i) => (
+                        <div key={i} className="absolute text-sm font-medium text-slate-600 pr-2 w-full text-right" style={{ top: marker.top }}>
+                          {marker.label}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-1 flex-1" style={{ height: layout.totalHeight }}>
+                      {(allTracks.length > 0 ? allTracks : [null]).map(trackName => {
+                        const isUntracked = trackName === null;
+                        const trackSessions = day.sessions.filter(s => {
                           const names = s.track_names || (s.track_name ? [s.track_name] : []);
-                          return names.includes(track);
+                          if (isUntracked) return names.length === 0;
+                          return names.includes(trackName);
                         });
-                        const colors = trackColorMap[track];
-                        if (trackSessions.length === 0) {
-                          return <div key={track} className="p-1" />;
-                        }
+                        const colors = isUntracked ? null : trackColorMap[trackName];
                         return (
-                          <div key={track} className="space-y-1">
-                            {trackSessions.map(trackSession => {
-                              const isMultiTrack = (trackSession.track_names || []).length > 1;
+                          <div key={trackName || "untracked"} className="relative flex-1" style={{ minWidth: 180 }}>
+                            {layout.timeMarkers.map((marker, i) => (
+                              <div key={i} className="absolute left-0 right-0 border-t border-slate-100" style={{ top: marker.top }} />
+                            ))}
+                            {trackSessions.map(session => {
+                              const sid = session.id;
+                              const sl = layout.sessionLayouts[sid];
+                              if (!sl) return null;
+                              const isMultiTrack = (session.track_names || []).length > 1;
                               return (
-                                <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onClick={onSessionClick} />
+                                <div key={`${sid}-${trackName}`} className="absolute left-0 right-0 px-0.5" style={{ top: sl.top, height: sl.height }}>
+                                  <SessionCard session={session} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onClick={onSessionClick} fixedHeight={sl.height - 2} />
+                                </div>
                               );
                             })}
                           </div>
                         );
                       })}
-                      {hasAnyUntracked && (() => {
-                        const untrackedSessions = slot.sessions.filter(s => {
-                          const names = s.track_names || (s.track_name ? [s.track_name] : []);
-                          return names.length === 0;
-                        });
-                        if (untrackedSessions.length === 0) return <div className="p-1" />;
-                        return (
-                          <div className="space-y-1">
-                            {untrackedSessions.map(s => (
-                              <SessionCard key={s.id} session={s} timezone={timezone} colors={null} speakerMap={speakerMap} onClick={onSessionClick} />
-                            ))}
-                          </div>
-                        );
-                      })()}
+                      {hasAnyUntracked && allTracks.length > 0 && (
+                        <div className="relative flex-1" style={{ minWidth: 180 }}>
+                          {layout.timeMarkers.map((marker, i) => (
+                            <div key={i} className="absolute left-0 right-0 border-t border-slate-100" style={{ top: marker.top }} />
+                          ))}
+                          {day.sessions.filter(s => {
+                            const names = s.track_names || (s.track_name ? [s.track_name] : []);
+                            return names.length === 0;
+                          }).map(session => {
+                            const sid = session.id;
+                            const sl = layout.sessionLayouts[sid];
+                            if (!sl) return null;
+                            return (
+                              <div key={sid} className="absolute left-0 right-0 px-0.5" style={{ top: sl.top, height: sl.height }}>
+                                <SessionCard session={session} timezone={timezone} colors={null} speakerMap={speakerMap} onClick={onSessionClick} fixedHeight={sl.height - 2} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                ) : (
+                  day.sessions.map(session => (
+                    <div key={session.id} className="mb-2">
+                      <SessionCard session={session} timezone={timezone} colors={trackColorMap[session.track_name]} speakerMap={speakerMap} onClick={onSessionClick} />
+                    </div>
+                  ))
+                )}
             </HScrollContainer>
           </div>
         );
@@ -305,7 +305,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
   );
 }
 
-function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onClick }) {
+function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onClick, fixedHeight }) {
   const hasCustomColors = colors?.lightStyle;
   const fallbackClass = "bg-slate-50 border-slate-300";
 
@@ -320,36 +320,41 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
     ? session.speaker_names
     : [];
 
+  const cardStyle = {
+    ...(hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : {}),
+    ...(fixedHeight != null ? { height: `${fixedHeight}px` } : {}),
+  };
+
   return (
     <div
-      className={`p-3 rounded-md border space-y-1 cursor-pointer transition-shadow hover:shadow-md ${hasCustomColors ? '' : fallbackClass}`}
-      style={hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : undefined}
+      className={`p-2 rounded-md border cursor-pointer transition-shadow hover:shadow-md overflow-hidden ${hasCustomColors ? '' : fallbackClass}`}
+      style={cardStyle}
       data-testid={`session-card-${session.id}`}
       onClick={() => onClick?.(session)}
     >
       <div className="flex items-center gap-1.5">
-        <span className="font-medium text-sm text-slate-900">{session.title}</span>
+        <span className="font-medium text-sm text-slate-900 truncate">{session.title}</span>
         {isMultiTrack && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             <Layers className="h-2.5 w-2.5 mr-0.5" />Multi-Track
           </Badge>
         )}
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-600">
-        <Clock className="w-3 h-3" />
-        <span>
+      <div className="flex items-center gap-2 text-xs text-slate-600 mt-0.5">
+        <Clock className="w-3 h-3 shrink-0" />
+        <span className="truncate">
           {formatTime(session.start_time, timezone)}
           {session.end_time && ` - ${formatTime(session.end_time, timezone)}`}
         </span>
         {session.duration_minutes && (
-          <span className="text-slate-400">({session.duration_minutes} min)</span>
+          <span className="text-slate-400 shrink-0">({session.duration_minutes} min)</span>
         )}
       </div>
       {session.description && (
-        <p className="text-xs text-slate-500 line-clamp-2" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(session.description) }} />
+        <p className="text-xs text-slate-500 line-clamp-2 mt-0.5" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(session.description) }} />
       )}
       {sessionSpeakers.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+        <div className="flex items-center gap-2 flex-wrap mt-0.5">
           {sessionSpeakers.map(speaker => {
             const displayName = speaker.full_name || speaker.name || '?';
             return (
@@ -369,12 +374,12 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
         </div>
       )}
       {fallbackSpeakerNames.length > 0 && (
-        <div className="flex items-center gap-1 text-xs text-slate-600 pt-0.5">
-          <Mic className="w-3 h-3" />
-          <span>{fallbackSpeakerNames.join(", ")}</span>
+        <div className="flex items-center gap-1 text-xs text-slate-600 mt-0.5">
+          <Mic className="w-3 h-3 shrink-0" />
+          <span className="truncate">{fallbackSpeakerNames.join(", ")}</span>
         </div>
       )}
-      <div className="flex items-center gap-1 flex-wrap pt-1">
+      <div className="flex items-center gap-1 flex-wrap mt-1">
         {session.delivery_mode === 'virtual' && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             <Monitor className="h-2.5 w-2.5 mr-0.5" />Virtual
