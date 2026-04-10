@@ -54,6 +54,7 @@ export default function CommunicationsManagementPage() {
   const [indMemberSearchResults, setIndMemberSearchResults] = useState([]);
   const [indMemberSearchLoading, setIndMemberSearchLoading] = useState(false);
   const [indSelectedMembers, setIndSelectedMembers] = useState([]);
+  const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewListName, setPreviewListName] = useState('');
@@ -136,6 +137,16 @@ export default function CommunicationsManagementPage() {
   const { data: allOrganizations = [] } = useQuery({
     queryKey: ['all-organizations-for-lookup'],
     queryFn: () => base44.entities.Organization.listAll(),
+    staleTime: 60000,
+  });
+
+  const { data: filterableFields = null } = useQuery({
+    queryKey: ['filterable-fields'],
+    queryFn: async () => {
+      const res = await fetch('/api/audience-lists/filterable-fields', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch filterable fields');
+      return res.json();
+    },
     staleTime: 60000,
   });
 
@@ -322,7 +333,8 @@ export default function CommunicationsManagementPage() {
       donors: 'Donors',
       all_members: 'All Members',
       audience_list: 'Saved Lists',
-      individual_members: 'Individual Members'
+      individual_members: 'Individual Members',
+      field_filter: 'Field Filter'
     };
     const label = typeLabels[segment.type] || segment.type;
     if (segment.type === 'all_members') return label;
@@ -359,7 +371,56 @@ export default function CommunicationsManagementPage() {
       const names = (segment.ids || []).map(id => audienceLists.find(l => l.id === id)?.name).filter(Boolean);
       return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
     }
+    if (segment.type === 'field_filter') {
+      const groups = segment.filter_groups || [];
+      const parts = groups.map(g => {
+        const conds = (g.conditions || []).map(c => {
+          const fieldLabel = c.field_label || c.field_key;
+          const opLabels = { equals: '=', not_equals: '!=', contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty', is_true: 'is true', is_false: 'is false', greater_than: '>', less_than: '<', before: 'before', after: 'after', is_one_of: 'is one of' };
+          const opLabel = opLabels[c.operator] || c.operator;
+          const scope = c.entity_scope === 'organization' ? 'Org' : 'Member';
+          if (c.operator === 'is_empty' || c.operator === 'is_not_empty' || c.operator === 'is_true' || c.operator === 'is_false') {
+            return `${scope}.${fieldLabel} ${opLabel}`;
+          }
+          const displayVal = Array.isArray(c.value) ? c.value.join(', ') : c.value;
+          return `${scope}.${fieldLabel} ${opLabel} ${displayVal}`;
+        });
+        return conds.join(' AND ');
+      });
+      const summary = parts.join(' OR ');
+      return `Field Filter: ${summary}`;
+    }
     return `${label} (${count})`;
+  };
+
+  const getOperatorsForDataType = (dataType) => {
+    const base = [
+      { value: 'equals', label: 'Equals' },
+      { value: 'not_equals', label: 'Not equals' },
+      { value: 'is_empty', label: 'Is empty' },
+      { value: 'is_not_empty', label: 'Is not empty' },
+    ];
+    switch (dataType) {
+      case 'text':
+      case 'email':
+      case 'url':
+        return [...base, { value: 'contains', label: 'Contains' }];
+      case 'number':
+      case 'decimal':
+        return [...base, { value: 'greater_than', label: 'Greater than' }, { value: 'less_than', label: 'Less than' }];
+      case 'boolean':
+        return [{ value: 'is_true', label: 'Is true' }, { value: 'is_false', label: 'Is false' }];
+      case 'date':
+        return [...base, { value: 'before', label: 'Before' }, { value: 'after', label: 'After' }];
+      case 'picklist':
+      case 'dropdown':
+        return [...base, { value: 'is_one_of', label: 'Is one of' }];
+      case 'country':
+      case 'countries':
+        return [...base, { value: 'contains', label: 'Contains' }];
+      default:
+        return [...base, { value: 'contains', label: 'Contains' }];
+    }
   };
 
   const resetIndMemberSearch = () => {
@@ -2426,7 +2487,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); resetIndMemberSearch(); }}>
+                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
                       <SelectTrigger data-testid="select-add-list-segment-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -2447,6 +2508,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           <SelectItem value="donors">Donors</SelectItem>
                         )}
                         <SelectItem value="individual_members">Individual Members</SelectItem>
+                        <SelectItem value="field_filter">Field Filter</SelectItem>
                       </SelectContent>
                     </Select>
 
@@ -2515,7 +2577,267 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
-                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && (
+                    {addListSegmentType === 'field_filter' && filterableFields && (
+                      <div className="border rounded-md p-2 space-y-3 bg-background">
+                        {fieldFilterGroups.map((group, gIdx) => (
+                          <div key={gIdx} className="space-y-2">
+                            {gIdx > 0 && (
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 border-t" />
+                                <Badge variant="secondary" className="text-xs">OR</Badge>
+                                <div className="flex-1 border-t" />
+                              </div>
+                            )}
+                            <div className="space-y-2 border rounded-md p-2 bg-muted/10">
+                              {group.conditions.map((cond, cIdx) => {
+                                const scopeFields = cond.entity_scope === 'organization'
+                                  ? [...(filterableFields.organization?.core || []), ...(filterableFields.organization?.custom || [])]
+                                  : [...(filterableFields.member?.core || []), ...(filterableFields.member?.custom || [])];
+                                const selectedField = scopeFields.find(f => f.key === cond.field_key);
+                                const operators = getOperatorsForDataType(selectedField?.data_type || cond.data_type || 'text');
+                                const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(cond.operator);
+                                const isPicklist = selectedField?.data_type === 'picklist' || selectedField?.data_type === 'dropdown';
+                                const fieldOptions = selectedField?.options || [];
+
+                                return (
+                                  <div key={cIdx} className="space-y-1.5">
+                                    {cIdx > 0 && <div className="text-xs text-muted-foreground font-medium px-1">AND</div>}
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <Select
+                                        value={cond.entity_scope}
+                                        onValueChange={(v) => {
+                                          setFieldFilterGroups(prev => {
+                                            const updated = JSON.parse(JSON.stringify(prev));
+                                            updated[gIdx].conditions[cIdx] = { entity_scope: v, field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' };
+                                            return updated;
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger className="w-[110px] h-8 text-xs" data-testid={`select-filter-scope-${gIdx}-${cIdx}`}>
+                                          <SelectValue placeholder="Scope" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="member">Member</SelectItem>
+                                          <SelectItem value="organization">Organisation</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <Select
+                                        value={cond.field_key}
+                                        onValueChange={(v) => {
+                                          const field = scopeFields.find(f => f.key === v);
+                                          setFieldFilterGroups(prev => {
+                                            const updated = JSON.parse(JSON.stringify(prev));
+                                            updated[gIdx].conditions[cIdx] = {
+                                              ...updated[gIdx].conditions[cIdx],
+                                              field_key: v,
+                                              field_type: field?.field_type || 'core',
+                                              data_type: field?.data_type || 'text',
+                                              field_label: field?.label || v,
+                                              operator: '',
+                                              value: '',
+                                            };
+                                            return updated;
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger className="flex-1 min-w-[120px] h-8 text-xs" data-testid={`select-filter-field-${gIdx}-${cIdx}`}>
+                                          <SelectValue placeholder="Select field" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {scopeFields.length === 0 && <SelectItem value="_none" disabled>No fields available</SelectItem>}
+                                          {(cond.entity_scope === 'member' ? filterableFields.member?.core : filterableFields.organization?.core)?.length > 0 && (
+                                            <>
+                                              <SelectItem value="_core_label" disabled className="text-xs font-semibold text-muted-foreground">Core Fields</SelectItem>
+                                              {(cond.entity_scope === 'member' ? filterableFields.member?.core : filterableFields.organization?.core).map(f => (
+                                                <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                                              ))}
+                                            </>
+                                          )}
+                                          {(cond.entity_scope === 'member' ? filterableFields.member?.custom : filterableFields.organization?.custom)?.length > 0 && (
+                                            <>
+                                              <SelectItem value="_custom_label" disabled className="text-xs font-semibold text-muted-foreground">Custom Fields</SelectItem>
+                                              {(cond.entity_scope === 'member' ? filterableFields.member?.custom : filterableFields.organization?.custom).map(f => (
+                                                <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                                              ))}
+                                            </>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                      {cond.field_key && (
+                                        <Select
+                                          value={cond.operator}
+                                          onValueChange={(v) => {
+                                            setFieldFilterGroups(prev => {
+                                              const updated = JSON.parse(JSON.stringify(prev));
+                                              updated[gIdx].conditions[cIdx].operator = v;
+                                              if (['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(v)) {
+                                                updated[gIdx].conditions[cIdx].value = '';
+                                              }
+                                              return updated;
+                                            });
+                                          }}
+                                        >
+                                          <SelectTrigger className="w-[120px] h-8 text-xs" data-testid={`select-filter-operator-${gIdx}-${cIdx}`}>
+                                            <SelectValue placeholder="Operator" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {operators.map(op => (
+                                              <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                      {cond.operator && needsValue && (
+                                        isPicklist && cond.operator === 'is_one_of' ? (
+                                          <div className="flex-1 min-w-[100px] border rounded-md p-1.5 max-h-24 overflow-y-auto space-y-0.5 bg-background" data-testid={`checklist-filter-value-${gIdx}-${cIdx}`}>
+                                            {fieldOptions.map((opt, oIdx) => {
+                                              const optVal = String(typeof opt === 'object' ? (opt.value || opt.label) : opt);
+                                              const optLabel = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                                              const currentArr = Array.isArray(cond.value) ? cond.value : [];
+                                              return (
+                                                <label key={oIdx} className="flex items-center gap-1.5 cursor-pointer text-xs">
+                                                  <input type="checkbox" className="rounded" checked={currentArr.includes(optVal)}
+                                                    onChange={(e) => {
+                                                      setFieldFilterGroups(prev => {
+                                                        const updated = JSON.parse(JSON.stringify(prev));
+                                                        const arr = Array.isArray(updated[gIdx].conditions[cIdx].value) ? [...updated[gIdx].conditions[cIdx].value] : [];
+                                                        if (e.target.checked) arr.push(optVal);
+                                                        else arr.splice(arr.indexOf(optVal), 1);
+                                                        updated[gIdx].conditions[cIdx].value = arr;
+                                                        return updated;
+                                                      });
+                                                    }}
+                                                  />
+                                                  <span>{optLabel}</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        ) : isPicklist ? (
+                                          <Select
+                                            value={Array.isArray(cond.value) ? cond.value[0] || '' : cond.value}
+                                            onValueChange={(v) => {
+                                              setFieldFilterGroups(prev => {
+                                                const updated = JSON.parse(JSON.stringify(prev));
+                                                updated[gIdx].conditions[cIdx].value = v;
+                                                return updated;
+                                              });
+                                            }}
+                                          >
+                                            <SelectTrigger className="flex-1 min-w-[100px] h-8 text-xs" data-testid={`select-filter-value-${gIdx}-${cIdx}`}>
+                                              <SelectValue placeholder="Select value" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {fieldOptions.map((opt, oIdx) => {
+                                                const optVal = typeof opt === 'object' ? (opt.value || opt.label) : opt;
+                                                const optLabel = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                                                return <SelectItem key={oIdx} value={String(optVal)}>{optLabel}</SelectItem>;
+                                              })}
+                                            </SelectContent>
+                                          </Select>
+                                        ) : selectedField?.data_type === 'date' ? (
+                                          <Input
+                                            type="date"
+                                            value={cond.value || ''}
+                                            onChange={(e) => {
+                                              setFieldFilterGroups(prev => {
+                                                const updated = JSON.parse(JSON.stringify(prev));
+                                                updated[gIdx].conditions[cIdx].value = e.target.value;
+                                                return updated;
+                                              });
+                                            }}
+                                            className="flex-1 min-w-[120px] h-8 text-xs"
+                                            data-testid={`input-filter-value-${gIdx}-${cIdx}`}
+                                          />
+                                        ) : (
+                                          <Input
+                                            type={selectedField?.data_type === 'number' || selectedField?.data_type === 'decimal' ? 'number' : 'text'}
+                                            placeholder="Value"
+                                            value={cond.value || ''}
+                                            onChange={(e) => {
+                                              setFieldFilterGroups(prev => {
+                                                const updated = JSON.parse(JSON.stringify(prev));
+                                                updated[gIdx].conditions[cIdx].value = e.target.value;
+                                                return updated;
+                                              });
+                                            }}
+                                            className="flex-1 min-w-[100px] h-8 text-xs"
+                                            data-testid={`input-filter-value-${gIdx}-${cIdx}`}
+                                          />
+                                        )
+                                      )}
+                                      {group.conditions.length > 1 && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 shrink-0"
+                                          onClick={() => {
+                                            setFieldFilterGroups(prev => {
+                                              const updated = JSON.parse(JSON.stringify(prev));
+                                              updated[gIdx].conditions.splice(cIdx, 1);
+                                              return updated;
+                                            });
+                                          }}
+                                          data-testid={`button-remove-condition-${gIdx}-${cIdx}`}
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              <div className="flex items-center gap-2 pt-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={() => {
+                                    setFieldFilterGroups(prev => {
+                                      const updated = JSON.parse(JSON.stringify(prev));
+                                      updated[gIdx].conditions.push({ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' });
+                                      return updated;
+                                    });
+                                  }}
+                                  data-testid={`button-add-condition-${gIdx}`}
+                                >
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  AND condition
+                                </Button>
+                                {fieldFilterGroups.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs text-destructive"
+                                    onClick={() => {
+                                      setFieldFilterGroups(prev => prev.filter((_, i) => i !== gIdx));
+                                    }}
+                                    data-testid={`button-remove-group-${gIdx}`}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    Remove group
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs w-full"
+                          onClick={() => {
+                            setFieldFilterGroups(prev => [...prev, { conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
+                          }}
+                          data-testid="button-add-filter-group"
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          OR group
+                        </Button>
+                      </div>
+                    )}
+
+                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && addListSegmentType !== 'field_filter' && (
                       <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
                         {addListSegmentType === 'communication_category' && categories.filter(c => c.is_active !== false).map(cat => (
                           <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
@@ -2609,6 +2931,16 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         onClick={() => {
                           if (addListSegmentType === 'all_members') {
                             setEditListAudiences(prev => [...prev, { type: 'all_members', ids: [] }]);
+                          } else if (addListSegmentType === 'field_filter') {
+                            const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];
+                            const validGroups = fieldFilterGroups
+                              .map(g => ({
+                                conditions: g.conditions.filter(c => c.field_key && c.operator && (noValueOps.includes(c.operator) || (c.value !== '' && c.value !== undefined && c.value !== null)))
+                              }))
+                              .filter(g => g.conditions.length > 0);
+                            if (validGroups.length > 0) {
+                              setEditListAudiences(prev => [...prev, { type: 'field_filter', ids: [], filter_groups: validGroups }]);
+                            }
                           } else if (addListSegmentType === 'individual_members' && indSelectedMembers.length > 0) {
                             const newNames = {};
                             indSelectedMembers.forEach(m => { newNames[m.id] = `${m.first_name} ${m.last_name}`; });
@@ -2646,8 +2978,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           setAddListSegmentType('');
                           setAddListSegmentIds([]);
                           resetIndMemberSearch();
+                          setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
                         }}
-                        disabled={addListSegmentType === 'individual_members' ? indSelectedMembers.length === 0 : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)}
+                        disabled={
+                          addListSegmentType === 'field_filter'
+                            ? !fieldFilterGroups.some(g => g.conditions.some(c => {
+                                if (!c.field_key || !c.operator) return false;
+                                const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];
+                                if (noValueOps.includes(c.operator)) return true;
+                                return c.value !== '' && c.value !== undefined && c.value !== null && (!Array.isArray(c.value) || c.value.length > 0);
+                              }))
+                            : addListSegmentType === 'individual_members'
+                              ? indSelectedMembers.length === 0
+                              : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)
+                        }
                         data-testid="button-confirm-add-list-segment"
                       >
                         <Check className="w-4 h-4 mr-1" />

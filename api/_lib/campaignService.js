@@ -490,7 +490,8 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
 
 const ALLOWED_SEGMENT_TYPES = new Set([
   'audience_list', 'individual_members', 'role', 'organisation', 
-  'communication_category', 'form', 'member_group', 'event_attendees'
+  'communication_category', 'form', 'member_group', 'event_attendees',
+  'field_filter'
 ]);
 
 function validateCampaignTargeting(campaign) {
@@ -502,7 +503,11 @@ function validateCampaignTargeting(campaign) {
       if (!segment.type || !ALLOWED_SEGMENT_TYPES.has(segment.type)) {
         return { valid: false, reason: `Invalid or disallowed audience segment type: "${segment.type}". Campaigns cannot target all members.` };
       }
-      if (!Array.isArray(segment.ids) || segment.ids.length === 0) {
+      if (segment.type === 'field_filter') {
+        if (!Array.isArray(segment.filter_groups) || segment.filter_groups.length === 0) {
+          return { valid: false, reason: 'Field filter segment has no filter groups configured.' };
+        }
+      } else if (segment.type !== 'all_members' && (!Array.isArray(segment.ids) || segment.ids.length === 0)) {
         return { valid: false, reason: `Audience segment "${segment.type}" has no IDs configured.` };
       }
     }
@@ -518,7 +523,7 @@ function validateCampaignTargeting(campaign) {
   return { valid: false, reason: 'Campaign has no audience targeting configured. Please select an audience list before sending.' };
 }
 
-async function getRecipientsForSegment(targetType, targetIds, tenantId) {
+async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
   let recipients = [];
 
   if (!targetType) return recipients;
@@ -841,8 +846,293 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
         if (Array.isArray(savedAudiences) && savedAudiences.length > 0) {
           for (const segment of savedAudiences) {
             if (segment.type === 'audience_list') continue;
-            const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId);
+            const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId, segment);
             recipients.push(...segRecipients);
+          }
+        }
+      }
+    }
+  } else if (targetType === 'field_filter' && segmentData) {
+    const ALLOWED_CORE_MEMBER_KEYS = new Set(['first_name', 'last_name', 'email', 'job_title', 'role_id', 'login_enabled', 'communications_opted_out_all']);
+    const ALLOWED_CORE_ORG_KEYS = new Set(['name', 'status']);
+    const ALLOWED_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'is_empty', 'is_not_empty', 'is_true', 'is_false', 'greater_than', 'less_than', 'before', 'after', 'is_one_of']);
+    const ALLOWED_SCOPES = new Set(['member', 'organization']);
+
+    const filterGroups = segmentData.filter_groups || [];
+    if (filterGroups.length > 0) {
+      const groupMemberSets = [];
+
+      for (const group of filterGroups) {
+        const conditions = (group.conditions || []).filter(c => {
+          if (!ALLOWED_SCOPES.has(c.entity_scope)) return false;
+          if (!ALLOWED_OPERATORS.has(c.operator)) return false;
+          if (c.field_type === 'core') {
+            const allowedKeys = c.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS : ALLOWED_CORE_ORG_KEYS;
+            if (!allowedKeys.has(c.field_key)) return false;
+          }
+          return true;
+        });
+        if (conditions.length === 0) continue;
+
+        const memberConditions = conditions.filter(c => c.entity_scope === 'member');
+        const orgConditions = conditions.filter(c => c.entity_scope === 'organization');
+
+        let memberIds = null;
+
+        if (memberConditions.length > 0) {
+          const coreMemberConds = memberConditions.filter(c => c.field_type === 'core');
+          const customMemberConds = memberConditions.filter(c => c.field_type === 'custom');
+
+          let coreMatchedIds = null;
+          if (coreMemberConds.length > 0) {
+            let query = supabase
+              .from('member')
+              .select('id')
+              .eq('tenant_id', tenantId)
+              .not('email', 'ilike', 'deleted_%@deleted.local');
+
+            for (const cond of coreMemberConds) {
+              query = applyConditionToQuery(query, cond.field_key, cond.operator, cond.value, cond.data_type);
+            }
+
+            const allIds = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMore = true;
+            while (hasMore) {
+              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
+              if (error) { console.error('[FieldFilter] core member query error:', error); break; }
+              if (batch && batch.length > 0) {
+                allIds.push(...batch.map(r => r.id));
+                offset += batch.length;
+                hasMore = batch.length === batchSize;
+              } else { hasMore = false; }
+            }
+            coreMatchedIds = new Set(allIds);
+          }
+
+          let customMatchedIds = null;
+          for (const cond of customMemberConds) {
+            const selectCols = (cond.data_type === 'number' || cond.data_type === 'decimal') && (cond.operator === 'greater_than' || cond.operator === 'less_than') ? 'member_id, value' : 'member_id';
+            let query = supabase
+              .from('member_preference_value')
+              .select(selectCols)
+              .eq('field_id', cond.field_key);
+
+            const { query: filteredQuery, postFilter } = applyPrefValueCondition(query, cond.operator, cond.value, cond.data_type);
+            query = filteredQuery;
+
+            const allRows = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMore = true;
+            while (hasMore) {
+              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
+              if (error) { console.error('[FieldFilter] custom member query error:', error); break; }
+              if (batch && batch.length > 0) {
+                allRows.push(...batch);
+                offset += batch.length;
+                hasMore = batch.length === batchSize;
+              } else { hasMore = false; }
+            }
+
+            const filteredRows = postFilter ? postFilter(allRows) : allRows;
+            const allMemberIds = filteredRows.map(r => r.member_id);
+
+            const condSet = new Set(allMemberIds);
+            if (cond.operator === 'is_empty') {
+              let allMembersQuery = supabase
+                .from('member')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .not('email', 'ilike', 'deleted_%@deleted.local');
+              const allMembers = [];
+              let mOffset = 0;
+              let mHasMore = true;
+              while (mHasMore) {
+                const { data: mBatch } = await allMembersQuery.range(mOffset, mOffset + batchSize - 1);
+                if (mBatch && mBatch.length > 0) {
+                  allMembers.push(...mBatch.map(r => r.id));
+                  mOffset += mBatch.length;
+                  mHasMore = mBatch.length === batchSize;
+                } else { mHasMore = false; }
+              }
+              const hasValueSet = new Set();
+              let hvQuery = supabase
+                .from('member_preference_value')
+                .select('member_id')
+                .eq('field_id', cond.field_key)
+                .not('value', 'is', null)
+                .neq('value', '');
+              let hvOffset = 0;
+              let hvHasMore = true;
+              while (hvHasMore) {
+                const { data: hvBatch } = await hvQuery.range(hvOffset, hvOffset + batchSize - 1);
+                if (hvBatch && hvBatch.length > 0) {
+                  hvBatch.forEach(r => hasValueSet.add(r.member_id));
+                  hvOffset += hvBatch.length;
+                  hvHasMore = hvBatch.length === batchSize;
+                } else { hvHasMore = false; }
+              }
+              const emptySet = new Set(allMembers.filter(id => !hasValueSet.has(id)));
+              customMatchedIds = customMatchedIds ? new Set([...customMatchedIds].filter(id => emptySet.has(id))) : emptySet;
+            } else {
+              customMatchedIds = customMatchedIds ? new Set([...customMatchedIds].filter(id => condSet.has(id))) : condSet;
+            }
+          }
+
+          if (coreMatchedIds !== null && customMatchedIds !== null) {
+            memberIds = new Set([...coreMatchedIds].filter(id => customMatchedIds.has(id)));
+          } else if (coreMatchedIds !== null) {
+            memberIds = coreMatchedIds;
+          } else if (customMatchedIds !== null) {
+            memberIds = customMatchedIds;
+          }
+        }
+
+        if (orgConditions.length > 0) {
+          const coreOrgConds = orgConditions.filter(c => c.field_type === 'core');
+          const customOrgConds = orgConditions.filter(c => c.field_type === 'custom');
+
+          let matchedOrgIds = null;
+
+          if (coreOrgConds.length > 0) {
+            let query = supabase
+              .from('organization')
+              .select('id')
+              .eq('tenant_id', tenantId);
+
+            for (const cond of coreOrgConds) {
+              query = applyConditionToQuery(query, cond.field_key, cond.operator, cond.value, cond.data_type);
+            }
+
+            const allOrgIds = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMore = true;
+            while (hasMore) {
+              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
+              if (error) { console.error('[FieldFilter] core org query error:', error); break; }
+              if (batch && batch.length > 0) {
+                allOrgIds.push(...batch.map(r => r.id));
+                offset += batch.length;
+                hasMore = batch.length === batchSize;
+              } else { hasMore = false; }
+            }
+            matchedOrgIds = new Set(allOrgIds);
+          }
+
+          for (const cond of customOrgConds) {
+            const selectCols = (cond.data_type === 'number' || cond.data_type === 'decimal') && (cond.operator === 'greater_than' || cond.operator === 'less_than') ? 'organization_id, value' : 'organization_id';
+            let query = supabase
+              .from('organization_preference_value')
+              .select(selectCols)
+              .eq('field_id', cond.field_key);
+
+            const { query: filteredQuery, postFilter } = applyPrefValueCondition(query, cond.operator, cond.value, cond.data_type);
+            query = filteredQuery;
+
+            const allRows = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMore = true;
+            while (hasMore) {
+              const { data: batch, error } = await query.range(offset, offset + batchSize - 1);
+              if (error) { console.error('[FieldFilter] custom org query error:', error); break; }
+              if (batch && batch.length > 0) {
+                allRows.push(...batch);
+                offset += batch.length;
+                hasMore = batch.length === batchSize;
+              } else { hasMore = false; }
+            }
+
+            const filteredRows = postFilter ? postFilter(allRows) : allRows;
+            const allOrgIds = filteredRows.map(r => r.organization_id);
+
+            const condSet = new Set(allOrgIds);
+            if (cond.operator === 'is_empty') {
+              let allOrgsQuery = supabase
+                .from('organization')
+                .select('id')
+                .eq('tenant_id', tenantId);
+              const allOrgs = [];
+              let oOffset = 0;
+              let oHasMore = true;
+              while (oHasMore) {
+                const { data: oBatch } = await allOrgsQuery.range(oOffset, oOffset + batchSize - 1);
+                if (oBatch && oBatch.length > 0) {
+                  allOrgs.push(...oBatch.map(r => r.id));
+                  oOffset += oBatch.length;
+                  oHasMore = oBatch.length === batchSize;
+                } else { oHasMore = false; }
+              }
+              const hasValueSet = new Set();
+              let hvQuery = supabase
+                .from('organization_preference_value')
+                .select('organization_id')
+                .eq('field_id', cond.field_key)
+                .not('value', 'is', null)
+                .neq('value', '');
+              let hvOffset = 0;
+              let hvHasMore = true;
+              while (hvHasMore) {
+                const { data: hvBatch } = await hvQuery.range(hvOffset, hvOffset + batchSize - 1);
+                if (hvBatch && hvBatch.length > 0) {
+                  hvBatch.forEach(r => hasValueSet.add(r.organization_id));
+                  hvOffset += hvBatch.length;
+                  hvHasMore = hvBatch.length === batchSize;
+                } else { hvHasMore = false; }
+              }
+              const emptySet = new Set(allOrgs.filter(id => !hasValueSet.has(id)));
+              matchedOrgIds = matchedOrgIds ? new Set([...matchedOrgIds].filter(id => emptySet.has(id))) : emptySet;
+            } else {
+              matchedOrgIds = matchedOrgIds ? new Set([...matchedOrgIds].filter(id => condSet.has(id))) : condSet;
+            }
+          }
+
+          if (matchedOrgIds && matchedOrgIds.size > 0) {
+            const orgIdArr = [...matchedOrgIds];
+            const orgMemberIds = new Set();
+            const idBatchSize = 500;
+            for (let i = 0; i < orgIdArr.length; i += idBatchSize) {
+              const idBatch = orgIdArr.slice(i, i + idBatchSize);
+              const { data: members } = await supabase
+                .from('member')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('organization_id', idBatch)
+                .not('email', 'ilike', 'deleted_%@deleted.local');
+              if (members) members.forEach(m => orgMemberIds.add(m.id));
+            }
+            memberIds = memberIds ? new Set([...memberIds].filter(id => orgMemberIds.has(id))) : orgMemberIds;
+          } else if (matchedOrgIds && matchedOrgIds.size === 0) {
+            memberIds = new Set();
+          }
+        }
+
+        if (memberIds !== null) {
+          groupMemberSets.push(memberIds);
+        }
+      }
+
+      if (groupMemberSets.length > 0) {
+        const unionIds = new Set();
+        for (const s of groupMemberSets) {
+          for (const id of s) unionIds.add(id);
+        }
+
+        if (unionIds.size > 0) {
+          const idArr = [...unionIds];
+          const idBatchSize = 500;
+          for (let i = 0; i < idArr.length; i += idBatchSize) {
+            const idBatch = idArr.slice(i, i + idBatchSize);
+            const { data: members } = await supabase
+              .from('member')
+              .select('id, email, first_name, last_name, communications_opted_out_all')
+              .eq('tenant_id', tenantId)
+              .in('id', idBatch)
+              .not('email', 'ilike', 'deleted_%@deleted.local');
+            if (members) recipients.push(...members.filter(m => m.email));
           }
         }
       }
@@ -850,6 +1140,83 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
   }
 
   return recipients;
+}
+
+function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
+  switch (operator) {
+    case 'equals':
+      return query.eq(fieldKey, value);
+    case 'not_equals':
+      return query.neq(fieldKey, value);
+    case 'contains':
+      return query.ilike(fieldKey, `%${value}%`);
+    case 'is_empty':
+      return query.or(`${fieldKey}.is.null,${fieldKey}.eq.`);
+    case 'is_not_empty':
+      return query.not(fieldKey, 'is', null).neq(fieldKey, '');
+    case 'is_true':
+      return query.eq(fieldKey, true);
+    case 'is_false':
+      return query.eq(fieldKey, false);
+    case 'greater_than':
+      return query.gt(fieldKey, value);
+    case 'less_than':
+      return query.lt(fieldKey, value);
+    case 'before':
+      return query.lt(fieldKey, value);
+    case 'after':
+      return query.gt(fieldKey, value);
+    case 'is_one_of':
+      if (Array.isArray(value)) {
+        return query.in(fieldKey, value);
+      }
+      return query.eq(fieldKey, value);
+    default:
+      return query.eq(fieldKey, value);
+  }
+}
+
+function applyPrefValueCondition(query, operator, value, dataType) {
+  const isNumericType = dataType === 'number' || dataType === 'decimal';
+  switch (operator) {
+    case 'equals':
+      return { query: query.eq('value', String(value)), postFilter: null };
+    case 'not_equals':
+      return { query: query.neq('value', String(value)), postFilter: null };
+    case 'contains':
+      return { query: query.ilike('value', `%${value}%`), postFilter: null };
+    case 'is_not_empty':
+      return { query: query.not('value', 'is', null).neq('value', ''), postFilter: null };
+    case 'is_true':
+      return { query: query.eq('value', 'true'), postFilter: null };
+    case 'is_false':
+      return { query: query.or('value.eq.false,value.eq.,value.is.null'), postFilter: null };
+    case 'greater_than':
+      if (isNumericType) {
+        const numVal = Number(value);
+        return { query: query.not('value', 'is', null).neq('value', ''), postFilter: (rows) => rows.filter(r => { const n = parseFloat(r.value); return !isNaN(n) && n > numVal; }) };
+      }
+      return { query: query.gt('value', String(value)), postFilter: null };
+    case 'less_than':
+      if (isNumericType) {
+        const numVal = Number(value);
+        return { query: query.not('value', 'is', null).neq('value', ''), postFilter: (rows) => rows.filter(r => { const n = parseFloat(r.value); return !isNaN(n) && n < numVal; }) };
+      }
+      return { query: query.lt('value', String(value)), postFilter: null };
+    case 'before':
+      return { query: query.lt('value', String(value)), postFilter: null };
+    case 'after':
+      return { query: query.gt('value', String(value)), postFilter: null };
+    case 'is_one_of':
+      if (Array.isArray(value)) {
+        return { query: query.in('value', value.map(String)), postFilter: null };
+      }
+      return { query: query.eq('value', String(value)), postFilter: null };
+    case 'is_empty':
+      return { query, postFilter: null };
+    default:
+      return { query: query.eq('value', String(value)), postFilter: null };
+  }
 }
 
 export async function getTargetRecipients(campaign, tenantId, countOnly = false, detailedLists = false) {
@@ -863,7 +1230,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     const audiences = campaign.target_audiences;
     if (Array.isArray(audiences) && audiences.length > 0) {
       for (const segment of audiences) {
-        const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId);
+        const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId, segment);
         allRecipients.push(...segRecipients);
       }
     } else {
