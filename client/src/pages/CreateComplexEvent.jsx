@@ -20,7 +20,7 @@ import {
   Layers, Building2, Handshake, AlertTriangle
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -269,6 +269,14 @@ function AdminHScrollContainer({ children, trackCount }) {
   );
 }
 
+function toDateTz(dateStr, tz) {
+  if (!dateStr) return null;
+  if (typeof dateStr !== "string") return new Date(dateStr);
+  const hasOffset = /[+-]\d{2}(:\d{2})?$/.test(dateStr) || dateStr.endsWith("Z");
+  if (hasOffset) return parseISO(dateStr);
+  return fromZonedTime(dateStr, tz);
+}
+
 function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit, onDelete, onAddAtSlot }) {
   const [collapsedDays, setCollapsedDays] = useState({});
   const toggleDay = (dateKey) => setCollapsedDays(prev => ({ ...prev, [dateKey]: !prev[dateKey] }));
@@ -339,8 +347,12 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
   const formatDateForInput = (ms) => {
     if (!ms || isNaN(ms)) return "";
     const d = new Date(ms);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    try {
+      return formatInTimeZone(d, timezone, "yyyy-MM-dd'T'HH:mm");
+    } catch {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
   };
 
   return (
@@ -437,9 +449,12 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                                 : 0;
                               let lastEndTime;
                               if (lastSession && lastSession.end_time) {
-                                lastEndTime = lastSession.end_time;
+                                const endDate = toDateTz(lastSession.end_time, timezone);
+                                lastEndTime = endDate ? formatDateForInput(endDate.getTime()) : lastSession.end_time;
                               } else if (lastSession && lastSession.start_time) {
-                                lastEndTime = formatDateForInput(new Date(lastSession.start_time).getTime() + (lastSession.duration_minutes || 30) * 60000);
+                                const startDate = toDateTz(lastSession.start_time, timezone);
+                                const startMs = startDate ? startDate.getTime() : 0;
+                                lastEndTime = formatDateForInput(startMs + (lastSession.duration_minutes || 30) * 60000);
                               } else if (layout.snappedEarliestMs) {
                                 lastEndTime = formatDateForInput(layout.snappedEarliestMs);
                               } else {
@@ -494,9 +509,12 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
                               : 0;
                             let lastEndTime;
                             if (lastSession && lastSession.end_time) {
-                              lastEndTime = lastSession.end_time;
+                              const endDate = toDateTz(lastSession.end_time, timezone);
+                              lastEndTime = endDate ? formatDateForInput(endDate.getTime()) : lastSession.end_time;
                             } else if (lastSession && lastSession.start_time) {
-                              lastEndTime = formatDateForInput(new Date(lastSession.start_time).getTime() + (lastSession.duration_minutes || 30) * 60000);
+                              const startDate = toDateTz(lastSession.start_time, timezone);
+                              const startMs = startDate ? startDate.getTime() : 0;
+                              lastEndTime = formatDateForInput(startMs + (lastSession.duration_minutes || 30) * 60000);
                             } else if (layout.snappedEarliestMs) {
                               lastEndTime = formatDateForInput(layout.snappedEarliestMs);
                             } else {
@@ -1090,14 +1108,42 @@ export default function CreateComplexEvent() {
     return "custom";
   };
 
+  const toLocalDatetimeStr = (isoStr) => {
+    if (!isoStr) return "";
+    if (typeof isoStr !== 'string') {
+      try {
+        const tz = formData.timezone || DEFAULT_TIMEZONE;
+        return formatInTimeZone(isoStr, tz, "yyyy-MM-dd'T'HH:mm");
+      } catch {
+        return "";
+      }
+    }
+    const hasOffset = /[+-]\d{2}(:\d{2})?$/.test(isoStr) || isoStr.endsWith("Z");
+    if (!hasOffset) {
+      return isoStr.slice(0, 16);
+    }
+    try {
+      const tz = formData.timezone || DEFAULT_TIMEZONE;
+      return formatInTimeZone(parseISO(isoStr), tz, "yyyy-MM-dd'T'HH:mm");
+    } catch {
+      return isoStr.slice(0, 16);
+    }
+  };
+
   const computeEndTimeFromDuration = (startTime, durationMins) => {
     if (!startTime || !durationMins || durationMins === "custom") return "";
-    const startMs = new Date(startTime).getTime();
+    const tz = formData.timezone || DEFAULT_TIMEZONE;
+    const startUtc = fromZonedTime(startTime, tz);
+    const startMs = startUtc.getTime();
     if (isNaN(startMs)) return "";
     const endMs = startMs + parseInt(durationMins) * 60000;
     const endDate = new Date(endMs);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+    try {
+      return formatInTimeZone(endDate, tz, "yyyy-MM-dd'T'HH:mm");
+    } catch {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+    }
   };
 
   const openSessionDialog = (session = null, prefill = null) => {
@@ -1111,8 +1157,8 @@ export default function CreateComplexEvent() {
         image_focal_point: session.image_focal_point || null,
         use_event_image: session.use_event_image !== undefined ? session.use_event_image : !session.image_url,
         speaker_ids: session.speaker_ids || [],
-        start_time: session.start_time ? session.start_time.slice(0, 16) : "",
-        end_time: session.end_time ? session.end_time.slice(0, 16) : "",
+        start_time: toLocalDatetimeStr(session.start_time),
+        end_time: toLocalDatetimeStr(session.end_time),
         location: session.location || "",
         is_online: session.is_online || false,
         track_ids: session.track_ids || [],
@@ -1128,8 +1174,8 @@ export default function CreateComplexEvent() {
         zoom_join_url: session.zoom_join_url || null,
       });
       setSessionDuration(detectDurationFromTimes(
-        session.start_time ? session.start_time.slice(0, 16) : "",
-        session.end_time ? session.end_time.slice(0, 16) : ""
+        toLocalDatetimeStr(session.start_time),
+        toLocalDatetimeStr(session.end_time)
       ));
     } else {
       setEditingSession(null);
@@ -2496,7 +2542,7 @@ export default function CreateComplexEvent() {
                   onEdit={(session) => openSessionDialog(session)}
                   onDelete={(localId) => removeSession(localId)}
                   onAddAtSlot={({ startTime, trackId }) => {
-                    const prefillStartTime = startTime ? startTime.slice(0, 16) : "";
+                    const prefillStartTime = startTime ? toLocalDatetimeStr(startTime) : "";
                     const prefillTrackIds = trackId ? [trackId] : [];
                     openSessionDialog(null, { start_time: prefillStartTime, track_ids: prefillTrackIds });
                   }}

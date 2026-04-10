@@ -3,9 +3,11 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { fromZonedTime } from 'date-fns-tz';
 
+// Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
+// in the given event timezone to a UTC ISO string for database storage.
+// The input is timezone-naive; `fromZonedTime` interprets it as the specified timezone.
 function convertLocalTimeToUTC(localTimeStr, timezone) {
-  const localDate = new Date(localTimeStr);
-  const utcDate = fromZonedTime(localDate, timezone);
+  const utcDate = fromZonedTime(localTimeStr, timezone);
   return utcDate.toISOString();
 }
 

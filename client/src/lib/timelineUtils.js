@@ -1,5 +1,5 @@
 import { parseISO } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 const DEFAULT_PIXELS_PER_MINUTE = 2;
 const DEFAULT_MIN_CARD_HEIGHT = 40;
@@ -7,9 +7,14 @@ const DEFAULT_MARKER_INTERVAL = 30;
 const DEFAULT_TIMEZONE = "Europe/London";
 const DEFAULT_FALLBACK_DURATION = 30;
 
-function toDate(dateStr) {
+function toDate(dateStr, timezone = DEFAULT_TIMEZONE) {
   if (!dateStr) return null;
-  return typeof dateStr === "string" ? parseISO(dateStr) : new Date(dateStr);
+  if (typeof dateStr !== "string") return new Date(dateStr);
+  const hasOffset = /[+-]\d{2}(:\d{2})?$/.test(dateStr) || dateStr.endsWith("Z");
+  if (hasOffset) {
+    return parseISO(dateStr);
+  }
+  return fromZonedTime(dateStr, timezone);
 }
 
 export function computeTimelineLayout(sessions, {
@@ -25,23 +30,22 @@ export function computeTimelineLayout(sessions, {
   }
 
   function getEffectiveEnd(s) {
-    if (s.end_time) return toDate(s.end_time).getTime();
+    if (s.end_time) return toDate(s.end_time, timezone).getTime();
     const dur = s.duration_minutes || fallbackDuration;
-    return toDate(s.start_time).getTime() + dur * 60000;
+    return toDate(s.start_time, timezone).getTime() + dur * 60000;
   }
 
   let earliestMs = Infinity;
   let latestMs = -Infinity;
 
   withStartTime.forEach(s => {
-    const start = toDate(s.start_time).getTime();
+    const start = toDate(s.start_time, timezone).getTime();
     const end = getEffectiveEnd(s);
     if (start < earliestMs) earliestMs = start;
     if (end > latestMs) latestMs = end;
   });
 
-  const earliestDate = new Date(earliestMs);
-  const earliestMinOfHour = earliestDate.getMinutes();
+  const earliestMinOfHour = parseInt(formatInTimeZone(new Date(earliestMs), timezone, "m"), 10);
   const snapOffsetMs = (earliestMinOfHour % markerInterval) * 60000;
   const snappedEarliestMs = earliestMs - snapOffsetMs;
 
@@ -55,7 +59,7 @@ export function computeTimelineLayout(sessions, {
   let maxBottom = 0;
   withStartTime.forEach(s => {
     const id = s.id || s._localId;
-    const startMs = toDate(s.start_time).getTime();
+    const startMs = toDate(s.start_time, timezone).getTime();
     const endMs = getEffectiveEnd(s);
     const startMin = getMinutesFromOrigin(startMs);
     const endMin = getMinutesFromOrigin(endMs);
