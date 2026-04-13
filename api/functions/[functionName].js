@@ -244,21 +244,10 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
 }
 
 
-async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) {
+async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail, ticketClassId) {
   if (!supabase) return;
   
   try {
-    const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('id, start_date, title')
-      .eq('id', eventId)
-      .single();
-
-    if (eventError || !event || !event.start_date) {
-      console.log('[scheduleBookingReminderEmails] No event or start_date found');
-      return;
-    }
-
     const { data: reminderEmails, error: emailsError } = await supabase
       .from('event_email')
       .select('*')
@@ -273,10 +262,25 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
     
     console.log(`[scheduleBookingReminderEmails] Found ${reminderEmails.length} reminder emails to process`);
 
-    // Parse start_date - handle various formats from Supabase
-    // Dates may come as: "2025-12-18T13:55:00" or "2025-12-18T13:55:00Z" or "2025-12-18T13:55:00+00:00"
+    const isComplex = reminderEmails[0]?.is_complex_event || false;
+
+    if (isComplex) {
+      await scheduleBookingComplexReminders(bookingId, eventId, attendeeEmail, ticketClassId, reminderEmails);
+      return;
+    }
+
+    const { data: event, error: eventError } = await supabase
+      .from('event')
+      .select('id, start_date, title')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError || !event || !event.start_date) {
+      console.log('[scheduleBookingReminderEmails] No event or start_date found');
+      return;
+    }
+
     let startDateStr = event.start_date;
-    // Only append Z if there's no timezone indicator already
     if (!startDateStr.endsWith('Z') && !startDateStr.includes('+') && !startDateStr.includes('-', 10)) {
       startDateStr = startDateStr + 'Z';
     }
@@ -303,7 +307,6 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
         continue;
       }
 
-      // Check for existing scheduled email to avoid duplicates
       const { data: existing } = await supabase
         .from('scheduled_email')
         .select('id')
@@ -340,6 +343,116 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
   }
 }
 
+async function scheduleBookingComplexReminders(bookingId, eventId, attendeeEmail, ticketClassId, reminderEmails) {
+  try {
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('complex_event_session')
+      .select('id, title, start_time')
+      .eq('complex_event_id', eventId)
+      .order('start_time', { ascending: true });
+
+    if (sessionsError || !sessions || sessions.length === 0) {
+      console.log('[scheduleBookingComplexReminders] No sessions found for complex event');
+      return;
+    }
+
+    const sessionIds = sessions.map(s => s.id);
+    const { data: junctions } = await supabase
+      .from('complex_event_session_track')
+      .select('complex_event_session_id, complex_event_track_id')
+      .in('complex_event_session_id', sessionIds);
+
+    const sessionTrackMap = {};
+    for (const j of (junctions || [])) {
+      if (!sessionTrackMap[j.complex_event_session_id]) {
+        sessionTrackMap[j.complex_event_session_id] = [];
+      }
+      sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
+    }
+
+    let accessibleSessions = sessions;
+
+    if (ticketClassId) {
+      const { data: ticketClass } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id, linked_track_ids, all_tracks')
+        .eq('id', ticketClassId)
+        .eq('complex_event_id', eventId)
+        .maybeSingle();
+
+      if (ticketClass && !ticketClass.all_tracks && ticketClass.linked_track_ids?.length > 0) {
+        accessibleSessions = sessions.filter(s => {
+          const trackIds = sessionTrackMap[s.id] || [];
+          return trackIds.length === 0 || 
+            trackIds.some(tid => ticketClass.linked_track_ids.includes(tid));
+        });
+      }
+    }
+
+    console.log(`[scheduleBookingComplexReminders] ${accessibleSessions.length} accessible sessions for booking ${bookingId}`);
+
+    const nowMs = Date.now();
+
+    for (const email of reminderEmails) {
+      for (const session of accessibleSessions) {
+        if (!session.start_time) continue;
+
+        let startTimeStr = session.start_time;
+        if (!startTimeStr.endsWith('Z') && !startTimeStr.includes('+') && !startTimeStr.includes('-', 10)) {
+          startTimeStr = startTimeStr + 'Z';
+        }
+        const sessionStartMs = new Date(startTimeStr).getTime();
+        if (isNaN(sessionStartMs)) continue;
+
+        const scheduledTimeMs = calculateScheduledTimeMs(sessionStartMs, email);
+        if (!scheduledTimeMs) continue;
+
+        if (scheduledTimeMs <= nowMs) {
+          console.log(`[scheduleBookingComplexReminders] Skipping session "${session.title}" reminder - already passed`);
+          continue;
+        }
+
+        const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
+
+        const { data: existing } = await supabase
+          .from('scheduled_email')
+          .select('id')
+          .eq('event_email_id', email.id)
+          .eq('booking_id', bookingId)
+          .eq('session_id', session.id)
+          .maybeSingle();
+
+        if (existing) {
+          console.log(`[scheduleBookingComplexReminders] Reminder already scheduled for booking ${bookingId}, session ${session.id}`);
+          continue;
+        }
+
+        const { error: insertError } = await supabase
+          .from('scheduled_email')
+          .insert({
+            event_email_id: email.id,
+            booking_id: bookingId,
+            attendee_email: attendeeEmail,
+            scheduled_send_time: scheduledTimeISO,
+            session_id: session.id,
+            status: 'pending'
+          });
+
+        if (insertError) {
+          console.error(`[scheduleBookingComplexReminders] Failed to insert for session ${session.title}:`, insertError.message);
+          continue;
+        }
+
+        console.log(`[scheduleBookingComplexReminders] Scheduled reminder for session "${session.title}" at ${scheduledTimeISO}`);
+      }
+    }
+
+    console.log(`[scheduleBookingComplexReminders] Done scheduling for booking ${bookingId}`);
+  } catch (err) {
+    console.error('[scheduleBookingComplexReminders] Error:', err.message);
+  }
+}
+
 function getHoursFromTimingType(timingType, customHours) {
   switch (timingType) {
     case '7_days_before': return 7 * 24;
@@ -352,6 +465,32 @@ function getHoursFromTimingType(timingType, customHours) {
     case 'custom': return customHours || 24;
     default: return 24;
   }
+}
+
+function calculateScheduledTimeMs(referenceMs, email) {
+  const { timing_type, custom_hours_before, custom_unit, custom_send_at } = email;
+
+  if (timing_type === 'custom' && custom_unit === 'specific_datetime') {
+    if (custom_send_at) {
+      return new Date(custom_send_at).getTime();
+    }
+    return null;
+  }
+
+  let hoursBeforeEvent;
+  if (timing_type === 'custom') {
+    const value = custom_hours_before || 24;
+    switch (custom_unit) {
+      case 'days': hoursBeforeEvent = value * 24; break;
+      case 'minutes': hoursBeforeEvent = value / 60; break;
+      case 'hours':
+      default: hoursBeforeEvent = value; break;
+    }
+  } else {
+    hoursBeforeEvent = getHoursFromTimingType(timing_type, custom_hours_before);
+  }
+
+  return referenceMs - (hoursBeforeEvent * 60 * 60 * 1000);
 }
 
 const functionHandlers = {
@@ -2006,9 +2145,8 @@ const functionHandlers = {
         console.log('[createOneOffEventBooking] Booking created:', booking.id);
         createdBookings.push(booking);
         
-        // Schedule reminder emails for this booking - must await to complete before function ends
         try {
-          await scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email);
+          await scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email, ticketClassId);
         } catch (err) {
           console.error('[createOneOffEventBooking] Failed to schedule reminders:', err.message);
         }

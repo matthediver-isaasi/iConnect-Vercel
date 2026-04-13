@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PUT') {
     try {
-      const { emails } = req.body;
+      const { emails, is_complex_event } = req.body;
 
       if (!Array.isArray(emails)) {
         return res.status(400).json({ error: 'Emails must be an array' });
@@ -81,6 +81,7 @@ export default async function handler(req, res) {
           subject: email.subject,
           body: email.body,
           is_enabled: email.is_enabled !== false,
+          is_complex_event: is_complex_event || false,
           updated_at: new Date().toISOString()
         };
 
@@ -112,7 +113,11 @@ export default async function handler(req, res) {
         }
       }
 
-      await scheduleReminderEmails(eventId);
+      if (is_complex_event) {
+        await scheduleComplexEventReminderEmails(eventId);
+      } else {
+        await scheduleReminderEmails(eventId);
+      }
 
       return res.status(200).json(savedEmails);
     } catch (err) {
@@ -202,6 +207,125 @@ async function scheduleReminderEmails(eventId) {
     console.log(`[scheduleReminderEmails] Scheduled reminders for event ${eventId}`);
   } catch (err) {
     console.error('[scheduleReminderEmails] Error:', err);
+  }
+}
+
+async function scheduleComplexEventReminderEmails(eventId) {
+  try {
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('complex_event_session')
+      .select('id, title, start_time')
+      .eq('complex_event_id', eventId)
+      .order('start_time', { ascending: true });
+
+    if (sessionsError || !sessions || sessions.length === 0) {
+      console.log('[scheduleComplexEventReminderEmails] No sessions found for complex event');
+      return;
+    }
+
+    const sessionIds = sessions.map(s => s.id);
+    const { data: junctions } = await supabase
+      .from('complex_event_session_track')
+      .select('complex_event_session_id, complex_event_track_id')
+      .in('complex_event_session_id', sessionIds);
+
+    const sessionTrackMap = {};
+    for (const j of (junctions || [])) {
+      if (!sessionTrackMap[j.complex_event_session_id]) {
+        sessionTrackMap[j.complex_event_session_id] = [];
+      }
+      sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
+    }
+
+    const { data: reminderEmails, error: emailsError } = await supabase
+      .from('event_email')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('email_type', 'reminder')
+      .eq('is_enabled', true);
+
+    if (emailsError || !reminderEmails || reminderEmails.length === 0) {
+      console.log('[scheduleComplexEventReminderEmails] No reminder emails configured');
+      return;
+    }
+
+    const { data: bookings, error: bookingsError } = await supabase
+      .from('booking')
+      .select('id, attendee_email, ticket_class_id')
+      .eq('event_id', eventId)
+      .neq('status', 'cancelled');
+
+    if (bookingsError || !bookings || bookings.length === 0) {
+      console.log('[scheduleComplexEventReminderEmails] No active bookings found');
+      return;
+    }
+
+    const { data: ticketClasses } = await supabase
+      .from('complex_event_ticket_class')
+      .select('id, linked_track_ids, all_tracks')
+      .eq('complex_event_id', eventId);
+
+    const ticketClassMap = {};
+    for (const tc of (ticketClasses || [])) {
+      ticketClassMap[tc.id] = tc;
+    }
+
+    for (const email of reminderEmails) {
+      for (const session of sessions) {
+        if (!session.start_time) continue;
+
+        const sessionStart = new Date(session.start_time);
+        const scheduledTime = calculateScheduledTime(sessionStart, email);
+
+        if (!scheduledTime || scheduledTime <= new Date()) {
+          continue;
+        }
+
+        const sessionTrackIds = sessionTrackMap[session.id] || [];
+
+        for (const booking of bookings) {
+          const tc = booking.ticket_class_id ? ticketClassMap[booking.ticket_class_id] : null;
+          if (tc && !tc.all_tracks && tc.linked_track_ids?.length > 0) {
+            const hasAccess = sessionTrackIds.length === 0 || 
+              sessionTrackIds.some(tid => tc.linked_track_ids.includes(tid));
+            if (!hasAccess) continue;
+          }
+
+          const { data: existing } = await supabase
+            .from('scheduled_email')
+            .select('id')
+            .eq('event_email_id', email.id)
+            .eq('booking_id', booking.id)
+            .eq('session_id', session.id)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from('scheduled_email')
+              .update({
+                scheduled_send_time: scheduledTime.toISOString(),
+                status: 'pending'
+              })
+              .eq('id', existing.id);
+          } else {
+            await supabase
+              .from('scheduled_email')
+              .insert({
+                event_email_id: email.id,
+                booking_id: booking.id,
+                attendee_email: booking.attendee_email,
+                scheduled_send_time: scheduledTime.toISOString(),
+                session_id: session.id,
+                status: 'pending'
+              });
+          }
+        }
+      }
+    }
+
+    console.log(`[scheduleComplexEventReminderEmails] Scheduled per-session reminders for complex event ${eventId}`);
+  } catch (err) {
+    console.error('[scheduleComplexEventReminderEmails] Error:', err);
   }
 }
 

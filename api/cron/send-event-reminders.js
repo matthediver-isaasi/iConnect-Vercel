@@ -25,11 +25,13 @@ export default async function handler(req, res) {
         booking_id,
         attendee_email,
         scheduled_send_time,
+        session_id,
         event_email:event_email_id (
           id,
           subject,
           body,
-          event_id
+          event_id,
+          is_complex_event
         )
       `)
       .eq('status', 'pending')
@@ -102,17 +104,44 @@ export default async function handler(req, res) {
           continue;
         }
 
-        const { data: event, error: eventError } = await supabase
-          .from('event')
-          .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
-          .eq('id', eventEmail.event_id)
-          .single();
+        let event = null;
+        const isComplexEvent = eventEmail.is_complex_event || false;
 
-        if (eventError || !event) {
-          console.log(`[cron/send-event-reminders] Event not found for ${eventEmail.event_id}`);
-          await markAsFailed(scheduledEmail.id, 'Event not found');
-          failedCount++;
-          continue;
+        if (isComplexEvent) {
+          const { data: complexEvent, error: complexError } = await supabase
+            .from('complex_event')
+            .select('id, title, start_date, location, status, timezone, tenant_id')
+            .eq('id', eventEmail.event_id)
+            .single();
+
+          if (complexError || !complexEvent) {
+            console.log(`[cron/send-event-reminders] Complex event not found for ${eventEmail.event_id}`);
+            await markAsFailed(scheduledEmail.id, 'Complex event not found');
+            failedCount++;
+            continue;
+          }
+
+          event = {
+            ...complexEvent,
+            is_complex: true,
+            is_online: false,
+            zoom_meeting_id: null,
+            zoom_webinar_id: null
+          };
+        } else {
+          const { data: regularEvent, error: eventError } = await supabase
+            .from('event')
+            .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
+            .eq('id', eventEmail.event_id)
+            .single();
+
+          if (eventError || !regularEvent) {
+            console.log(`[cron/send-event-reminders] Event not found for ${eventEmail.event_id}`);
+            await markAsFailed(scheduledEmail.id, 'Event not found');
+            failedCount++;
+            continue;
+          }
+          event = regularEvent;
         }
 
         let zoomJoinUrl = null;
