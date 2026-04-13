@@ -21,14 +21,60 @@ function extractSnippet(text, searchTerm, maxLength = 150) {
   return snippet;
 }
 
+const STYLE_KEY_SUFFIXES = [
+  '_color', '_size', '_weight', '_family', '_spacing', '_height', '_type',
+  '_opacity', '_angle', '_radius', '_fit', '_id', '_url', '_point',
+  '_order', '_top', '_bottom', '_left', '_right', '_width', '_align',
+  '_transform', '_decoration', '_style', '_mode', '_position', '_repeat',
+  '_attachment', '_origin', '_clip', '_blend', '_filter'
+];
+const STYLE_KEY_EXACT = new Set([
+  'anchor', 'background_type', 'background_color', 'gradient_start_color',
+  'gradient_end_color', 'gradient_angle', 'overlay_opacity', 'height_type',
+  'image_fit', 'border_radius', 'padding_top', 'padding_bottom',
+  'padding_left', 'padding_right', 'display_order', 'element_type',
+  'icon_type', 'layout', 'variant', 'columnWidths', 'rows', 'cols',
+  'tableAlign', 'fullWidth', 'id', 'page_id', 'tenant_id', 'created_date',
+  'updated_date', 'autoLatest', 'contentType', 'itemId', 'status',
+  'is_public', 'image_url', 'feature_image_url', 'slug'
+]);
+
+function isStyleKey(key) {
+  if (STYLE_KEY_EXACT.has(key)) return true;
+  for (const suffix of STYLE_KEY_SUFFIXES) {
+    if (key.endsWith(suffix)) return true;
+  }
+  if (key.startsWith('mobile_')) return true;
+  return false;
+}
+
+function isStyleValue(val) {
+  if (typeof val !== 'string') return false;
+  if (/^#[0-9a-fA-F]{3,8}$/.test(val)) return true;
+  if (/^rgba?\(/.test(val)) return true;
+  if (/^hsla?\(/.test(val)) return true;
+  if (/^(https?:\/\/|data:)/.test(val)) return true;
+  if (/^\d+(\.\d+)?(px|em|rem|%|vh|vw|pt)?$/.test(val)) return true;
+  return false;
+}
+
 function extractTextFromObject(obj) {
   if (!obj) return '';
   if (typeof obj === 'string') return stripHtml(obj);
-  if (Array.isArray(obj)) return obj.map(extractTextFromObject).join(' ');
-  let texts = [];
-  if (obj.text) texts.push(obj.text);
-  if (obj.content) texts.push(extractTextFromObject(obj.content));
-  if (obj.children) texts.push(extractTextFromObject(obj.children));
+  if (typeof obj === 'number' || typeof obj === 'boolean') return '';
+  if (Array.isArray(obj)) return obj.map(extractTextFromObject).filter(Boolean).join(' ');
+
+  const texts = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (isStyleKey(key)) continue;
+    if (typeof value === 'string') {
+      if (value.length < 2 || isStyleValue(value)) continue;
+      texts.push(stripHtml(value));
+    } else if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+      const nested = extractTextFromObject(value);
+      if (nested) texts.push(nested);
+    }
+  }
   return texts.join(' ');
 }
 
@@ -116,19 +162,26 @@ export default async function handler(req, res) {
         .select('id')
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
-        .limit(500)
+        .limit(1000)
     ]);
 
     const tenantPageIds = (tenantPageIdsResult.data || []).map(p => p.id);
 
     let pageElementsResult = { data: null };
     if (tenantPageIds.length > 0) {
-      pageElementsResult = await supabase
-        .from('i_edit_page_element')
-        .select('page_id, content')
-        .in('page_id', tenantPageIds)
-        .filter('content::text', 'ilike', searchPattern)
-        .limit(200);
+      const batchSize = 200;
+      const allElements = [];
+      for (let i = 0; i < tenantPageIds.length; i += batchSize) {
+        const batch = tenantPageIds.slice(i, i + batchSize);
+        const { data } = await supabase
+          .from('i_edit_page_element')
+          .select('page_id, content')
+          .in('page_id', batch)
+          .or(`content::text.ilike.${searchPattern}`)
+          .limit(1000);
+        if (data) allElements.push(...data);
+      }
+      pageElementsResult = { data: allElements.length > 0 ? allElements : null };
     }
 
     if (eventsResult.data) {
