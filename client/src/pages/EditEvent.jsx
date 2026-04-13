@@ -60,7 +60,6 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import SEOSettings from "@/components/blog/SEOSettings";
-import ComplexEventSessions from "@/components/events/ComplexEventSessions";
 import ZoomPolls from "@/components/events/ZoomPolls";
 
 function toLocalDatetimeString(isoOrLocal) {
@@ -137,11 +136,6 @@ export default function EditEvent() {
   // Event state: active, draft, or closed - affects visibility/registration
   const [eventState, setEventState] = useState("active");
   const [isFeatured, setIsFeatured] = useState(false);
-  
-  // Complex event sessions
-  const [isComplexEvent, setIsComplexEvent] = useState(false);
-  const [complexSessions, setComplexSessions] = useState([]);
-  const [savingSessions, setSavingSessions] = useState(false);
 
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
@@ -232,31 +226,6 @@ export default function EditEvent() {
     queryFn: () => base44.entities.Event.get(eventId),
     enabled: !!eventId
   });
-
-  const { data: existingSessionsData = [] } = useQuery({
-    queryKey: ['complex-event-sessions', eventId],
-    queryFn: async () => {
-      const response = await fetch(`/api/complex-event-sessions?event_id=${eventId}`, { credentials: 'include' });
-      if (!response.ok) return [];
-      return response.json();
-    },
-    enabled: !!eventId && isComplexEvent
-  });
-
-  useEffect(() => {
-    if (existingSessionsData.length > 0 && complexSessions.length === 0) {
-      setComplexSessions(existingSessionsData.map(s => ({
-        ...s,
-        _tempId: s.id,
-        _existingId: s.id,
-        zoom_link_mode: (s.zoom_meeting_id || s.zoom_webinar_id) ? 'link_existing' : 'auto_create',
-        auto_create_zoom: false,
-        link_existing_zoom_id: '',
-        link_existing_zoom_type: '',
-        _expanded: false
-      })));
-    }
-  }, [existingSessionsData]);
 
   // State to track if timezone fetch failed
   const [timezoneFetchFailed, setTimezoneFetchFailed] = useState(false);
@@ -829,8 +798,6 @@ export default function EditEvent() {
         });
       }
 
-      setIsComplexEvent(!!event.is_complex);
-
       // Set isProgramEvent based on whether event has a program_tag
       const hasProgram = event.program_tag && event.program_tag !== "";
       setIsProgramEvent(hasProgram);
@@ -1326,97 +1293,9 @@ export default function EditEvent() {
       };
     }
 
-    eventData.is_complex = isComplexEvent && complexSessions.length > 0;
 
     updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
-        if (isComplexEvent && complexSessions.length > 0) {
-          setSavingSessions(true);
-          try {
-            const existingIds = existingSessionsData.map(s => s.id);
-            const currentIds = complexSessions.filter(s => s._existingId).map(s => s._existingId);
-            const deletedIds = existingIds.filter(id => !currentIds.includes(id));
-
-            const sessionErrors = [];
-
-            for (const delId of deletedIds) {
-              const delResp = await fetch(`/api/complex-event-sessions/${delId}`, {
-                method: 'DELETE',
-                credentials: 'include'
-              });
-              if (!delResp.ok) {
-                sessionErrors.push('Failed to delete a removed session');
-              }
-            }
-
-            for (const session of complexSessions) {
-              const isVirtual = session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid';
-              const payload = {
-                title: session.title,
-                description: session.description || null,
-                start_time: session.start_time || null,
-                end_time: session.end_time || null,
-                duration_minutes: session.duration_minutes || 60,
-                timezone: session.timezone || 'Europe/London',
-                delivery_mode: session.delivery_mode,
-                track_name: session.track_name || null,
-                sort_order: session.sort_order || 0,
-                zoom_type: isVirtual ? session.zoom_type : null,
-                zoom_host_id: isVirtual ? session.zoom_host_id : null,
-                zoom_host_email: isVirtual ? session.zoom_host_email : null,
-                zoom_registration_required: isVirtual && session.zoom_type === 'webinar' ? session.zoom_registration_required : false
-              };
-
-              let resp;
-              if (session._existingId) {
-                const patchBody = { ...payload };
-                if (isVirtual && session.zoom_link_mode === 'link_existing' && session.link_existing_zoom_id) {
-                  patchBody.link_existing_zoom_id = session.link_existing_zoom_id;
-                  patchBody.link_existing_zoom_type = session.zoom_type || 'meeting';
-                } else if (isVirtual && session.auto_create_zoom) {
-                  patchBody.auto_create_zoom = true;
-                }
-
-                resp = await fetch(`/api/complex-event-sessions/${session._existingId}`, {
-                  method: 'PATCH',
-                  credentials: 'include',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(patchBody)
-                });
-              } else {
-                resp = await fetch('/api/complex-event-sessions', {
-                  method: 'POST',
-                  credentials: 'include',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    event_id: eventId,
-                    ...payload,
-                    auto_create_zoom: isVirtual && session.zoom_link_mode !== 'link_existing' ? session.auto_create_zoom : false,
-                    link_existing_zoom_id: isVirtual && session.zoom_link_mode === 'link_existing' ? session.link_existing_zoom_id : null,
-                    link_existing_zoom_type: isVirtual && session.zoom_link_mode === 'link_existing' ? (session.zoom_type || 'meeting') : null
-                  })
-                });
-              }
-
-              if (!resp.ok) {
-                const errData = await resp.json().catch(() => ({}));
-                sessionErrors.push(`${session.title || 'Unnamed'}: ${errData.error || `HTTP ${resp.status}`}`);
-              }
-            }
-
-            if (sessionErrors.length > 0) {
-              toast.error(`Some sessions failed to save: ${sessionErrors.join('; ')}`);
-            }
-
-            queryClient.invalidateQueries({ queryKey: ['complex-event-sessions', eventId] });
-          } catch (sessErr) {
-            console.error('Failed to save sessions:', sessErr);
-            toast.error('Event saved but some sessions failed to save');
-          } finally {
-            setSavingSessions(false);
-          }
-        }
-
         // Save sponsor assignments
         try {
           const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'simple' } });
@@ -3733,100 +3612,19 @@ export default function EditEvent() {
             </Card>
           )}
 
-          <Card className="border border-slate-200">
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-lg">Multi-Session / Complex Event</CardTitle>
-                <CardDescription>Add individual sessions with per-session Zoom integration</CardDescription>
-              </div>
-              <Switch
-                checked={isComplexEvent}
-                onCheckedChange={setIsComplexEvent}
-                data-testid="switch-complex-event"
-              />
-            </CardHeader>
-            {isComplexEvent && (
-              <CardContent>
-                <ComplexEventSessions
-                  sessions={complexSessions}
-                  onSessionsChange={setComplexSessions}
-                  timezoneOptions={[
-                    { value: 'Europe/London', label: 'Europe/London (GMT/BST)' },
-                    { value: 'America/New_York', label: 'America/New York (EST/EDT)' },
-                    { value: 'America/Chicago', label: 'America/Chicago (CST/CDT)' },
-                    { value: 'America/Los_Angeles', label: 'America/Los Angeles (PST/PDT)' },
-                    { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST)' },
-                    { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST)' },
-                    { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT)' }
-                  ]}
-                  eventTimezone={eventTimezone}
-                />
-                {complexSessions.some(s => s._existingId && (s.zoom_meeting_id || s.zoom_webinar_id)) && (
-                  <div className="mt-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        for (const session of complexSessions) {
-                          if (session._existingId && (session.zoom_meeting_id || session.zoom_webinar_id)) {
-                            try {
-                              await fetch(`/api/complex-event-sessions/${session._existingId}/sync-zoom`, {
-                                method: 'POST',
-                                credentials: 'include'
-                              });
-                            } catch (e) {
-                              console.error('Sync failed for session:', session.title, e);
-                            }
-                          }
-                        }
-                        queryClient.invalidateQueries({ queryKey: ['complex-event-sessions', eventId] });
-                        toast.success('Zoom sync completed for all sessions');
-                      }}
-                      data-testid="button-sync-sessions-zoom"
-                    >
-                      <Clock className="h-4 w-4 mr-2" />
-                      Sync All Sessions from Zoom
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            )}
-          </Card>
-
           {(() => {
             const simpleZoomId = formData.zoom_meeting_id || formData.zoom_webinar_id;
+            if (!simpleZoomId) return null;
             const simpleZoomType = formData.zoom_webinar_id ? 'webinar' : 'meeting';
             const eventIsPast = formData.start_date && new Date(formData.start_date) < new Date();
-            const hasComplexZoomSessions = isComplexEvent && complexSessions.some(s => s.zoom_meeting_id || s.zoom_webinar_id);
-
-            if (!simpleZoomId && !hasComplexZoomSessions) return null;
 
             return (
-              <div className="space-y-4 mb-6">
-                {simpleZoomId && !isComplexEvent && (
-                  <ZoomPolls
-                    zoomId={simpleZoomId}
-                    type={simpleZoomType}
-                    isPast={eventIsPast}
-                  />
-                )}
-
-                {hasComplexZoomSessions && complexSessions.map((session, idx) => {
-                  const sessionZoomId = session.zoom_meeting_id || session.zoom_webinar_id;
-                  if (!sessionZoomId) return null;
-                  const sessionType = session.zoom_webinar_id ? 'webinar' : 'meeting';
-                  const sessionIsPast = session.start_time && new Date(session.start_time) < new Date();
-                  return (
-                    <ZoomPolls
-                      key={session._tempId || session.id || idx}
-                      zoomId={sessionZoomId}
-                      type={sessionType}
-                      isPast={sessionIsPast}
-                      label={session.title || `Session ${idx + 1}`}
-                    />
-                  );
-                })}
+              <div className="mt-6 mb-6">
+                <ZoomPolls
+                  zoomId={simpleZoomId}
+                  type={simpleZoomType}
+                  isPast={eventIsPast}
+                />
               </div>
             );
           })()}
@@ -3836,21 +3634,21 @@ export default function EditEvent() {
               type="button"
               variant="outline"
               onClick={() => window.location.href = createPageUrl('Events')}
-              disabled={updateEventMutation.isPending || savingSessions}
+              disabled={updateEventMutation.isPending}
               data-testid="button-cancel"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={updateEventMutation.isPending || savingSessions}
+              disabled={updateEventMutation.isPending}
               className="bg-blue-600 hover:bg-blue-700"
               data-testid="button-save-event"
             >
-              {(updateEventMutation.isPending || savingSessions) ? (
+              {updateEventMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {savingSessions ? 'Saving Sessions...' : 'Saving...'}
+                  Saving...
                 </>
               ) : (
                 <>
