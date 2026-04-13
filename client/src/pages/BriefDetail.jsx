@@ -59,7 +59,7 @@ import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import MemberCombobox from "@/components/MemberCombobox";
 import DOMPurify from "dompurify";
 
-const STATUS_CONFIG = {
+const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
   assigned: { label: "Assigned", color: "#3b82f6", icon: FileText },
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
@@ -68,6 +68,21 @@ const STATUS_CONFIG = {
   approved: { label: "Approved", color: "#22c55e", icon: CheckCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
 };
+
+function buildStatusConfig(stages) {
+  if (!stages || stages.length === 0) return DEFAULT_STATUS_CONFIG;
+  const config = {};
+  for (const stage of stages) {
+    config[stage.key] = { label: stage.label, color: stage.color, icon: Clock };
+  }
+  return new Proxy(config, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (typeof prop === 'string') return { label: prop.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), color: '#6b7280', icon: Clock };
+      return undefined;
+    }
+  });
+}
 
 const PRIORITY_CONFIG = {
   low: { label: "Low", color: "#6b7280" },
@@ -137,6 +152,19 @@ export default function BriefDetailPage() {
   const [commentText, setCommentText] = useState("");
   const [commentCategory, setCommentCategory] = useState("other");
   const [commentVersionId, setCommentVersionId] = useState("");
+
+  const { data: briefSettings } = useQuery({
+    queryKey: ["brief-settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/article-briefs/settings", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: isAccessReady,
+    staleTime: 60000,
+  });
+
+  const STATUS_CONFIG = useMemo(() => buildStatusConfig(briefSettings?.stages), [briefSettings?.stages]);
 
   const { data: brief, isLoading: briefLoading } = useQuery({
     queryKey: ["article-brief", briefId],
@@ -663,7 +691,18 @@ export default function BriefDetailPage() {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="edit-category">Category</Label>
-                      <Input id="edit-category" value={editData.category} onChange={(e) => setEditData((p) => ({ ...p, category: e.target.value }))} data-testid="input-edit-category" />
+                      {briefSettings?.categories && briefSettings.categories.length > 0 ? (
+                        <Select value={editData.category || ""} onValueChange={(v) => setEditData((p) => ({ ...p, category: v }))}>
+                          <SelectTrigger data-testid="select-edit-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+                          <SelectContent>
+                            {briefSettings.categories.map((cat) => (
+                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input id="edit-category" value={editData.category} onChange={(e) => setEditData((p) => ({ ...p, category: e.target.value }))} data-testid="input-edit-category" />
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

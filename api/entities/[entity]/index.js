@@ -3,6 +3,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
+import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 
 // Send email on form submission if configured
@@ -1044,6 +1045,18 @@ export default async function handler(req, res) {
           tenant_id: data.tenant_id
         }).then(() => {}).catch(err => {
           console.error('[Entity POST] ArticleBrief activity log error:', err);
+        });
+      }
+
+      if (entityNorm === 'articlebriefcomment' && data && data.tenant_id && data.article_brief_id) {
+        sendBriefNotification({
+          tenantId: data.tenant_id,
+          briefId: data.article_brief_id,
+          eventType: 'comment_added',
+          performedById: data.created_by || tenantCtx.memberId || null,
+          metadata: { comment_preview: (data.comment_text || '').substring(0, 200) },
+        }).catch(err => {
+          console.error('[Entity POST] Brief comment notification error:', err);
         });
       }
 

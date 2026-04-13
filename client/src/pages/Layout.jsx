@@ -189,9 +189,20 @@ const adminNavigationItems = [
   },
   {
     title: "Article Briefs",
-    url: createPageUrl("BriefManagement"),
     icon: FileText,
-    featureId: "page_BriefManagement"
+    featureId: "page_BriefManagement",
+    subItems: [
+      {
+        title: "Manage Briefs",
+        url: createPageUrl("BriefManagement"),
+        featureId: "page_BriefManagement"
+      },
+      {
+        title: "Brief Settings",
+        url: createPageUrl("BriefSettings"),
+        featureId: "page_BriefSettings"
+      }
+    ]
   },
   {
     title: "Role Management",

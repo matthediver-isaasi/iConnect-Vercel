@@ -339,6 +339,7 @@ import DueDiligenceReports from "./DueDiligenceReports";
 
 import BriefManagement from "./BriefManagement";
 import BriefDetail from "./BriefDetail";
+import BriefSettings from "./BriefSettings";
 
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
@@ -633,6 +634,7 @@ const PAGES = {
     
     BriefManagement: BriefManagement,
     BriefDetail: BriefDetail,
+    BriefSettings: BriefSettings,
     
     Forum: Forum,
     ForumThread: ForumThread,
@@ -890,6 +892,7 @@ function PagesContent() {
                 
                 <Route path="/BriefManagement" element={<BriefManagement />} />
                 <Route path="/BriefDetail" element={<BriefDetail />} />
+                <Route path="/BriefSettings" element={<BriefSettings />} />
                 
                 <Route path="/Forum" element={<Forum />} />
                 <Route path="/ForumThread" element={<ForumThread />} />

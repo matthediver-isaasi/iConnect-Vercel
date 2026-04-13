@@ -1005,8 +1005,10 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_AIReports": "admin.ai-reports",
   "page_BriefManagement": "content.briefs",
   "page_BriefDetail": "content.briefs",
+  "page_BriefSettings": "content.brief-settings",
   "page_admin_BriefManagement": "content.briefs",
-  "page_admin_BriefDetail": "content.briefs"
+  "page_admin_BriefDetail": "content.briefs",
+  "page_admin_BriefSettings": "content.brief-settings"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

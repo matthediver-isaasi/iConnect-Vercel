@@ -34,6 +34,7 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **Event-Linked Resource Access:** Resources can be linked to one or more events (and optionally specific sessions within complex events). Only members with a confirmed booking for at least one linked event/session can see the resource. Session-level linking checks track access via ticket class. Admin form has a "Linked Events" section for managing links. Public API excludes event-linked resources. Uses `linked_events` JSONB column on resource table and `api/resources/check-event-access.js` endpoint.
 -   **Organization Directory Type Filter:** Allows filtering visible organizations in the directory based on their type.
 -   **CRM Tags:** Free-text tagging on Organisation and Member records (stored as `text[]` columns). Tag Management page supports four sections (Resources, Articles, Organisations, Members) with rename and delete for all tag types.
+-   **Article Brief Settings:** Admin-configurable workflow stages, brief categories, and email notification toggles per tenant. Stored in `article_brief_settings` table (JSONB stages/categories, boolean notify flags). BriefManagement and BriefDetail pages read stages dynamically instead of using hardcoded STATUS_CONFIG. Category field uses a dropdown populated from configured categories. Email notifications are sent via Mailgun on key events (writer assigned, status changes, comments, version uploads).
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.

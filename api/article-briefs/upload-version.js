@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { sendBriefNotification } from './notify.js';
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -134,6 +135,28 @@ export default async function handler(req, res) {
     await supabase
       .from('article_brief_activity')
       .insert(activityEntries);
+
+    sendBriefNotification({
+      tenantId: tenantCtx.tenantId,
+      briefId: article_brief_id,
+      eventType: 'version_uploaded',
+      performedById: uploaderId,
+      metadata: { version_number: finalVersionNumber },
+    }).catch(err => {
+      console.error('[UploadVersion] Notification error:', err);
+    });
+
+    if (didTransitionStatus) {
+      sendBriefNotification({
+        tenantId: tenantCtx.tenantId,
+        briefId: article_brief_id,
+        eventType: 'status_changed_to_review',
+        performedById: uploaderId,
+        metadata: { old_status: brief.status, new_status: 'under_review' },
+      }).catch(err => {
+        console.error('[UploadVersion] Status notification error:', err);
+      });
+    }
 
     return res.json({
       success: true,

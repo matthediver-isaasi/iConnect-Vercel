@@ -4,6 +4,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { sendBriefNotification } from '../../article-briefs/notify.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -584,6 +585,35 @@ export default async function handler(req, res) {
 
           if (activities.length > 0) {
             await supabase.from('article_brief_activity').insert(activities);
+          }
+
+          if (beforeData.status !== data.status) {
+            const newStatus = data.status;
+            let eventType = null;
+            if (newStatus === 'changes_requested') {
+              eventType = 'status_changed_to_changes_requested';
+            } else if (newStatus === 'under_review') {
+              eventType = 'status_changed_to_review';
+            }
+            if (eventType) {
+              sendBriefNotification({
+                tenantId: tenantCtx.tenantId,
+                briefId: id,
+                eventType,
+                performedById: tenantCtx.memberId,
+                metadata: { old_status: beforeData.status, new_status: newStatus },
+              }).catch(err => console.error('[Entity PATCH] Brief notification error:', err));
+            }
+          }
+
+          if (beforeData.assigned_writer_id !== data.assigned_writer_id && data.assigned_writer_id) {
+            sendBriefNotification({
+              tenantId: tenantCtx.tenantId,
+              briefId: id,
+              eventType: 'writer_assigned',
+              performedById: tenantCtx.memberId,
+              metadata: {},
+            }).catch(err => console.error('[Entity PATCH] Brief notification error:', err));
           }
         } catch (actErr) {
           console.error('[Entity PATCH] Error creating ArticleBrief activity:', actErr);
