@@ -1172,29 +1172,47 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
   const items = React.useMemo(() => {
     if (!content.cards) return [];
 
-    const getLatestItem = (list) => {
-      if (!list || list.length === 0) return null;
-      return [...list].sort((a, b) => {
-        const dateA = new Date(a.published_date || a.created_at || a.created_date || 0);
-        const dateB = new Date(b.published_date || b.created_at || b.created_date || 0);
-        return dateB - dateA;
-      })[0];
+    const listForType = {
+      news: allNews,
+      resources: allResources,
+      articles: allArticles,
+      jobs: allJobs,
     };
+
+    const sortedByType = {};
+    for (const type of Object.keys(listForType)) {
+      const list = listForType[type];
+      if (list && list.length > 0) {
+        sortedByType[type] = [...list].sort((a, b) => {
+          const dateA = new Date(a.published_date || a.created_at || a.created_date || 0);
+          const dateB = new Date(b.published_date || b.created_at || b.created_date || 0);
+          return dateB - dateA;
+        });
+      } else {
+        sortedByType[type] = [];
+      }
+    }
+
+    const claimedKeys = new Set();
+
+    content.cards.forEach(card => {
+      if (!card.autoLatest && card.itemId) {
+        claimedKeys.add(`${card.contentType}:${card.itemId}`);
+      }
+    });
 
     return content.cards
       .map(card => {
         if (!card.itemId && !card.autoLatest) return null;
-        
+
         let item;
-        const listForType = {
-          news: allNews,
-          resources: allResources,
-          articles: allArticles,
-          jobs: allJobs,
-        };
 
         if (card.autoLatest) {
-          item = getLatestItem(listForType[card.contentType]);
+          const sorted = sortedByType[card.contentType] || [];
+          item = sorted.find(entry => !claimedKeys.has(`${card.contentType}:${entry.id}`)) || null;
+          if (item) {
+            claimedKeys.add(`${card.contentType}:${item.id}`);
+          }
         } else {
           switch (card.contentType) {
             case 'news':
