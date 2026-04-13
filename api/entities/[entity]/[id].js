@@ -3,6 +3,7 @@ import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
+import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -526,6 +527,23 @@ export default async function handler(req, res) {
 
       if (entity === 'BlogPost' && responseData && tenantCtx.tenantId) {
         dispatchWpWebhook(tenantCtx.tenantId, 'article.updated', id);
+      }
+
+      const searchTextEntities = ['blogpost', 'newspost', 'event', 'resource', 'ieditpage', 'ieditpageelement', 'complexevent', 'complexeventsession', 'complexeventtrack'];
+      if (searchTextEntities.includes(entityNormalized) && supabase) {
+        if ((entityNormalized === 'ieditpageelement') && beforeData && data && beforeData.page_id && data.page_id && beforeData.page_id !== data.page_id) {
+          rebuildSearchTextForEntity(supabase, 'IEditPage', null, beforeData.page_id).catch(err => {
+            console.error('[Entity PATCH] Search text rebuild error (old parent page):', err);
+          });
+        }
+        if ((entityNormalized === 'complexeventsession' || entityNormalized === 'complexeventtrack') && beforeData && data && beforeData.complex_event_id && data.complex_event_id && beforeData.complex_event_id !== data.complex_event_id) {
+          rebuildSearchTextForEntity(supabase, 'ComplexEvent', null, beforeData.complex_event_id).catch(err => {
+            console.error('[Entity PATCH] Search text rebuild error (old parent event):', err);
+          });
+        }
+        rebuildSearchTextForEntity(supabase, entity, responseData || data, id).catch(err => {
+          console.error('[Entity PATCH] Search text rebuild error:', err);
+        });
       }
 
       if (isArticleBrief && data && beforeData && tenantCtx.tenantId) {
@@ -1062,6 +1080,25 @@ export default async function handler(req, res) {
 
       if (entity === 'BlogPost' && tenantCtx.tenantId) {
         dispatchWpWebhook(tenantCtx.tenantId, 'article.deleted', id);
+      }
+
+      if (supabase && deleteData && deleteData.length > 0) {
+        const deletedRecord = deleteData[0];
+        if (entity === 'IEditPageElement' && deletedRecord.page_id) {
+          rebuildSearchTextForEntity(supabase, 'IEditPage', null, deletedRecord.page_id).catch(err => {
+            console.error('[Entity DELETE] Search text rebuild error for page:', err);
+          });
+        }
+        if (entity === 'ComplexEventSession' && deletedRecord.complex_event_id) {
+          rebuildSearchTextForEntity(supabase, 'ComplexEvent', null, deletedRecord.complex_event_id).catch(err => {
+            console.error('[Entity DELETE] Search text rebuild error for complex event:', err);
+          });
+        }
+        if (entity === 'ComplexEventTrack' && deletedRecord.complex_event_id) {
+          rebuildSearchTextForEntity(supabase, 'ComplexEvent', null, deletedRecord.complex_event_id).catch(err => {
+            console.error('[Entity DELETE] Search text rebuild error for complex event:', err);
+          });
+        }
       }
 
       return res.json({ success: true });

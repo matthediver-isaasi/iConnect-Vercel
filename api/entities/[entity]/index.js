@@ -3,6 +3,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
+import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -1024,6 +1025,13 @@ export default async function handler(req, res) {
 
       if (entityNorm === 'blogpost' && data && data.tenant_id) {
         dispatchWpWebhook(data.tenant_id, 'article.created', data.id);
+      }
+
+      const searchTextEntities = ['blogpost', 'newspost', 'event', 'resource', 'ieditpage', 'ieditpageelement', 'complexevent', 'complexeventsession', 'complexeventtrack'];
+      if (searchTextEntities.includes(entityNorm) && data && supabase) {
+        rebuildSearchTextForEntity(supabase, entity, data, data.id).catch(err => {
+          console.error('[Entity POST] Search text rebuild error:', err);
+        });
       }
 
       if (entityNorm === 'articlebrief' && data && data.tenant_id) {
