@@ -19,6 +19,10 @@ const twoColumnQuillModules = {
   ]
 };
 
+const DEFAULT_LINK_COLOR = '#2563eb';
+const isValidHexColor = (c) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c);
+const safeLinkColor = (c) => (c && isValidHexColor(c) ? c : DEFAULT_LINK_COLOR);
+
 const fontFamilies = [
   'Poppins',
   'Degular Medium', 
@@ -133,6 +137,7 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
   const renderColumn = (side, heading, columnContent) => {
     const imageUrl = content?.[`${side}_image_url`];
     const imagePosition = content?.[`${side}_image_position`] || 'above';
+    const linkColor = safeLinkColor(content?.[`${side}_link_color`]);
 
     const headingElement = heading && (
       <h3 style={getHeaderStyle(side)} className="mb-4">
@@ -142,8 +147,8 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
 
     const contentElement = columnContent && (
       <div 
-        className="prose max-w-none" 
-        style={getContentStyle(side)}
+        className="prose max-w-none twocol-link-styled"
+        style={{ ...getContentStyle(side), '--twocol-link-color': linkColor }}
         dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(columnContent) }}
       />
     );
@@ -184,6 +189,7 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
       className="relative w-full"
       style={hasBackground && backgroundType !== 'image' ? getBackgroundStyle() : {}}
     >
+      <style dangerouslySetInnerHTML={{ __html: `.twocol-link-styled a { color: var(--twocol-link-color); }` }} />
       {/* Background image layer - full width */}
       {backgroundType === 'image' && content?.background_image_url && (
         <>
@@ -719,6 +725,37 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                   placeholder="#475569"
                 />
               </div>
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Link Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content[`${side}_link_color`] || '#2563eb'}
+                  onChange={(e) => updateContent(`${side}_link_color`, e.target.value)}
+                  className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid={`input-${side}-link-color-picker`}
+                />
+                <Input
+                  type="text"
+                  value={content[`${side}_link_color`] || ''}
+                  onChange={(e) => updateContent(`${side}_link_color`, e.target.value)}
+                  className="flex-1 font-mono text-xs h-8"
+                  placeholder="#2563eb"
+                  data-testid={`input-${side}-link-color`}
+                />
+                {content[`${side}_link_color`] && (
+                  <button
+                    type="button"
+                    onClick={() => updateContent(`${side}_link_color`, '')}
+                    className="p-1 text-slate-400 hover:text-slate-600"
+                    data-testid={`button-clear-${side}-link-color`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-1">Colour of links in content text</p>
             </div>
             <details className="text-xs">
               <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
