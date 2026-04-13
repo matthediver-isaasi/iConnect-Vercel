@@ -121,25 +121,41 @@ function CardSlotEditor({ index, card, onUpdate }) {
           </SelectContent>
         </Select>
 
-        <Select
-          value={card.itemId || ''}
-          onValueChange={(value) => onUpdate(index, 'itemId', value)}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue placeholder="Select item..." />
-          </SelectTrigger>
-          <SelectContent>
-            {items.length === 0 ? (
-              <div className="p-2 text-xs text-slate-500">No items available</div>
-            ) : (
-              items.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.title || item.name}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id={`autoLatest-${index}`}
+            checked={card.autoLatest ?? false}
+            onChange={(e) => onUpdate(index, 'autoLatest', e.target.checked)}
+            className="w-4 h-4"
+            data-testid={`checkbox-auto-latest-${index}`}
+          />
+          <Label htmlFor={`autoLatest-${index}`} className="cursor-pointer text-xs">
+            Auto select latest
+          </Label>
+        </div>
+
+        {!card.autoLatest && (
+          <Select
+            value={card.itemId || ''}
+            onValueChange={(value) => onUpdate(index, 'itemId', value)}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select item..." />
+            </SelectTrigger>
+            <SelectContent>
+              {items.length === 0 ? (
+                <div className="p-2 text-xs text-slate-500">No items available</div>
+              ) : (
+                items.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.title || item.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        )}
 
         <div className="pt-2 border-t border-slate-300 space-y-2">
           <div className="flex items-center gap-2">
@@ -1122,7 +1138,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       const result = await publicClient.listNews();
       return Array.isArray(result) ? result : [];
     },
-    enabled: content.cards?.some(c => c.contentType === 'news' && c.itemId)
+    enabled: content.cards?.some(c => c.contentType === 'news' && (c.itemId || c.autoLatest))
   });
 
   const { data: allResources = [] } = useQuery({
@@ -1131,7 +1147,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       const result = await publicClient.listResources();
       return Array.isArray(result) ? result : [];
     },
-    enabled: content.cards?.some(c => c.contentType === 'resources' && c.itemId)
+    enabled: content.cards?.some(c => c.contentType === 'resources' && (c.itemId || c.autoLatest))
   });
 
   const { data: allArticles = [] } = useQuery({
@@ -1140,7 +1156,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       const result = await publicClient.listArticles();
       return Array.isArray(result?.articles) ? result.articles : (Array.isArray(result) ? result : []);
     },
-    enabled: content.cards?.some(c => c.contentType === 'articles' && c.itemId)
+    enabled: content.cards?.some(c => c.contentType === 'articles' && (c.itemId || c.autoLatest))
   });
 
   const { data: allJobs = [] } = useQuery({
@@ -1149,31 +1165,51 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       const result = await publicClient.listJobPostings();
       return Array.isArray(result) ? result : [];
     },
-    enabled: content.cards?.some(c => c.contentType === 'jobs' && c.itemId)
+    enabled: content.cards?.some(c => c.contentType === 'jobs' && (c.itemId || c.autoLatest))
   });
 
   // Build items array from selected cards with metadata
   const items = React.useMemo(() => {
     if (!content.cards) return [];
 
+    const getLatestItem = (list) => {
+      if (!list || list.length === 0) return null;
+      return [...list].sort((a, b) => {
+        const dateA = new Date(a.published_date || a.created_at || a.created_date || 0);
+        const dateB = new Date(b.published_date || b.created_at || b.created_date || 0);
+        return dateB - dateA;
+      })[0];
+    };
+
     return content.cards
       .map(card => {
-        if (!card.itemId) return null;
+        if (!card.itemId && !card.autoLatest) return null;
         
         let item;
-        switch (card.contentType) {
-          case 'news':
-            item = allNews.find(n => n.id === card.itemId);
-            break;
-          case 'resources':
-            item = allResources.find(r => r.id === card.itemId);
-            break;
-          case 'articles':
-            item = allArticles.find(a => a.id === card.itemId);
-            break;
-          case 'jobs':
-            item = allJobs.find(j => j.id === card.itemId);
-            break;
+        const listForType = {
+          news: allNews,
+          resources: allResources,
+          articles: allArticles,
+          jobs: allJobs,
+        };
+
+        if (card.autoLatest) {
+          item = getLatestItem(listForType[card.contentType]);
+        } else {
+          switch (card.contentType) {
+            case 'news':
+              item = allNews.find(n => n.id === card.itemId);
+              break;
+            case 'resources':
+              item = allResources.find(r => r.id === card.itemId);
+              break;
+            case 'articles':
+              item = allArticles.find(a => a.id === card.itemId);
+              break;
+            case 'jobs':
+              item = allJobs.find(j => j.id === card.itemId);
+              break;
+          }
         }
         return item ? { ...item, _contentType: card.contentType, _cardConfig: card } : null;
       })
