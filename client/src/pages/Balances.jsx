@@ -14,7 +14,7 @@ import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { toast } from "sonner";
 
 export default function BalancesPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
   const queryClient = useQueryClient();
   
   // Refresh organization info on mount to get latest training fund balance
@@ -226,7 +226,7 @@ export default function BalancesPage({ hasBanner }) {
                   <p className="text-sm text-slate-600 mt-3">
                     Use your training fund balance when purchasing event tickets and training
                   </p>
-                  {isAdmin && rolesData.length > 0 && (
+                  {!isFeatureExcluded('commerce.balances.availability') && rolesData.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-green-200">
                       <button
                         type="button"
@@ -312,7 +312,7 @@ export default function BalancesPage({ hasBanner }) {
                   <p className="text-sm text-slate-600 mt-3">
                     Apply vouchers when purchasing event and training tickets
                   </p>
-                  {isAdmin && rolesData.length > 0 && (
+                  {!isFeatureExcluded('commerce.balances.availability') && rolesData.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-blue-200">
                       <button
                         type="button"

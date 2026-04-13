@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
 export default async function handler(req, res) {
   const context = await getTenantContext(req);
@@ -54,7 +55,21 @@ export default async function handler(req, res) {
     if (req.method === 'PUT') {
       const { isAdmin } = await checkCrossOrgPermissions(context.roleId);
       if (!isAdmin) {
-        return res.status(403).json({ error: 'Only administrators can update role restrictions' });
+        if (!context.roleId) {
+          return res.status(403).json({ error: 'You do not have permission to update role restrictions' });
+        }
+        const { data: role, error: roleError } = await supabase
+          .from('role')
+          .select('excluded_features')
+          .eq('id', context.roleId)
+          .single();
+        if (roleError || !role) {
+          return res.status(403).json({ error: 'You do not have permission to update role restrictions' });
+        }
+        const excludedFeatures = role.excluded_features || [];
+        if (isResourceExcluded(excludedFeatures, 'commerce.balances.availability')) {
+          return res.status(403).json({ error: 'You do not have permission to update role restrictions' });
+        }
       }
 
       const { training_fund_allowed_role_ids, voucher_allowed_role_ids } = req.body;

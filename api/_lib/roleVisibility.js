@@ -100,6 +100,7 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_MyTickets": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
   "page_Balances": "commerce.balances",
+  "feature_BalancesAvailability": "commerce.balances.availability",
   "page_History": "commerce.history",
   "page_Team": "membership.team",
   "page_TeamEngagement": "membership.teamEngagement",
