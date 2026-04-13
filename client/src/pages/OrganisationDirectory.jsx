@@ -155,22 +155,29 @@ export default function OrganisationDirectoryPage() {
   const { data: orgCustomFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'directory'],
     queryFn: async () => {
+      const parseVisibility = (field) => {
+        if (field.directory_visibility) {
+          let vis = field.directory_visibility;
+          if (typeof vis === 'string') {
+            try { vis = JSON.parse(vis); } catch { vis = []; }
+          }
+          if (Array.isArray(vis)) return vis.includes('main');
+        }
+        return field.show_in_directory_card !== false;
+      };
       try {
-        // Try to filter by entity_scope (requires migration to be run)
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        // Filter for fields visible in Organisation Directory card
-        return (fields || []).filter(f => f.entity_scope === 'organization' && f.show_in_directory_card !== false);
+        return (fields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f));
       } catch {
-        // Fallback: if entity_scope column doesn't exist, fetch all and filter client-side
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && f.show_in_directory_card !== false);
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f));
         } catch {
           return [];
         }

@@ -158,12 +158,22 @@ export default function MemberDirectoryPage() {
   const { data: filterableFields = [] } = useQuery({
     queryKey: ['member-filterable-fields'],
     queryFn: async () => {
+      const isVisibleInMain = (field) => {
+        if (field.directory_visibility) {
+          let vis = field.directory_visibility;
+          if (typeof vis === 'string') {
+            try { vis = JSON.parse(vis); } catch { vis = []; }
+          }
+          if (Array.isArray(vis)) return vis.includes('main');
+        }
+        return field.show_in_member_directory !== false;
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable && f.show_in_member_directory !== false);
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable && isVisibleInMain(f));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -171,7 +181,7 @@ export default function MemberDirectoryPage() {
             sort: { display_order: 'asc' }
           });
           return (allFields || []).filter(f => 
-            (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable && f.show_in_member_directory !== false
+            (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable && isVisibleInMain(f)
           );
         } catch {
           return [];
@@ -184,12 +194,22 @@ export default function MemberDirectoryPage() {
   const { data: directoryCustomFields = [] } = useQuery({
     queryKey: ['member-directory-custom-fields'],
     queryFn: async () => {
+      const isVisibleInMain = (field) => {
+        if (field.directory_visibility) {
+          let vis = field.directory_visibility;
+          if (typeof vis === 'string') {
+            try { vis = JSON.parse(vis); } catch { vis = []; }
+          }
+          if (Array.isArray(vis)) return vis.includes('main');
+        }
+        return field.show_in_member_directory !== false;
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -197,7 +217,7 @@ export default function MemberDirectoryPage() {
             sort: { display_order: 'asc' }
           });
           return (allFields || []).filter(f =>
-            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+            (!f.entity_scope || f.entity_scope === 'member') && isVisibleInMain(f)
           );
         } catch {
           return [];

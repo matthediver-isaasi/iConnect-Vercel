@@ -236,21 +236,32 @@ export default function DynamicDirectoryView() {
   });
 
   const { data: orgCustomFields = [] } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', 'organization'],
+    queryKey: ['/api/entities/PreferenceField', 'organization', directory?.id],
     queryFn: async () => {
+      const dirId = directory?.id;
+      const isVisibleInDirectory = (field) => {
+        if (field.directory_visibility) {
+          let vis = field.directory_visibility;
+          if (typeof vis === 'string') {
+            try { vis = JSON.parse(vis); } catch { vis = []; }
+          }
+          if (Array.isArray(vis)) return vis.includes(dirId);
+        }
+        return false;
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
+        return (fields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f));
         } catch {
           return [];
         }
@@ -285,14 +296,25 @@ export default function DynamicDirectoryView() {
   });
 
   const { data: directoryCustomFields = [] } = useQuery({
-    queryKey: ['member-directory-custom-fields'],
+    queryKey: ['member-directory-custom-fields', directory?.id],
     queryFn: async () => {
+      const dirId = directory?.id;
+      const isVisibleInDirectory = (field) => {
+        if (field.directory_visibility) {
+          let vis = field.directory_visibility;
+          if (typeof vis === 'string') {
+            try { vis = JSON.parse(vis); } catch { vis = []; }
+          }
+          if (Array.isArray(vis)) return vis.includes(dirId);
+        }
+        return false;
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInDirectory(f));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -300,7 +322,7 @@ export default function DynamicDirectoryView() {
             sort: { display_order: 'asc' }
           });
           return (allFields || []).filter(f =>
-            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+            (!f.entity_scope || f.entity_scope === 'member') && isVisibleInDirectory(f)
           );
         } catch {
           return [];

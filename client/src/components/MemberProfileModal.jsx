@@ -115,15 +115,35 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+        const isVisibleInMain = (field) => {
+          if (field.directory_visibility) {
+            let vis = field.directory_visibility;
+            if (typeof vis === 'string') {
+              try { vis = JSON.parse(vis); } catch { vis = []; }
+            }
+            if (Array.isArray(vis)) return vis.includes('main');
+          }
+          return field.show_in_member_directory !== false;
+        };
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
+          const isVisibleInMain = (field) => {
+            if (field.directory_visibility) {
+              let vis = field.directory_visibility;
+              if (typeof vis === 'string') {
+                try { vis = JSON.parse(vis); } catch { vis = []; }
+              }
+              if (Array.isArray(vis)) return vis.includes('main');
+            }
+            return field.show_in_member_directory !== false;
+          };
           return (allFields || []).filter(f =>
-            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+            (!f.entity_scope || f.entity_scope === 'member') && isVisibleInMain(f)
           );
         } catch {
           return [];

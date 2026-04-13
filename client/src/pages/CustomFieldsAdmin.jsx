@@ -151,6 +151,19 @@ const MEMBER_VISIBILITY_LOCATIONS = [
   { key: 'show_in_member_admin_list', label: 'Admin List', description: 'Admin members CRM page' }
 ];
 
+function parseDirectoryVisibility(field, scope) {
+  if (field.directory_visibility) {
+    let vis = field.directory_visibility;
+    if (typeof vis === 'string') {
+      try { vis = JSON.parse(vis); } catch { vis = []; }
+    }
+    if (Array.isArray(vis)) return vis;
+  }
+  if (scope === 'organization' && field.show_in_directory_card !== false) return ['main'];
+  if (scope === 'member' && field.show_in_member_directory !== false) return ['main'];
+  return [];
+}
+
 function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState(null);
@@ -175,31 +188,28 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [defaultCountries, setDefaultCountries] = useState([]);
   // Visibility toggles for organization fields
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
-  const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
   const [showInAdminList, setShowInAdminList] = useState(true);
   // Visibility toggles for member fields
   const [showInMyPreferences, setShowInMyPreferences] = useState(true);
-  const [showInMemberDirectory, setShowInMemberDirectory] = useState(true);
   const [showInMemberAdminList, setShowInMemberAdminList] = useState(true);
+  // Per-directory visibility (replaces single directory toggle)
+  const [directoryVisibility, setDirectoryVisibility] = useState(['main']);
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
     queryFn: async () => {
       try {
-        // Try to filter by entity_scope (requires migration to be run)
         const fields = await base44.entities.PreferenceField.list({
           filter: { entity_scope: entityScope },
           sort: { display_order: 'asc' }
         });
         return fields || [];
       } catch (error) {
-        // Fallback: if entity_scope column doesn't exist, fetch all and filter client-side
         console.warn('entity_scope filter failed, falling back to client-side filter:', error);
         try {
           const allFields = await base44.entities.PreferenceField.list({
             sort: { display_order: 'asc' }
           });
-          // For backwards compatibility: fields without entity_scope are considered 'member' scope
           return (allFields || []).filter(f => 
             entityScope === 'member' 
               ? (!f.entity_scope || f.entity_scope === 'member')
@@ -207,6 +217,29 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
           );
         } catch (fallbackError) {
           console.error('Failed to fetch preference fields:', fallbackError);
+          return [];
+        }
+      }
+    }
+  });
+
+  const { data: dynamicDirectories = [] } = useQuery({
+    queryKey: ['/api/entities/DynamicDirectory', entityScope],
+    queryFn: async () => {
+      try {
+        const dirs = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true, entity_type: entityScope },
+          sort: { name: 'asc' }
+        });
+        return dirs || [];
+      } catch {
+        try {
+          const allDirs = await base44.entities.DynamicDirectory.list({
+            filter: { is_active: true },
+            sort: { name: 'asc' }
+          });
+          return (allDirs || []).filter(d => d.entity_type === entityScope);
+        } catch {
           return [];
         }
       }
@@ -297,13 +330,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setSelectedCountries([]);
     setDefaultCountry('');
     setDefaultCountries([]);
-    // Reset visibility toggles to default (all visible)
     setShowInMyOrganisation(true);
-    setShowInDirectoryCard(true);
     setShowInAdminList(true);
     setShowInMyPreferences(true);
-    setShowInMemberDirectory(true);
     setShowInMemberAdminList(true);
+    setDirectoryVisibility(['main']);
   };
 
   const handleOpenCreateDialog = () => {
@@ -352,13 +383,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       try { parsedDefaultCountries = JSON.parse(parsedDefaultCountries); } catch { parsedDefaultCountries = []; }
     }
     setDefaultCountries(Array.isArray(parsedDefaultCountries) ? parsedDefaultCountries : []);
-    // Load visibility settings (default to true for backward compatibility)
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
-    setShowInDirectoryCard(field.show_in_directory_card !== false);
     setShowInAdminList(field.show_in_admin_list !== false);
     setShowInMyPreferences(field.show_in_my_preferences !== false);
-    setShowInMemberDirectory(field.show_in_member_directory !== false);
     setShowInMemberAdminList(field.show_in_member_admin_list !== false);
+    setDirectoryVisibility(parseDirectoryVisibility(field, entityScope));
     setIsDialogOpen(true);
   };
 
@@ -435,14 +464,13 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       selected_countries: (fieldType === 'country' || fieldType === 'countries') && !allCountries ? selectedCountries : null,
       default_country: validDefaultCountry,
       default_countries: validDefaultCountries,
-      // Visibility settings for organization fields
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
-      show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
+      show_in_directory_card: entityScope === 'organization' ? directoryVisibility.includes('main') : true,
       show_in_admin_list: entityScope === 'organization' ? showInAdminList : true,
-      // Visibility settings for member fields
       show_in_my_preferences: entityScope === 'member' ? showInMyPreferences : true,
-      show_in_member_directory: entityScope === 'member' ? showInMemberDirectory : true,
-      show_in_member_admin_list: entityScope === 'member' ? showInMemberAdminList : true
+      show_in_member_directory: entityScope === 'member' ? directoryVisibility.includes('main') : true,
+      show_in_member_admin_list: entityScope === 'member' ? showInMemberAdminList : true,
+      directory_visibility: JSON.stringify(directoryVisibility)
     };
 
     if (editingField) {
@@ -540,40 +568,64 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                               )}
                             </div>
                             <p className="text-sm text-slate-500 mt-1">Field name: {field.name}</p>
-                            {entityScope === 'organization' && (
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-xs text-slate-400">Visible in:</span>
-                                {field.show_in_my_organisation !== false && (
-                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Org</span>
-                                )}
-                                {field.show_in_directory_card !== false && (
-                                  <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Directory</span>
-                                )}
-                                {field.show_in_admin_list !== false && (
-                                  <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
-                                )}
-                                {field.show_in_my_organisation === false && field.show_in_directory_card === false && field.show_in_admin_list === false && (
-                                  <span className="text-xs text-slate-400 italic">None</span>
-                                )}
-                              </div>
-                            )}
-                            {entityScope === 'member' && (
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-xs text-slate-400">Visible in:</span>
-                                {field.show_in_my_preferences !== false && (
-                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Prefs</span>
-                                )}
-                                {field.show_in_member_directory !== false && (
-                                  <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Directory</span>
-                                )}
-                                {field.show_in_member_admin_list !== false && (
-                                  <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
-                                )}
-                                {field.show_in_my_preferences === false && field.show_in_member_directory === false && field.show_in_member_admin_list === false && (
-                                  <span className="text-xs text-slate-400 italic">None</span>
-                                )}
-                              </div>
-                            )}
+                            {entityScope === 'organization' && (() => {
+                              const dirVis = parseDirectoryVisibility(field, 'organization');
+                              const hasAnyVisibility = field.show_in_my_organisation !== false || dirVis.length > 0 || field.show_in_admin_list !== false;
+                              return (
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="text-xs text-slate-400">Visible in:</span>
+                                  {field.show_in_my_organisation !== false && (
+                                    <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Org</span>
+                                  )}
+                                  {dirVis.includes('main') && (
+                                    <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Main Directory</span>
+                                  )}
+                                  {dirVis.filter(id => id !== 'main').map(dirId => {
+                                    const dir = dynamicDirectories.find(d => d.id === dirId);
+                                    return (
+                                      <span key={dirId} className="text-xs bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded">
+                                        {dir?.name || dirId}
+                                      </span>
+                                    );
+                                  })}
+                                  {field.show_in_admin_list !== false && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                  )}
+                                  {!hasAnyVisibility && (
+                                    <span className="text-xs text-slate-400 italic">None</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            {entityScope === 'member' && (() => {
+                              const dirVis = parseDirectoryVisibility(field, 'member');
+                              const hasAnyVisibility = field.show_in_my_preferences !== false || dirVis.length > 0 || field.show_in_member_admin_list !== false;
+                              return (
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="text-xs text-slate-400">Visible in:</span>
+                                  {field.show_in_my_preferences !== false && (
+                                    <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Prefs</span>
+                                  )}
+                                  {dirVis.includes('main') && (
+                                    <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Main Directory</span>
+                                  )}
+                                  {dirVis.filter(id => id !== 'main').map(dirId => {
+                                    const dir = dynamicDirectories.find(d => d.id === dirId);
+                                    return (
+                                      <span key={dirId} className="text-xs bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded">
+                                        {dir?.name || dirId}
+                                      </span>
+                                    );
+                                  })}
+                                  {field.show_in_member_admin_list !== false && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                  )}
+                                  {!hasAnyVisibility && (
+                                    <span className="text-xs text-slate-400 italic">None</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {field.options && field.options.length > 0 && (
                               <p className="text-sm text-slate-400 mt-1">
                                 Options: {field.options.map(o => o.label).join(', ')}
@@ -1121,18 +1173,6 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label htmlFor="showInDirectory" className="cursor-pointer text-sm">Directory Card</Label>
-                      <p className="text-xs text-slate-400">Organisation directory flip card</p>
-                    </div>
-                    <Switch
-                      id="showInDirectory"
-                      checked={showInDirectoryCard}
-                      onCheckedChange={setShowInDirectoryCard}
-                      data-testid="switch-show-directory"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
                       <Label htmlFor="showInAdmin" className="cursor-pointer text-sm">Admin List</Label>
                       <p className="text-xs text-slate-400">Admin organisations CRM page</p>
                     </div>
@@ -1142,6 +1182,53 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                       onCheckedChange={setShowInAdminList}
                       data-testid="switch-show-admin"
                     />
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <Label className="text-sm font-medium">Directory Visibility</Label>
+                  <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                    Select which directories should display this field on their cards
+                  </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="dir-vis-main"
+                        checked={directoryVisibility.includes('main')}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setDirectoryVisibility(prev => [...prev, 'main']);
+                          } else {
+                            setDirectoryVisibility(prev => prev.filter(id => id !== 'main'));
+                          }
+                        }}
+                        data-testid="checkbox-dir-vis-main"
+                      />
+                      <Label htmlFor="dir-vis-main" className="cursor-pointer text-sm">
+                        Main Organisation Directory
+                      </Label>
+                    </div>
+                    {dynamicDirectories.map(dir => (
+                      <div key={dir.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`dir-vis-${dir.id}`}
+                          checked={directoryVisibility.includes(dir.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setDirectoryVisibility(prev => [...prev, dir.id]);
+                            } else {
+                              setDirectoryVisibility(prev => prev.filter(id => id !== dir.id));
+                            }
+                          }}
+                          data-testid={`checkbox-dir-vis-${dir.id}`}
+                        />
+                        <Label htmlFor={`dir-vis-${dir.id}`} className="cursor-pointer text-sm">
+                          {dir.name}
+                        </Label>
+                      </div>
+                    ))}
+                    {dynamicDirectories.length === 0 && (
+                      <p className="text-xs text-slate-400 italic">No dynamic directories configured for organisations</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1168,18 +1255,6 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label htmlFor="showInMemberDir" className="cursor-pointer text-sm">Member Directory</Label>
-                      <p className="text-xs text-slate-400">Member directory listing</p>
-                    </div>
-                    <Switch
-                      id="showInMemberDir"
-                      checked={showInMemberDirectory}
-                      onCheckedChange={setShowInMemberDirectory}
-                      data-testid="switch-show-member-directory"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
                       <Label htmlFor="showInMemberAdmin" className="cursor-pointer text-sm">Admin List</Label>
                       <p className="text-xs text-slate-400">Admin members CRM page</p>
                     </div>
@@ -1189,6 +1264,53 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                       onCheckedChange={setShowInMemberAdminList}
                       data-testid="switch-show-member-admin"
                     />
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <Label className="text-sm font-medium">Directory Visibility</Label>
+                  <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                    Select which directories should display this field on their cards
+                  </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="dir-vis-main-member"
+                        checked={directoryVisibility.includes('main')}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setDirectoryVisibility(prev => [...prev, 'main']);
+                          } else {
+                            setDirectoryVisibility(prev => prev.filter(id => id !== 'main'));
+                          }
+                        }}
+                        data-testid="checkbox-dir-vis-main-member"
+                      />
+                      <Label htmlFor="dir-vis-main-member" className="cursor-pointer text-sm">
+                        Main Member Directory
+                      </Label>
+                    </div>
+                    {dynamicDirectories.map(dir => (
+                      <div key={dir.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`dir-vis-member-${dir.id}`}
+                          checked={directoryVisibility.includes(dir.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setDirectoryVisibility(prev => [...prev, dir.id]);
+                            } else {
+                              setDirectoryVisibility(prev => prev.filter(id => id !== dir.id));
+                            }
+                          }}
+                          data-testid={`checkbox-dir-vis-member-${dir.id}`}
+                        />
+                        <Label htmlFor={`dir-vis-member-${dir.id}`} className="cursor-pointer text-sm">
+                          {dir.name}
+                        </Label>
+                      </div>
+                    ))}
+                    {dynamicDirectories.length === 0 && (
+                      <p className="text-xs text-slate-400 italic">No dynamic directories configured for members</p>
+                    )}
                   </div>
                 </div>
               </div>
