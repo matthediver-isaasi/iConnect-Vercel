@@ -61,6 +61,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import SEOSettings from "@/components/blog/SEOSettings";
 import ComplexEventSessions from "@/components/events/ComplexEventSessions";
+import ZoomPolls from "@/components/events/ZoomPolls";
 
 function toLocalDatetimeString(isoOrLocal) {
   if (!isoOrLocal) return '';
@@ -3792,6 +3793,43 @@ export default function EditEvent() {
               </CardContent>
             )}
           </Card>
+
+          {(() => {
+            const simpleZoomId = formData.zoom_meeting_id || formData.zoom_webinar_id;
+            const simpleZoomType = formData.zoom_webinar_id ? 'webinar' : 'meeting';
+            const eventIsPast = formData.start_date && new Date(formData.start_date) < new Date();
+            const hasComplexZoomSessions = isComplexEvent && complexSessions.some(s => s.zoom_meeting_id || s.zoom_webinar_id);
+
+            if (!simpleZoomId && !hasComplexZoomSessions) return null;
+
+            return (
+              <div className="space-y-4 mb-6">
+                {simpleZoomId && !isComplexEvent && (
+                  <ZoomPolls
+                    zoomId={simpleZoomId}
+                    type={simpleZoomType}
+                    isPast={eventIsPast}
+                  />
+                )}
+
+                {hasComplexZoomSessions && complexSessions.map((session, idx) => {
+                  const sessionZoomId = session.zoom_meeting_id || session.zoom_webinar_id;
+                  if (!sessionZoomId) return null;
+                  const sessionType = session.zoom_webinar_id ? 'webinar' : 'meeting';
+                  const sessionIsPast = session.start_time && new Date(session.start_time) < new Date();
+                  return (
+                    <ZoomPolls
+                      key={session._tempId || session.id || idx}
+                      zoomId={sessionZoomId}
+                      type={sessionType}
+                      isPast={sessionIsPast}
+                      label={session.title || `Session ${idx + 1}`}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           <div className="flex items-center justify-end gap-4">
             <Button
