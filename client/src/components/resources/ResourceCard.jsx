@@ -27,7 +27,7 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -348,7 +348,7 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
         }
       `}</style>
       
-      {isLocked && (
+      {(isLocked || isEventLocked) && (
         <div className="absolute top-0 right-0 z-10 bg-slate-900 p-2 shadow-lg">
           <Lock className="w-5 h-5 text-white" />
         </div>
@@ -418,7 +418,17 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
       </CardHeader>
 
       <CardContent className="pt-0 pb-4 mt-auto">
-        {isLocked ? (
+        {isEventLocked ? (
+          <Button 
+            variant="outline"
+            className="w-full border-amber-300 hover:bg-amber-50 rounded-none cursor-default"
+            disabled
+            data-testid={`button-event-locked-${resource.id}`}
+          >
+            <Lock className="w-4 h-4 mr-2 text-amber-600" />
+            <span className="text-amber-700">Event attendance required</span>
+          </Button>
+        ) : isLocked ? (
           <Button 
             onClick={() => {
               const loginUrl = createPageUrl('Login') + `?returnTo=${encodeURIComponent('/Resources')}&resourceId=${encodeURIComponent(resource.id)}`;

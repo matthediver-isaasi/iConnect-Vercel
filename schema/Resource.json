@@ -86,6 +86,25 @@
         ],
         "default": "active",
         "description": "Publication status - draft resources are not visible to end users"
+      },
+      "linked_events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "ID of the linked event"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "Optional session ID for complex events - requires track-level access"
+            }
+          },
+          "required": ["event_id"]
+        },
+        "default": [],
+        "description": "Array of linked events (and optional sessions). Members must have a confirmed booking for at least one to access the resource."
       }
     },
     "required": [

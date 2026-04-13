@@ -133,30 +133,64 @@ export default function ResourcesPage() {
       console.log('[Resources] Total resources from API:', allResources.length);
       
       // Filter by status and permissions for authenticated users
-      const filtered = allResources.filter(resource => {
-        // Always filter out draft resources
+      let filtered = allResources.filter(resource => {
         if (resource.status === 'draft') return false;
-        
-        // Admins can see everything (except drafts)
         if (isAdmin) return true;
-        
-        // Public resources are visible to all authenticated users
         if (resource.is_public === true) return true;
-        
-        // For non-public resources, check role permissions
         if (memberRole) {
-          // If no allowed_role_ids specified, it's available to all authenticated users
           if (!resource.allowed_role_ids || resource.allowed_role_ids.length === 0) {
             return true;
           }
-          
-          // Check if member's role is in the allowed list
           return resource.allowed_role_ids.includes(memberRole.id);
         }
-        
-        // Authenticated but no role loaded yet - show public only for now
         return resource.is_public === true;
       });
+
+      if (!isAdmin) {
+        const allLinkedEvents = [];
+        filtered.forEach(r => {
+          if (r.linked_events && Array.isArray(r.linked_events) && r.linked_events.length > 0) {
+            r.linked_events.forEach(le => {
+              if (!allLinkedEvents.some(e => e.event_id === le.event_id && e.session_id === le.session_id)) {
+                allLinkedEvents.push(le);
+              }
+            });
+          }
+        });
+
+        let accessibleEventIds = [];
+        let accessibleSessionIds = [];
+
+        if (allLinkedEvents.length > 0) {
+          try {
+            const response = await fetch('/api/resources/check-event-access', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ linked_events: allLinkedEvents })
+            });
+            if (response.ok) {
+              const accessData = await response.json();
+              accessibleEventIds = accessData.accessible_event_ids || [];
+              accessibleSessionIds = accessData.accessible_session_ids || [];
+            }
+          } catch (err) {
+            console.error('[Resources] Error checking event access:', err);
+          }
+        }
+
+        filtered = filtered.filter(resource => {
+          if (!resource.linked_events || !Array.isArray(resource.linked_events) || resource.linked_events.length === 0) {
+            return true;
+          }
+          return resource.linked_events.some(le => {
+            if (le.session_id) {
+              return accessibleSessionIds.includes(le.session_id);
+            }
+            return accessibleEventIds.includes(le.event_id);
+          });
+        });
+      }
       
       console.log('[Resources] After filtering:', filtered.length, 'resources');
       console.log('[Resources] ========== AUTHENTICATED FETCH END ==========');

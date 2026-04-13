@@ -45,7 +45,8 @@ export default async function handler(req, res) {
         tags,
         is_public,
         open_in_new_tab,
-        allowed_role_ids
+        allowed_role_ids,
+        linked_events
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
@@ -57,7 +58,12 @@ export default async function handler(req, res) {
     }
 
     const tenant_domain = tenant.domain || `${tenant.slug}.iconn.app`;
-    const publicResources = (resources || []).map(r => ({
+    const publicResources = (resources || []).filter(r => {
+      if (r.linked_events && Array.isArray(r.linked_events) && r.linked_events.length > 0) {
+        return false;
+      }
+      return true;
+    }).map(r => ({
       ...r,
       target_url: r.is_public ? r.target_url : null,
       is_locked: !r.is_public,

@@ -60,6 +60,10 @@ export default function ResourceManagementPage() {
   // Copy link state
   const [copiedResourceId, setCopiedResourceId] = useState(null);
 
+  // Linked events state
+  const [eventSearchQuery, setEventSearchQuery] = useState("");
+  const [showEventSearch, setShowEventSearch] = useState(false);
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
@@ -152,6 +156,35 @@ export default function ResourceManagementPage() {
       const data = await response.json();
       return data.tenant;
     },
+    staleTime: 60000,
+  });
+
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['admin-events-for-linking'],
+    queryFn: () => base44.entities.Event.list('-start_date'),
+    staleTime: 60000,
+  });
+
+  const { data: complexEventSessions = [] } = useQuery({
+    queryKey: ['admin-complex-event-sessions'],
+    queryFn: async () => {
+      const complexEvents = allEvents.filter(e => e.is_complex);
+      if (complexEvents.length === 0) return [];
+      const allSessions = [];
+      for (const ce of complexEvents) {
+        try {
+          const response = await fetch(`/api/complex-event-sessions?event_id=${ce.id}`);
+          if (response.ok) {
+            const sessions = await response.json();
+            allSessions.push(...(sessions || []).map(s => ({ ...s, event_id: ce.id })));
+          }
+        } catch (e) {
+          console.error('[ResourceMgmt] Error fetching sessions for event', ce.id, e);
+        }
+      }
+      return allSessions;
+    },
+    enabled: allEvents.some(e => e.is_complex),
     staleTime: 60000,
   });
 
@@ -831,12 +864,15 @@ export default function ResourceManagementPage() {
       release_date: new Date().toISOString(), // Changed from published_date
       is_public: true,
       allowed_role_ids: [],
+      linked_events: [],
       tags: [],
       author_id: "",
       author_name: "",
-      folder_id: selectedFolder, // Pre-fill folder_id based on current view
-      status: "active" // Default to active
+      folder_id: selectedFolder,
+      status: "active"
     });
+    setEventSearchQuery("");
+    setShowEventSearch(false);
     setImageFromRepository(false);
     setTargetFromRepository(false);
     setTargetFileName(""); // Reset target file name
@@ -848,12 +884,15 @@ export default function ResourceManagementPage() {
       ...resource,
       subcategories: resource.subcategories || [],
       allowed_role_ids: resource.allowed_role_ids || [],
+      linked_events: resource.linked_events || [],
       open_in_new_tab: resource.open_in_new_tab !== false,
       author_id: resource.author_id || "",
       author_name: resource.author_name || "",
-      status: resource.status || "active", // Default to active if not set
-      release_date: resource.release_date || resource.published_date || new Date().toISOString() // Ensure release_date is present, falling back to published_date
+      status: resource.status || "active",
+      release_date: resource.release_date || resource.published_date || new Date().toISOString()
     });
+    setEventSearchQuery("");
+    setShowEventSearch(false);
     // Check if the image URL is from repository
     const isImageFromRepo = resource.image_url ? repositoryFiles.some(f => f.file_url === resource.image_url) : false;
     setImageFromRepository(isImageFromRepo);
@@ -927,6 +966,7 @@ export default function ResourceManagementPage() {
       release_date: editingResource.release_date, // Changed from published_date
       is_public: editingResource.is_public,
       allowed_role_ids: editingResource.allowed_role_ids || [],
+      linked_events: editingResource.linked_events || [],
       tags: editingResource.tags || [],
       author_id: editingResource.author_id || "",
       author_name: editingResource.author_name || "",
@@ -2333,6 +2373,122 @@ export default function ResourceManagementPage() {
                           </Label>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {!editingResource.is_public && (
+                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-amber-600" />
+                      <Label className="font-medium text-amber-900">Linked Events</Label>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                      Restrict access to members who attended specific events. Members need a confirmed booking for at least one linked event to see this resource.
+                    </p>
+
+                    {(editingResource.linked_events || []).length > 0 && (
+                      <div className="space-y-2">
+                        {(editingResource.linked_events || []).map((le, idx) => {
+                          const event = allEvents.find(e => e.id === le.event_id);
+                          const isComplex = event?.is_complex;
+                          const eventSessions = complexEventSessions.filter(s => s.event_id === le.event_id);
+                          const session = le.session_id ? eventSessions.find(s => s.id === le.session_id) : null;
+                          return (
+                            <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border border-amber-100" data-testid={`linked-event-entry-${idx}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{event?.title || le.event_id}</div>
+                                {isComplex && (
+                                  <div className="mt-1">
+                                    <Select
+                                      value={le.session_id || "__none__"}
+                                      onValueChange={(val) => {
+                                        const updated = [...(editingResource.linked_events || [])];
+                                        updated[idx] = { ...updated[idx], session_id: val === "__none__" ? undefined : val };
+                                        if (val === "__none__") delete updated[idx].session_id;
+                                        setEditingResource({ ...editingResource, linked_events: updated });
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs" data-testid={`select-session-${idx}`}>
+                                        <SelectValue placeholder="All sessions (general attendance)" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="__none__">All sessions (general attendance)</SelectItem>
+                                        {eventSessions.map(s => (
+                                          <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                                {session && <div className="text-xs text-amber-600 mt-0.5">Session: {session.title}</div>}
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  const updated = (editingResource.linked_events || []).filter((_, i) => i !== idx);
+                                  setEditingResource({ ...editingResource, linked_events: updated });
+                                }}
+                                data-testid={`button-remove-linked-event-${idx}`}
+                              >
+                                <X className="w-4 h-4 text-red-500" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Search events to link..."
+                          value={eventSearchQuery}
+                          onChange={(e) => {
+                            setEventSearchQuery(e.target.value);
+                            setShowEventSearch(true);
+                          }}
+                          onFocus={() => setShowEventSearch(true)}
+                          className="text-sm"
+                          data-testid="input-event-search"
+                        />
+                      </div>
+                      {showEventSearch && eventSearchQuery.trim() && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {allEvents
+                            .filter(e => {
+                              const alreadyLinked = (editingResource.linked_events || []).some(le => le.event_id === e.id);
+                              const matchesSearch = e.title?.toLowerCase().includes(eventSearchQuery.toLowerCase());
+                              return !alreadyLinked && matchesSearch;
+                            })
+                            .slice(0, 10)
+                            .map(event => (
+                              <div
+                                key={event.id}
+                                className="p-2 hover:bg-amber-50 cursor-pointer text-sm flex items-center gap-2"
+                                onClick={() => {
+                                  const updated = [...(editingResource.linked_events || []), { event_id: event.id }];
+                                  setEditingResource({ ...editingResource, linked_events: updated });
+                                  setEventSearchQuery("");
+                                  setShowEventSearch(false);
+                                }}
+                                data-testid={`event-option-${event.id}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate">{event.title}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {event.start_date ? format(new Date(event.start_date), 'dd MMM yyyy') : 'No date'}
+                                    {event.is_complex && <Badge variant="outline" className="ml-2 text-xs py-0">Complex</Badge>}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          {allEvents.filter(e => !((editingResource.linked_events || []).some(le => le.event_id === e.id)) && e.title?.toLowerCase().includes(eventSearchQuery.toLowerCase())).length === 0 && (
+                            <div className="p-3 text-sm text-slate-500 text-center">No matching events found</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
