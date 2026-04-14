@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +49,10 @@ import {
   ExternalLink,
   Paperclip,
   X,
+  BookOpen,
+  ImagePlus,
+  ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -152,6 +156,21 @@ export default function BriefDetailPage() {
   const [commentText, setCommentText] = useState("");
   const [commentCategory, setCommentCategory] = useState("other");
   const [commentVersionId, setCommentVersionId] = useState("");
+
+  const [caseStudyContent, setCaseStudyContent] = useState("");
+  const [caseStudyImages, setCaseStudyImages] = useState([]);
+  const [caseStudyPermissions, setCaseStudyPermissions] = useState({
+    contact_name: "",
+    role: "",
+    organisation: "",
+    date_granted: "",
+    method: "",
+    notes: "",
+  });
+  const [caseStudyInitialized, setCaseStudyInitialized] = useState(false);
+  const [caseStudyImageUploading, setCaseStudyImageUploading] = useState(false);
+  const caseStudyImageRef = useRef(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   const { data: briefSettings } = useQuery({
     queryKey: ["brief-settings"],
@@ -327,6 +346,79 @@ export default function BriefDetailPage() {
       toast.error("Failed to update comment");
     },
   });
+
+  const caseStudySaveMutation = useMutation({
+    mutationFn: async (data) => {
+      return await base44.entities.ArticleBrief.update(briefId, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+      toast.success("Case study saved");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to save case study");
+    },
+  });
+
+  useEffect(() => {
+    setCaseStudyInitialized(false);
+  }, [briefId]);
+
+  useEffect(() => {
+    if (brief && !caseStudyInitialized) {
+      setCaseStudyContent(brief.case_study_content || "");
+      setCaseStudyImages(Array.isArray(brief.case_study_images) ? brief.case_study_images : []);
+      const perms = brief.case_study_permissions || {};
+      setCaseStudyPermissions({
+        contact_name: perms.contact_name || "",
+        role: perms.role || "",
+        organisation: perms.organisation || "",
+        date_granted: perms.date_granted || "",
+        method: perms.method || "",
+        notes: perms.notes || "",
+      });
+      setCaseStudyInitialized(true);
+    }
+  }, [brief, caseStudyInitialized]);
+
+  const handleSaveCaseStudy = () => {
+    const permissionsData = Object.values(caseStudyPermissions).some((v) => v.trim())
+      ? caseStudyPermissions
+      : null;
+    caseStudySaveMutation.mutate({
+      case_study_content: caseStudyContent || null,
+      case_study_images: caseStudyImages,
+      case_study_permissions: permissionsData,
+    });
+  };
+
+  const handleCaseStudyImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCaseStudyImageUploading(true);
+    try {
+      const result = await uploadFileWithProgress(file, {
+        type: UPLOAD_TYPES.ATTACHMENT,
+        entityId: briefId,
+        isPrivate: true,
+      });
+      setCaseStudyImages((prev) => [
+        ...prev,
+        { file_url: result.file_url, file_name: file.name, size: file.size },
+      ]);
+      toast.success("Image uploaded");
+    } catch (err) {
+      toast.error(err.message || "Failed to upload image");
+    } finally {
+      setCaseStudyImageUploading(false);
+      if (caseStudyImageRef.current) caseStudyImageRef.current.value = "";
+    }
+  };
+
+  const removeCaseStudyImage = (index) => {
+    setCaseStudyImages((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleStartEdit = () => {
     const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
@@ -642,6 +734,7 @@ export default function BriefDetailPage() {
               Review ({openComments.length})
             </TabsTrigger>
             <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+            <TabsTrigger value="case-study" data-testid="tab-case-study">Case Study</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -1111,8 +1204,322 @@ export default function BriefDetailPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="case-study" className="mt-4">
+            {(() => {
+              const canEditCaseStudy = isWriter || canManage;
+              const hasCaseStudy = brief.case_study_content || (Array.isArray(brief.case_study_images) && brief.case_study_images.length > 0) || brief.case_study_permissions;
+
+              if (!hasCaseStudy && !canEditCaseStudy) {
+                return (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center py-12" data-testid="text-no-case-study">
+                        <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                        <p className="text-sm text-muted-foreground">No case study has been created yet.</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              }
+
+              if (!canEditCaseStudy) {
+                const perms = brief.case_study_permissions || {};
+                const permMethodLabels = { email: "Email", verbal: "Verbal", signed_form: "Signed Form", other: "Other" };
+                return (
+                  <div className="space-y-4">
+                    {brief.case_study_content && (
+                      <Card>
+                        <CardHeader><CardTitle className="text-lg flex items-center gap-2"><BookOpen className="w-5 h-5" />Case Study Content</CardTitle></CardHeader>
+                        <CardContent>
+                          <div
+                            className="prose prose-sm max-w-none"
+                            data-testid="text-case-study-content-readonly"
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.case_study_content) }}
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+                    {Array.isArray(brief.case_study_images) && brief.case_study_images.length > 0 && (
+                      <Card>
+                        <CardHeader><CardTitle className="text-lg flex items-center gap-2"><ImagePlus className="w-5 h-5" />Images</CardTitle></CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {brief.case_study_images.map((img, i) => (
+                              <a
+                                key={i}
+                                href={img.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block rounded-md overflow-visible border hover-elevate"
+                                data-testid={`link-case-study-image-${i}`}
+                              >
+                                <img
+                                  src={img.file_url}
+                                  alt={img.file_name || `Image ${i + 1}`}
+                                  className="w-full h-24 object-cover rounded-md"
+                                />
+                                <p className="text-xs text-muted-foreground p-1 truncate">{img.file_name}</p>
+                              </a>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {brief.case_study_permissions && Object.values(perms).some(Boolean) && (
+                      <Card>
+                        <CardHeader><CardTitle className="text-lg flex items-center gap-2"><ShieldCheck className="w-5 h-5" />Permissions</CardTitle></CardHeader>
+                        <CardContent>
+                          <div className="grid sm:grid-cols-2 gap-4">
+                            {perms.contact_name && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Contact Name</Label>
+                                <p className="text-sm mt-0.5" data-testid="text-perm-contact-name">{perms.contact_name}</p>
+                              </div>
+                            )}
+                            {perms.role && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Role / Job Title</Label>
+                                <p className="text-sm mt-0.5" data-testid="text-perm-role">{perms.role}</p>
+                              </div>
+                            )}
+                            {perms.organisation && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Organisation</Label>
+                                <p className="text-sm mt-0.5" data-testid="text-perm-organisation">{perms.organisation}</p>
+                              </div>
+                            )}
+                            {perms.date_granted && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Date Permission Granted</Label>
+                                <p className="text-sm mt-0.5" data-testid="text-perm-date">
+                                  {(() => {
+                                    try { return format(new Date(perms.date_granted), "MMM d, yyyy"); }
+                                    catch { return perms.date_granted; }
+                                  })()}
+                                </p>
+                              </div>
+                            )}
+                            {perms.method && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Method</Label>
+                                <p className="text-sm mt-0.5" data-testid="text-perm-method">{permMethodLabels[perms.method] || perms.method}</p>
+                              </div>
+                            )}
+                            {perms.notes && (
+                              <div className="sm:col-span-2">
+                                <Label className="text-xs text-muted-foreground">Additional Notes</Label>
+                                <p className="text-sm mt-0.5 whitespace-pre-wrap" data-testid="text-perm-notes">{perms.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {!hasCaseStudy && (
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="text-center py-12" data-testid="text-no-case-study">
+                            <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                            <p className="text-sm text-muted-foreground">No case study has been created yet.</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {!hasCaseStudy && !caseStudyContent && caseStudyImages.length === 0 && !Object.values(caseStudyPermissions).some((v) => v.trim()) && (
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-center py-8" data-testid="text-case-study-empty-prompt">
+                          <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                          <p className="text-sm text-muted-foreground mb-1">No case study yet.</p>
+                          <p className="text-xs text-muted-foreground">Start writing your case study below, upload images, and record permissions.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <Card>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><BookOpen className="w-5 h-5" />Case Study Content</CardTitle></CardHeader>
+                    <CardContent>
+                      <SimpleRichTextEditor
+                        content={caseStudyContent}
+                        onChange={setCaseStudyContent}
+                        placeholder="Write your case study here..."
+                        className=""
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><ImagePlus className="w-5 h-5" />Images</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      <input
+                        ref={caseStudyImageRef}
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={handleCaseStudyImageUpload}
+                        data-testid="input-case-study-image-file"
+                      />
+                      {caseStudyImages.length > 0 && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                          {caseStudyImages.map((img, i) => (
+                            <div key={i} className="relative group rounded-md border overflow-visible" data-testid={`case-study-image-${i}`}>
+                              <img
+                                src={img.file_url}
+                                alt={img.file_name || `Image ${i + 1}`}
+                                className="w-full h-24 object-cover rounded-md cursor-pointer"
+                                onClick={() => setPreviewImage(img.file_url)}
+                              />
+                              <p className="text-xs text-muted-foreground p-1 truncate">{img.file_name}</p>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="absolute top-1 right-1 invisible group-hover:visible"
+                                onClick={() => removeCaseStudyImage(i)}
+                                data-testid={`button-remove-case-study-image-${i}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => caseStudyImageRef.current?.click()}
+                        disabled={caseStudyImageUploading}
+                        data-testid="button-add-case-study-image"
+                      >
+                        {caseStudyImageUploading ? (
+                          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        ) : (
+                          <ImagePlus className="w-4 h-4 mr-1" />
+                        )}
+                        {caseStudyImageUploading ? "Uploading..." : "Add Image"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><ShieldCheck className="w-5 h-5" />Permissions</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="perm-contact">Contact Name</Label>
+                          <Input
+                            id="perm-contact"
+                            value={caseStudyPermissions.contact_name}
+                            onChange={(e) => setCaseStudyPermissions((p) => ({ ...p, contact_name: e.target.value }))}
+                            placeholder="Name of person who gave permission"
+                            data-testid="input-perm-contact-name"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="perm-role">Role / Job Title</Label>
+                          <Input
+                            id="perm-role"
+                            value={caseStudyPermissions.role}
+                            onChange={(e) => setCaseStudyPermissions((p) => ({ ...p, role: e.target.value }))}
+                            placeholder="e.g. Marketing Director"
+                            data-testid="input-perm-role"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="perm-org">Organisation</Label>
+                          <Input
+                            id="perm-org"
+                            value={caseStudyPermissions.organisation}
+                            onChange={(e) => setCaseStudyPermissions((p) => ({ ...p, organisation: e.target.value }))}
+                            placeholder="Organisation name"
+                            data-testid="input-perm-organisation"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="perm-date">Date Permission Granted</Label>
+                          <Input
+                            id="perm-date"
+                            type="date"
+                            value={caseStudyPermissions.date_granted}
+                            onChange={(e) => setCaseStudyPermissions((p) => ({ ...p, date_granted: e.target.value }))}
+                            data-testid="input-perm-date"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Method</Label>
+                          <Select
+                            value={caseStudyPermissions.method || "none"}
+                            onValueChange={(v) => setCaseStudyPermissions((p) => ({ ...p, method: v === "none" ? "" : v }))}
+                          >
+                            <SelectTrigger data-testid="select-perm-method"><SelectValue placeholder="Select method" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Select method...</SelectItem>
+                              <SelectItem value="email">Email</SelectItem>
+                              <SelectItem value="verbal">Verbal</SelectItem>
+                              <SelectItem value="signed_form">Signed Form</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="perm-notes">Additional Notes</Label>
+                        <Textarea
+                          id="perm-notes"
+                          value={caseStudyPermissions.notes}
+                          onChange={(e) => setCaseStudyPermissions((p) => ({ ...p, notes: e.target.value }))}
+                          placeholder="Any additional notes about the permission..."
+                          className="resize-none"
+                          rows={2}
+                          data-testid="input-perm-notes"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveCaseStudy}
+                      disabled={caseStudySaveMutation.isPending}
+                      data-testid="button-save-case-study"
+                    >
+                      {caseStudySaveMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-1" />
+                      )}
+                      Save Case Study
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-w-3xl" data-testid="dialog-image-preview">
+          <DialogHeader>
+            <DialogTitle>Image Preview</DialogTitle>
+            <DialogDescription>Full size image preview</DialogDescription>
+          </DialogHeader>
+          {previewImage && (
+            <img src={previewImage} alt="Preview" className="w-full rounded-md" data-testid="img-preview-full" />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
         <DialogContent className="max-w-md" data-testid="dialog-upload-version">
