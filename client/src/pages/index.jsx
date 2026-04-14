@@ -1,5 +1,7 @@
 import Layout from "./Layout.jsx";
 
+import CatchAllNotFound from "./CatchAllNotFound";
+
 import Events from "./Events";
 
 import HomePageRedirect from "./HomePageRedirect";
@@ -1011,6 +1013,9 @@ function PagesContent() {
                 
                 {/* Dynamic CMS pages - catch-all route for IEdit pages by slug */}
                 <Route path="/:slug" element={<DynamicPage />} />
+
+                {/* Catch-all for multi-segment URLs that don't match any route above */}
+                <Route path="/*" element={<CatchAllNotFound />} />
             </Routes>
             </Layout>
         </>
