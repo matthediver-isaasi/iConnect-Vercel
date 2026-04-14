@@ -125,7 +125,7 @@ export default async function handler(req, res) {
       }
 
       const serverTicket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);
-      let authoritativePrice = serverTicket.price;
+      let authoritativePrice = ticketClass?.is_free ? 0 : serverTicket.price;
       const ticketCurrency = (serverTicket.currency || 'gbp').toLowerCase();
       if (unifiedCurrency === null) {
         unifiedCurrency = ticketCurrency;

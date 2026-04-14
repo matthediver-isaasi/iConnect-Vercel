@@ -35,6 +35,10 @@ export function resolveTicketPrice(pricingConfigOrTicketClasses, ticketClassId) 
     return { price: 0, name: null, currency: 'gbp', found: false };
   }
 
+  if (tc.is_free) {
+    return { price: 0, name: tc.name || 'Ticket', currency: tc.currency || 'gbp', found: true };
+  }
+
   let price = Number(tc.price) || 0;
   const now = new Date();
   if (tc.early_bird_enabled && tc.early_bird_price != null && tc.early_bird_deadline) {
