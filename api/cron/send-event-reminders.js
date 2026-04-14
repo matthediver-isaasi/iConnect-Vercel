@@ -64,7 +64,8 @@ export default async function handler(req, res) {
           continue;
         }
 
-        const { data: booking, error: bookingError } = await supabase
+        let booking = null;
+        const { data: standardBooking, error: bookingError } = await supabase
           .from('booking')
           .select(`
             id,
@@ -79,21 +80,32 @@ export default async function handler(req, res) {
           .eq('id', scheduledEmail.booking_id)
           .single();
 
-        if (bookingError) {
-          if (bookingError.code === 'PGRST116') {
-            console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in database`);
-            await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
-          } else {
-            console.log(`[cron/send-event-reminders] Booking lookup error for ${scheduledEmail.booking_id}:`, bookingError.message, bookingError.code);
-            await markAsFailed(scheduledEmail.id, `Booking lookup failed: ${bookingError.message}`);
+        if (!bookingError && standardBooking) {
+          booking = standardBooking;
+        } else {
+          const { data: complexBooking, error: complexBookingError } = await supabase
+            .from('complex_event_booking')
+            .select(`
+              id,
+              attendee_email,
+              attendee_first_name,
+              attendee_last_name,
+              event_id,
+              status,
+              ticket_class_id,
+              ticket_class_name
+            `)
+            .eq('id', scheduledEmail.booking_id)
+            .single();
+
+          if (!complexBookingError && complexBooking) {
+            booking = complexBooking;
           }
-          failedCount++;
-          continue;
         }
 
         if (!booking) {
-          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found (no data returned)`);
-          await markAsFailed(scheduledEmail.id, 'Booking not found');
+          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in booking or complex_event_booking`);
+          await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
           failedCount++;
           continue;
         }

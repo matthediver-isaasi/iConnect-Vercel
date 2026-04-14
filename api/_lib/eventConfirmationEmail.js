@@ -28,11 +28,22 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
     }
-    const { data: event, error: eventError } = await eventQuery.single();
+    let { data: event, error: eventError } = await eventQuery.single();
 
     if (eventError || !event) {
-      console.error(`[sendConfirmationEmailsFromTemplate] Event not found | eventId: ${eventId} | tenantId: ${tenantId || 'not provided'} | error: ${eventError?.message || 'no data'}`);
-      return results;
+      let complexQuery = supabase
+        .from('complex_event')
+        .select('id, title, start_date, end_date, location, is_online, tenant_id')
+        .eq('id', eventId);
+      if (tenantId) {
+        complexQuery = complexQuery.eq('tenant_id', tenantId);
+      }
+      const { data: complexEvent, error: complexError } = await complexQuery.single();
+      if (complexError || !complexEvent) {
+        console.error(`[sendConfirmationEmailsFromTemplate] Event not found in event or complex_event | eventId: ${eventId} | tenantId: ${tenantId || 'not provided'}`);
+        return results;
+      }
+      event = { ...complexEvent, is_complex: true, zoom_meeting_id: null, zoom_webinar_id: null };
     }
 
     let zoomJoinUrl = personalizedZoomUrl;
