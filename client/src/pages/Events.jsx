@@ -4,11 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { parseISO } from "date-fns";
+import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { Link } from "react-router-dom";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -21,6 +21,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
@@ -141,6 +156,15 @@ export default function EventsPage({
   const [showTour, setShowTour] = useState(false);
   const [showCreateEventModal, setShowCreateEventModal] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
+
+  const [complexAttendeesEvent, setComplexAttendeesEvent] = useState(null);
+  const [complexAttendeesOrgFilter, setComplexAttendeesOrgFilter] = useState("all");
+  const [complexAttendeesSearch, setComplexAttendeesSearch] = useState("");
+  const [complexAttendeesPage, setComplexAttendeesPage] = useState(1);
+  const complexAttendeesPerPage = 25;
+  const [showComplexImportDialog, setShowComplexImportDialog] = useState(false);
+  const [complexImportEmailsText, setComplexImportEmailsText] = useState("");
+  const [complexImportResults, setComplexImportResults] = useState(null);
 
   // Determine if tours should be shown for this user based on role setting
   const shouldShowTours = resolvedMemberRole?.show_tours !== false;
@@ -609,6 +633,206 @@ export default function EventsPage({
       setShowTour(true);
       setTourAutoShow(true);
     }, 10);
+  };
+
+  const showComplexAttendeesModal = !!complexAttendeesEvent;
+
+  const { data: complexBookingsData, isLoading: complexBookingsLoading } = useQuery({
+    queryKey: ['event-bookings', complexAttendeesEvent?.id],
+    queryFn: async () => {
+      return await base44.entities.Booking.filter({ event_id: complexAttendeesEvent.id });
+    },
+    enabled: showComplexAttendeesModal && isAdmin,
+  });
+
+  const { data: complexOrganizationsData } = useQuery({
+    queryKey: ['organizations-for-attendees'],
+    queryFn: async () => {
+      return await base44.entities.Organization.listAll();
+    },
+    enabled: showComplexAttendeesModal && isAdmin,
+  });
+
+  const { data: complexMembersData } = useQuery({
+    queryKey: ['members-for-attendees'],
+    queryFn: async () => {
+      return await base44.entities.Member.listAll();
+    },
+    enabled: showComplexAttendeesModal && isAdmin,
+  });
+
+  const complexOrgMap = useMemo(() => {
+    if (!complexOrganizationsData) return {};
+    return complexOrganizationsData.reduce((acc, org) => {
+      acc[org.id] = org.name;
+      return acc;
+    }, {});
+  }, [complexOrganizationsData]);
+
+  const complexMemberJobTitleMap = useMemo(() => {
+    if (!complexMembersData) return {};
+    return complexMembersData.reduce((acc, member) => {
+      acc[member.id] = member.job_title || '';
+      return acc;
+    }, {});
+  }, [complexMembersData]);
+
+  const complexActiveBookings = useMemo(() => {
+    if (!complexBookingsData) return [];
+    return complexBookingsData.filter(b => b.status !== 'cancelled');
+  }, [complexBookingsData]);
+
+  const complexUniqueOrganizations = useMemo(() => {
+    if (!complexActiveBookings || complexActiveBookings.length === 0) return [];
+    const orgIds = [...new Set(complexActiveBookings.map(b => b.organization_id).filter(Boolean))];
+    const orgs = orgIds.map(id => ({
+      id,
+      name: complexOrgMap[id] || 'Unknown Organization'
+    })).sort((a, b) => a.name.localeCompare(b.name));
+    const hasNonMemberBookings = complexActiveBookings.some(b => !b.organization_id);
+    if (hasNonMemberBookings) {
+      orgs.push({ id: 'non-member', name: 'Non-member' });
+    }
+    return orgs;
+  }, [complexActiveBookings, complexOrgMap]);
+
+  const complexFilteredAttendees = useMemo(() => {
+    if (!complexActiveBookings) return [];
+    return complexActiveBookings
+      .filter(booking => {
+        if (complexAttendeesOrgFilter !== "all") {
+          if (complexAttendeesOrgFilter === "non-member") {
+            if (booking.organization_id) return false;
+          } else if (booking.organization_id !== complexAttendeesOrgFilter) {
+            return false;
+          }
+        }
+        if (complexAttendeesSearch) {
+          const search = complexAttendeesSearch.toLowerCase();
+          const name = `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.toLowerCase();
+          const email = (booking.attendee_email || '').toLowerCase();
+          const org = booking.organization_id ? (complexOrgMap[booking.organization_id] || '').toLowerCase() : 'non-member';
+          return name.includes(search) || email.includes(search) || org.includes(search);
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const nameA = `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`;
+        const nameB = `${b.attendee_first_name || ''} ${b.attendee_last_name || ''}`;
+        return nameA.localeCompare(nameB);
+      });
+  }, [complexActiveBookings, complexAttendeesOrgFilter, complexAttendeesSearch, complexOrgMap]);
+
+  const complexTotalPages = Math.ceil(complexFilteredAttendees.length / complexAttendeesPerPage);
+  const complexStartIndex = (complexAttendeesPage - 1) * complexAttendeesPerPage;
+  const complexEndIndex = complexStartIndex + complexAttendeesPerPage;
+  const complexPaginatedAttendees = complexFilteredAttendees.slice(complexStartIndex, complexEndIndex);
+
+  const getComplexPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    if (complexTotalPages <= maxVisible) {
+      for (let i = 1; i <= complexTotalPages; i++) pages.push(i);
+    } else {
+      if (complexAttendeesPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        pages.push('...');
+        pages.push(complexTotalPages);
+      } else if (complexAttendeesPage >= complexTotalPages - 2) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = complexTotalPages - 3; i <= complexTotalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = complexAttendeesPage - 1; i <= complexAttendeesPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(complexTotalPages);
+      }
+    }
+    return pages;
+  };
+
+  useEffect(() => {
+    setComplexAttendeesPage(1);
+  }, [complexAttendeesOrgFilter, complexAttendeesSearch]);
+
+  const complexExportToCSV = () => {
+    if (!complexFilteredAttendees.length) {
+      toast.error('No attendees to export');
+      return;
+    }
+    const headers = ['Name', 'Job Title', 'Organisation', 'Email'];
+    const rows = complexFilteredAttendees.map(booking => [
+      `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
+      booking.member_id ? (complexMemberJobTitleMap[booking.member_id] || '') : '',
+      booking.organization_id ? (complexOrgMap[booking.organization_id] || '') : 'Non-member',
+      booking.attendee_email || ''
+    ]);
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `attendees-${(complexAttendeesEvent?.title || 'event').replace(/[^a-z0-9]/gi, '-')}-${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Attendees exported to CSV');
+  };
+
+  const complexImportAttendeesMutation = useMutation({
+    mutationFn: async (emails) => {
+      const response = await fetch(`/api/admin/events/${complexAttendeesEvent.id}/attendees/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ emails })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Import failed');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setComplexImportResults(data.results);
+      queryClient.invalidateQueries({ queryKey: ['event-bookings', complexAttendeesEvent?.id] });
+      if (data.results.registered.length > 0) {
+        toast.success(`Successfully registered ${data.results.registered.length} attendee(s)`);
+      }
+    },
+    onError: (error) => {
+      console.error('Import attendees error:', error);
+      toast.error('Failed to import attendees: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const handleComplexImportClick = () => {
+    setComplexImportResults(null);
+    setComplexImportEmailsText("");
+    setShowComplexImportDialog(true);
+  };
+
+  const handleComplexImportSubmit = () => {
+    const emails = complexImportEmailsText
+      .split(/[\n,;]+/)
+      .map(e => e.trim())
+      .filter(e => e && e.includes('@'));
+    if (emails.length === 0) {
+      toast.error('Please enter at least one valid email address');
+      return;
+    }
+    complexImportAttendeesMutation.mutate(emails);
+  };
+
+  const handleComplexAttendeesClick = (e, event) => {
+    e.stopPropagation();
+    setComplexAttendeesEvent(event);
   };
 
   return (
@@ -1246,10 +1470,7 @@ export default function EventsPage({
                                       <Button 
                                         variant="outline" 
                                         size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          window.location.href = detailUrl + (detailUrl.includes('?') ? '&' : '?') + 'tab=attendees';
-                                        }}
+                                        onClick={(e) => handleComplexAttendeesClick(e, event)}
                                         className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
                                         data-testid={`button-attendees-event-${event.id}`}
                                       >
@@ -1508,10 +1729,7 @@ export default function EventsPage({
                                   <Button 
                                     variant="outline" 
                                     size="sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.location.href = detailUrl + (detailUrl.includes('?') ? '&' : '?') + 'tab=attendees';
-                                    }}
+                                    onClick={(e) => handleComplexAttendeesClick(e, event)}
                                     className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
                                     data-testid={`button-attendees-event-${event.id}`}
                                   >
@@ -1686,6 +1904,296 @@ export default function EventsPage({
           </div>
         </DialogContent>
       </Dialog>
+
+      {isAdmin && (
+        <Dialog open={showComplexAttendeesModal} onOpenChange={(open) => {
+          if (!open) {
+            setComplexAttendeesEvent(null);
+            setComplexAttendeesOrgFilter("all");
+            setComplexAttendeesSearch("");
+            setComplexAttendeesPage(1);
+            setShowComplexImportDialog(false);
+            setComplexImportEmailsText("");
+            setComplexImportResults(null);
+          }
+        }}>
+          <DialogContent className="sm:max-w-5xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <UsersRound className="w-5 h-5 text-purple-600" />
+                Attendees - {complexAttendeesEvent?.title}
+              </DialogTitle>
+              <DialogDescription>
+                {complexActiveBookings?.length || 0} registered attendee{complexActiveBookings?.length !== 1 ? 's' : ''}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex flex-col sm:flex-row gap-3 py-4 border-b">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search by name, email or organisation..."
+                  value={complexAttendeesSearch}
+                  onChange={(e) => setComplexAttendeesSearch(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-complex-attendee-search"
+                />
+              </div>
+              <Select value={complexAttendeesOrgFilter} onValueChange={setComplexAttendeesOrgFilter}>
+                <SelectTrigger className="w-full sm:w-[200px]" data-testid="select-complex-organization-filter">
+                  <SelectValue placeholder="Filter by organisation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Organisations</SelectItem>
+                  {complexUniqueOrganizations.map(org => (
+                    <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button 
+                variant="outline" 
+                onClick={handleComplexImportClick}
+                data-testid="button-complex-import-attendees"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Import
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={complexExportToCSV}
+                disabled={!complexFilteredAttendees.length}
+                data-testid="button-complex-export-csv"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {complexBookingsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                </div>
+              ) : complexFilteredAttendees.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  {complexActiveBookings?.length === 0 ? (
+                    <p>No attendees registered for this event yet.</p>
+                  ) : (
+                    <p>No attendees match your search criteria.</p>
+                  )}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Job Title</TableHead>
+                      <TableHead>Organisation</TableHead>
+                      <TableHead>Email</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {complexPaginatedAttendees.map((booking, index) => (
+                      <TableRow key={booking.id || index} data-testid={`row-complex-attendee-${booking.id || index}`}>
+                        <TableCell className="font-medium">
+                          {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
+                        </TableCell>
+                        <TableCell>
+                          {booking.member_id
+                            ? (complexMemberJobTitleMap[booking.member_id] || '-')
+                            : <span className="text-muted-foreground">-</span>
+                          }
+                        </TableCell>
+                        <TableCell>
+                          {booking.organization_id 
+                            ? (complexOrgMap[booking.organization_id] || '-')
+                            : <span className="text-muted-foreground italic">Non-member</span>
+                          }
+                        </TableCell>
+                        <TableCell>
+                          <a 
+                            href={`mailto:${booking.attendee_email}`} 
+                            className="text-blue-600 hover:underline"
+                          >
+                            {booking.attendee_email || '-'}
+                          </a>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+
+            {complexFilteredAttendees.length > 0 && (
+              <div className="pt-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-sm text-slate-500">
+                  Showing {complexStartIndex + 1}-{Math.min(complexEndIndex, complexFilteredAttendees.length)} of {complexFilteredAttendees.length} attendee{complexFilteredAttendees.length !== 1 ? 's' : ''}
+                  {complexAttendeesOrgFilter !== "all" || complexAttendeesSearch ? ` (filtered from ${complexActiveBookings?.length || 0})` : ''}
+                </div>
+                
+                {complexTotalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setComplexAttendeesPage(prev => Math.max(1, prev - 1))}
+                      disabled={complexAttendeesPage === 1}
+                      data-testid="button-complex-prev-page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    
+                    {getComplexPageNumbers().map((page, idx) => (
+                      page === '...' ? (
+                        <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                      ) : (
+                        <Button
+                          key={page}
+                          variant={complexAttendeesPage === page ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setComplexAttendeesPage(page)}
+                          className="min-w-[36px]"
+                          data-testid={`button-complex-page-${page}`}
+                        >
+                          {page}
+                        </Button>
+                      )
+                    ))}
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setComplexAttendeesPage(prev => Math.min(complexTotalPages, prev + 1))}
+                      disabled={complexAttendeesPage === complexTotalPages}
+                      data-testid="button-complex-next-page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {isAdmin && (
+        <Dialog open={showComplexImportDialog} onOpenChange={(open) => {
+          setShowComplexImportDialog(open);
+          if (!open) {
+            setComplexImportEmailsText("");
+            setComplexImportResults(null);
+          }
+        }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-purple-600" />
+                Import Attendees
+              </DialogTitle>
+              <DialogDescription>
+                Paste email addresses to directly register members for this event. One email per line, or separated by commas.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4">
+              <textarea
+                className="w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder={"email1@example.com\nemail2@example.com\nemail3@example.com"}
+                value={complexImportEmailsText}
+                onChange={(e) => setComplexImportEmailsText(e.target.value)}
+                disabled={complexImportAttendeesMutation.isPending}
+                data-testid="textarea-complex-import-emails"
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Only existing members will be registered. Non-members will be listed in the results.
+              </p>
+            </div>
+
+            {complexImportResults && (
+              <div className="space-y-3 py-2 border-t">
+                {complexImportResults.registered.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-700">Registered ({complexImportResults.registered.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.registered.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {complexImportResults.alreadyRegistered.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-amber-700">Already Registered ({complexImportResults.alreadyRegistered.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.alreadyRegistered.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {complexImportResults.notFound.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <XCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-red-700">Not Found ({complexImportResults.notFound.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.notFound.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {complexImportResults.errors.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-red-700">Errors ({complexImportResults.errors.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">
+                        {complexImportResults.errors.map(e => `${e.email}: ${e.error}`).join('; ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowComplexImportDialog(false)}
+                disabled={complexImportAttendeesMutation.isPending}
+                data-testid="button-complex-cancel-import"
+              >
+                {complexImportResults ? 'Close' : 'Cancel'}
+              </Button>
+              {!complexImportResults && (
+                <Button
+                  onClick={handleComplexImportSubmit}
+                  disabled={!complexImportEmailsText.trim() || complexImportAttendeesMutation.isPending}
+                  data-testid="button-complex-submit-import"
+                >
+                  {complexImportAttendeesMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    'Import Attendees'
+                  )}
+                </Button>
+              )}
+              {complexImportResults && (
+                <Button
+                  onClick={() => {
+                    setComplexImportResults(null);
+                    setComplexImportEmailsText("");
+                  }}
+                  data-testid="button-complex-import-more"
+                >
+                  Import More
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
