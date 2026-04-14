@@ -91,7 +91,14 @@ export default function ComplexEventTicketManager({
 
   const setTicketFree = (ticketId, isFree) => {
     setTicketClasses(prev => prev.map(t =>
-      t.id === ticketId ? { ...t, is_free: isFree, price: isFree ? '0' : t.price } : t
+      t.id === ticketId ? {
+        ...t,
+        is_free: isFree,
+        price: isFree ? '0' : t.price,
+        early_bird_enabled: isFree ? false : t.early_bird_enabled,
+        early_bird_price: isFree ? '' : t.early_bird_price,
+        early_bird_deadline: isFree ? '' : t.early_bird_deadline,
+      } : t
     ));
   };
 
@@ -460,6 +467,7 @@ export default function ComplexEventTicketManager({
                 <Separator />
 
                 {/* Early Bird Pricing */}
+                {!ticket.is_free && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Switch
@@ -504,6 +512,7 @@ export default function ComplexEventTicketManager({
                     </div>
                   )}
                 </div>
+                )}
 
                 <Separator />
 
