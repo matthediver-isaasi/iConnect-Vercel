@@ -61,10 +61,12 @@ export default async function handler(req, res) {
 
         if (deleteError) {
           console.error('[event-emails] Delete error:', deleteError);
+          return res.status(500).json({ error: 'Failed to delete removed email configurations' });
         }
       }
 
       const savedEmails = [];
+      const errors = [];
 
       for (const email of emails) {
         const resolvedUnit = email.timing_type === 'custom' ? (email.custom_unit || 'hours') : null;
@@ -94,6 +96,7 @@ export default async function handler(req, res) {
 
           if (insertError) {
             console.error('[event-emails] Insert error:', insertError);
+            errors.push({ email_type: email.email_type, error: insertError.message });
             continue;
           }
           savedEmails.push(inserted);
@@ -107,10 +110,20 @@ export default async function handler(req, res) {
 
           if (updateError) {
             console.error('[event-emails] Update error:', updateError);
+            errors.push({ email_type: email.email_type, error: updateError.message });
             continue;
           }
           savedEmails.push(updated);
         }
+      }
+
+      if (errors.length > 0) {
+        console.error('[event-emails] Failed to save some emails:', errors);
+        return res.status(500).json({ 
+          error: `Failed to save ${errors.length} email configuration(s)`,
+          details: errors,
+          savedEmails 
+        });
       }
 
       if (is_complex_event) {

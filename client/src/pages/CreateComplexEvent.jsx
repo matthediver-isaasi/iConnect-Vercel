@@ -889,17 +889,23 @@ export default function CreateComplexEvent() {
         body: JSON.stringify({ emails: eventEmails, is_complex_event: true })
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        throw new Error('Failed to save email configurations');
+        throw new Error(result.error || 'Failed to save email configurations');
       }
 
-      const savedEmails = await response.json();
-      setEventEmails(savedEmails);
+      if (Array.isArray(result) && result.length > 0) {
+        setEventEmails(result);
+      } else if (Array.isArray(result) && result.length === 0 && eventEmails.length > 0) {
+        throw new Error('Server returned empty response — emails may not have been saved');
+      }
+
       queryClient.invalidateQueries({ queryKey: ['event-emails', editId] });
       toast.success('Email configurations saved');
     } catch (error) {
       console.error('Error saving emails:', error);
-      toast.error('Failed to save email configurations');
+      toast.error(error.message || 'Failed to save email configurations');
     } finally {
       setIsSavingEmails(false);
     }

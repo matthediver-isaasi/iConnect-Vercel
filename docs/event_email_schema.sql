@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS event_email (
   email_type VARCHAR(50) NOT NULL CHECK (email_type IN ('booking_confirmation', 'reminder')),
   timing_type VARCHAR(50) CHECK (timing_type IN ('7_days_before', '3_days_before', '1_day_before', '12_hours_before', '6_hours_before', '1_hour_before', '30_minutes_before', 'custom')),
   custom_hours_before INTEGER,
+  custom_unit VARCHAR(50),
+  custom_send_at TIMESTAMP WITH TIME ZONE,
   subject VARCHAR(500) NOT NULL,
   body TEXT NOT NULL,
   is_enabled BOOLEAN DEFAULT true,
@@ -21,6 +23,10 @@ ALTER TABLE event_email DROP CONSTRAINT IF EXISTS event_email_event_id_fkey;
 
 -- Migration for existing tables: add is_complex_event column
 ALTER TABLE event_email ADD COLUMN IF NOT EXISTS is_complex_event BOOLEAN DEFAULT false;
+
+-- Migration for existing tables: add custom_unit and custom_send_at columns for custom timing support
+ALTER TABLE event_email ADD COLUMN IF NOT EXISTS custom_unit VARCHAR(50);
+ALTER TABLE event_email ADD COLUMN IF NOT EXISTS custom_send_at TIMESTAMP WITH TIME ZONE;
 
 -- Create index for faster lookups by event_id
 CREATE INDEX IF NOT EXISTS idx_event_email_event_id ON event_email(event_id);
