@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { syncAttendanceForEvent, syncAttendanceForMeeting } from '../_lib/zoomAttendanceService.js';
 
 export default async function handler(req, res) {
@@ -24,7 +24,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  if (!tenantContext.tenantUserId) {
+  const isAdmin = await hasAdminAccess(tenantContext);
+  if (!isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
