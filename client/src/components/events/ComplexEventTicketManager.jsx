@@ -220,7 +220,7 @@ export default function ComplexEventTicketManager({
                         Group ({ticket.group_size || '?'})
                       </Badge>
                     )}
-                    {ticket.early_bird_enabled && (
+                    {ticket.early_bird_enabled && !ticket.is_free && (
                       <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
                         Early Bird
                       </Badge>

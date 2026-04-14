@@ -8,6 +8,7 @@ export function getEffectiveTicketPrice(ticketClass) {
   const standardPrice = Number(ticketClass.price) || 0;
 
   if (
+    !ticketClass.is_free &&
     ticketClass.early_bird_enabled &&
     ticketClass.early_bird_price != null &&
     Number(ticketClass.early_bird_price) > 0 &&

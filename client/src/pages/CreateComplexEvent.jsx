@@ -127,7 +127,7 @@ const scheduleFormatDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "E
 function computeGapSlots(sessions, layout, timezone, formatDateForInput) {
   const markers = layout.timeMarkers;
   if (!markers || markers.length < 2) {
-    return [{ top: 0, startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "" }];
+    return { gaps: [{ top: 0, startTime: layout.snappedEarliestMs ? formatDateForInput(layout.snappedEarliestMs) : "" }], extraHeight: 0 };
   }
 
   const sorted = sessions
