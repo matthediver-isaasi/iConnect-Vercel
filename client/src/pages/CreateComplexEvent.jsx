@@ -1446,7 +1446,12 @@ export default function CreateComplexEvent() {
 
   const setTicketFree = (localId, isFree) => {
     setTicketClasses(prev => prev.map(t =>
-      t._localId === localId ? { ...t, is_free: isFree, price: isFree ? '0' : t.price } : t
+      t._localId === localId ? {
+        ...t,
+        is_free: isFree,
+        price: isFree ? '0' : t.price,
+        ...(isFree ? { early_bird_enabled: false, early_bird_price: '', early_bird_deadline: '' } : {})
+      } : t
     ));
   };
 
