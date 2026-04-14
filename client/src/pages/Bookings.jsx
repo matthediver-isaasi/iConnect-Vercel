@@ -74,12 +74,11 @@ export default function BookingsPage() {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  const { data: bookings = [], isLoading: loadingBookings } = useQuery({
+  const { data: regularBookings = [], isLoading: loadingBookings } = useQuery({
     queryKey: ['my-bookings', memberInfo?.id || memberInfo?.email],
     queryFn: async () => {
       if (!memberInfo) return [];
       
-      // Use member ID directly from memberInfo if available
       const memberId = memberInfo.id;
       
       if (!memberId) {
@@ -87,15 +86,62 @@ export default function BookingsPage() {
         return [];
       }
       
-      // Filter bookings by member_id directly using the filter API
       const myBookings = await base44.entities.Booking.filter({ member_id: memberId });
-      // Sort by created_date descending
       return myBookings.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     },
     enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const { data: complexBookingsData, isLoading: loadingComplexBookings } = useQuery({
+    queryKey: ['my-complex-bookings', memberInfo?.id],
+    queryFn: async () => {
+      const response = await fetch('/api/complex-event-bookings', {
+        credentials: 'include',
+      });
+      if (!response.ok) return { bookings: [], events: {}, sessions: {} };
+      return response.json();
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const complexEventsMap = complexBookingsData?.events || {};
+  const complexSessionsMap = complexBookingsData?.sessions || {};
+
+  const bookings = React.useMemo(() => {
+    const regular = regularBookings.map(b => ({ ...b, _source: 'regular' }));
+
+    const complex = (complexBookingsData?.bookings || []).map(b => {
+      const ce = complexEventsMap[b.event_id];
+      return {
+        ...b,
+        _source: 'complex',
+        total_cost: parseFloat(b.total_paid) || 0,
+        account_amount: parseFloat(b.account_balance_amount) || 0,
+        voucher_amount: parseFloat(b.voucher_amount) || 0,
+        training_fund_amount: parseFloat(b.training_fund_amount) || 0,
+        discount_code_amount: parseFloat(b.discount_amount) || 0,
+        ticket_class: b.ticket_class_name,
+        created_date: b.created_at,
+        booking_reference: b.booking_reference,
+        booking_group_reference: b.booking_group_reference || b.booking_reference,
+        event_name: ce?.title || 'Complex Event',
+        purchase_order_number: b.purchase_order_number || null,
+        po_to_follow: b.po_to_follow || false,
+        xero_invoice_id: b.xero_invoice_id || null,
+        xero_invoice_number: b.xero_invoice_number || null,
+        xero_credit_note_id: b.xero_credit_note_id || null,
+        xero_credit_note_number: b.xero_credit_note_number || null,
+        _complexEvent: ce || null,
+        _sessions: complexSessionsMap[b.id] || [],
+      };
+    });
+
+    return [...regular, ...complex];
+  }, [regularBookings, complexBookingsData, complexEventsMap, complexSessionsMap]);
 
   const { data: events = [], isLoading: loadingEvents } = useQuery({
     queryKey: ['events'],
@@ -227,16 +273,18 @@ export default function BookingsPage() {
   };
 
   const handleCancelClick = (booking, groupBookings = null) => {
+    const bookingSource = booking._source || 'regular';
     if (groupBookings) {
       const activeBookings = groupBookings.filter(b => b.status !== 'cancelled' && !pendingCancelBookingIds.has(b.id));
-      setCancelTarget({ type: 'group', bookings: activeBookings, booking_group_reference: booking.booking_group_reference });
+      setCancelTarget({ type: 'group', bookings: activeBookings, booking_group_reference: booking.booking_group_reference, bookingSource });
     } else {
-      setCancelTarget({ type: 'individual', bookings: [booking] });
+      setCancelTarget({ type: 'individual', bookings: [booking], bookingSource });
     }
     setCancelReason('');
 
     if (cancellationDeadlineHours > 0 && booking.event_id) {
-      const event = events.find(e => e.id === booking.event_id);
+      const isComplex = bookingSource === 'complex';
+      const event = isComplex ? booking._complexEvent : events.find(e => e.id === booking.event_id);
       if (event?.start_date) {
         const eventStart = new Date(event.start_date);
         const now = new Date();
@@ -275,6 +323,7 @@ export default function BookingsPage() {
           booking_group_reference: cancelTarget.booking_group_reference || null,
           request_type: cancelTarget.type,
           reason: cancelReason.trim() || null,
+          booking_source: cancelTarget.bookingSource || 'regular',
         }),
       });
 
@@ -295,6 +344,7 @@ export default function BookingsPage() {
       setTermsAgreed(false);
       setDeadlinePassed(false);
       queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
     } catch (error) {
       console.error('Cancellation request error:', error);
       toast.error(error.message || 'Failed to submit cancellation request. Please try again.');
@@ -303,22 +353,22 @@ export default function BookingsPage() {
     }
   };
 
-  const handleSubmitPurchaseOrder = async (bookingReference, bookingId, hasXeroInvoice) => {
-    const poNumber = poInputValues[bookingReference]?.trim();
+  const handleSubmitPurchaseOrder = async (stateKey, apiReference, bookingId, hasXeroInvoice, bookingSource = 'regular') => {
+    const poNumber = poInputValues[stateKey]?.trim();
     if (!poNumber) {
       toast.error('Please enter a PO number');
       return;
     }
 
-    setSubmittingPoFor(bookingReference);
+    setSubmittingPoFor(stateKey);
     
     try {
       if (hasXeroInvoice) {
-        // Update Xero invoice reference and refresh the PDF
         try {
           const response = await base44.functions.invoke('updateXeroInvoicePO', {
-            bookingGroupReference: bookingReference,
-            purchaseOrderNumber: poNumber
+            bookingGroupReference: apiReference,
+            purchaseOrderNumber: poNumber,
+            bookingSource: bookingSource,
           });
           
           if (!response.data.success) {
@@ -328,25 +378,51 @@ export default function BookingsPage() {
           toast.success('PO number added and invoice updated successfully');
         } catch (invokeError) {
           console.error('Xero invoice update error:', invokeError?.message);
-          // If Xero update fails, fall back to just updating the booking
+          if (bookingSource === 'complex') {
+            const poResp = await fetch('/api/complex-event-bookings/update-po', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ booking_id: bookingId, purchase_order_number: poNumber }),
+            });
+            if (!poResp.ok) {
+              const poData = await poResp.json();
+              throw new Error(poData.error || 'Failed to save PO number');
+            }
+            toast.info('PO number saved. Invoice will be updated shortly.');
+          } else {
+            await base44.entities.Booking.update(bookingId, {
+              purchase_order_number: poNumber,
+              po_to_follow: false
+            });
+            toast.info('PO number saved. Invoice will be updated shortly.');
+          }
+        }
+      } else {
+        if (bookingSource === 'complex') {
+          const poResp = await fetch('/api/complex-event-bookings/update-po', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ booking_id: bookingId, purchase_order_number: poNumber }),
+          });
+          if (!poResp.ok) {
+            const poData = await poResp.json();
+            throw new Error(poData.error || 'Failed to save PO number');
+          }
+          toast.success('Purchase order number submitted successfully');
+        } else {
           await base44.entities.Booking.update(bookingId, {
             purchase_order_number: poNumber,
             po_to_follow: false
           });
-          toast.info('PO number saved. Invoice will be updated shortly.');
+          toast.success('Purchase order number submitted successfully');
         }
-      } else {
-        // No Xero invoice - just update the booking directly
-        await base44.entities.Booking.update(bookingId, {
-          purchase_order_number: poNumber,
-          po_to_follow: false
-        });
-
-        toast.success('Purchase order number submitted successfully');
       }
 
-      setPoInputValues(prev => ({ ...prev, [bookingReference]: '' }));
+      setPoInputValues(prev => ({ ...prev, [stateKey]: '' }));
       queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
       queryClient.invalidateQueries({ queryKey: ['pending-po-bookings'] });
     } catch (error) {
       console.error('Error submitting PO number:', error);
@@ -356,12 +432,11 @@ export default function BookingsPage() {
     }
   };
 
-  const handleViewInvoice = async (bookingGroupRef, invoiceNumber) => {
-    setLoadingInvoiceFor(bookingGroupRef);
+  const handleViewInvoice = async (stateKey, apiRef, invoiceNumber) => {
+    setLoadingInvoiceFor(stateKey);
     
     try {
-      // Fetch the PDF with inline=true for preview (include credentials for session auth)
-      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(bookingGroupRef)}?inline=true`, {
+      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(apiRef)}?inline=true`, {
         credentials: 'include'
       });
       
@@ -388,12 +463,11 @@ export default function BookingsPage() {
     }
   };
 
-  const handleDownloadInvoice = async (bookingGroupRef, invoiceNumber) => {
-    setLoadingInvoiceFor(bookingGroupRef);
+  const handleDownloadInvoice = async (stateKey, apiRef, invoiceNumber) => {
+    setLoadingInvoiceFor(stateKey);
     
     try {
-      // Fetch the PDF for download (include credentials for session auth)
-      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(bookingGroupRef)}`, {
+      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(apiRef)}`, {
         credentials: 'include'
       });
       
@@ -409,7 +483,7 @@ export default function BookingsPage() {
       // Create download link
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `invoice-${invoiceNumber || bookingGroupRef}.pdf`;
+      link.download = `invoice-${invoiceNumber || apiRef}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -436,10 +510,10 @@ export default function BookingsPage() {
     setInvoiceModalOpen(open);
   };
 
-  const handleViewCreditNote = async (bookingGroupRef, creditNoteNumber) => {
-    setLoadingCreditNoteFor(bookingGroupRef);
+  const handleViewCreditNote = async (stateKey, apiRef, creditNoteNumber) => {
+    setLoadingCreditNoteFor(stateKey);
     try {
-      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(bookingGroupRef)}?inline=true`, {
+      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(apiRef)}?inline=true`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -459,10 +533,10 @@ export default function BookingsPage() {
     }
   };
 
-  const handleDownloadCreditNote = async (bookingGroupRef, creditNoteNumber) => {
-    setLoadingCreditNoteFor(bookingGroupRef);
+  const handleDownloadCreditNote = async (stateKey, apiRef, creditNoteNumber) => {
+    setLoadingCreditNoteFor(stateKey);
     try {
-      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(bookingGroupRef)}`, {
+      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(apiRef)}`, {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -473,7 +547,7 @@ export default function BookingsPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `credit-note-${creditNoteNumber || bookingGroupRef}.pdf`;
+      link.download = `credit-note-${creditNoteNumber || apiRef}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -505,11 +579,12 @@ export default function BookingsPage() {
     );
   }
 
-  const isLoading = loadingBookings || loadingEvents;
+  const isLoading = loadingBookings || loadingEvents || loadingComplexBookings;
 
   const filteredAndSortedGroups = React.useMemo(() => {
     const grouped = bookings.reduce((acc, booking) => {
-      const ref = booking.booking_group_reference || booking.booking_reference || 'unknown';
+      const rawRef = booking.booking_group_reference || booking.booking_reference || 'unknown';
+      const ref = booking._source === 'complex' ? `complex:${rawRef}` : rawRef;
       if (!acc[ref]) acc[ref] = [];
       acc[ref].push(booking);
       return acc;
@@ -521,7 +596,8 @@ export default function BookingsPage() {
     if (query) {
       entries = entries.filter(([ref, groupBookings]) => {
         const firstBooking = groupBookings[0];
-        const event = events.find(e => e.id === firstBooking.event_id);
+        const isComplex = firstBooking._source === 'complex';
+        const event = isComplex ? firstBooking._complexEvent : events.find(e => e.id === firstBooking.event_id);
         const eventTitle = event?.title || firstBooking.event_name || '';
         const eventLocation = event?.location || '';
         return (
@@ -533,7 +609,7 @@ export default function BookingsPage() {
             (b.attendee_email || '').toLowerCase().includes(query) ||
             (b.attendee_first_name || '').toLowerCase().includes(query) ||
             (b.attendee_last_name || '').toLowerCase().includes(query) ||
-            (b.ticket_class || '').toLowerCase().includes(query) ||
+            (b.ticket_class || b.ticket_class_name || '').toLowerCase().includes(query) ||
             (b.status || '').toLowerCase().includes(query)
           )
         );
@@ -543,8 +619,8 @@ export default function BookingsPage() {
     entries.sort((a, b) => {
       const aFirst = a[1][0];
       const bFirst = b[1][0];
-      const eventA = events.find(e => e.id === aFirst.event_id);
-      const eventB = events.find(e => e.id === bFirst.event_id);
+      const eventA = aFirst._source === 'complex' ? aFirst._complexEvent : events.find(e => e.id === aFirst.event_id);
+      const eventB = bFirst._source === 'complex' ? bFirst._complexEvent : events.find(e => e.id === bFirst.event_id);
       const dateA = eventA?.start_date ? new Date(eventA.start_date).getTime() : (aFirst.created_date ? new Date(aFirst.created_date).getTime() : 0);
       const dateB = eventB?.start_date ? new Date(eventB.start_date).getTime() : (bFirst.created_date ? new Date(bFirst.created_date).getTime() : 0);
       return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
@@ -675,16 +751,21 @@ export default function BookingsPage() {
               </Card>
             ) : null}
             {filteredAndSortedGroups.map(([bookingRef, groupBookings], index) => {
+              const displayRef = bookingRef.startsWith('complex:') ? bookingRef.slice(8) : bookingRef;
               const firstBooking = groupBookings[0];
-              const event = events.find(e => e.id === firstBooking.event_id);
+              const isComplex = firstBooking._source === 'complex';
+              const event = isComplex ? firstBooking._complexEvent : events.find(e => e.id === firstBooking.event_id);
               
-              // Use event data if available, otherwise use booking data as fallback
               const isOneOffEvent = firstBooking.is_one_off_event || event?.is_one_off;
+              const hasXeroData = !!(firstBooking.xero_invoice_id || firstBooking.xero_invoice_number);
+              const showFinancials = isOneOffEvent || isComplex || hasXeroData;
               const eventTitle = event?.title || firstBooking.event_name || 'Event';
               const startDate = event?.start_date ? new Date(event.start_date) : null;
+              const endDate = event?.end_date ? new Date(event.end_date) : null;
               const eventLocation = event?.location;
               const eventImageUrl = event?.image_url;
               const programTag = event?.program_tag;
+              const complexSessions = isComplex ? (firstBooking._sessions || []) : [];
 
               return (
                 <Card 
@@ -697,12 +778,17 @@ export default function BookingsPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <CardTitle className="text-xl">{eventTitle}</CardTitle>
-                          {isOneOffEvent && (
+                          {isComplex && (
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-200">
+                              Multi-Session Event
+                            </Badge>
+                          )}
+                          {isOneOffEvent && !isComplex && (
                             <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200">
                               One-off Event
                             </Badge>
                           )}
-                          {programTag && !isOneOffEvent && (
+                          {programTag && !isOneOffEvent && !isComplex && (
                             <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
                               {programTag}
                             </Badge>
@@ -713,11 +799,16 @@ export default function BookingsPage() {
                           {startDate && (
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Calendar className="w-4 h-4 text-slate-400" />
-                              <span>{format(startDate, "EEEE, MMMM d, yyyy")}</span>
+                              <span>
+                                {format(startDate, "EEEE, MMMM d, yyyy")}
+                                {isComplex && endDate && format(endDate, "yyyy-MM-dd") !== format(startDate, "yyyy-MM-dd") && (
+                                  <> – {format(endDate, "EEEE, MMMM d, yyyy")}</>
+                                )}
+                              </span>
                             </div>
                           )}
                           
-                          {startDate && (
+                          {startDate && !isComplex && (
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Clock className="w-4 h-4 text-slate-400" />
                               <span>{format(startDate, "h:mm a")}</span>
@@ -748,7 +839,7 @@ export default function BookingsPage() {
                       <div className="flex items-center gap-2 text-sm">
                         <Ticket className="w-4 h-4 text-slate-400" />
                         <span className="text-slate-600">Booking Reference:</span>
-                        <span className="font-semibold text-slate-900">{bookingRef}</span>
+                        <span className="font-semibold text-slate-900">{displayRef}</span>
                       </div>
                       
                       <div>
@@ -872,14 +963,51 @@ export default function BookingsPage() {
                                     </span>
                                   </div>
                                 )}
+                                {isComplex && booking.ticket_class_name && (
+                                  <div className="flex items-center gap-2 text-xs text-slate-500 pl-6">
+                                    <Ticket className="w-3 h-3 text-slate-400" />
+                                    <span className="text-slate-600">Ticket: {booking.ticket_class_name}</span>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
                         </div>
                       </div>
                       
-                      {/* Payment summary for one-off events */}
-                      {isOneOffEvent && firstBooking.total_cost > 0 && (
+                      {isComplex && complexSessions.length > 0 && (
+                        <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                          <h4 className="text-sm font-semibold text-indigo-700 mb-3">Session Schedule</h4>
+                          <div className="space-y-2">
+                            {complexSessions.map(session => (
+                              <div key={session.id} className="flex items-start gap-3 text-sm">
+                                <div className="flex items-center gap-1 text-indigo-600 shrink-0 min-w-[140px]">
+                                  <Clock className="w-3 h-3" />
+                                  {session.start_time ? (
+                                    <span className="text-xs">
+                                      {format(new Date(session.start_time), "MMM d, h:mm a")}
+                                      {session.end_time && (<> – {format(new Date(session.end_time), "h:mm a")}</>)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs">TBC</span>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-slate-800">{session.title}</span>
+                                  {session.track_name && (
+                                    <span className="ml-2 text-xs text-indigo-500">({session.track_name})</span>
+                                  )}
+                                  {session.location && (
+                                    <span className="ml-2 text-xs text-slate-500">{session.location}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {showFinancials && firstBooking.total_cost > 0 && (
                         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
                           <h4 className="text-sm font-semibold text-slate-700 mb-3">Payment Summary</h4>
                           <div className="space-y-2 text-sm">
@@ -888,8 +1016,9 @@ export default function BookingsPage() {
                               const totalCost = groupBookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
                               const voucherAmount = groupBookings.reduce((sum, b) => sum + (b.voucher_amount || 0), 0);
                               const trainingFundAmount = groupBookings.reduce((sum, b) => sum + (b.training_fund_amount || 0), 0);
+                              const discountAmount = groupBookings.reduce((sum, b) => sum + (parseFloat(b.discount_code_amount || b.discount_amount) || 0), 0);
                               const accountAmount = groupBookings.reduce((sum, b) => sum + (b.account_amount || 0), 0);
-                              const cardAmount = firstBooking.stripe_payment_intent_id ? (totalCost - voucherAmount - trainingFundAmount - accountAmount) : 0;
+                              const cardAmount = firstBooking.stripe_payment_intent_id ? (totalCost - voucherAmount - trainingFundAmount - discountAmount - accountAmount) : 0;
                               
                               return (
                                 <>
@@ -907,6 +1036,12 @@ export default function BookingsPage() {
                                     <div className="flex justify-between text-green-700">
                                       <span>Training Fund:</span>
                                       <span>-£{trainingFundAmount.toFixed(2)}</span>
+                                    </div>
+                                  )}
+                                  {discountAmount > 0 && (
+                                    <div className="flex justify-between text-green-700">
+                                      <span>Discount:</span>
+                                      <span>-£{discountAmount.toFixed(2)}</span>
                                     </div>
                                   )}
                                   {accountAmount > 0 && (
@@ -945,7 +1080,7 @@ export default function BookingsPage() {
                                         />
                                         <Button
                                           size="sm"
-                                          onClick={() => handleSubmitPurchaseOrder(bookingRef, firstBooking.id, !!firstBooking.xero_invoice_id)}
+                                          onClick={() => handleSubmitPurchaseOrder(bookingRef, displayRef, firstBooking.id, !!firstBooking.xero_invoice_id, firstBooking._source || 'regular')}
                                           disabled={submittingPoFor === bookingRef || !poInputValues[bookingRef]?.trim()}
                                           data-testid={`button-submit-po-${bookingRef}`}
                                         >
@@ -965,8 +1100,7 @@ export default function BookingsPage() {
                         </div>
                       )}
                       
-                      {/* Invoice download/preview for one-off events with Xero invoice */}
-                      {canAccessInvoices && isOneOffEvent && firstBooking.xero_invoice_number && (
+                      {canAccessInvoices && showFinancials && firstBooking.xero_invoice_number && (
                         <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
                           <div className="flex items-center gap-2">
                             <FileText className="w-4 h-4 text-blue-600" />
@@ -978,7 +1112,7 @@ export default function BookingsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleViewInvoice(bookingRef, firstBooking.xero_invoice_number)}
+                              onClick={() => handleViewInvoice(bookingRef, displayRef, firstBooking.xero_invoice_number)}
                               disabled={loadingInvoiceFor === bookingRef}
                               data-testid={`button-view-invoice-${bookingRef}`}
                               className="border-blue-300 text-blue-700 hover:bg-blue-100"
@@ -995,7 +1129,7 @@ export default function BookingsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDownloadInvoice(bookingRef, firstBooking.xero_invoice_number)}
+                              onClick={() => handleDownloadInvoice(bookingRef, displayRef, firstBooking.xero_invoice_number)}
                               disabled={loadingInvoiceFor === bookingRef}
                               data-testid={`button-download-invoice-${bookingRef}`}
                               className="border-blue-300 text-blue-700 hover:bg-blue-100"
@@ -1014,7 +1148,7 @@ export default function BookingsPage() {
                       )}
                       
                       {(() => {
-                        const creditNoteBooking = canAccessInvoices && isOneOffEvent && groupBookings.find(b => b.xero_credit_note_number);
+                        const creditNoteBooking = canAccessInvoices && showFinancials && groupBookings.find(b => b.xero_credit_note_number);
                         if (!creditNoteBooking) return null;
                         return (
                         <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950/30 dark:border-orange-800">
@@ -1028,7 +1162,7 @@ export default function BookingsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleViewCreditNote(bookingRef, creditNoteBooking.xero_credit_note_number)}
+                              onClick={() => handleViewCreditNote(bookingRef, displayRef, creditNoteBooking.xero_credit_note_number)}
                               disabled={loadingCreditNoteFor === bookingRef}
                               data-testid={`button-view-credit-note-${bookingRef}`}
                               className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
@@ -1045,7 +1179,7 @@ export default function BookingsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDownloadCreditNote(bookingRef, creditNoteBooking.xero_credit_note_number)}
+                              onClick={() => handleDownloadCreditNote(bookingRef, displayRef, creditNoteBooking.xero_credit_note_number)}
                               disabled={loadingCreditNoteFor === bookingRef}
                               data-testid={`button-download-credit-note-${bookingRef}`}
                               className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
@@ -1301,9 +1435,11 @@ export default function BookingsPage() {
         open={showTransferDialog}
         onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
         booking={transferTarget}
+        bookingSource={transferTarget?._source || 'regular'}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ['my-transfer-requests'] });
           queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
+          queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
         }}
       />
     </div>

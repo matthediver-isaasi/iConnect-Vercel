@@ -23,7 +23,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: booking, error } = await supabase
+    let booking = null;
+
+    const { data: regularBooking, error } = await supabase
       .from('booking')
       .select('xero_credit_note_id, xero_credit_note_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
@@ -35,6 +37,27 @@ export default async function handler(req, res) {
     if (error) {
       console.error('Error fetching booking for credit note:', error);
       return res.status(500).json({ error: 'Failed to fetch booking' });
+    }
+
+    booking = regularBooking;
+
+    if (!booking || !booking.xero_credit_note_id) {
+      const { data: complexBooking, error: complexError } = await supabase
+        .from('complex_event_booking')
+        .select('xero_credit_note_id, xero_credit_note_number, member_id, organization_id')
+        .eq('booking_group_reference', bookingGroupRef)
+        .eq('tenant_id', sessionMember.tenant_id)
+        .not('xero_credit_note_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (complexError) {
+        console.error('Error fetching complex event booking for credit note:', complexError);
+      }
+
+      if (complexBooking && complexBooking.xero_credit_note_id) {
+        booking = complexBooking;
+      }
     }
 
     if (!booking || !booking.xero_credit_note_id) {

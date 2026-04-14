@@ -11,7 +11,6 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  // Check authentication - also validates member still exists
   const sessionMember = await getSessionMember(req);
   if (!sessionMember) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -24,11 +23,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Fetch booking with Xero invoice ID and verify ownership
-    const { data: booking, error } = await supabase
+    let booking = null;
+
+    const { data: regularBooking, error } = await supabase
       .from('booking')
       .select('xero_invoice_id, xero_invoice_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
+      .eq('tenant_id', sessionMember.tenant_id)
       .not('xero_invoice_id', 'is', null)
       .limit(1)
       .maybeSingle();
@@ -38,11 +39,31 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch booking' });
     }
 
+    booking = regularBooking;
+
+    if (!booking || !booking.xero_invoice_id) {
+      const { data: complexBooking, error: complexError } = await supabase
+        .from('complex_event_booking')
+        .select('xero_invoice_id, xero_invoice_number, member_id, organization_id')
+        .eq('booking_group_reference', bookingGroupRef)
+        .eq('tenant_id', sessionMember.tenant_id)
+        .not('xero_invoice_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (complexError) {
+        console.error('Error fetching complex event booking:', complexError);
+      }
+
+      if (complexBooking && complexBooking.xero_invoice_id) {
+        booking = complexBooking;
+      }
+    }
+
     if (!booking || !booking.xero_invoice_id) {
       return res.status(404).json({ error: 'Invoice not found for this booking' });
     }
 
-    // Verify authorization - member must be the one who made the booking OR from the same organization
     const isSameMember = booking.member_id === sessionMember.id;
     const isSameOrg = sessionMember.organization_id && booking.organization_id && sessionMember.organization_id === booking.organization_id;
     
@@ -50,20 +71,16 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Not authorized to view this invoice' });
     }
 
-    // Get tenant_id for Xero token lookup (from session member)
     const appTenantId = sessionMember.tenant_id;
     if (!appTenantId) {
       console.error('[booking-invoice] Cannot determine tenant for Xero PDF fetch');
       return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });
     }
 
-    // Fetch PDF directly from Xero (single source of truth)
     const pdfBuffer = await fetchXeroInvoicePdf(booking.xero_invoice_id, appTenantId);
 
-    // Check if inline preview is requested
     const inline = req.query.inline === 'true';
     
-    // Set headers for PDF download or inline viewing
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
     

@@ -52,13 +52,14 @@ async function handlePost(req, res) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const { booking_id, target_member_id, reason, target_email, target_first_name, target_last_name, target_organisation, target_phone } = req.body;
+  const { booking_id, target_member_id, reason, target_email, target_first_name, target_last_name, target_organisation, target_phone, booking_source } = req.body;
 
   if (!booking_id) {
     return res.status(400).json({ error: 'booking_id is required' });
   }
 
   const isPublicTransfer = !target_member_id && target_email;
+  const isComplex = booking_source === 'complex';
 
   if (!target_member_id && !target_email) {
     return res.status(400).json({ error: 'target_member_id or target_email is required' });

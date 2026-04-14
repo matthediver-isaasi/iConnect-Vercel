@@ -107,7 +107,7 @@ export default async function handler(req, res) {
 
     const isComplex = isComplexSource(source);
 
-    if (bookingError || !booking) {
+    if (!booking) {
       console.log('[TransferEligible] Booking not found:', booking_id, bookingError?.message);
       return res.status(404).json({ error: 'Booking not found' });
     }

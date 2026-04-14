@@ -318,6 +318,7 @@ async function handleGet(req, res) {
         .eq('tenant_id', tenantId);
       for (const b of (cBookings || [])) bookingsMap[b.id] = normalizeComplexBooking(b);
     }
+    }
 
     const orgIds = [...new Set(Object.values(bookingsMap).map(b => b.organization_id).filter(Boolean))];
     let orgsMap = {};
@@ -360,6 +361,7 @@ async function handleGet(req, res) {
           .eq('tenant_id', tenantId);
         for (const ce of (complexEvents || [])) {
           eventsMap[ce.id] = { ...ce, program_tag: null };
+        }
         }
       }
     }

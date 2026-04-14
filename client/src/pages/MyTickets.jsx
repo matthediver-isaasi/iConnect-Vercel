@@ -59,8 +59,7 @@ export default function MyTicketsPage({ hasBanner }) {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  // Fetch only this user's tickets - filtered server-side by member_id
-  const { data: myTickets = [], isLoading: loadingTickets } = useQuery({
+  const { data: regularTickets = [], isLoading: loadingTickets } = useQuery({
     queryKey: ['my-tickets', memberInfo?.id],
     queryFn: async () => {
       if (!memberInfo?.id) return [];
@@ -71,14 +70,55 @@ export default function MyTicketsPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
-  // Get unique event IDs from user's tickets, then fetch only those events
-  const eventIds = [...new Set(myTickets.map(t => t.event_id).filter(Boolean))];
+  const { data: complexBookingsData, isLoading: loadingComplexTickets } = useQuery({
+    queryKey: ['my-complex-bookings', memberInfo?.id],
+    queryFn: async () => {
+      const response = await fetch('/api/complex-event-bookings', {
+        credentials: 'include',
+      });
+      if (!response.ok) return { bookings: [], events: {}, sessions: {} };
+      return response.json();
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const complexEventsMap = complexBookingsData?.events || {};
+  const complexSessionsMap = complexBookingsData?.sessions || {};
+
+  const myTickets = React.useMemo(() => {
+    const regular = regularTickets.map(t => ({ ...t, _source: 'regular' }));
+
+    const complex = (complexBookingsData?.bookings || []).map(b => {
+      const ce = complexEventsMap[b.event_id];
+      return {
+        ...b,
+        _source: 'complex',
+        total_cost: parseFloat(b.total_paid) || 0,
+        account_amount: parseFloat(b.account_balance_amount) || 0,
+        voucher_amount: parseFloat(b.voucher_amount) || 0,
+        training_fund_amount: parseFloat(b.training_fund_amount) || 0,
+        discount_code_amount: parseFloat(b.discount_amount) || 0,
+        ticket_class: b.ticket_class_name,
+        created_date: b.created_at,
+        booking_reference: b.booking_reference,
+        booking_group_reference: b.booking_group_reference || b.booking_reference,
+        event_name: ce?.title || 'Complex Event',
+        _complexEvent: ce || null,
+        _sessions: complexSessionsMap[b.id] || [],
+      };
+    });
+
+    return [...regular, ...complex];
+  }, [regularTickets, complexBookingsData, complexEventsMap, complexSessionsMap]);
+
+  const eventIds = [...new Set(myTickets.filter(t => t._source !== 'complex').map(t => t.event_id).filter(Boolean))];
   
   const { data: events = [], isLoading: loadingEvents } = useQuery({
     queryKey: ['events-for-tickets', eventIds],
     queryFn: async () => {
       if (eventIds.length === 0) return [];
-      // Fetch only the events that are in user's bookings
       return base44.entities.Event.list({
         filter: { id: { in: eventIds } }
       });
@@ -88,14 +128,12 @@ export default function MyTicketsPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
-  // Get unique member IDs from user's tickets (for "booked by" info)
-  const memberIds = [...new Set(myTickets.map(t => t.member_id).filter(Boolean))];
+  const memberIds = [...new Set(myTickets.filter(t => t._source !== 'complex').map(t => t.member_id).filter(Boolean))];
   
   const { data: members = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['members-for-tickets', memberIds],
     queryFn: async () => {
       if (memberIds.length === 0) return [];
-      // Fetch only the members who made these bookings
       return base44.entities.Member.list({
         filter: { id: { in: memberIds } }
       });
@@ -243,13 +281,35 @@ export default function MyTicketsPage({ hasBanner }) {
     );
   }
 
-  const isLoading = loadingTickets || loadingEvents || loadingMembers;
+  const isLoading = loadingTickets || loadingEvents || loadingMembers || loadingComplexTickets;
 
   const filteredAndSortedTickets = React.useMemo(() => {
-    const ticketsWithEvents = myTickets.map(ticket => ({
-      ticket,
-      event: events.find(e => e.id === ticket.event_id)
-    })).filter(item => item.event);
+    const ticketsWithEvents = myTickets.map(ticket => {
+      if (ticket._source === 'complex') {
+        const ce = ticket._complexEvent;
+        const sessions = ticket._sessions || [];
+        const firstSession = sessions[0];
+        const lastSession = sessions[sessions.length - 1];
+        return {
+          ticket,
+          event: {
+            id: ticket.event_id,
+            title: ce?.title || ticket.event_name || 'Complex Event',
+            location: ce?.location || '',
+            start_date: firstSession?.start_time || ce?.start_date || null,
+            end_date: lastSession?.end_time || ce?.end_date || null,
+            image_url: ce?.image_url || null,
+            description: ce?.description || '',
+            _isComplex: true,
+            _sessions: sessions,
+          }
+        };
+      }
+      return {
+        ticket,
+        event: events.find(e => e.id === ticket.event_id)
+      };
+    }).filter(item => item.event);
 
     const query = searchQuery.toLowerCase().trim();
     const filtered = query
@@ -348,12 +408,14 @@ export default function MyTicketsPage({ hasBanner }) {
   };
 
   const handleCancelClick = (ticket) => {
-    setCancelTarget({ type: 'individual', bookings: [ticket] });
+    const bookingSource = ticket._source || 'regular';
+    setCancelTarget({ type: 'individual', bookings: [ticket], bookingSource });
     setCancelReason('');
     setTermsAgreed(false);
 
     if (cancellationDeadlineHours > 0 && ticket.event_id) {
-      const event = events.find(e => e.id === ticket.event_id);
+      const isComplex = bookingSource === 'complex';
+      const event = isComplex ? ticket._complexEvent : events.find(e => e.id === ticket.event_id);
       if (event?.start_date) {
         const eventStart = new Date(event.start_date);
         const now = new Date();
@@ -392,6 +454,7 @@ export default function MyTicketsPage({ hasBanner }) {
           booking_group_reference: null,
           request_type: cancelTarget.type,
           reason: cancelReason.trim() || null,
+          booking_source: cancelTarget.bookingSource || 'regular',
         }),
       });
 
@@ -408,6 +471,7 @@ export default function MyTicketsPage({ hasBanner }) {
       setTermsAgreed(false);
       setDeadlinePassed(false);
       queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
     } catch (error) {
       console.error('Cancellation request error:', error);
       toast.error(error.message || 'Failed to submit cancellation request. Please try again.');
@@ -561,6 +625,11 @@ export default function MyTicketsPage({ hasBanner }) {
                               {event.program_tag}
                             </Badge>
                           )}
+                          {event._isComplex && (
+                            <Badge className="bg-purple-100 text-purple-700 border-purple-200" data-testid={`badge-complex-event-${ticket.id}`}>
+                              Multi-Session Event
+                            </Badge>
+                          )}
                         </div>
                         
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -624,6 +693,35 @@ export default function MyTicketsPage({ hasBanner }) {
                           <div className={`flex items-center gap-2 text-sm ${isCancelled ? 'text-slate-400' : 'text-slate-600'}`}>
                             <MapPin className="w-4 h-4 text-slate-400" />
                             <span className="line-clamp-1">{event.location}</span>
+                          </div>
+                        )}
+
+                        {event._isComplex && event._sessions && event._sessions.length > 0 && (
+                          <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                            <h5 className="text-xs font-semibold text-purple-700 mb-2">Session Schedule</h5>
+                            <div className="space-y-1.5">
+                              {event._sessions.map((session, sIdx) => (
+                                <div key={sIdx} className="flex items-start gap-2 text-xs text-purple-800">
+                                  <Clock className="w-3 h-3 mt-0.5 text-purple-400 shrink-0" />
+                                  <div>
+                                    <span className="font-medium">{session.title || `Session ${sIdx + 1}`}</span>
+                                    {session.start_time && (
+                                      <span className="text-purple-600 ml-1">
+                                        {format(new Date(session.start_time), "MMM d, h:mm a")}
+                                        {session.end_time && ` - ${format(new Date(session.end_time), "h:mm a")}`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {ticket.ticket_class && (
+                          <div className={`flex items-center gap-2 text-sm ${isCancelled ? 'text-slate-400' : 'text-slate-600'}`}>
+                            <Ticket className="w-4 h-4 text-slate-400" />
+                            <span>{ticket.ticket_class}</span>
                           </div>
                         )}
                       </div>
@@ -914,8 +1012,10 @@ export default function MyTicketsPage({ hasBanner }) {
         open={showTransferDialog}
         onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
         booking={transferTarget}
+        bookingSource={transferTarget?._source || 'regular'}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ['my-transfer-requests'] });
+          queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
         }}
       />
     </div>

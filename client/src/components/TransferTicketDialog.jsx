@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, User, ArrowRight, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
-export default function TransferTicketDialog({ open, onOpenChange, booking, onSuccess, isPublicBooking = false }) {
+export default function TransferTicketDialog({ open, onOpenChange, booking, bookingSource = 'regular', onSuccess, isPublicBooking = false }) {
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -144,11 +144,13 @@ export default function TransferTicketDialog({ open, onOpenChange, booking, onSu
             target_organisation: targetOrganisation.trim() || null,
             target_phone: targetPhone.trim() || null,
             reason: reason.trim() || null,
+            booking_source: bookingSource,
           }
         : {
             booking_id: booking.id,
             target_member_id: selectedMember.id,
             reason: reason.trim() || null,
+            booking_source: bookingSource,
           };
 
       const response = await fetch('/api/booking-transfer-requests', {
