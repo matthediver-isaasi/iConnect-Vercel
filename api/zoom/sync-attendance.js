@@ -50,11 +50,32 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const zoomId = session.zoom_webinar_id || session.zoom_meeting_id;
-      const zoomType = session.zoom_webinar_id ? 'webinar' : 'meeting';
+      const isWebinar = !!session.zoom_webinar_id;
+      const zoomRecordId = isWebinar ? session.zoom_webinar_id : session.zoom_meeting_id;
+      const zoomType = isWebinar ? 'webinar' : 'meeting';
 
-      if (!zoomId) {
+      if (!zoomRecordId) {
         return res.status(400).json({ error: 'Session is not linked to a Zoom meeting or webinar' });
+      }
+
+      const tableName = isWebinar ? 'zoom_webinar' : 'zoom_meeting';
+      const zoomIdColumn = isWebinar ? 'zoom_webinar_id' : 'zoom_meeting_id';
+
+      const { data: zoomRecord, error: zoomRecordError } = await supabase
+        .from(tableName)
+        .select(`id, ${zoomIdColumn}`)
+        .eq('id', zoomRecordId)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (zoomRecordError || !zoomRecord) {
+        return res.status(404).json({ error: 'Zoom record not found in database' });
+      }
+
+      const zoomApiId = zoomRecord[zoomIdColumn];
+
+      if (!zoomApiId) {
+        return res.status(400).json({ error: 'Zoom record exists but has no Zoom API ID' });
       }
 
       const derivedEventId = session.complex_event_id;
@@ -63,7 +84,7 @@ export default async function handler(req, res) {
         tenantId,
         eventId: derivedEventId,
         complexEventSessionId: session.id,
-        zoomMeetingId: zoomId,
+        zoomMeetingId: zoomApiId,
         zoomType,
         isComplexEvent: true,
       });

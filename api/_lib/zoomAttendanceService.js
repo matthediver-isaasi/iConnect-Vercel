@@ -218,18 +218,39 @@ export async function syncAttendanceForEvent(tenantId, eventId) {
     return syncAttendanceForComplexEvent(tenantId, eventId);
   }
 
-  const zoomId = event.zoom_webinar_id || event.zoom_meeting_id;
-  const zoomType = event.zoom_webinar_id ? 'webinar' : 'meeting';
+  const isWebinar = !!event.zoom_webinar_id;
+  const zoomRecordId = isWebinar ? event.zoom_webinar_id : event.zoom_meeting_id;
+  const zoomType = isWebinar ? 'webinar' : 'meeting';
 
-  if (!zoomId) {
+  if (!zoomRecordId) {
     throw new Error('Event is not linked to a Zoom meeting or webinar');
+  }
+
+  const tableName = isWebinar ? 'zoom_webinar' : 'zoom_meeting';
+  const zoomIdColumn = isWebinar ? 'zoom_webinar_id' : 'zoom_meeting_id';
+
+  const { data: zoomRecord, error: zoomRecordError } = await supabase
+    .from(tableName)
+    .select(`id, ${zoomIdColumn}`)
+    .eq('id', zoomRecordId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (zoomRecordError || !zoomRecord) {
+    throw new Error('Zoom record not found in database');
+  }
+
+  const zoomApiId = zoomRecord[zoomIdColumn];
+
+  if (!zoomApiId) {
+    throw new Error('Zoom record exists but has no Zoom API ID');
   }
 
   return syncAttendanceForMeeting({
     tenantId,
     eventId,
     complexEventSessionId: null,
-    zoomMeetingId: zoomId,
+    zoomMeetingId: zoomApiId,
     zoomType,
     isComplexEvent: false,
   });
@@ -255,15 +276,35 @@ async function syncAttendanceForComplexEvent(tenantId, eventId) {
   const results = [];
 
   for (const session of zoomSessions) {
-    const zoomId = session.zoom_webinar_id || session.zoom_meeting_id;
-    const zoomType = session.zoom_webinar_id ? 'webinar' : 'meeting';
+    const isWebinar = !!session.zoom_webinar_id;
+    const zoomRecordId = isWebinar ? session.zoom_webinar_id : session.zoom_meeting_id;
+    const zoomType = isWebinar ? 'webinar' : 'meeting';
+    const tableName = isWebinar ? 'zoom_webinar' : 'zoom_meeting';
+    const zoomIdColumn = isWebinar ? 'zoom_webinar_id' : 'zoom_meeting_id';
 
     try {
+      const { data: zoomRecord, error: zoomRecordError } = await supabase
+        .from(tableName)
+        .select(`id, ${zoomIdColumn}`)
+        .eq('id', zoomRecordId)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (zoomRecordError || !zoomRecord) {
+        throw new Error('Zoom record not found in database');
+      }
+
+      const zoomApiId = zoomRecord[zoomIdColumn];
+
+      if (!zoomApiId) {
+        throw new Error('Zoom record exists but has no Zoom API ID');
+      }
+
       const result = await syncAttendanceForMeeting({
         tenantId,
         eventId,
         complexEventSessionId: session.id,
-        zoomMeetingId: zoomId,
+        zoomMeetingId: zoomApiId,
         zoomType,
         isComplexEvent: true,
       });
