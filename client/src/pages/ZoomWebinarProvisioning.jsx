@@ -21,6 +21,17 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 
+function looksLikeEmail(value) {
+  if (!value || value.includes(' ')) return false;
+  const parts = value.split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (!local || !domain) return false;
+  const dotIndex = domain.indexOf('.');
+  if (dotIndex < 1 || dotIndex === domain.length - 1) return false;
+  return true;
+}
+
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -690,8 +701,8 @@ export default function ZoomWebinarProvisioning() {
       toast.error('Please enter panelist name and email');
       return;
     }
-    if (!newPanelist.email.includes('@')) {
-      toast.error('Please enter a valid email address');
+    if (!looksLikeEmail(newPanelist.email)) {
+      toast.error('Please enter a valid email address (e.g. name@example.com)');
       return;
     }
     setFormData(prev => ({
@@ -1697,6 +1708,10 @@ export default function ZoomWebinarProvisioning() {
                           onClick={() => {
                             if (!detailsPanelist.name || !detailsPanelist.email) {
                               toast.error('Please enter name and email');
+                              return;
+                            }
+                            if (!looksLikeEmail(detailsPanelist.email)) {
+                              toast.error('Please enter a valid email address (e.g. name@example.com)');
                               return;
                             }
                             addPanelistMutation.mutate({
