@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -403,7 +403,12 @@ export default function EventRegistrationReport() {
       'Booking Reference',
       'Status',
       'Date',
-      'Guest Booking'
+      'Guest Booking',
+      'Attended',
+      'Zoom Join Time',
+      'Zoom Leave Time',
+      'Zoom Duration (mins)',
+      'Sessions Attended'
     ];
 
     const rows = [];
@@ -435,7 +440,12 @@ export default function EventRegistrationReport() {
           isFirstInGroup ? (gp.bookingReference || '') : '',
           a.status || '',
           a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '',
-          a.is_guest_booking ? 'Yes' : 'No'
+          a.is_guest_booking ? 'Yes' : 'No',
+          a.attended === true ? 'Yes' : a.attended === false ? 'Partial' : (a.attended === null && group.hasZoom ? 'No' : ''),
+          a.zoom_join_time ? format(parseISO(a.zoom_join_time), 'yyyy-MM-dd HH:mm:ss') : '',
+          a.zoom_leave_time ? format(parseISO(a.zoom_leave_time), 'yyyy-MM-dd HH:mm:ss') : '',
+          a.zoom_duration_minutes != null ? a.zoom_duration_minutes : '',
+          a.attendance_by_session ? a.attendance_by_session.filter(s => s.attended).length + '/' + a.attendance_by_session.length : ''
         ]);
       });
     }
@@ -500,6 +510,128 @@ export default function EventRegistrationReport() {
     queryClient.invalidateQueries({ queryKey: ['event-registration-report', appliedFilters] });
   };
 
+  const [syncingAttendance, setSyncingAttendance] = useState(false);
+
+  const hasZoomForSelectedEvents = reportData?.hasZoomForSelectedEvents || false;
+  const anyGroupHasZoom = bookingGroups.some(g => g.hasZoom);
+  const showAttendanceColumn = hasZoomForSelectedEvents || anyGroupHasZoom;
+
+  const handleSyncAttendance = async () => {
+    if (!appliedFilters) return;
+    setSyncingAttendance(true);
+    try {
+      const zoomEventIds = new Set();
+      for (const group of bookingGroups) {
+        if (group.hasZoom && group.eventId) {
+          zoomEventIds.add(group.eventId);
+        }
+      }
+
+      const eventsWithZoom = (reportData?.events || []).filter(e => zoomEventIds.has(e.id) || e.has_zoom);
+
+      if (eventsWithZoom.length === 0) {
+        toast.error('No events with Zoom integration found in current selection');
+        return;
+      }
+
+      let totalParticipants = 0;
+      let totalMatched = 0;
+      let errors = [];
+      const syncedEventIds = new Set();
+
+      for (const event of eventsWithZoom) {
+        if (syncedEventIds.has(event.id)) continue;
+        syncedEventIds.add(event.id);
+        try {
+          const response = await fetch('/api/zoom/sync-attendance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ eventId: event.id }),
+          });
+          const data = await response.json();
+          if (response.ok && data.success) {
+            totalParticipants += data.participantCount || 0;
+            totalMatched += data.matchedCount || 0;
+          } else {
+            errors.push(`${event.title}: ${data.error || 'Unknown error'}`);
+          }
+        } catch (err) {
+          errors.push(`${event.title}: ${err.message}`);
+        }
+      }
+
+      if (errors.length > 0 && totalParticipants === 0) {
+        toast.error(`Sync failed: ${errors[0]}`);
+      } else if (errors.length > 0) {
+        toast.info(`Synced ${totalParticipants} participants (${totalMatched} matched). Some events had errors.`);
+      } else {
+        toast.success(`Synced ${totalParticipants} participants (${totalMatched} matched to bookings)`);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['event-registration-report', appliedFilters] });
+    } catch (error) {
+      toast.error(error.message || 'Failed to sync attendance');
+    } finally {
+      setSyncingAttendance(false);
+    }
+  };
+
+  const renderAttendanceCell = (attendee) => {
+    if (attendee.attended === true) {
+      const durationLabel = attendee.zoom_duration_minutes != null ? `${attendee.zoom_duration_minutes} min` : '';
+      const sessionCount = attendee.attendance_by_session?.length || 0;
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1">
+              <Check className="w-4 h-4 text-green-600" />
+              <span className="text-xs text-green-600">
+                {sessionCount > 1 ? `Yes (${sessionCount} sessions)` : 'Yes'}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <div className="text-xs space-y-0.5">
+              {attendee.zoom_join_time && <div>Joined: {format(parseISO(attendee.zoom_join_time), 'HH:mm')}</div>}
+              {attendee.zoom_leave_time && <div>Left: {format(parseISO(attendee.zoom_leave_time), 'HH:mm')}</div>}
+              {durationLabel && <div>Total duration: {durationLabel}</div>}
+              {sessionCount > 0 && <div>Sessions attended: {sessionCount}</div>}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+    if (attendee.attended === false) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1">
+              <Clock className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-amber-500">Partial</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <div className="text-xs">Joined briefly ({attendee.zoom_duration_minutes || 0} min)</div>
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-1">
+            <X className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">No</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <div className="text-xs">Not found in Zoom participant data. Sync attendance to refresh.</div>
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   const renderActionIcons = (attendee) => {
     const isCancelled = attendee.status === 'cancelled';
     return (
@@ -553,16 +685,32 @@ export default function EventRegistrationReport() {
             Set filters below and generate a report to view registration details and payment breakdowns
           </p>
         </div>
-        {reportGenerated && filteredGroups.length > 0 && (
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={handleExportCSV}
-            data-testid="button-export-csv"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </Button>
+        {reportGenerated && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {(showAttendanceColumn || hasZoomForSelectedEvents) && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleSyncAttendance}
+                disabled={syncingAttendance}
+                data-testid="button-sync-attendance"
+              >
+                {syncingAttendance ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Sync Attendance
+              </Button>
+            )}
+            {filteredGroups.length > 0 && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleExportCSV}
+                data-testid="button-export-csv"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -804,7 +952,10 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">PO Number</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Invoice</th>
-                          <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                          {showAttendanceColumn && (
+                            <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -878,11 +1029,16 @@ export default function EventRegistrationReport() {
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
                                 </td>
-                                <td className="py-3 whitespace-nowrap">
+                                <td className="py-3 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
                                   </Badge>
                                 </td>
+                                {showAttendanceColumn && (
+                                  <td className="py-3 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
+                                    {group.hasZoom ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
+                                  </td>
+                                )}
                               </tr>
                             );
                           }
@@ -979,11 +1135,16 @@ export default function EventRegistrationReport() {
                                     </td>
                                   </>
                                 ) : null}
-                                <td className="py-2 whitespace-nowrap">
+                                <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
                                   </Badge>
                                 </td>
+                                {showAttendanceColumn && (
+                                  <td className="py-2 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
+                                    {group.hasZoom ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
+                                  </td>
+                                )}
                               </tr>
                             );
                           });

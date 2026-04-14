@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
     const { data: regularEvents, error: eventsError } = await supabase
       .from('event')
-      .select('id, title, start_date, status, internal_reference, is_complex')
+      .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 
@@ -41,8 +41,8 @@ export default async function handler(req, res) {
     }
 
     const allEvents = [
-      ...(regularEvents || []).map(e => ({ ...e, source: 'event' })),
-      ...(complexEvents || []).map(e => ({ ...e, is_complex: true, internal_reference: null, source: 'complex_event' }))
+      ...(regularEvents || []).map(e => ({ ...e, source: 'event', has_zoom: !!(e.zoom_meeting_id || e.zoom_webinar_id) })),
+      ...(complexEvents || []).map(e => ({ ...e, is_complex: true, internal_reference: null, source: 'complex_event', has_zoom: false }))
     ].sort((a, b) => {
       const aDate = a.start_date ? new Date(a.start_date) : new Date(0);
       const bDate = b.start_date ? new Date(b.start_date) : new Date(0);
@@ -51,6 +51,7 @@ export default async function handler(req, res) {
 
     let bookingGroups = [];
     let organizations = {};
+    let hasZoomForSelectedEvents = false;
     let summary = {
       totalRevenue: 0,
       totalVoucher: 0,
@@ -105,7 +106,7 @@ export default async function handler(req, res) {
 
       const eventMap = {};
       for (const ev of allEvents) {
-        eventMap[ev.id] = { title: ev.title, internal_reference: ev.internal_reference, is_complex: ev.is_complex, source: ev.source };
+        eventMap[ev.id] = { title: ev.title, internal_reference: ev.internal_reference, is_complex: ev.is_complex, source: ev.source, has_zoom: ev.has_zoom };
       }
 
       let allBookings = [];
@@ -208,6 +209,58 @@ export default async function handler(req, res) {
         }
       }
 
+      let attendanceByBookingId = {};
+      let attendanceByEmail = {};
+      const allTargetIds = [...targetEventIds, ...targetComplexEventIds];
+      if (allTargetIds.length > 0) {
+        const { data: attendanceData } = await supabase
+          .from('zoom_attendance')
+          .select('id, event_id, complex_event_session_id, participant_email, participant_name, join_time, leave_time, duration_minutes, matched_booking_id, synced_at')
+          .in('event_id', allTargetIds)
+          .eq('tenant_id', tenantId);
+
+        if (attendanceData) {
+          for (const a of attendanceData) {
+            if (a.matched_booking_id) {
+              if (!attendanceByBookingId[a.matched_booking_id]) {
+                attendanceByBookingId[a.matched_booking_id] = [];
+              }
+              attendanceByBookingId[a.matched_booking_id].push(a);
+            }
+            if (a.participant_email) {
+              const email = a.participant_email.toLowerCase().trim();
+              if (!attendanceByEmail[email]) {
+                attendanceByEmail[email] = [];
+              }
+              attendanceByEmail[email].push(a);
+            }
+          }
+        }
+      }
+
+      if (targetComplexEventIds.length > 0) {
+        const { data: ceSessionsWithZoom } = await supabase
+          .from('complex_event_session')
+          .select('id, zoom_meeting_id, zoom_webinar_id, complex_event_id')
+          .in('complex_event_id', targetComplexEventIds)
+          .eq('tenant_id', tenantId);
+
+        if (ceSessionsWithZoom) {
+          const hasZoomSession = ceSessionsWithZoom.some(s => s.zoom_meeting_id || s.zoom_webinar_id);
+          if (hasZoomSession) hasZoomForSelectedEvents = true;
+          for (const ceId of targetComplexEventIds) {
+            if (eventMap[ceId]) {
+              eventMap[ceId].has_zoom = ceSessionsWithZoom.some(s => s.complex_event_id === ceId && (s.zoom_meeting_id || s.zoom_webinar_id));
+            }
+          }
+        }
+      }
+      if (targetEventIds.length > 0) {
+        for (const eid of targetEventIds) {
+          if (eventMap[eid]?.has_zoom) hasZoomForSelectedEvents = true;
+        }
+      }
+
       const groupMap = new Map();
       for (const b of allBookings) {
         const groupKey = b.booking_group_reference || `single_${b.id}`;
@@ -264,6 +317,7 @@ export default async function handler(req, res) {
           attendeeCount: members.length,
           eventTitle: eventInfo.title || '',
           internalReference: eventInfo.internal_reference || '',
+          eventId: first.event_id,
           isComplexEvent: eventInfo.is_complex || false,
           groupPayment: {
             ticketTotal: groupTicketTotal,
@@ -280,8 +334,60 @@ export default async function handler(req, res) {
             xeroInvoiceId: first.xero_invoice_id,
             bookingReference: first.booking_reference,
           },
+          hasZoom: eventInfo.has_zoom || false,
           attendees: members.map(b => {
             const tcInfo = b.ticket_class_id ? ticketClassMap[b.ticket_class_id] : null;
+
+            let attendanceRecords = attendanceByBookingId[b.id] || [];
+            if (attendanceRecords.length === 0 && b.attendee_email) {
+              const email = b.attendee_email.toLowerCase().trim();
+              attendanceRecords = (attendanceByEmail[email] || []).filter(a => a.event_id === b.event_id);
+            }
+
+            let attended = null;
+            let zoom_join_time = null;
+            let zoom_leave_time = null;
+            let zoom_duration_minutes = null;
+            let attendance_by_session = null;
+
+            if (attendanceRecords.length > 0) {
+              zoom_duration_minutes = attendanceRecords.reduce((sum, r) => sum + (r.duration_minutes || 0), 0);
+              const sorted = [...attendanceRecords].sort((a, b) => new Date(a.join_time) - new Date(b.join_time));
+              zoom_join_time = sorted[0].join_time;
+              zoom_leave_time = sorted[sorted.length - 1].leave_time;
+
+              if (zoom_duration_minutes >= 1) {
+                attended = true;
+              } else {
+                attended = false;
+              }
+
+              if (eventInfo.is_complex) {
+                const sessionMap = {};
+                for (const rec of attendanceRecords) {
+                  const sid = rec.complex_event_session_id || '_overall';
+                  if (!sessionMap[sid]) {
+                    sessionMap[sid] = [];
+                  }
+                  sessionMap[sid].push(rec);
+                }
+                attendance_by_session = Object.entries(sessionMap)
+                  .filter(([sid]) => sid !== '_overall')
+                  .map(([sid, recs]) => {
+                    const totalDur = recs.reduce((s, r) => s + (r.duration_minutes || 0), 0);
+                    const sSorted = [...recs].sort((x, y) => new Date(x.join_time) - new Date(y.join_time));
+                    return {
+                      session_id: sid,
+                      attended: totalDur >= 1,
+                      join_time: sSorted[0].join_time,
+                      leave_time: sSorted[sSorted.length - 1].leave_time,
+                      duration_minutes: totalDur,
+                    };
+                  });
+                if (attendance_by_session.length === 0) attendance_by_session = null;
+              }
+            }
+
             return {
               id: b.id,
               attendee_first_name: b.attendee_first_name,
@@ -297,6 +403,11 @@ export default async function handler(req, res) {
               status: b.status,
               created_at: b.created_at,
               track_access: tcInfo ? (tcInfo.all_tracks ? 'All Tracks' : (tcInfo.linked_track_ids || []).length + ' track(s)') : null,
+              attended,
+              zoom_join_time,
+              zoom_leave_time,
+              zoom_duration_minutes,
+              attendance_by_session,
             };
           }),
         });
@@ -321,6 +432,7 @@ export default async function handler(req, res) {
       bookingGroups,
       organizations,
       summary,
+      hasZoomForSelectedEvents,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
