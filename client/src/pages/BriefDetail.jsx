@@ -428,6 +428,7 @@ export default function BriefDetailPage() {
       instructions: brief.instructions || "",
       target_audience: brief.target_audience || "",
       tone_guidance: brief.tone_guidance || "",
+      contributor_type: brief.contributor_type || "",
       word_count_target: brief.word_count_target || "",
       deadline: brief.deadline ? brief.deadline.split("T")[0] : "",
       priority: brief.priority || "medium",
@@ -480,6 +481,7 @@ export default function BriefDetailPage() {
       instructions: editData.instructions.trim() || null,
       target_audience: editData.target_audience.trim() || null,
       tone_guidance: editData.tone_guidance.trim() || null,
+      contributor_type: editData.contributor_type || null,
       word_count_target: editData.word_count_target ? parseInt(editData.word_count_target) : null,
       deadline: editData.deadline || null,
       priority: editData.priority,
@@ -756,7 +758,7 @@ export default function BriefDetailPage() {
                       onChange={(html) => setEditData((p) => ({ ...p, instructions: html }))}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label htmlFor="edit-audience">Target Audience</Label>
                       <Input id="edit-audience" value={editData.target_audience} onChange={(e) => setEditData((p) => ({ ...p, target_audience: e.target.value }))} data-testid="input-edit-audience" />
@@ -764,6 +766,16 @@ export default function BriefDetailPage() {
                     <div className="space-y-1">
                       <Label htmlFor="edit-tone">Tone Guidance</Label>
                       <Input id="edit-tone" value={editData.tone_guidance} onChange={(e) => setEditData((p) => ({ ...p, tone_guidance: e.target.value }))} data-testid="input-edit-tone" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Contributor Type</Label>
+                      <Select value={editData.contributor_type} onValueChange={(v) => setEditData((p) => ({ ...p, contributor_type: v }))}>
+                        <SelectTrigger data-testid="select-edit-contributor-type"><SelectValue placeholder="Select type" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="volunteer">Volunteer</SelectItem>
+                          <SelectItem value="paid">Paid</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -910,6 +922,12 @@ export default function BriefDetailPage() {
                       <div>
                         <Label className="text-xs text-muted-foreground">Tone Guidance</Label>
                         <p className="text-sm mt-1" data-testid="text-brief-tone">{brief.tone_guidance}</p>
+                      </div>
+                    )}
+                    {brief.contributor_type && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Contributor Type</Label>
+                        <p className="text-sm mt-1 capitalize" data-testid="text-brief-contributor-type">{brief.contributor_type}</p>
                       </div>
                     )}
                     {brief.notes && (
