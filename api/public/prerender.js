@@ -803,7 +803,75 @@ export default async function handler(req, res) {
     }
 
     if (!pageData) {
-      return res.status(404).send('<html><body>Page not found</body></html>');
+      try {
+        const { data: mappings } = await supabase
+          .from('redirect_mapping')
+          .select('source_pattern, target_url, match_type, status_code')
+          .eq('is_active', true)
+          .order('priority', { ascending: true });
+
+        if (mappings && mappings.length > 0) {
+          const normalizedPath = requestPath.replace(/\/+$/, '') || '/';
+          const normalizedPathLower = normalizedPath.toLowerCase();
+
+          for (const mapping of mappings) {
+            let sourcePattern = (mapping.source_pattern || '').replace(/\/+$/, '') || '/';
+            if (sourcePattern !== '/' && !sourcePattern.startsWith('/')) {
+              sourcePattern = '/' + sourcePattern;
+            }
+            const sourcePatternLower = sourcePattern.toLowerCase();
+
+            let matched = false;
+            let targetUrl = mapping.target_url;
+
+            if (mapping.match_type === 'exact') {
+              matched = normalizedPathLower === sourcePatternLower;
+            } else if (mapping.match_type === 'prefix') {
+              if (normalizedPathLower.startsWith(sourcePatternLower)) {
+                matched = true;
+                if (targetUrl.endsWith('*')) {
+                  const remainingPath = normalizedPath.slice(sourcePattern.length);
+                  targetUrl = targetUrl.slice(0, -1) + remainingPath;
+                }
+              }
+            } else if (mapping.match_type === 'regex') {
+              try {
+                const regex = new RegExp(mapping.source_pattern, 'i');
+                if (regex.test(normalizedPath)) {
+                  matched = true;
+                  targetUrl = normalizedPath.replace(regex, mapping.target_url);
+                }
+              } catch (e) {}
+            }
+
+            if (matched) {
+              const statusCode = mapping.status_code || 301;
+              const absoluteTarget = targetUrl.startsWith('http') ? targetUrl : `${baseUrl}${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
+              res.setHeader('Location', absoluteTarget);
+              return res.status(statusCode).end();
+            }
+          }
+        }
+      } catch (redirectErr) {
+        console.error('[Prerender] Redirect lookup error:', redirectErr);
+      }
+
+      const goneHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex">
+  <title>Page No Longer Available</title>
+</head>
+<body>
+  <h1>This page is no longer available</h1>
+  <p>The page you requested does not exist or has been removed.</p>
+  <p><a href="${baseUrl}">Return to homepage</a></p>
+</body>
+</html>`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.status(410).send(goneHtml);
     }
 
     let navLinks = [];

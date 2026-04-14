@@ -283,19 +283,6 @@ export default function DynamicPage() {
       return;
     }
     
-    // No redirect mapping found - use default 404 behavior
-    if (authCheckComplete) {
-      if (memberInfo) {
-        // Logged in user: redirect to role's default landing page
-        const landingPage = memberRole?.default_landing_page || 'Preferences';
-        console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
-        navigate(`/${landingPage}`, { replace: true });
-      } else {
-        // Guest: redirect to home page
-        console.log('[DynamicPage] 404 redirect - guest to home');
-        navigate('/', { replace: true });
-      }
-    }
   }, [page, pageLoading, dynamicArticleRoute, redirectCheckComplete, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
 
   // Debug: Log what's being rendered
@@ -328,9 +315,29 @@ export default function DynamicPage() {
   }
 
   if (!page) {
+    if (redirectLoading || (shouldCheckRedirect && !redirectCheckComplete)) {
+      return (
+        <div className="min-h-screen" data-testid="page-checking-redirect" aria-busy="true">
+          <div className="sr-only">Checking page...</div>
+        </div>
+      );
+    }
+
     return (
-      <div className="min-h-screen" data-testid="page-not-found-redirecting" aria-busy="true">
-        <div className="sr-only">Loading content</div>
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
+        <div className="text-center max-w-md px-4">
+          <h1 className="text-4xl font-bold mb-4" data-testid="text-not-found-title">Page not found</h1>
+          <p className="text-muted-foreground mb-6" data-testid="text-not-found-message">
+            The page you're looking for doesn't exist or has been removed.
+          </p>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover-elevate"
+            data-testid="link-go-home"
+          >
+            Go to homepage
+          </a>
+        </div>
       </div>
     );
   }

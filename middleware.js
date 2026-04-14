@@ -23,24 +23,6 @@ const CRAWLER_USER_AGENTS = [
   'discordbot',
 ];
 
-const PUBLIC_ROUTE_PATTERNS = [
-  /^\/$/,
-  /^\/Home$/,
-  /^\/PublicEvents$/,
-  /^\/PublicArticles$/,
-  /^\/PublicNews$/,
-  /^\/PublicResources$/,
-  /^\/JobBoard$/,
-  /^\/JobDetails/,
-  /^\/OrganisationDirectory$/,
-  /^\/Resources\/?$/,
-  /^\/events\/[^/]+/,
-  /^\/articles\/[^/]+\/[^/]+/,
-  /^\/NewsView/,
-  /^\/ViewPage/,
-  /^\/EventDetails/,
-];
-
 export const config = {
   matcher: [
     '/((?!api/|_next/|_vercel/|sitemap\\.xml|robots\\.txt|favicon\\.ico|.*\\..*).*)',
@@ -59,26 +41,13 @@ export default async function middleware(request) {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  let isPublicRoute = PUBLIC_ROUTE_PATTERNS.some(pattern => pattern.test(pathname));
-
-  if (!isPublicRoute) {
-    const customArticleDetailPattern = /^\/[a-z][a-z0-9-]*\/[^/]+\/[^/]+$/;
-    const customArticleListPattern = /^\/[a-z][a-z0-9-]+$/;
-    if (customArticleDetailPattern.test(pathname) || customArticleListPattern.test(pathname)) {
-      isPublicRoute = true;
-    }
-  }
-
-  if (!isPublicRoute) {
-    return;
-  }
-
   const fullPath = pathname + url.search;
   const prerenderUrl = new URL('/api/public/prerender', request.url);
   prerenderUrl.searchParams.set('path', fullPath);
 
   try {
     const response = await fetch(prerenderUrl.toString(), {
+      redirect: 'manual',
       headers: {
         'host': request.headers.get('host') || '',
         'x-forwarded-host': request.headers.get('x-forwarded-host') || request.headers.get('host') || '',
@@ -87,15 +56,26 @@ export default async function middleware(request) {
       },
     });
 
-    if (response.ok) {
+    const status = response.status;
+    if (status === 200 || status === 410) {
       return new Response(response.body, {
-        status: response.status,
+        status,
         headers: {
           'content-type': response.headers.get('content-type') || 'text/html',
           'cache-control': response.headers.get('cache-control') || 'public, max-age=300',
           'x-prerendered': 'true',
         },
       });
+    }
+
+    if (status >= 300 && status < 400) {
+      const location = response.headers.get('location');
+      if (location) {
+        return new Response(null, {
+          status,
+          headers: { 'location': location },
+        });
+      }
     }
   } catch (err) {
     console.error('[Middleware] Prerender fetch error:', err);
