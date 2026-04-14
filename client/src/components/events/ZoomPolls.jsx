@@ -278,12 +278,16 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
         setTitle(editPoll.title || '');
         setAnonymous(editPoll.anonymous || false);
         setQuestions(
-          editPoll.questions?.map(q => ({
-            _id: `q-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            name: q.name || '',
-            type: q.type || 'single',
-            answers: q.answers || ['', '']
-          })) || [createEmptyQuestion()]
+          editPoll.questions?.map(q => {
+            const qType = q.type || 'single';
+            const isText = qType === 'short_answer' || qType === 'long_answer';
+            return {
+              _id: `q-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+              name: q.name || '',
+              type: qType,
+              answers: isText ? [] : (q.answers || ['', ''])
+            };
+          }) || [createEmptyQuestion()]
         );
       } else {
         setTitle('');
@@ -312,10 +316,12 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
     }
 
     for (const q of validQuestions) {
-      const validAnswers = q.answers.filter(a => a.trim());
-      if (validAnswers.length < 2) {
-        toast.error(`Question "${q.name}" needs at least 2 answer options`);
-        return;
+      if (!isTextType(q.type)) {
+        const validAnswers = q.answers.filter(a => a.trim());
+        if (validAnswers.length < 2) {
+          toast.error(`Question "${q.name}" needs at least 2 answer options`);
+          return;
+        }
       }
     }
 
@@ -327,7 +333,7 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
         questions: validQuestions.map(q => ({
           name: q.name.trim(),
           type: q.type,
-          answers: q.answers.filter(a => a.trim())
+          answers: isTextType(q.type) ? [] : q.answers.filter(a => a.trim())
         }))
       };
 
@@ -365,8 +371,24 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
     setQuestions(questions.filter(q => q._id !== qId));
   };
 
+  const isTextType = (t) => t === 'short_answer' || t === 'long_answer';
+
   const updateQuestion = (qId, field, value) => {
-    setQuestions(questions.map(q => q._id === qId ? { ...q, [field]: value } : q));
+    setQuestions(questions.map(q => {
+      if (q._id !== qId) return q;
+      if (field === 'type') {
+        const wasText = isTextType(q.type);
+        const nowText = isTextType(value);
+        if (!wasText && nowText) {
+          return { ...q, type: value, answers: [] };
+        }
+        if (wasText && !nowText) {
+          return { ...q, type: value, answers: ['', ''] };
+        }
+        return { ...q, type: value };
+      }
+      return { ...q, [field]: value };
+    }));
   };
 
   const addAnswer = (qId) => {
@@ -466,10 +488,13 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
                     <SelectContent>
                       <SelectItem value="single">Single Choice</SelectItem>
                       <SelectItem value="multiple">Multiple Choice</SelectItem>
+                      <SelectItem value="short_answer">Short Answer</SelectItem>
+                      <SelectItem value="long_answer">Long Answer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
+                {!isTextType(question.type) && (
                 <div className="space-y-2">
                   <Label className="text-sm">Answer Options</Label>
                   {question.answers.map((answer, aIndex) => (
@@ -506,6 +531,12 @@ function PollFormDialog({ open, onOpenChange, zoomId, type, editPoll, onSuccess 
                     Add Option
                   </Button>
                 </div>
+                )}
+                {isTextType(question.type) && (
+                  <p className="text-sm text-muted-foreground" data-testid={`text-answer-hint-${qIndex}`}>
+                    Attendees will type their response directly during the poll.
+                  </p>
+                )}
               </div>
             ))}
 
