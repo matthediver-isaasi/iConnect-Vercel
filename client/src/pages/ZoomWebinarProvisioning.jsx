@@ -589,6 +589,10 @@ export default function ZoomWebinarProvisioning() {
       toast.error('Please enter a meeting topic');
       return;
     }
+    if (!meetingFormData.host_id) {
+      toast.error('Please select a host');
+      return;
+    }
     if (!meetingFormData.start_date || !meetingFormData.start_time) {
       toast.error('Please select date and time');
       return;
@@ -737,6 +741,13 @@ export default function ZoomWebinarProvisioning() {
       return;
     }
     console.log('[CreateWebinar] Passed topic check');
+    
+    if (!formData.host_id) {
+      console.log('[CreateWebinar] Failed: no host selected');
+      toast.error('Please select a host');
+      return;
+    }
+    console.log('[CreateWebinar] Passed host check');
     
     if (!formData.start_date || !formData.start_time) {
       console.log('[CreateWebinar] Failed: no date/time');
@@ -1344,14 +1355,13 @@ export default function ZoomWebinarProvisioning() {
               <div className="space-y-2">
                 <Label htmlFor="host">Host</Label>
                 <Select
-                  value={formData.host_id || "default"}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, host_id: value === "default" ? "" : value }))}
+                  value={formData.host_id || ""}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, host_id: value }))}
                 >
                   <SelectTrigger data-testid="select-host">
-                    <SelectValue placeholder="Select host (optional)" />
+                    <SelectValue placeholder="Select a host" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Default (account owner)</SelectItem>
                     {zoomUsers.map(user => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.first_name} {user.last_name} ({user.email})
@@ -2301,14 +2311,13 @@ export default function ZoomWebinarProvisioning() {
               <div className="space-y-2">
                 <Label htmlFor="meeting-host">Host</Label>
                 <Select
-                  value={meetingFormData.host_id || "default"}
-                  onValueChange={(value) => setMeetingFormData(prev => ({ ...prev, host_id: value === "default" ? "" : value }))}
+                  value={meetingFormData.host_id || ""}
+                  onValueChange={(value) => setMeetingFormData(prev => ({ ...prev, host_id: value }))}
                 >
                   <SelectTrigger data-testid="select-meeting-host">
-                    <SelectValue placeholder="Select host (optional)" />
+                    <SelectValue placeholder="Select a host" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Default account host</SelectItem>
                     {zoomUsers.map(user => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.first_name} {user.last_name} ({user.email})
