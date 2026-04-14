@@ -52,7 +52,8 @@ export async function sendBriefNotification({ tenantId, briefId, eventType, perf
       const shouldNotifyWriter =
         eventType === 'writer_assigned' ||
         eventType === 'status_changed_to_changes_requested' ||
-        eventType === 'comment_added';
+        eventType === 'comment_added' ||
+        eventType === 'brief_updated';
 
       if (shouldNotifyWriter) {
         notifications.push({
@@ -65,7 +66,8 @@ export async function sendBriefNotification({ tenantId, briefId, eventType, perf
     if (settings.notify_reviewer && brief.review_owner_id) {
       const shouldNotifyReviewer =
         eventType === 'version_uploaded' ||
-        eventType === 'status_changed_to_review';
+        eventType === 'status_changed_to_review' ||
+        eventType === 'brief_updated';
 
       if (shouldNotifyReviewer) {
         notifications.push({
@@ -163,6 +165,16 @@ function buildEmailContent({ eventType, briefTitle, recipientName, recipientType
     case 'status_changed_to_review':
       subject = `Brief submitted for review: ${safeBriefTitle}`;
       bodyText = `The brief "<strong>${safeBriefTitle}</strong>" has been submitted for review and is now in the "<strong>${escapeHtml(getStageLabel(metadata.new_status || 'under_review'))}</strong>" stage.`;
+      break;
+
+    case 'brief_updated':
+      subject = `Brief updated: ${safeBriefTitle}`;
+      bodyText = `The brief "<strong>${safeBriefTitle}</strong>" has been updated.`;
+      if (metadata.changed_fields && metadata.changed_fields.length > 0) {
+        const fieldLabels = metadata.changed_fields.map(f => escapeHtml(f));
+        bodyText += `<br/><br/>Updated fields: ${fieldLabels.join(', ')}.`;
+      }
+      bodyText += `<br/><br/>Please log in to review the latest changes.`;
       break;
 
     default:

@@ -615,6 +615,33 @@ export default async function handler(req, res) {
               metadata: {},
             }).catch(err => console.error('[Entity PATCH] Brief notification error:', err));
           }
+
+          const briefContentFields = {
+            title: 'Title', summary: 'Summary', instructions: 'Instructions',
+            target_audience: 'Target Audience', tone_guidance: 'Tone Guidance',
+            contributor_type: 'Contributor Type', word_count_target: 'Word Count',
+            deadline: 'Deadline', priority: 'Priority', category: 'Category',
+            notes: 'Notes', review_owner_id: 'Review Owner',
+            case_study_content: 'Case Study', case_study_images: 'Case Study Images',
+            case_study_permissions: 'Case Study Permissions',
+          };
+          const changedFields = [];
+          for (const [field, label] of Object.entries(briefContentFields)) {
+            if (data[field] !== undefined && JSON.stringify(beforeData[field]) !== JSON.stringify(data[field])) {
+              changedFields.push(label);
+            }
+          }
+          const statusChanged = beforeData.status !== data.status;
+          const writerChanged = beforeData.assigned_writer_id !== data.assigned_writer_id;
+          if (changedFields.length > 0 && !statusChanged && !writerChanged) {
+            sendBriefNotification({
+              tenantId: tenantCtx.tenantId,
+              briefId: id,
+              eventType: 'brief_updated',
+              performedById: tenantCtx.memberId,
+              metadata: { changed_fields: changedFields },
+            }).catch(err => console.error('[Entity PATCH] Brief update notification error:', err));
+          }
         } catch (actErr) {
           console.error('[Entity PATCH] Error creating ArticleBrief activity:', actErr);
         }
