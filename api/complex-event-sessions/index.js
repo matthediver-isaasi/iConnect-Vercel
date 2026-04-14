@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
-import { fromZonedTime } from 'date-fns-tz';
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
 // in the given event timezone to a UTC ISO string for database storage.
@@ -15,13 +15,29 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
+function toZoomLocalTime(timeStr, timezone) {
+  if (!timeStr) return timeStr;
+  const hasOffset = /Z$|[+-]\d{2}(:\d{2})?$/.test(timeStr);
+  if (hasOffset) {
+    return formatInTimeZone(new Date(timeStr), timezone, "yyyy-MM-dd'T'HH:mm:ss");
+  }
+  return timeStr.length === 16 ? timeStr + ':00' : timeStr;
+}
+
+function computeDuration(startStr, endStr, timezone) {
+  if (!startStr || !endStr) return 60;
+  const startUtc = fromZonedTime(toZoomLocalTime(startStr, timezone), timezone);
+  const endUtc = fromZonedTime(toZoomLocalTime(endStr, timezone), timezone);
+  const mins = Math.round((endUtc - startUtc) / 60000);
+  return mins > 0 ? mins : 60;
+}
+
 async function autoProvisionZoom(tenantId, sessionData, rawStartTime, rawEndTime, timezone) {
   const tz = timezone || 'Europe/London';
   const userId = sessionData.zoom_host_id;
   const isWebinar = sessionData.zoom_type === 'webinar';
-  const durationMinutes = rawStartTime && rawEndTime
-    ? Math.round((new Date(rawEndTime) - new Date(rawStartTime)) / 60000)
-    : 60;
+  const durationMinutes = computeDuration(rawStartTime, rawEndTime, tz);
+  const zoomStartTime = toZoomLocalTime(rawStartTime, tz);
 
   const token = await getZoomAccessTokenForTenant(tenantId);
   const endpoint = isWebinar
@@ -31,7 +47,7 @@ async function autoProvisionZoom(tenantId, sessionData, rawStartTime, rawEndTime
   const payload = {
     topic: sessionData.title,
     type: isWebinar ? 5 : 2,
-    start_time: rawStartTime,
+    start_time: zoomStartTime,
     duration: durationMinutes,
     timezone: tz,
     agenda: sessionData.description || '',
