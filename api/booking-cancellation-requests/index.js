@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { BOOKING_SOURCE_REGULAR, BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -47,7 +48,7 @@ async function handlePost(req, res) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const { booking_ids, booking_group_reference, request_type, reason } = req.body;
+  const { booking_ids, booking_group_reference, request_type, reason, booking_source } = req.body;
 
   if (!booking_ids || !Array.isArray(booking_ids) || booking_ids.length === 0) {
     return res.status(400).json({ error: 'booking_ids is required and must be a non-empty array' });
@@ -57,12 +58,71 @@ async function handlePost(req, res) {
     return res.status(400).json({ error: 'request_type must be "individual" or "group"' });
   }
 
+  const effectiveSource = booking_source && [BOOKING_SOURCE_REGULAR, BOOKING_SOURCE_COMPLEX].includes(booking_source)
+    ? booking_source : null;
+
   try {
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('booking')
-      .select('id, event_id, member_id, status, booking_group_reference, attendee_email')
-      .in('id', booking_ids)
-      .eq('tenant_id', tenantId);
+    let bookings = [];
+    let bookingsError = null;
+    let resolvedSource = effectiveSource || BOOKING_SOURCE_REGULAR;
+
+    if (effectiveSource === BOOKING_SOURCE_COMPLEX) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('id, event_id, member_id, status, booking_group_reference, attendee_email')
+        .in('id', booking_ids)
+        .eq('tenant_id', tenantId);
+      bookings = data || [];
+      bookingsError = error;
+      resolvedSource = BOOKING_SOURCE_COMPLEX;
+    } else if (effectiveSource === BOOKING_SOURCE_REGULAR) {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('id, event_id, member_id, status, booking_group_reference, attendee_email')
+        .in('id', booking_ids)
+        .eq('tenant_id', tenantId);
+      bookings = data || [];
+      bookingsError = error;
+    } else {
+      const { data: regularBookings, error: regError } = await supabase
+        .from('booking')
+        .select('id, event_id, member_id, status, booking_group_reference, attendee_email')
+        .in('id', booking_ids)
+        .eq('tenant_id', tenantId);
+
+      if (regError) {
+        bookingsError = regError;
+      } else if (regularBookings && regularBookings.length === booking_ids.length) {
+        bookings = regularBookings;
+        resolvedSource = BOOKING_SOURCE_REGULAR;
+      } else {
+        const foundRegIds = new Set((regularBookings || []).map(b => b.id));
+        const missingIds = booking_ids.filter(id => !foundRegIds.has(id));
+
+        if (missingIds.length > 0) {
+          const { data: complexBookings, error: cplxError } = await supabase
+            .from('complex_event_booking')
+            .select('id, event_id, member_id, status, booking_group_reference, attendee_email')
+            .in('id', missingIds)
+            .eq('tenant_id', tenantId);
+
+          if (cplxError) {
+            bookingsError = cplxError;
+          } else if (complexBookings && complexBookings.length === missingIds.length && (regularBookings || []).length === 0) {
+            bookings = complexBookings;
+            resolvedSource = BOOKING_SOURCE_COMPLEX;
+          } else if ((regularBookings || []).length > 0 && complexBookings && complexBookings.length > 0) {
+            return res.status(400).json({ error: 'Cannot mix regular and complex event bookings in a single cancellation request' });
+          } else {
+            bookings = regularBookings || [];
+            resolvedSource = BOOKING_SOURCE_REGULAR;
+          }
+        } else {
+          bookings = regularBookings || [];
+          resolvedSource = BOOKING_SOURCE_REGULAR;
+        }
+      }
+    }
 
     if (bookingsError) {
       console.error('[CancellationRequest] Error fetching bookings:', bookingsError);
@@ -117,6 +177,7 @@ async function handlePost(req, res) {
         request_type,
         reason: reason || null,
         status: 'pending',
+        booking_source: resolvedSource,
       };
     });
 
@@ -182,6 +243,16 @@ async function handleGet(req, res) {
         if (attendeeBookings?.length > 0) {
           bookingIdsForAttendee.push(...attendeeBookings.map(b => b.id));
         }
+
+        const { data: complexAttendeeBookings } = await supabase
+          .from('complex_event_booking')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('attendee_email', memberEmailFilter);
+
+        if (complexAttendeeBookings?.length > 0) {
+          bookingIdsForAttendee.push(...complexAttendeeBookings.map(b => b.id));
+        }
       }
 
       let query = supabase
@@ -228,13 +299,24 @@ async function handleGet(req, res) {
     const bookingIds = [...new Set((requests || []).map(r => r.booking_id))];
     const memberIds = [...new Set((requests || []).map(r => r.member_id))];
 
+    const regularBookingIds = [...new Set((requests || []).filter(r => r.booking_source !== BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
+    const complexBookingIds = [...new Set((requests || []).filter(r => r.booking_source === BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
+
     let bookingsMap = {};
-    if (bookingIds.length > 0) {
+    if (regularBookingIds.length > 0) {
       const { data: bookings } = await supabase
         .from('booking')
         .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number')
-        .in('id', bookingIds);
-      bookingsMap = (bookings || []).reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
+        .in('id', regularBookingIds);
+      for (const b of (bookings || [])) bookingsMap[b.id] = b;
+    }
+    if (complexBookingIds.length > 0) {
+      const { data: cBookings } = await supabase
+        .from('complex_event_booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, voucher_id, discount_code, discount_code_id, discount_amount, stripe_payment_intent_id, account_balance_amount, total_paid, payment_method, organization_id, xero_invoice_id, xero_invoice_number')
+        .in('id', complexBookingIds)
+        .eq('tenant_id', tenantId);
+      for (const b of (cBookings || [])) bookingsMap[b.id] = normalizeComplexBooking(b);
     }
 
     const orgIds = [...new Set(Object.values(bookingsMap).map(b => b.organization_id).filter(Boolean))];
@@ -268,6 +350,18 @@ async function handleGet(req, res) {
         .select('id, title, start_date, location, program_tag')
         .in('id', eventIds);
       eventsMap = (events || []).reduce((acc, e) => { acc[e.id] = e; return acc; }, {});
+
+      const missingEventIds = eventIds.filter(id => !eventsMap[id]);
+      if (missingEventIds.length > 0) {
+        const { data: complexEvents } = await supabase
+          .from('complex_event')
+          .select('id, title, start_date, location')
+          .in('id', missingEventIds)
+          .eq('tenant_id', tenantId);
+        for (const ce of (complexEvents || [])) {
+          eventsMap[ce.id] = { ...ce, program_tag: null };
+        }
+      }
     }
 
     // Fetch voucher expiry data for reversal preview

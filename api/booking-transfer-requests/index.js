@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { BOOKING_SOURCE_REGULAR, BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -77,12 +78,58 @@ async function handlePost(req, res) {
   }
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('booking')
-      .select('id, event_id, member_id, status, attendee_email, tenant_id')
-      .eq('id', booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    const requestedSource = req.body.booking_source;
+    let bookingSource;
+    let booking, bookingError;
+
+    if (requestedSource === BOOKING_SOURCE_COMPLEX) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('id, event_id, member_id, status, attendee_email, tenant_id, organization_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+      bookingSource = BOOKING_SOURCE_COMPLEX;
+    } else if (requestedSource === BOOKING_SOURCE_REGULAR) {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('id, event_id, member_id, status, attendee_email, tenant_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+      bookingSource = BOOKING_SOURCE_REGULAR;
+    } else {
+      const { data: regData, error: regError } = await supabase
+        .from('booking')
+        .select('id, event_id, member_id, status, attendee_email, tenant_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (regData) {
+        booking = regData;
+        bookingSource = BOOKING_SOURCE_REGULAR;
+      } else {
+        const { data: cplxData, error: cplxError } = await supabase
+          .from('complex_event_booking')
+          .select('id, event_id, member_id, status, attendee_email, tenant_id, organization_id')
+          .eq('id', booking_id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (cplxData) {
+          booking = cplxData;
+          bookingSource = BOOKING_SOURCE_COMPLEX;
+        } else {
+          bookingError = cplxError || regError;
+          bookingSource = BOOKING_SOURCE_REGULAR;
+        }
+      }
+    }
+
+    const isComplex = isComplexSource(bookingSource);
 
     if (bookingError || !booking) {
       return res.status(404).json({ error: 'Booking not found' });
@@ -148,6 +195,7 @@ async function handlePost(req, res) {
       const row = {
         tenant_id: tenantId,
         booking_id: booking_id,
+        booking_source: bookingSource,
         event_id: booking.event_id || null,
         member_id: hasTransferAccess ? (booking.member_id || null) : (member?.id || null),
         target_member_id: null,
@@ -196,12 +244,9 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Target member is already the attendee for this booking' });
     }
 
-    const { data: bookingFull } = await supabase
-      .from('booking')
-      .select('organization_id, attendee_email')
-      .eq('id', booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    const { data: bookingFull } = isComplex
+      ? await supabase.from('complex_event_booking').select('organization_id, attendee_email').eq('id', booking_id).eq('tenant_id', tenantId).single()
+      : await supabase.from('booking').select('organization_id, attendee_email').eq('id', booking_id).eq('tenant_id', tenantId).single();
 
     if (bookingFull?.organization_id) {
       const { data: targetMemberOrg } = await supabase
@@ -267,6 +312,7 @@ async function handlePost(req, res) {
     const row = {
       tenant_id: tenantId,
       booking_id: booking_id,
+      booking_source: bookingSource,
       event_id: booking.event_id || null,
       member_id: hasTransferAccess ? (booking.member_id || null) : member.id,
       target_member_id: target_member_id,
@@ -342,6 +388,16 @@ async function handleGet(req, res) {
         if (attendeeBookings?.length > 0) {
           bookingIdsForAttendee.push(...attendeeBookings.map(b => b.id));
         }
+
+        const { data: complexAttendeeBookings } = await supabase
+          .from('complex_event_booking')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('attendee_email', memberEmailFilter);
+
+        if (complexAttendeeBookings?.length > 0) {
+          bookingIdsForAttendee.push(...complexAttendeeBookings.map(b => b.id));
+        }
       }
 
       let query = supabase
@@ -388,13 +444,24 @@ async function handleGet(req, res) {
     const bookingIds = [...new Set((requests || []).map(r => r.booking_id))];
     const memberIds = [...new Set((requests || []).flatMap(r => [r.member_id, r.target_member_id]).filter(Boolean))];
 
+    const regularBookingIds = [...new Set((requests || []).filter(r => r.booking_source !== BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
+    const complexBookingIds = [...new Set((requests || []).filter(r => r.booking_source === BOOKING_SOURCE_COMPLEX).map(r => r.booking_id))];
+
     let bookingsMap = {};
-    if (bookingIds.length > 0) {
+    if (regularBookingIds.length > 0) {
       const { data: bookings } = await supabase
         .from('booking')
         .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, organization_id')
-        .in('id', bookingIds);
-      bookingsMap = (bookings || []).reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
+        .in('id', regularBookingIds);
+      for (const b of (bookings || [])) bookingsMap[b.id] = b;
+    }
+    if (complexBookingIds.length > 0) {
+      const { data: cBookings } = await supabase
+        .from('complex_event_booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, organization_id')
+        .in('id', complexBookingIds)
+        .eq('tenant_id', tenantId);
+      for (const b of (cBookings || [])) bookingsMap[b.id] = b;
     }
 
     const eventIds = [...new Set([
@@ -418,6 +485,18 @@ async function handleGet(req, res) {
         .select('id, title, start_date, location, program_tag')
         .in('id', eventIds);
       eventsMap = (events || []).reduce((acc, e) => { acc[e.id] = e; return acc; }, {});
+
+      const missingEventIds = eventIds.filter(id => !eventsMap[id]);
+      if (missingEventIds.length > 0) {
+        const { data: complexEvents } = await supabase
+          .from('complex_event')
+          .select('id, title, start_date, location')
+          .in('id', missingEventIds)
+          .eq('tenant_id', tenantId);
+        for (const ce of (complexEvents || [])) {
+          eventsMap[ce.id] = { ...ce, program_tag: null };
+        }
+      }
     }
 
     const enrichedRequests = (requests || []).map(r => {

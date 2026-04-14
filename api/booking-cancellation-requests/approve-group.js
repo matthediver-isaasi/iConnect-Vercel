@@ -5,6 +5,7 @@ import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
+import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, restoreComplexEventSeatsMultiple, cancelComplexEventZoomRegistrationsMultiple, reinstateVoucherDirect, reinstateVoucherFromTransactions } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -73,6 +74,11 @@ export default async function handler(req, res) {
     }
     if (groupRefs.length > 1) {
       return res.status(400).json({ error: `All requests must belong to the same booking group. Found multiple group references: ${groupRefs.join(', ')}` });
+    }
+
+    const bookingSources = [...new Set(pendingRequests.map(r => r.booking_source || 'booking'))];
+    if (bookingSources.length > 1) {
+      return res.status(400).json({ error: 'All requests in a group must have the same booking source. Cannot mix regular and complex event bookings.' });
     }
 
     let reviewerName = 'Admin';
@@ -163,11 +169,28 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
   try {
     const bookingIds = requests.map(r => r.booking_id);
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('booking')
-      .select('*')
-      .in('id', bookingIds)
-      .eq('tenant_id', tenantId);
+    const bookingSource = requests[0].booking_source || 'booking';
+    const isComplex = isComplexSource(bookingSource);
+    const bookingTable = getBookingTable(bookingSource);
+
+    let bookings, bookingsError;
+    if (isComplex) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('*')
+        .in('id', bookingIds)
+        .eq('tenant_id', tenantId);
+      bookings = (data || []).map(normalizeComplexBooking);
+      bookingsError = error;
+    } else {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('*')
+        .in('id', bookingIds)
+        .eq('tenant_id', tenantId);
+      bookings = data;
+      bookingsError = error;
+    }
 
     if (bookingsError || !bookings || bookings.length === 0) {
       return { success: false, error: 'Failed to fetch bookings for group' };
@@ -210,7 +233,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
 
       const { error: updateError } = await supabase
-        .from('booking')
+        .from(bookingTable)
         .update({ status: 'cancelled' })
         .eq('id', booking.id);
 
@@ -270,7 +293,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         }
       }
 
-      if (booking.event_id && booking.member_id && org) {
+      if (booking.event_id && booking.member_id && org && !isComplex) {
         try {
           const { data: event } = await supabase
             .from('event')
@@ -316,165 +339,92 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
     // --- Restore available seats for newly cancelled bookings ---
     if (newlyCancelledCount > 0 && firstBooking.event_id) {
-      try {
-        const { data: eventForSeats } = await supabase
-          .from('event')
-          .select('id, available_seats, is_unlimited_registration')
-          .eq('id', firstBooking.event_id)
-          .single();
-
-        if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
-          const { data: newSeatCount, error: rpcError } = await supabase
-            .rpc('adjust_event_seats', { p_event_id: firstBooking.event_id, p_delta: newlyCancelledCount });
-
-          if (rpcError) {
-            console.error(`[GroupApproval] RPC seat increment failed:`, rpcError.message);
-            const newCount = eventForSeats.available_seats + newlyCancelledCount;
-            await supabase.from('event').update({ available_seats: newCount }).eq('id', firstBooking.event_id);
-            console.log(`[GroupApproval] Fallback: Incremented seats by ${newlyCancelledCount} to ${newCount}`);
-          } else {
-            console.log(`[GroupApproval] Seats restored by ${newlyCancelledCount}, new count: ${newSeatCount}`);
-          }
+      if (isComplex) {
+        try {
+          const newlyCancelledBookings = bookings.filter(b => b.status !== 'cancelled');
+          await restoreComplexEventSeatsMultiple(newlyCancelledBookings, newlyCancelledCount);
+        } catch (err) {
+          console.error(`[GroupApproval] Complex event seat restoration error (non-blocking):`, err.message);
         }
-      } catch (err) {
-        console.error(`[GroupApproval] Seat restoration error (non-blocking):`, err.message);
+      } else {
+        try {
+          const { data: eventForSeats } = await supabase
+            .from('event')
+            .select('id, available_seats, is_unlimited_registration')
+            .eq('id', firstBooking.event_id)
+            .single();
+
+          if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
+            const { data: newSeatCount, error: rpcError } = await supabase
+              .rpc('adjust_event_seats', { p_event_id: firstBooking.event_id, p_delta: newlyCancelledCount });
+
+            if (rpcError) {
+              console.error(`[GroupApproval] RPC seat increment failed:`, rpcError.message);
+              const newCount = eventForSeats.available_seats + newlyCancelledCount;
+              await supabase.from('event').update({ available_seats: newCount }).eq('id', firstBooking.event_id);
+              console.log(`[GroupApproval] Fallback: Incremented seats by ${newlyCancelledCount} to ${newCount}`);
+            } else {
+              console.log(`[GroupApproval] Seats restored by ${newlyCancelledCount}, new count: ${newSeatCount}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[GroupApproval] Seat restoration error (non-blocking):`, err.message);
+        }
       }
     }
 
     if (newlyCancelledCount > 0 && firstBooking.event_id) {
-      try {
-        const { data: eventForZoom } = await supabase
-          .from('event')
-          .select('id, zoom_webinar_id, location, backstage_event_id')
-          .eq('id', firstBooking.event_id)
-          .single();
+      if (isComplex) {
+        try {
+          const newlyCancelledBookings = bookings.filter(b => b.status !== 'cancelled');
+          await cancelComplexEventZoomRegistrationsMultiple(newlyCancelledBookings, tenantId);
+        } catch (err) {
+          console.error(`[GroupApproval] Complex event Zoom cancellation error (non-blocking):`, err.message);
+        }
+      } else {
+        try {
+          const { data: eventForZoom } = await supabase
+            .from('event')
+            .select('id, zoom_webinar_id, location, backstage_event_id')
+            .eq('id', firstBooking.event_id)
+            .single();
 
-        if (eventForZoom) {
-          const webinar = await resolveEventZoomWebinar(eventForZoom);
-          if (webinar && webinar.zoom_webinar_id) {
-            for (const booking of bookings) {
-              if (booking.status === 'cancelled') {
-                continue;
-              }
-              if (booking.attendee_email) {
-                try {
-                  await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
-                  console.log(`[GroupApproval] Zoom registrant cancelled for ${booking.attendee_email}`);
-                } catch (zoomErr) {
-                  console.error(`[GroupApproval] Zoom cancellation error for ${booking.attendee_email} (non-blocking):`, zoomErr.message);
+          if (eventForZoom) {
+            const webinar = await resolveEventZoomWebinar(eventForZoom);
+            if (webinar && webinar.zoom_webinar_id) {
+              for (const booking of bookings) {
+                if (booking.status === 'cancelled') {
+                  continue;
+                }
+                if (booking.attendee_email) {
+                  try {
+                    await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
+                    console.log(`[GroupApproval] Zoom registrant cancelled for ${booking.attendee_email}`);
+                  } catch (zoomErr) {
+                    console.error(`[GroupApproval] Zoom cancellation error for ${booking.attendee_email} (non-blocking):`, zoomErr.message);
+                  }
                 }
               }
             }
           }
+        } catch (err) {
+          console.error(`[GroupApproval] Zoom registrant cancellation error (non-blocking):`, err.message);
         }
-      } catch (err) {
-        console.error(`[GroupApproval] Zoom registrant cancellation error (non-blocking):`, err.message);
       }
     }
 
     const groupRef = firstBooking.booking_group_reference || firstBooking.booking_reference;
+
     const hasVoucher = bookings.some(b => parseFloat(b.voucher_amount) > 0);
-    if (hasVoucher && groupRef) {
+    if (hasVoucher) {
       try {
-        const { data: voucherTxns } = await supabase
-          .from('voucher_transaction')
-          .select('*')
-          .eq('booking_reference', groupRef)
-          .eq('type', 'booking_usage');
-
-        if (voucherTxns && voucherTxns.length > 0) {
-          const { data: existingRefunds } = await supabase
-            .from('voucher_transaction')
-            .select('voucher_id')
-            .eq('booking_reference', groupRef)
-            .eq('type', 'cancellation_refund');
-          const alreadyRefundedVoucherIds = new Set((existingRefunds || []).map(r => String(r.voucher_id)));
-
-          for (const vtx of voucherTxns) {
-            if (alreadyRefundedVoucherIds.has(String(vtx.voucher_id))) {
-              console.log(`[GroupApproval] Voucher ${vtx.voucher_id} already refunded, skipping`);
-              continue;
-            }
-
-            const { data: voucher } = await supabase
-              .from('voucher')
-              .select('*')
-              .eq('id', vtx.voucher_id)
-              .single();
-
-            if (!voucher) {
-              reversalResults.vouchers.push({ voucherId: vtx.voucher_id, amount: vtx.amount, success: false, error: 'Voucher not found' });
-              continue;
-            }
-
-            const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-
-            let voucherRefundAmount = vtx.amount;
-            if (refund_allocation && refund_allocation.vouchers && refund_allocation.vouchers[String(voucher.id)] !== undefined) {
-              const allocatedVoucherAmt = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
-              voucherRefundAmount = Math.min(allocatedVoucherAmt, vtx.amount);
-              if (voucherRefundAmount <= 0) {
-                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
-                console.log(`[GroupApproval] Voucher ${voucher.code} refund skipped per allocation`);
-                continue;
-              }
-            }
-
-            if (!isExpired) {
-              const newValue = voucher.value + voucherRefundAmount;
-              await supabase
-                .from('voucher')
-                .update({ value: newValue, status: 'active' })
-                .eq('id', voucher.id);
-
-              await supabase.from('voucher_transaction').insert({
-                voucher_id: voucher.id,
-                organization_id: vtx.organization_id,
-                booking_reference: groupRef,
-                event_id: firstBooking.event_id,
-                event_title: vtx.event_title || 'Group cancellation refund',
-                member_id: firstBooking.member_id,
-                member_email: vtx.member_email || firstBooking.attendee_email,
-                amount: voucherRefundAmount,
-                balance_before: voucher.value,
-                balance_after: newValue,
-                type: 'cancellation_refund',
-                created_at: new Date().toISOString(),
-                tenant_id: tenantId
-              });
-
-              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherRefundAmount, success: true, reinstated: true });
-              console.log(`[GroupApproval] Voucher ${voucher.code} reinstated: £${voucherRefundAmount}`);
-            } else {
-              const replacementOption = reversalOptions.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));
-              if (replacementOption && replacementOption.newExpiryDate) {
-                const newCode = `REFUND-${voucher.code}-${Date.now().toString(36).toUpperCase()}`;
-                const { data: newVoucher, error: createErr } = await supabase
-                  .from('voucher')
-                  .insert({
-                    organization_id: voucher.organization_id,
-                    code: newCode,
-                    value: vtx.amount,
-                    description: `Replacement for expired voucher ${voucher.code} (group cancellation of ${groupRef})`,
-                    expires_at: replacementOption.newExpiryDate,
-                    status: 'active',
-                    tenant_id: tenantId
-                  })
-                  .select()
-                  .single();
-
-                if (createErr) {
-                  reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, error: 'Failed to create replacement: ' + createErr.message });
-                } else {
-                  reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: true, expired: true, replacementCreated: true, newVoucherCode: newVoucher.code, newVoucherId: newVoucher.id });
-                  reversalResults.replacements.push({ type: 'voucher', originalCode: voucher.code, newCode: newVoucher.code, amount: vtx.amount, expiryDate: replacementOption.newExpiryDate });
-                  console.log(`[GroupApproval] Replacement voucher ${newCode} created for expired ${voucher.code}`);
-                }
-              } else {
-                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, skipped: true });
-              }
-            }
+        if (isComplex) {
+          const bookingWithVoucher = bookings.find(b => b.voucher_id && parseFloat(b.voucher_amount) > 0);
+          if (bookingWithVoucher) {
+            await reinstateVoucherDirect(bookingWithVoucher, refund_allocation, reversalOptions, reversalResults, tenantId);
           }
+        } else {
+          await reinstateVoucherFromTransactions(firstBooking, refund_allocation, reversalOptions, reversalResults, tenantId);
         }
       } catch (err) {
         console.error('[GroupApproval] Voucher reinstatement error:', err);
@@ -723,7 +673,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             if (result.creditNoteId) {
               for (const booking of bookings) {
                 const { error: cnUpdateError } = await supabase
-                  .from('booking')
+                  .from(bookingTable)
                   .update({
                     xero_credit_note_id: result.creditNoteId,
                     xero_credit_note_number: result.creditNoteNumber,
@@ -779,12 +729,25 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
 
   const firstRequest = requests[0];
   const bookingIds = requests.map(r => r.booking_id);
+  const bookingSource = firstRequest.booking_source || 'booking';
+  const isComplex = isComplexSource(bookingSource);
 
-  const { data: bookings } = await supabase
-    .from('booking')
-    .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
-    .in('id', bookingIds)
-    .eq('tenant_id', tenantId);
+  let bookings;
+  if (isComplex) {
+    const { data } = await supabase
+      .from('complex_event_booking')
+      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid')
+      .in('id', bookingIds)
+      .eq('tenant_id', tenantId);
+    bookings = (data || []).map(b => ({ ...b, total_cost: b.total_paid }));
+  } else {
+    const { data } = await supabase
+      .from('booking')
+      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
+      .in('id', bookingIds)
+      .eq('tenant_id', tenantId);
+    bookings = data;
+  }
 
   if (!bookings || bookings.length === 0) {
     console.warn('[GroupNotification] No bookings found, skipping emails');
@@ -796,12 +759,22 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
   let eventName = 'your event';
   const eventId = bookings[0].event_id || firstRequest.event_id;
   if (eventId) {
-    const { data: event } = await supabase
+    let event = null;
+    const { data: ev } = await supabase
       .from('event')
       .select('title')
       .eq('id', eventId)
       .eq('tenant_id', tenantId)
       .single();
+    event = ev;
+    if (!event && isComplex) {
+      const { data: ce } = await supabase
+        .from('complex_event')
+        .select('title')
+        .eq('id', eventId)
+        .single();
+      event = ce;
+    }
     if (event?.title) eventName = event.title;
   }
 

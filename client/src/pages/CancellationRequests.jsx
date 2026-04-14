@@ -589,6 +589,11 @@ export default function CancellationRequests() {
                               ) : null}
                             </>
                           )}
+                          {firstItem.booking_source === 'complex_event_booking' && (
+                            <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200">
+                              Complex Event
+                            </Badge>
+                          )}
                           {allSameStatus && getStatusBadge(firstItem.status)}
                         </div>
                         <CardDescription className="flex items-center gap-4 flex-wrap">

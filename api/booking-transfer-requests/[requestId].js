@@ -4,6 +4,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { getValidXeroAccessToken } from '../_lib/xero.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { cancelZoomRegistrant, registerZoomWebinarAttendee, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
+import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, swapComplexEventZoomRegistrations } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -67,12 +68,30 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Request has already been ${request.status}` });
     }
 
-    const { data: booking, error: bookingError } = await supabase
-      .from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id, ticket_price, total_cost, ticket_class_name')
-      .eq('id', request.booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    const bookingSource = request.booking_source || 'booking';
+    const isComplex = isComplexSource(bookingSource);
+    const bookingTable = getBookingTable(bookingSource);
+
+    let booking, bookingError;
+    if (isComplex) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id, total_paid, ticket_class_name')
+        .eq('id', request.booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data ? { ...data, total_cost: data.total_paid, _source: BOOKING_SOURCE_COMPLEX } : null;
+      bookingError = error;
+    } else {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id, ticket_price, total_cost, ticket_class_name')
+        .eq('id', request.booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+    }
 
     if (bookingError || !booking) {
       return res.status(404).json({ error: 'Associated booking not found' });
@@ -158,6 +177,18 @@ export default async function handler(req, res) {
       if (ev?.title) {
         eventData = ev;
         console.log(`[TransferRequest] Event resolved: ${ev.title} (${ev.id})`);
+      } else if (isComplex) {
+        const { data: ce } = await supabase
+          .from('complex_event')
+          .select('id, title, start_date, end_date, location')
+          .eq('id', eventIdToLookup)
+          .maybeSingle();
+        if (ce?.title) {
+          eventData = ce;
+          console.log(`[TransferRequest] Complex event resolved: ${ce.title} (${ce.id})`);
+        } else {
+          console.warn(`[TransferRequest] Event lookup returned no data | eventId: ${eventIdToLookup} | error: ${evErr?.message || 'none'}`);
+        }
       } else {
         console.warn(`[TransferRequest] Event lookup returned no data | eventId: ${eventIdToLookup} | error: ${evErr?.message || 'none'}`);
       }
@@ -172,7 +203,7 @@ export default async function handler(req, res) {
       const originalAttendeeName = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ') || 'there';
 
       const { error: updateBookingError } = await supabase
-        .from('booking')
+        .from(bookingTable)
         .update({
           attendee_email: targetMember.email,
           attendee_first_name: targetMember.first_name,
@@ -205,7 +236,21 @@ export default async function handler(req, res) {
         console.log(`[TransferRequest] Skipping Xero invoice update for public transfer`);
       }
 
-      if (eventData) {
+      if (isComplex) {
+        try {
+          const newAttendee = {
+            first_name: targetMember.first_name,
+            last_name: targetMember.last_name,
+            email: targetMember.email,
+          };
+          const swapResult = await swapComplexEventZoomRegistrations(booking, originalAttendeeEmail, newAttendee, tenantId);
+          if (swapResult.joinUrl) {
+            zoomJoinUrl = swapResult.joinUrl;
+          }
+        } catch (err) {
+          console.error(`[TransferRequest] Complex event Zoom swap error (non-blocking):`, err.message);
+        }
+      } else if (eventData) {
         try {
           const webinar = await resolveEventZoomWebinar(eventData);
           if (webinar && webinar.zoom_webinar_id) {

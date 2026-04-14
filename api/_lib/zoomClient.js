@@ -291,6 +291,113 @@ export async function registerZoomWebinarAttendee(tenantId, webinar, attendee) {
   }
 }
 
+export async function cancelZoomMeetingRegistrant(tenantId, zoomMeetingId, email) {
+  if (!zoomMeetingId || !email) return false;
+  try {
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    const normalizedEmail = email.toLowerCase();
+
+    let registrant = null;
+    let nextPageToken = '';
+    do {
+      const url = `https://api.zoom.us/v2/meetings/${zoomMeetingId}/registrants?page_size=300${nextPageToken ? `&next_page_token=${nextPageToken}` : ''}`;
+      const listRes = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!listRes.ok) {
+        console.error('[ZoomClient] Failed to list meeting registrants for cancellation:', listRes.status, await listRes.text());
+        return false;
+      }
+
+      const listData = await listRes.json();
+      registrant = (listData.registrants || []).find(
+        r => r.email.toLowerCase() === normalizedEmail
+      );
+      nextPageToken = listData.next_page_token || '';
+    } while (!registrant && nextPageToken);
+
+    if (!registrant) {
+      console.log(`[ZoomClient] Registrant ${email} not found in meeting ${zoomMeetingId} — may already be removed`);
+      return true;
+    }
+
+    const response = await fetch(
+      `https://api.zoom.us/v2/meetings/${zoomMeetingId}/registrants/status`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'cancel',
+          registrants: [{ id: registrant.id, email: registrant.email }]
+        })
+      }
+    );
+
+    if (response.ok || response.status === 204) {
+      console.log(`[ZoomClient] Cancelled Zoom registrant ${email} from meeting ${zoomMeetingId}`);
+      return true;
+    }
+
+    console.error('[ZoomClient] Failed to cancel meeting registrant:', response.status, await response.text());
+    return false;
+  } catch (error) {
+    console.error('[ZoomClient] Error cancelling meeting registrant:', error.message);
+    return false;
+  }
+}
+
+export async function registerZoomMeetingAttendee(tenantId, meeting, attendee) {
+  try {
+    if (!meeting.zoom_meeting_id) {
+      return { success: false, error: 'Meeting not synced with Zoom' };
+    }
+
+    if (!meeting.registration_required) {
+      return { success: true, skipped: true, reason: 'Registration not required' };
+    }
+
+    const token = await getZoomAccessTokenForTenant(tenantId);
+
+    const zoomResponse = await fetch(
+      `https://api.zoom.us/v2/meetings/${meeting.zoom_meeting_id}/registrants`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          first_name: attendee.first_name || 'Guest',
+          last_name: attendee.last_name || 'Attendee',
+          email: attendee.email,
+          auto_approve: true
+        })
+      }
+    );
+
+    if (!zoomResponse.ok) {
+      const errorData = await zoomResponse.json().catch(() => ({}));
+      if (errorData.code === 3027) {
+        console.log(`[ZoomClient] ${attendee.email} already registered for meeting ${meeting.zoom_meeting_id}`);
+        return { success: true, already_registered: true };
+      }
+      console.error(`[ZoomClient] Meeting registration error for ${attendee.email}:`, JSON.stringify(errorData));
+      return { success: false, error: errorData.message || 'Zoom meeting registration failed', code: errorData.code };
+    }
+
+    const zoomData = await zoomResponse.json();
+    console.log(`[ZoomClient] Registered ${attendee.email} for meeting ${meeting.zoom_meeting_id}, join_url: ${zoomData.join_url}`);
+    return { success: true, registrant_id: zoomData.registrant_id, join_url: zoomData.join_url };
+  } catch (err) {
+    console.error(`[ZoomClient] Meeting registration exception for ${attendee.email}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 function isZoomEvent(evt) {
   if (!evt.location) return false;
   const location = evt.location.toLowerCase();

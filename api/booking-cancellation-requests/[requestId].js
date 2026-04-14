@@ -5,6 +5,7 @@ import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
+import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, restoreComplexEventSeats, cancelComplexEventZoomRegistrations, reinstateVoucherDirect, reinstateVoucherFromTransactions } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -148,12 +149,30 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
   };
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('booking')
-      .select('*')
-      .eq('id', request.booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    const bookingSource = request.booking_source || 'booking';
+    const isComplex = isComplexSource(bookingSource);
+    const bookingTable = getBookingTable(bookingSource);
+
+    let booking, bookingError;
+    if (isComplex) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('*')
+        .eq('id', request.booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data ? normalizeComplexBooking(data) : null;
+      bookingError = error;
+    } else {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('*')
+        .eq('id', request.booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+    }
 
     if (bookingError || !booking) {
       return { success: false, error: 'Booking not found' };
@@ -164,7 +183,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     }
 
     const { error: updateError } = await supabase
-      .from('booking')
+      .from(bookingTable)
       .update({ status: 'cancelled' })
       .eq('id', booking.id);
 
@@ -172,50 +191,66 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
       return { success: false, error: 'Failed to update booking status' };
     }
 
-    console.log(`[CancellationRequest] Booking ${booking.id} cancelled`);
+    console.log(`[CancellationRequest] Booking ${booking.id} cancelled (source: ${bookingSource})`);
 
     // --- Restore available seats ---
     if (booking.event_id) {
-      try {
-        const { data: eventForSeats } = await supabase
-          .from('event')
-          .select('id, available_seats, is_unlimited_registration')
-          .eq('id', booking.event_id)
-          .single();
-
-        if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
-          const { data: newSeatCount, error: rpcError } = await supabase
-            .rpc('adjust_event_seats', { p_event_id: booking.event_id, p_delta: 1 });
-
-          if (rpcError) {
-            console.error(`[CancellationRequest] RPC seat increment failed:`, rpcError.message);
-            const newCount = eventForSeats.available_seats + 1;
-            await supabase.from('event').update({ available_seats: newCount }).eq('id', booking.event_id);
-            console.log(`[CancellationRequest] Fallback: Incremented seats to ${newCount}`);
-          } else {
-            console.log(`[CancellationRequest] Seats restored, new count: ${newSeatCount}`);
-          }
+      if (isComplex) {
+        try {
+          await restoreComplexEventSeats(booking, tenantId);
+        } catch (err) {
+          console.error(`[CancellationRequest] Complex event seat restoration error (non-blocking):`, err.message);
         }
-      } catch (err) {
-        console.error(`[CancellationRequest] Seat restoration error (non-blocking):`, err.message);
+      } else {
+        try {
+          const { data: eventForSeats } = await supabase
+            .from('event')
+            .select('id, available_seats, is_unlimited_registration')
+            .eq('id', booking.event_id)
+            .single();
+
+          if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
+            const { data: newSeatCount, error: rpcError } = await supabase
+              .rpc('adjust_event_seats', { p_event_id: booking.event_id, p_delta: 1 });
+
+            if (rpcError) {
+              console.error(`[CancellationRequest] RPC seat increment failed:`, rpcError.message);
+              const newCount = eventForSeats.available_seats + 1;
+              await supabase.from('event').update({ available_seats: newCount }).eq('id', booking.event_id);
+              console.log(`[CancellationRequest] Fallback: Incremented seats to ${newCount}`);
+            } else {
+              console.log(`[CancellationRequest] Seats restored, new count: ${newSeatCount}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[CancellationRequest] Seat restoration error (non-blocking):`, err.message);
+        }
       }
 
-      try {
-        const { data: eventForZoom } = await supabase
-          .from('event')
-          .select('id, zoom_webinar_id, location, backstage_event_id')
-          .eq('id', booking.event_id)
-          .single();
-
-        if (eventForZoom) {
-          const webinar = await resolveEventZoomWebinar(eventForZoom);
-          if (webinar && webinar.zoom_webinar_id && booking.attendee_email) {
-            await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
-            console.log(`[CancellationRequest] Zoom registrant cancelled for ${booking.attendee_email}`);
-          }
+      if (isComplex) {
+        try {
+          await cancelComplexEventZoomRegistrations(booking, tenantId);
+        } catch (err) {
+          console.error(`[CancellationRequest] Complex event Zoom cancellation error (non-blocking):`, err.message);
         }
-      } catch (err) {
-        console.error(`[CancellationRequest] Zoom registrant cancellation error (non-blocking):`, err.message);
+      } else {
+        try {
+          const { data: eventForZoom } = await supabase
+            .from('event')
+            .select('id, zoom_webinar_id, location, backstage_event_id')
+            .eq('id', booking.event_id)
+            .single();
+
+          if (eventForZoom) {
+            const webinar = await resolveEventZoomWebinar(eventForZoom);
+            if (webinar && webinar.zoom_webinar_id && booking.attendee_email) {
+              await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
+              console.log(`[CancellationRequest] Zoom registrant cancelled for ${booking.attendee_email}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[CancellationRequest] Zoom registrant cancellation error (non-blocking):`, err.message);
+        }
       }
     }
 
@@ -276,109 +311,10 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     // --- Voucher Reinstatement ---
     if (booking.voucher_amount > 0 && booking.booking_reference) {
       try {
-        const groupRef = booking.booking_group_reference || booking.booking_reference;
-        const { data: voucherTxns } = await supabase
-          .from('voucher_transaction')
-          .select('*')
-          .eq('booking_reference', groupRef)
-          .eq('type', 'booking_usage');
-
-        if (voucherTxns && voucherTxns.length > 0) {
-          // Check if a cancellation_refund already exists for this group to prevent duplicates
-          const { data: existingRefunds } = await supabase
-            .from('voucher_transaction')
-            .select('voucher_id')
-            .eq('booking_reference', booking.booking_reference)
-            .eq('type', 'cancellation_refund');
-          const alreadyRefundedVoucherIds = new Set((existingRefunds || []).map(r => String(r.voucher_id)));
-
-          for (const vtx of voucherTxns) {
-            if (alreadyRefundedVoucherIds.has(String(vtx.voucher_id))) {
-              console.log(`[CancellationRequest] Voucher ${vtx.voucher_id} already refunded for this booking, skipping`);
-              continue;
-            }
-
-            const { data: voucher } = await supabase
-              .from('voucher')
-              .select('*')
-              .eq('id', vtx.voucher_id)
-              .single();
-
-            if (!voucher) {
-              reversalResults.vouchers.push({ voucherId: vtx.voucher_id, amount: vtx.amount, success: false, error: 'Voucher not found' });
-              continue;
-            }
-
-            const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
-
-            let voucherRefundAmount = vtx.amount;
-            if (refund_allocation && refund_allocation.vouchers && refund_allocation.vouchers[String(voucher.id)] !== undefined) {
-              const allocatedVoucherAmt = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
-              voucherRefundAmount = Math.min(allocatedVoucherAmt, vtx.amount);
-              if (voucherRefundAmount <= 0) {
-                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
-                console.log(`[CancellationRequest] Voucher ${voucher.code} refund skipped per allocation`);
-                continue;
-              }
-            }
-
-            if (!isExpired) {
-              const newValue = voucher.value + voucherRefundAmount;
-              await supabase
-                .from('voucher')
-                .update({ value: newValue, status: 'active' })
-                .eq('id', voucher.id);
-
-              await supabase.from('voucher_transaction').insert({
-                voucher_id: voucher.id,
-                organization_id: vtx.organization_id,
-                booking_reference: booking.booking_reference,
-                event_id: booking.event_id,
-                event_title: vtx.event_title || 'Cancellation refund',
-                member_id: booking.member_id,
-                member_email: vtx.member_email || booking.attendee_email,
-                amount: voucherRefundAmount,
-                balance_before: voucher.value,
-                balance_after: newValue,
-                type: 'cancellation_refund',
-                created_at: new Date().toISOString(),
-                tenant_id: tenantId
-              });
-
-              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherRefundAmount, success: true, reinstated: true });
-              console.log(`[CancellationRequest] Voucher ${voucher.code} reinstated: £${voucherRefundAmount}`);
-            } else {
-              // Voucher expired — check if admin wants a replacement
-              const replacementOption = reversalOptions.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));
-              if (replacementOption && replacementOption.newExpiryDate) {
-                const newCode = `REFUND-${voucher.code}-${Date.now().toString(36).toUpperCase()}`;
-                const { data: newVoucher, error: createErr } = await supabase
-                  .from('voucher')
-                  .insert({
-                    organization_id: voucher.organization_id,
-                    code: newCode,
-                    value: vtx.amount,
-                    description: `Replacement for expired voucher ${voucher.code} (cancellation of ${booking.booking_reference})`,
-                    expires_at: replacementOption.newExpiryDate,
-                    status: 'active',
-                    tenant_id: tenantId
-                  })
-                  .select()
-                  .single();
-
-                if (createErr) {
-                  reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, error: 'Failed to create replacement: ' + createErr.message });
-                } else {
-                  reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: true, expired: true, replacementCreated: true, newVoucherCode: newVoucher.code, newVoucherId: newVoucher.id });
-                  reversalResults.replacements.push({ type: 'voucher', originalCode: voucher.code, newCode: newVoucher.code, amount: vtx.amount, expiryDate: replacementOption.newExpiryDate });
-                  console.log(`[CancellationRequest] Replacement voucher ${newCode} created for expired ${voucher.code}`);
-                }
-              } else {
-                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: false, expired: true, skipped: true });
-                console.log(`[CancellationRequest] Voucher ${voucher.code} expired — no replacement requested`);
-              }
-            }
-          }
+        if (isComplex && booking.voucher_id) {
+          await reinstateVoucherDirect(booking, refund_allocation, reversalOptions, reversalResults, tenantId);
+        } else {
+          await reinstateVoucherFromTransactions(booking, refund_allocation, reversalOptions, reversalResults, tenantId);
         }
       } catch (err) {
         console.error('[CancellationRequest] Voucher reinstatement error:', err);
@@ -470,7 +406,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     }
 
     // --- Program Ticket Refund (existing logic) ---
-    if (booking.event_id && booking.member_id) {
+    if (booking.event_id && booking.member_id && !isComplex) {
       const { data: event } = await supabase
         .from('event')
         .select('program_tag, title')
@@ -650,7 +586,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
 
             if (result.creditNoteId) {
               const { error: cnUpdateError } = await supabase
-                .from('booking')
+                .from(bookingTable)
                 .update({
                   xero_credit_note_id: result.creditNoteId,
                   xero_credit_note_number: result.creditNoteNumber,
@@ -704,14 +640,30 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
 
 async function sendCancellationNotificationEmails({ request, status, tenantId, reviewNotes, reversalResults }) {
   const bookingId = request?.booking_id;
-  console.log(`[CancellationEmail] Starting email notification | bookingId: ${bookingId} | status: ${status} | member_id: ${request?.member_id || 'null (guest/public)'}`);
+  const bookingSource = request?.booking_source || 'booking';
+  const isComplex = isComplexSource(bookingSource);
+  console.log(`[CancellationEmail] Starting email notification | bookingId: ${bookingId} | status: ${status} | source: ${bookingSource} | member_id: ${request?.member_id || 'null (guest/public)'}`);
 
-  const { data: booking, error: bookingError } = await supabase
-    .from('booking')
-    .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
-    .eq('id', bookingId)
-    .eq('tenant_id', tenantId)
-    .single();
+  let booking, bookingError;
+  if (isComplex) {
+    const { data, error } = await supabase
+      .from('complex_event_booking')
+      .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_paid')
+      .eq('id', bookingId)
+      .eq('tenant_id', tenantId)
+      .single();
+    booking = data ? { ...data, total_cost: data.total_paid } : null;
+    bookingError = error;
+  } else {
+    const result = await supabase
+      .from('booking')
+      .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
+      .eq('id', bookingId)
+      .eq('tenant_id', tenantId)
+      .single();
+    booking = result.data;
+    bookingError = result.error;
+  }
 
   if (bookingError || !booking) {
     console.warn(`[CancellationEmail] Booking not found, skipping email | bookingId: ${bookingId} | error: ${bookingError?.message || 'no data'}`);
@@ -728,12 +680,22 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
 
   let eventName = 'your event';
   if (booking.event_id) {
-    const { data: event } = await supabase
+    let event = null;
+    const { data: ev } = await supabase
       .from('event')
       .select('title')
       .eq('id', booking.event_id)
       .eq('tenant_id', tenantId)
       .single();
+    event = ev;
+    if (!event && isComplex) {
+      const { data: ce } = await supabase
+        .from('complex_event')
+        .select('title')
+        .eq('id', booking.event_id)
+        .single();
+      event = ce;
+    }
     if (event?.title) eventName = event.title;
   }
 

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { BOOKING_SOURCE_REGULAR, BOOKING_SOURCE_COMPLEX, isComplexSource } from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -43,7 +44,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const { booking_id, q: query } = req.query;
+  const { booking_id, booking_source, q: query } = req.query;
 
   if (!booking_id) {
     return res.status(400).json({ error: 'booking_id is required' });
@@ -54,12 +55,57 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, organization_id, event_id, tenant_id')
-      .eq('id', booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    let source;
+    let booking, bookingError;
+
+    if (booking_source === BOOKING_SOURCE_COMPLEX) {
+      const { data, error } = await supabase
+        .from('complex_event_booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, organization_id, event_id, tenant_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+      source = BOOKING_SOURCE_COMPLEX;
+    } else if (booking_source === BOOKING_SOURCE_REGULAR) {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, organization_id, event_id, tenant_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      booking = data;
+      bookingError = error;
+      source = BOOKING_SOURCE_REGULAR;
+    } else {
+      const { data: regData, error: regError } = await supabase
+        .from('booking')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, organization_id, event_id, tenant_id')
+        .eq('id', booking_id)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (regData) {
+        booking = regData;
+        source = BOOKING_SOURCE_REGULAR;
+      } else {
+        const { data: cplxData, error: cplxError } = await supabase
+          .from('complex_event_booking')
+          .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, organization_id, event_id, tenant_id')
+          .eq('id', booking_id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (cplxData) {
+          booking = cplxData;
+          source = BOOKING_SOURCE_COMPLEX;
+        } else {
+          bookingError = cplxError || regError;
+          source = BOOKING_SOURCE_REGULAR;
+        }
+      }
+    }
+
+    const isComplex = isComplexSource(source);
 
     if (bookingError || !booking) {
       console.log('[TransferEligible] Booking not found:', booking_id, bookingError?.message);
