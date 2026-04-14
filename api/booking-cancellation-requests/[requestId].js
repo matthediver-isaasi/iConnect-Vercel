@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
 
 export default async function handler(req, res) {
@@ -197,6 +198,24 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
         }
       } catch (err) {
         console.error(`[CancellationRequest] Seat restoration error (non-blocking):`, err.message);
+      }
+
+      try {
+        const { data: eventForZoom } = await supabase
+          .from('event')
+          .select('id, zoom_webinar_id, location, backstage_event_id')
+          .eq('id', booking.event_id)
+          .single();
+
+        if (eventForZoom) {
+          const webinar = await resolveEventZoomWebinar(eventForZoom);
+          if (webinar && webinar.zoom_webinar_id && booking.attendee_email) {
+            await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
+            console.log(`[CancellationRequest] Zoom registrant cancelled for ${booking.attendee_email}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[CancellationRequest] Zoom registrant cancellation error (non-blocking):`, err.message);
       }
     }
 

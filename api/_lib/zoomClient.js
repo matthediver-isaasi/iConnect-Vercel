@@ -184,6 +184,197 @@ export async function deleteZoomMeeting(tenantId, meetingId) {
   }
 }
 
+export async function cancelZoomRegistrant(tenantId, zoomWebinarId, email) {
+  if (!zoomWebinarId || !email) return false;
+  try {
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    const normalizedEmail = email.toLowerCase();
+
+    let registrant = null;
+    let nextPageToken = '';
+    do {
+      const url = `https://api.zoom.us/v2/webinars/${zoomWebinarId}/registrants?page_size=300${nextPageToken ? `&next_page_token=${nextPageToken}` : ''}`;
+      const listRes = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!listRes.ok) {
+        console.error('[ZoomClient] Failed to list registrants for cancellation:', listRes.status, await listRes.text());
+        return false;
+      }
+
+      const listData = await listRes.json();
+      registrant = (listData.registrants || []).find(
+        r => r.email.toLowerCase() === normalizedEmail
+      );
+      nextPageToken = listData.next_page_token || '';
+    } while (!registrant && nextPageToken);
+
+    if (!registrant) {
+      console.log(`[ZoomClient] Registrant ${email} not found in webinar ${zoomWebinarId} — may already be removed`);
+      return true;
+    }
+
+    const response = await fetch(
+      `https://api.zoom.us/v2/webinars/${zoomWebinarId}/registrants/status`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'cancel',
+          registrants: [{ id: registrant.id, email: registrant.email }]
+        })
+      }
+    );
+
+    if (response.ok || response.status === 204) {
+      console.log(`[ZoomClient] Cancelled Zoom registrant ${email} from webinar ${zoomWebinarId}`);
+      return true;
+    }
+
+    console.error('[ZoomClient] Failed to cancel registrant:', response.status, await response.text());
+    return false;
+  } catch (error) {
+    console.error('[ZoomClient] Error cancelling registrant:', error.message);
+    return false;
+  }
+}
+
+export async function registerZoomWebinarAttendee(tenantId, webinar, attendee) {
+  try {
+    if (!webinar.zoom_webinar_id) {
+      return { success: false, error: 'Webinar not synced with Zoom' };
+    }
+
+    if (!webinar.registration_required) {
+      return { success: true, skipped: true, reason: 'Registration not required' };
+    }
+
+    const token = await getZoomAccessTokenForTenant(tenantId);
+
+    const zoomResponse = await fetch(
+      `https://api.zoom.us/v2/webinars/${webinar.zoom_webinar_id}/registrants`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          first_name: attendee.first_name || 'Guest',
+          last_name: attendee.last_name || 'Attendee',
+          email: attendee.email,
+          auto_approve: true
+        })
+      }
+    );
+
+    if (!zoomResponse.ok) {
+      const errorData = await zoomResponse.json().catch(() => ({}));
+      if (errorData.code === 3027) {
+        console.log(`[ZoomClient] ${attendee.email} already registered for webinar ${webinar.zoom_webinar_id}`);
+        return { success: true, already_registered: true };
+      }
+      console.error(`[ZoomClient] Registration error for ${attendee.email}:`, JSON.stringify(errorData));
+      return { success: false, error: errorData.message || 'Zoom registration failed', code: errorData.code };
+    }
+
+    const zoomData = await zoomResponse.json();
+    console.log(`[ZoomClient] Registered ${attendee.email} for webinar ${webinar.zoom_webinar_id}, join_url: ${zoomData.join_url}`);
+    return { success: true, registrant_id: zoomData.registrant_id, join_url: zoomData.join_url };
+  } catch (err) {
+    console.error(`[ZoomClient] Registration exception for ${attendee.email}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+function isZoomEvent(evt) {
+  if (!evt.location) return false;
+  const location = evt.location.toLowerCase();
+  return location.includes('zoom.us') ||
+    (location.startsWith('online') && location.includes('zoom'));
+}
+
+function extractZoomUrl(location) {
+  if (!location) return null;
+  const urlMatch = location.match(/https?:\/\/[^\s]+zoom[^\s]*/i);
+  return urlMatch ? urlMatch[0] : null;
+}
+
+function extractZoomWebinarIdFromUrl(url) {
+  if (!url) return null;
+  const match = url.match(/\/[jw]\/(\d+)/);
+  return match ? match[1] : null;
+}
+
+export async function resolveEventZoomWebinar(event) {
+  if (!supabase || !event) return null;
+
+  if (event.backstage_event_id) return null;
+
+  if (event.zoom_webinar_id) {
+    const { data: webinar, error } = await supabase
+      .from('zoom_webinar')
+      .select('*')
+      .eq('id', event.zoom_webinar_id)
+      .single();
+
+    if (webinar && !error) {
+      console.log(`[ZoomClient] Resolved webinar via direct link: ${webinar.zoom_webinar_id}`);
+      return webinar;
+    }
+    console.log(`[ZoomClient] Failed to fetch linked webinar ${event.zoom_webinar_id}:`, error?.message);
+  }
+
+  if (!isZoomEvent(event)) return null;
+
+  const zoomUrl = extractZoomUrl(event.location);
+  if (!zoomUrl) return null;
+
+  const eventWebinarId = extractZoomWebinarIdFromUrl(zoomUrl);
+
+  const { data: webinars, error } = await supabase
+    .from('zoom_webinar')
+    .select('*');
+
+  if (error || !webinars) return null;
+
+  if (eventWebinarId) {
+    const matchByZoomId = webinars.find(w => w.zoom_webinar_id?.toString() === eventWebinarId);
+    if (matchByZoomId) {
+      console.log(`[ZoomClient] Resolved webinar by Zoom ID match: ${matchByZoomId.zoom_webinar_id}`);
+      return matchByZoomId;
+    }
+
+    const matchByJoinUrlId = webinars.find(w => {
+      const joinUrlId = extractZoomWebinarIdFromUrl(w.join_url);
+      return joinUrlId === eventWebinarId;
+    });
+    if (matchByJoinUrlId) {
+      console.log(`[ZoomClient] Resolved webinar by join_url ID match: ${matchByJoinUrlId.zoom_webinar_id}`);
+      return matchByJoinUrlId;
+    }
+  }
+
+  const normalizeUrl = (url) => url.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase();
+  const normalizedZoomUrl = normalizeUrl(zoomUrl);
+
+  const matchByUrl = webinars.find((w) => {
+    if (!w.join_url) return false;
+    const normalizedJoinUrl = normalizeUrl(w.join_url);
+    return normalizedZoomUrl.includes(normalizedJoinUrl) || normalizedJoinUrl.includes(normalizedZoomUrl);
+  });
+
+  if (matchByUrl) {
+    console.log(`[ZoomClient] Resolved webinar by URL match: ${matchByUrl.zoom_webinar_id}`);
+  }
+
+  return matchByUrl || null;
+}
+
 export function clearTenantZoomTokenCache(tenantId) {
   tokenCacheByTenant.delete(tenantId);
 }

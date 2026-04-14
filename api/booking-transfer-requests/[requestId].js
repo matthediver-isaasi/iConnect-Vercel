@@ -3,6 +3,7 @@ import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { getValidXeroAccessToken } from '../_lib/xero.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
+import { cancelZoomRegistrant, registerZoomWebinarAttendee, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -164,6 +165,8 @@ export default async function handler(req, res) {
       console.warn(`[TransferRequest] No event_id available on booking or request | bookingId: ${booking.id} | requestId: ${request.id}`);
     }
 
+    let zoomJoinUrl = null;
+
     if (status === 'approved') {
       const originalAttendeeEmail = booking.attendee_email;
       const originalAttendeeName = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ') || 'there';
@@ -201,6 +204,31 @@ export default async function handler(req, res) {
       } else {
         console.log(`[TransferRequest] Skipping Xero invoice update for public transfer`);
       }
+
+      if (eventData) {
+        try {
+          const webinar = await resolveEventZoomWebinar(eventData);
+          if (webinar && webinar.zoom_webinar_id) {
+            await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, originalAttendeeEmail).catch(err => {
+              console.error(`[TransferRequest] Zoom cancel registrant error (non-blocking):`, err.message);
+            });
+
+            const regResult = await registerZoomWebinarAttendee(tenantId, webinar, {
+              first_name: targetMember.first_name,
+              last_name: targetMember.last_name,
+              email: targetMember.email,
+            });
+            if (regResult.success && regResult.join_url) {
+              zoomJoinUrl = regResult.join_url;
+              console.log(`[TransferRequest] New attendee ${targetMember.email} registered with Zoom, join_url: ${zoomJoinUrl}`);
+            } else if (!regResult.success) {
+              console.error(`[TransferRequest] Zoom registration for new attendee failed (non-blocking):`, regResult.error);
+            }
+          }
+        } catch (err) {
+          console.error(`[TransferRequest] Zoom swap error (non-blocking):`, err.message);
+        }
+      }
     }
 
     const { data: updated, error: updateError } = await supabase
@@ -230,6 +258,7 @@ export default async function handler(req, res) {
         reviewNotes: review_notes || null,
         isPublicTransfer,
         eventData,
+        zoomJoinUrl,
       });
     } catch (emailErr) {
       console.error('[TransferRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', booking.id, '| requestId:', requestId);
@@ -358,7 +387,7 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
   console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || booking.xero_invoice_id} description updated successfully`);
 }
 
-async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false, eventData = null }) {
+async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false, eventData = null, zoomJoinUrl = null }) {
   console.log(`[TransferEmail] Starting email notification | bookingId: ${booking.id} | status: ${status} | targetMember: ${targetMember?.email || 'none'} | booking.event_id: ${booking.event_id} | request.event_id: ${request.event_id} | tenantId: ${tenantId} | eventData: ${eventData ? eventData.title : 'none passed'}`);
 
   let eventName = eventData?.title || 'an event';
@@ -437,7 +466,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
             last_name: targetMember.last_name || '',
             email: targetMember.email,
           };
-          const results = await sendConfirmationEmailsFromTemplate(booking.event_id, booking, attendee, null, null, tenantId);
+          const results = await sendConfirmationEmailsFromTemplate(booking.event_id, booking, attendee, zoomJoinUrl, null, tenantId);
           sent = results && results.length > 0 && results.some(r => r.success);
           if (sent) {
             console.log(`[TransferEmail] Sent event confirmation template to new attendee: ${targetMember.email}`);
@@ -445,7 +474,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
         }
         if (!sent) {
           console.log(`[TransferEmail] Sending generic confirmation email to new attendee`);
-          const html = buildGenericConfirmationEmail(targetMember.first_name || 'there', eventName, bookingRef, event);
+          const html = buildGenericConfirmationEmail(targetMember.first_name || 'there', eventName, bookingRef, event, zoomJoinUrl);
           const result = await sendEmail({
             to: targetMember.email,
             subject: `Event Registration Confirmation — ${eventName}`,
@@ -507,7 +536,7 @@ function buildCancellationEmail(name, eventName, bookingRef) {
   return body;
 }
 
-function buildGenericConfirmationEmail(name, eventName, bookingRef, eventDetails) {
+function buildGenericConfirmationEmail(name, eventName, bookingRef, eventDetails, zoomJoinUrl = null) {
   const safeName = name || 'there';
   let body = '';
   body += `<p>Hi ${safeName},</p>`;
@@ -527,6 +556,9 @@ function buildGenericConfirmationEmail(name, eventName, bookingRef, eventDetails
     if (eventDetails.location || eventDetails.venue) {
       const loc = [eventDetails.venue, eventDetails.location].filter(Boolean).join(', ');
       body += `<p style="margin: 0 0 4px 0; color: #555;">Location: ${loc}</p>`;
+    }
+    if (zoomJoinUrl) {
+      body += `<p style="margin: 0 0 4px 0; color: #555;">Join Link: <a href="${zoomJoinUrl}">${zoomJoinUrl}</a></p>`;
     }
     body += `</div>`;
   }

@@ -3,6 +3,7 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
 
 export default async function handler(req, res) {
@@ -337,6 +338,37 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         }
       } catch (err) {
         console.error(`[GroupApproval] Seat restoration error (non-blocking):`, err.message);
+      }
+    }
+
+    if (newlyCancelledCount > 0 && firstBooking.event_id) {
+      try {
+        const { data: eventForZoom } = await supabase
+          .from('event')
+          .select('id, zoom_webinar_id, location, backstage_event_id')
+          .eq('id', firstBooking.event_id)
+          .single();
+
+        if (eventForZoom) {
+          const webinar = await resolveEventZoomWebinar(eventForZoom);
+          if (webinar && webinar.zoom_webinar_id) {
+            for (const booking of bookings) {
+              if (booking.status === 'cancelled') {
+                continue;
+              }
+              if (booking.attendee_email) {
+                try {
+                  await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
+                  console.log(`[GroupApproval] Zoom registrant cancelled for ${booking.attendee_email}`);
+                } catch (zoomErr) {
+                  console.error(`[GroupApproval] Zoom cancellation error for ${booking.attendee_email} (non-blocking):`, zoomErr.message);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[GroupApproval] Zoom registrant cancellation error (non-blocking):`, err.message);
       }
     }
 
