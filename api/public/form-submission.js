@@ -17,8 +17,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId } = req.body;
-  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name);
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id } = req.body;
+  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none');
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -96,6 +96,31 @@ export default async function handler(req, res) {
     }
 
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
+
+    // Link submission back to article_brief if brief_id context parameter is present
+    if (brief_id) {
+      try {
+        console.log('[Public Form Submission] Linking submission to article_brief:', brief_id);
+        const { data: updatedBrief, error: briefUpdateError } = await supabase
+          .from('article_brief')
+          .update({ case_study_submission_id: submission.id })
+          .eq('id', brief_id)
+          .eq('tenant_id', tenantData.id)
+          .eq('case_study_form_id', form_id)
+          .select('id')
+          .maybeSingle();
+
+        if (briefUpdateError) {
+          console.error('[Public Form Submission] Failed to link submission to brief:', briefUpdateError);
+        } else if (!updatedBrief) {
+          console.warn('[Public Form Submission] No matching brief found for linking (brief_id:', brief_id, 'form_id:', form_id, ')');
+        } else {
+          console.log('[Public Form Submission] Successfully linked submission to brief:', brief_id);
+        }
+      } catch (briefLinkError) {
+        console.error('[Public Form Submission] Error linking submission to brief:', briefLinkError);
+      }
+    }
 
     // Handle newsletter/communication category subscription early (before slower pipeline/DD processing)
     if (form.communication_category_id) {

@@ -81,6 +81,7 @@ export default function FormViewPage() {
   const draftToken = urlParams.get('draft');
   const contractInstanceId = urlParams.get('contract_instance');
   const signerEmail = urlParams.get('signer_email');
+  const briefId = urlParams.get('brief_id');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -2113,7 +2114,8 @@ export default function FormViewPage() {
       created_date: new Date().toISOString(),
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
-      ...(effectiveRoleId && { role_id: effectiveRoleId })
+      ...(effectiveRoleId && { role_id: effectiveRoleId }),
+      ...(briefId && { brief_id: briefId })
     };
 
     submitFormMutation.mutate(submissionData);
