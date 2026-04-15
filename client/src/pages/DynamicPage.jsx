@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -209,7 +209,19 @@ export default function DynamicPage() {
   // - Hybrid pages: Use public layout for guests, portal layout for logged-in users
   // - Member pages: Always use portal layout (with sidebar)
   // - Dynamic article routes: Use portal layout (except PublicArticles)
+  useLayoutEffect(() => {
+    if (page?.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+      return () => {
+        setForceBlankLayout(false);
+      };
+    }
+  }, [page, setForceBlankLayout, setForcePublicLayout]);
+
   useEffect(() => {
+    if (page?.hide_chrome) return;
+
     if (dynamicArticleRoute) {
       const isPublicArticleRoute = dynamicArticleRoute.component === 'PublicArticles';
       setForcePublicLayout(isPublicArticleRoute);
@@ -222,14 +234,6 @@ export default function DynamicPage() {
       setForcePublicLayout(true);
       return;
     }
-    
-    if (page?.hide_chrome) {
-      setForcePublicLayout(false);
-      setForceBlankLayout(true);
-      return () => {
-        setForceBlankLayout(false);
-      };
-    }
 
     const shouldForcePublic = isPublicPage || (isHybridPage && !isLoggedIn);
     setForcePublicLayout(shouldForcePublic);
@@ -237,7 +241,7 @@ export default function DynamicPage() {
     return () => {
       setForcePublicLayout(false);
     };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, setForceBlankLayout, dynamicArticleRoute]);
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found
   const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;

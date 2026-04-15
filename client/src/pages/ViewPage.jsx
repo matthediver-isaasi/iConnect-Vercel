@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useLayoutEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -50,7 +50,7 @@ export default function ViewPage() {
     }
   }, [page]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!pageLoading && page?.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
