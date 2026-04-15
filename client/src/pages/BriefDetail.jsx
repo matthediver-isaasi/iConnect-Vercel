@@ -663,7 +663,7 @@ export default function BriefDetailPage() {
           <div className="mb-6">
             <Label className="text-sm text-muted-foreground mb-2 block">Update Status</Label>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+              {Object.entries(STATUS_CONFIG).filter(([key]) => key !== "approved").map(([key, cfg]) => (
                 <Button
                   key={key}
                   variant={brief.status === key ? "default" : "outline"}
