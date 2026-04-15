@@ -128,7 +128,7 @@ export async function syncAttendanceForMeeting({
   let matchedCount = 0;
   let unmatchedCount = 0;
 
-  const records = participants.map(p => {
+  const allRecords = participants.map(p => {
     const email = (p.user_email || p.email || '').toLowerCase().trim();
     const match = email ? bookingsByEmail[email] : null;
 
@@ -155,18 +155,31 @@ export async function syncAttendanceForMeeting({
     };
   });
 
-  let deleteQuery = supabase
+  const deduped = new Map();
+  const nullKeyRecords = [];
+  for (const rec of allRecords) {
+    if (!rec.participant_email || !rec.join_time) {
+      nullKeyRecords.push(rec);
+      continue;
+    }
+    const key = `${rec.zoom_meeting_id}|${rec.participant_email}|${rec.join_time}`;
+    const existing = deduped.get(key);
+    if (!existing || rec.duration_minutes > existing.duration_minutes) {
+      deduped.set(key, rec);
+    }
+  }
+  const records = [...deduped.values(), ...nullKeyRecords];
+
+  const { error: deleteError } = await supabase
     .from('zoom_attendance')
     .delete()
     .eq('zoom_meeting_id', zoomMeetingId)
-    .eq('tenant_id', tenantId)
-    .eq('event_id', eventId);
+    .eq('tenant_id', tenantId);
 
-  if (complexEventSessionId) {
-    deleteQuery = deleteQuery.eq('complex_event_session_id', complexEventSessionId);
+  if (deleteError) {
+    console.error('[ZoomAttendance] Delete error:', deleteError);
+    throw new Error(`Failed to clear existing attendance data: ${deleteError.message}`);
   }
-
-  await deleteQuery;
 
   const batchSize = 100;
   for (let i = 0; i < records.length; i += batchSize) {
