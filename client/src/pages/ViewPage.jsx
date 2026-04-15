@@ -2,11 +2,13 @@ import React, { useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 import PublicLayout from "../components/layouts/PublicLayout";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
 export default function ViewPage() {
   const { branding } = useTenantBranding();
+  const { setForceBlankLayout, setForcePublicLayout } = useLayoutContext();
   const urlParams = new URLSearchParams(window.location.search);
   const pageSlug = urlParams.get('slug');
 
@@ -47,6 +49,16 @@ export default function ViewPage() {
       }
     }
   }, [page]);
+
+  useEffect(() => {
+    if (!pageLoading && page?.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+      return () => {
+        setForceBlankLayout(false);
+      };
+    }
+  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout]);
 
   // Handle anchor scrolling after elements are loaded
   useEffect(() => {
@@ -102,9 +114,12 @@ export default function ViewPage() {
     );
   }
 
-  const LayoutComponent = page.layout_type === 'member' 
-    ? ({ children }) => <div className="min-h-screen">{children}</div>
-    : PublicLayout;
+  const BareWrapper = ({ children }) => <div className="min-h-screen">{children}</div>;
+  const LayoutComponent = page.hide_chrome
+    ? BareWrapper
+    : page.layout_type === 'member' 
+      ? BareWrapper
+      : PublicLayout;
 
   return (
     <LayoutComponent currentPageName="ViewPage">

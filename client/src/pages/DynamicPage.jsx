@@ -21,7 +21,7 @@ export default function DynamicPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
-  const { setForcePublicLayout } = useLayoutContext();
+  const { setForcePublicLayout, setForceBlankLayout } = useLayoutContext();
   const { branding } = useTenantBranding();
   
   // Get banners that should appear below the first element
@@ -223,13 +223,21 @@ export default function DynamicPage() {
       return;
     }
     
+    if (page?.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+      return () => {
+        setForceBlankLayout(false);
+      };
+    }
+
     const shouldForcePublic = isPublicPage || (isHybridPage && !isLoggedIn);
     setForcePublicLayout(shouldForcePublic);
     
     return () => {
       setForcePublicLayout(false);
     };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, setForceBlankLayout, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found
   const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;

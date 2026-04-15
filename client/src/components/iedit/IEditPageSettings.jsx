@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Save } from "lucide-react";
 
 export default function IEditPageSettings({ page, onClose, onSave }) {
@@ -103,6 +104,26 @@ export default function IEditPageSettings({ page, onClose, onSave }) {
                 {editedPage.layout_type === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
                 {editedPage.layout_type === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
               </p>
+            </div>
+          </div>
+
+          {/* Layout Options */}
+          <div className="space-y-4">
+            <h3 className="font-semibold text-slate-900">Layout</h3>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="hide_chrome">Hide header & footer</Label>
+                <p className="text-xs text-slate-500">
+                  When enabled, the page displays without the header, footer, or sidebar — ideal for landing pages or embedded content.
+                </p>
+              </div>
+              <Switch
+                id="hide_chrome"
+                data-testid="switch-hide-chrome"
+                checked={!!editedPage.hide_chrome}
+                onCheckedChange={(checked) => setEditedPage({ ...editedPage, hide_chrome: checked })}
+              />
             </div>
           </div>
 
