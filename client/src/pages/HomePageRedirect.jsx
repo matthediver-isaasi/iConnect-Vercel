@@ -1,10 +1,13 @@
+import { useLayoutEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 import Events from "./Events";
 
 export default function HomePageRedirect() {
   const { memberInfo } = useMemberAccess();
+  const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
   const { data: homePageSlug, isLoading: settingsLoading } = useQuery({
     queryKey: ['home-page-setting'],
     queryFn: async () => {
@@ -32,6 +35,27 @@ export default function HomePageRedirect() {
     enabled: !!homePageSlug,
     staleTime: 0
   });
+
+  useLayoutEffect(() => {
+    setChromeReady(false);
+    return () => {
+      setChromeReady(true);
+      setForceBlankLayout(false);
+    };
+  }, [setChromeReady, setForceBlankLayout]);
+
+  useLayoutEffect(() => {
+    if (settingsLoading) return;
+    if (!homePageSlug || !pageData?.page) {
+      setChromeReady(true);
+      return;
+    }
+    if (pageData.page.hide_chrome) {
+      setForcePublicLayout(false);
+      setForceBlankLayout(true);
+    }
+    setChromeReady(true);
+  }, [homePageSlug, pageData, settingsLoading, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
   if (settingsLoading) {
     return (

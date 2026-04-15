@@ -210,24 +210,19 @@ export default function DynamicPage() {
   // - Member pages: Always use portal layout (with sidebar)
   // - Dynamic article routes: Use portal layout (except PublicArticles)
   useLayoutEffect(() => {
-    console.log('[DynamicPage] mount/slug change — setChromeReady(false)', { slug });
     setChromeReady(false);
     return () => {
-      console.log('[DynamicPage] cleanup — setChromeReady(true), setForceBlankLayout(false)');
       setChromeReady(true);
       setForceBlankLayout(false);
     };
   }, [slug, setChromeReady, setForceBlankLayout]);
 
   useLayoutEffect(() => {
-    console.log('[DynamicPage] data effect', { pageLoading, hasPage: !!page, hide_chrome: page?.hide_chrome });
     if (pageLoading || !page) return;
     if (page.hide_chrome) {
-      console.log('[DynamicPage] hide_chrome=true — setForceBlankLayout(true)');
       setForcePublicLayout(false);
       setForceBlankLayout(true);
     }
-    console.log('[DynamicPage] setChromeReady(true)');
     setChromeReady(true);
   }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
