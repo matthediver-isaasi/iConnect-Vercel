@@ -1917,12 +1917,16 @@ useEffect(() => {
     return currentPageName;
   };
 
+  console.log('[Layout] render decision', { forceBlankLayout, chromeReady, forcePublicLayout });
+
   // Render blank layout when forced (e.g., form with blank_layout option)
   if (forceBlankLayout) {
+    console.log('[Layout] → forceBlankLayout path (no chrome)');
     return <>{children}</>;
   }
 
   if (!chromeReady) {
+    console.log('[Layout] → chromeReady=false path (hidden)');
     return <div style={{ visibility: 'hidden' }}>{children}</div>;
   }
 
