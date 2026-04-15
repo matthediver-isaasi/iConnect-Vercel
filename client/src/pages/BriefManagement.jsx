@@ -116,7 +116,9 @@ export default function BriefManagementPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-
+  const [dateField, setDateField] = useState("deadline");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [writerFilter, setWriterFilter] = useState("all");
   const [reviewerFilter, setReviewerFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
@@ -288,6 +290,16 @@ export default function BriefManagementPage() {
         filtered = filtered.filter((b) => b.review_owner_id === reviewerFilter);
       }
     }
+    if (dateFrom || dateTo) {
+      filtered = filtered.filter((b) => {
+        const val = b[dateField];
+        if (!val) return false;
+        const d = val.split("T")[0];
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -323,7 +335,7 @@ export default function BriefManagementPage() {
         break;
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, searchQuery, sortBy]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, dateField, dateFrom, dateTo, searchQuery, sortBy]);
 
   const handleAttachmentUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -486,6 +498,33 @@ export default function BriefManagementPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={dateField} onValueChange={setDateField}>
+                <SelectTrigger className="w-[180px]" data-testid="select-date-field">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="deadline">Submission Deadline</SelectItem>
+                  <SelectItem value="writer_deadline">Writer Deadline</SelectItem>
+                  <SelectItem value="editor_deadline">Editor Deadline</SelectItem>
+                  <SelectItem value="created_at">Created Date</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-[150px]"
+                placeholder="From"
+                data-testid="input-date-from"
+              />
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-[150px]"
+                placeholder="To"
+                data-testid="input-date-to"
+              />
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-[170px]" data-testid="select-sort-by">
                   <ArrowUpDown className="w-3 h-3 mr-1" />
