@@ -46,10 +46,11 @@ export default function HomePageRedirect() {
 
   useLayoutEffect(() => {
     if (settingsLoading) return;
-    if (!homePageSlug || !pageData?.page) {
+    if (!homePageSlug) {
       setChromeReady(true);
       return;
     }
+    if (pageLoading || !pageData?.page) return;
     if (pageData.page.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
@@ -58,23 +59,15 @@ export default function HomePageRedirect() {
   }, [homePageSlug, pageData, settingsLoading, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
   if (settingsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
-      </div>
-    );
+    return null;
   }
 
-  if (!homePageSlug || !pageData?.page) {
+  if (!homePageSlug) {
     return <Events />;
   }
 
-  if (pageLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
-      </div>
-    );
+  if (pageLoading || !pageData?.page) {
+    return null;
   }
 
   const sortedElements = [...(pageData.elements || [])].sort((a, b) => 
