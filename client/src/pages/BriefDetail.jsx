@@ -402,7 +402,7 @@ export default function BriefDetailPage() {
     setEditData({
       title: brief.title || "",
       instructions: brief.instructions || "",
-      contributor_type: brief.contributor_type || "",
+      contributor_type: brief.contributor_type || "gfi",
       deadline: brief.deadline ? brief.deadline.split("T")[0] : "",
       writer_deadline: brief.writer_deadline ? brief.writer_deadline.split("T")[0] : "",
       editor_deadline: brief.editor_deadline ? brief.editor_deadline.split("T")[0] : "",
@@ -412,7 +412,6 @@ export default function BriefDetailPage() {
       notes: brief.notes || "",
       assigned_writer_id: brief.assigned_writer_id || "",
       review_owner_id: brief.review_owner_id || "",
-      assignment_note: brief.assignment_note || "",
       attachments: existingAttachments,
     });
     setIsEditing(true);
@@ -464,7 +463,6 @@ export default function BriefDetailPage() {
       notes: editData.notes.trim() || null,
       assigned_writer_id: writerId,
       review_owner_id: reviewerId,
-      assignment_note: editData.assignment_note.trim() || null,
       attachments: editData.attachments || [],
     };
     updateMutation.mutate(payload);
@@ -721,6 +719,7 @@ export default function BriefDetailPage() {
                       <Select value={editData.contributor_type} onValueChange={(v) => setEditData((p) => ({ ...p, contributor_type: v }))}>
                         <SelectTrigger data-testid="select-edit-contributor-type"><SelectValue placeholder="Select type" /></SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="gfi">GFI</SelectItem>
                           <SelectItem value="volunteer">Volunteer</SelectItem>
                           <SelectItem value="paid">Paid</SelectItem>
                         </SelectContent>
@@ -800,10 +799,6 @@ export default function BriefDetailPage() {
                           />
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="edit-assign-note">Assignment Note</Label>
-                        <Input id="edit-assign-note" value={editData.assignment_note} onChange={(e) => setEditData((p) => ({ ...p, assignment_note: e.target.value }))} data-testid="input-edit-assignment-note" />
-                      </div>
                     </>
                   )}
                   <div className="space-y-1">
@@ -869,19 +864,13 @@ export default function BriefDetailPage() {
                     {brief.contributor_type && (
                       <div>
                         <Label className="text-xs text-muted-foreground">Contributor Type</Label>
-                        <p className="text-sm mt-1 capitalize" data-testid="text-brief-contributor-type">{brief.contributor_type}</p>
+                        <p className="text-sm mt-1" data-testid="text-brief-contributor-type">{brief.contributor_type === 'gfi' ? 'GFI' : brief.contributor_type?.charAt(0).toUpperCase() + brief.contributor_type?.slice(1)}</p>
                       </div>
                     )}
                     {brief.notes && (
                       <div>
                         <Label className="text-xs text-muted-foreground">Notes</Label>
                         <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-notes">{brief.notes}</p>
-                      </div>
-                    )}
-                    {brief.assignment_note && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Assignment Note</Label>
-                        <p className="text-sm mt-1" data-testid="text-brief-assignment-note">{brief.assignment_note}</p>
                       </div>
                     )}
                     {briefAttachments.length > 0 && (

@@ -130,7 +130,7 @@ export default function BriefManagementPage() {
     title: "", instructions: "", deadline: "",
     writer_deadline: "", editor_deadline: "", sla: "2026-2028", contract: "Prospects",
     category: "", notes: "", assigned_writer_id: "", review_owner_id: "",
-    assignment_note: "", attachments: [],
+    attachments: [],
   };
   const [newBrief, setNewBrief] = useState(emptyBrief);
 
@@ -373,7 +373,7 @@ export default function BriefManagementPage() {
       notes: newBrief.notes.trim() || null,
       assigned_writer_id: writerId,
       review_owner_id: reviewerId,
-      assignment_note: newBrief.assignment_note.trim() || null,
+      assignment_note: null,
       attachments: newBrief.attachments.length > 0 ? newBrief.attachments : [],
       status: writerId ? "assigned" : "new",
       assigned_date: writerId ? new Date().toISOString() : null,
@@ -730,16 +730,6 @@ export default function BriefManagementPage() {
                         testId="combobox-brief-reviewer"
                       />
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="brief-assign-note">Assignment Note</Label>
-                    <Input
-                      id="brief-assign-note"
-                      value={newBrief.assignment_note}
-                      onChange={(e) => setNewBrief((p) => ({ ...p, assignment_note: e.target.value }))}
-                      placeholder="Any notes for the writer"
-                      data-testid="input-brief-assignment-note"
-                    />
                   </div>
                 </>
               )}
