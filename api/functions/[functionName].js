@@ -3604,7 +3604,7 @@ const functionHandlers = {
         setting_value: slug || '',
         tenant_id: tenantId
       }, {
-        onConflict: 'setting_key',
+        onConflict: 'tenant_id,setting_key',
         ignoreDuplicates: false
       })
       .select()
