@@ -5,6 +5,8 @@ const LayoutContext = createContext({
   setForcePublicLayout: () => {},
   forceBlankLayout: false,
   setForceBlankLayout: () => {},
+  chromeReady: true,
+  setChromeReady: () => {},
   hasBanner: false,
   setHasBanner: () => {},
   portalBanner: null,
@@ -35,6 +37,7 @@ const LayoutContext = createContext({
 export function LayoutProvider({ children }) {
   const [forcePublicLayout, setForcePublicLayout] = useState(false);
   const [forceBlankLayout, setForceBlankLayoutState] = useState(false);
+  const [chromeReady, setChromeReadyState] = useState(true);
   const [hasBanner, setHasBannerState] = useState(false);
   const [portalBanner, setPortalBannerState] = useState(null);
   const [memberInfo, setMemberInfoState] = useState(null);
@@ -99,12 +102,18 @@ export function LayoutProvider({ children }) {
     setForceBlankLayoutState(value);
   }, []);
 
+  const setChromeReady = useCallback((value) => {
+    setChromeReadyState(value);
+  }, []);
+
   return (
     <LayoutContext.Provider value={{ 
       forcePublicLayout, 
       setForcePublicLayout: setLayout,
       forceBlankLayout,
       setForceBlankLayout,
+      chromeReady,
+      setChromeReady,
       hasBanner,
       setHasBanner,
       portalBanner,

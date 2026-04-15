@@ -21,7 +21,7 @@ export default function DynamicPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
-  const { setForcePublicLayout, setForceBlankLayout } = useLayoutContext();
+  const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
   const { branding } = useTenantBranding();
   
   // Get banners that should appear below the first element
@@ -210,14 +210,21 @@ export default function DynamicPage() {
   // - Member pages: Always use portal layout (with sidebar)
   // - Dynamic article routes: Use portal layout (except PublicArticles)
   useLayoutEffect(() => {
-    if (page?.hide_chrome) {
+    setChromeReady(false);
+    return () => {
+      setChromeReady(true);
+      setForceBlankLayout(false);
+    };
+  }, [slug, setChromeReady, setForceBlankLayout]);
+
+  useLayoutEffect(() => {
+    if (pageLoading || !page) return;
+    if (page.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
-      return () => {
-        setForceBlankLayout(false);
-      };
     }
-  }, [page, setForceBlankLayout, setForcePublicLayout]);
+    setChromeReady(true);
+  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
   useEffect(() => {
     if (page?.hide_chrome) return;

@@ -8,7 +8,7 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
 export default function ViewPage() {
   const { branding } = useTenantBranding();
-  const { setForceBlankLayout, setForcePublicLayout } = useLayoutContext();
+  const { setForceBlankLayout, setForcePublicLayout, setChromeReady } = useLayoutContext();
   const urlParams = new URLSearchParams(window.location.search);
   const pageSlug = urlParams.get('slug');
 
@@ -51,14 +51,21 @@ export default function ViewPage() {
   }, [page]);
 
   useLayoutEffect(() => {
-    if (!pageLoading && page?.hide_chrome) {
+    setChromeReady(false);
+    return () => {
+      setChromeReady(true);
+      setForceBlankLayout(false);
+    };
+  }, [pageSlug, setChromeReady, setForceBlankLayout]);
+
+  useLayoutEffect(() => {
+    if (pageLoading || !page) return;
+    if (page.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
-      return () => {
-        setForceBlankLayout(false);
-      };
     }
-  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout]);
+    setChromeReady(true);
+  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
   // Handle anchor scrolling after elements are loaded
   useEffect(() => {
