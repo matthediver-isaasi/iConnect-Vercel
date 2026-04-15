@@ -266,7 +266,7 @@ export default function BriefManagementPage() {
     let filtered = briefs;
 
     if (activeView === "my_briefs" && memberInfo?.id) {
-      filtered = filtered.filter((b) => b.assigned_writer_id === memberInfo.id);
+      filtered = filtered.filter((b) => b.review_owner_id === memberInfo.id);
     } else if (activeView === "review_queue" && memberInfo?.id) {
       filtered = filtered.filter(
         (b) => b.review_owner_id === memberInfo.id && (b.status === "under_review" || b.status === "changes_requested")
