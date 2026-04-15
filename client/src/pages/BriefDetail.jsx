@@ -69,7 +69,6 @@ const DEFAULT_STATUS_CONFIG = {
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
   under_review: { label: "Under Review", color: "#a855f7", icon: Eye },
   changes_requested: { label: "Changes Requested", color: "#f97316", icon: AlertCircle },
-  approved: { label: "Approved", color: "#22c55e", icon: CheckCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
 };
 
@@ -87,13 +86,6 @@ function buildStatusConfig(stages) {
     }
   });
 }
-
-const PRIORITY_CONFIG = {
-  low: { label: "Low", color: "#6b7280" },
-  medium: { label: "Medium", color: "#3b82f6" },
-  high: { label: "High", color: "#f59e0b" },
-  urgent: { label: "Urgent", color: "#ef4444" },
-};
 
 const COMMENT_CATEGORIES = [
   { value: "structure", label: "Structure" },
@@ -409,14 +401,13 @@ export default function BriefDetailPage() {
     const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
     setEditData({
       title: brief.title || "",
-      summary: brief.summary || "",
       instructions: brief.instructions || "",
-      target_audience: brief.target_audience || "",
-      tone_guidance: brief.tone_guidance || "",
       contributor_type: brief.contributor_type || "",
-      word_count_target: brief.word_count_target || "",
       deadline: brief.deadline ? brief.deadline.split("T")[0] : "",
-      priority: brief.priority || "medium",
+      writer_deadline: brief.writer_deadline ? brief.writer_deadline.split("T")[0] : "",
+      editor_deadline: brief.editor_deadline ? brief.editor_deadline.split("T")[0] : "",
+      sla: brief.sla || "2026-2028",
+      contract: brief.contract || "Prospects",
       category: brief.category || "",
       notes: brief.notes || "",
       assigned_writer_id: brief.assigned_writer_id || "",
@@ -462,14 +453,13 @@ export default function BriefDetailPage() {
     const reviewerId = editData.review_owner_id && editData.review_owner_id !== "unassigned" ? editData.review_owner_id : null;
     const payload = {
       title: editData.title.trim(),
-      summary: editData.summary.trim() || null,
       instructions: editData.instructions.trim() || null,
-      target_audience: editData.target_audience.trim() || null,
-      tone_guidance: editData.tone_guidance.trim() || null,
       contributor_type: editData.contributor_type || null,
-      word_count_target: editData.word_count_target ? parseInt(editData.word_count_target) : null,
       deadline: editData.deadline || null,
-      priority: editData.priority,
+      writer_deadline: editData.writer_deadline || null,
+      editor_deadline: editData.editor_deadline || null,
+      sla: editData.sla || null,
+      contract: editData.contract || null,
       category: editData.category.trim() || null,
       notes: editData.notes.trim() || null,
       assigned_writer_id: writerId,
@@ -571,7 +561,6 @@ export default function BriefDetailPage() {
   }
 
   const statusCfg = STATUS_CONFIG[brief.status] || STATUS_CONFIG.new;
-  const priorityCfg = PRIORITY_CONFIG[brief.priority] || PRIORITY_CONFIG.medium;
   const StatusIcon = statusCfg.icon;
   const openComments = comments.filter((c) => c.status === "open" || c.status === "acknowledged");
   const briefAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
@@ -649,19 +638,6 @@ export default function BriefDetailPage() {
                 <StatusIcon className="w-3 h-3 mr-1" />
                 {statusCfg.label}
               </Badge>
-              <Badge
-                variant="outline"
-                className="text-xs"
-                style={{ borderColor: priorityCfg.color, color: priorityCfg.color }}
-                data-testid="badge-brief-priority"
-              >
-                {priorityCfg.label} Priority
-              </Badge>
-              {brief.word_count_target && (
-                <span className="text-xs text-muted-foreground" data-testid="text-word-count">
-                  Target: {brief.word_count_target.toLocaleString()} words
-                </span>
-              )}
               {brief.category && (
                 <Badge variant="secondary" className="text-xs" data-testid="badge-brief-category">
                   {brief.category}
@@ -733,25 +709,13 @@ export default function BriefDetailPage() {
                     <Input id="edit-title" value={editData.title} onChange={(e) => setEditData((p) => ({ ...p, title: e.target.value }))} data-testid="input-edit-title" />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="edit-summary">Summary</Label>
-                    <Textarea id="edit-summary" value={editData.summary} onChange={(e) => setEditData((p) => ({ ...p, summary: e.target.value }))} className="resize-none" data-testid="input-edit-summary" />
-                  </div>
-                  <div className="space-y-1">
                     <Label>Full Instructions</Label>
                     <SimpleRichTextEditor
                       content={editData.instructions}
                       onChange={(html) => setEditData((p) => ({ ...p, instructions: html }))}
                     />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="edit-audience">Target Audience</Label>
-                      <Input id="edit-audience" value={editData.target_audience} onChange={(e) => setEditData((p) => ({ ...p, target_audience: e.target.value }))} data-testid="input-edit-audience" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="edit-tone">Tone Guidance</Label>
-                      <Input id="edit-tone" value={editData.tone_guidance} onChange={(e) => setEditData((p) => ({ ...p, tone_guidance: e.target.value }))} data-testid="input-edit-tone" />
-                    </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label>Contributor Type</Label>
                       <Select value={editData.contributor_type} onValueChange={(v) => setEditData((p) => ({ ...p, contributor_type: v }))}>
@@ -761,23 +725,6 @@ export default function BriefDetailPage() {
                           <SelectItem value="paid">Paid</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label>Priority</Label>
-                      <Select value={editData.priority} onValueChange={(v) => setEditData((p) => ({ ...p, priority: v }))}>
-                        <SelectTrigger data-testid="select-edit-priority"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                            <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="edit-words">Word Count Target</Label>
-                      <Input id="edit-words" type="number" value={editData.word_count_target} onChange={(e) => setEditData((p) => ({ ...p, word_count_target: e.target.value }))} data-testid="input-edit-word-count" />
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="edit-category">Category</Label>
@@ -797,42 +744,70 @@ export default function BriefDetailPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label htmlFor="edit-deadline">Deadline</Label>
+                      <Label>SLA</Label>
+                      <Select value={editData.sla} onValueChange={(v) => setEditData((p) => ({ ...p, sla: v }))}>
+                        <SelectTrigger data-testid="select-edit-sla"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2026-2028">2026-2028</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Contract</Label>
+                      <Select value={editData.contract} onValueChange={(v) => setEditData((p) => ({ ...p, contract: v }))}>
+                        <SelectTrigger data-testid="select-edit-contract"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Prospects">Prospects</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-deadline">Submission Deadline</Label>
                       <Input id="edit-deadline" type="date" value={editData.deadline} onChange={(e) => setEditData((p) => ({ ...p, deadline: e.target.value }))} data-testid="input-edit-deadline" />
                     </div>
-                    {canAssign && (
-                      <div className="space-y-1">
-                        <Label>Writer</Label>
-                        <MemberCombobox
-                          value={editData.assigned_writer_id || "unassigned"}
-                          onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
-                          placeholder="Search writer..."
-                          testId="combobox-edit-writer"
-                          initialMember={brief?.assigned_writer_id ? membersById[brief.assigned_writer_id] : null}
-                        />
-                      </div>
-                    )}
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-writer-deadline">Writer Deadline</Label>
+                      <Input id="edit-writer-deadline" type="date" value={editData.writer_deadline} onChange={(e) => setEditData((p) => ({ ...p, writer_deadline: e.target.value }))} data-testid="input-edit-writer-deadline" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-editor-deadline">Editor Deadline</Label>
+                      <Input id="edit-editor-deadline" type="date" value={editData.editor_deadline} onChange={(e) => setEditData((p) => ({ ...p, editor_deadline: e.target.value }))} data-testid="input-edit-editor-deadline" />
+                    </div>
                   </div>
                   {canAssign && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label>Reviewer</Label>
-                        <MemberCombobox
-                          value={editData.review_owner_id || "unassigned"}
-                          onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}
-                          placeholder="Search reviewer..."
-                          testId="combobox-edit-reviewer"
-                          initialMember={brief?.review_owner_id ? membersById[brief.review_owner_id] : null}
-                        />
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Writer</Label>
+                          <MemberCombobox
+                            value={editData.assigned_writer_id || "unassigned"}
+                            onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
+                            placeholder="Search writer..."
+                            testId="combobox-edit-writer"
+                            initialMember={brief?.assigned_writer_id ? membersById[brief.assigned_writer_id] : null}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Editor</Label>
+                          <MemberCombobox
+                            value={editData.review_owner_id || "unassigned"}
+                            onValueChange={(v) => setEditData((p) => ({ ...p, review_owner_id: v }))}
+                            placeholder="Search editor..."
+                            testId="combobox-edit-reviewer"
+                            initialMember={brief?.review_owner_id ? membersById[brief.review_owner_id] : null}
+                          />
+                        </div>
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="edit-assign-note">Assignment Note</Label>
                         <Input id="edit-assign-note" value={editData.assignment_note} onChange={(e) => setEditData((p) => ({ ...p, assignment_note: e.target.value }))} data-testid="input-edit-assignment-note" />
                       </div>
-                    </div>
+                    </>
                   )}
                   <div className="space-y-1">
-                    <Label htmlFor="edit-notes">Additional Notes</Label>
+                    <Label htmlFor="edit-notes">Notes</Label>
                     <Textarea id="edit-notes" value={editData.notes} onChange={(e) => setEditData((p) => ({ ...p, notes: e.target.value }))} className="resize-none" rows={2} data-testid="input-edit-notes" />
                   </div>
                   <div className="space-y-2">
@@ -885,28 +860,10 @@ export default function BriefDetailPage() {
                 <Card className="md:col-span-2">
                   <CardHeader><CardTitle className="text-lg">Brief Details</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {brief.summary && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Summary</Label>
-                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-summary">{brief.summary}</p>
-                      </div>
-                    )}
                     {brief.instructions && (
                       <div>
                         <Label className="text-xs text-muted-foreground">Instructions</Label>
                         <div className="text-sm mt-1 prose prose-sm max-w-none" data-testid="text-brief-instructions" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.instructions) }} />
-                      </div>
-                    )}
-                    {brief.target_audience && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Target Audience</Label>
-                        <p className="text-sm mt-1" data-testid="text-brief-audience">{brief.target_audience}</p>
-                      </div>
-                    )}
-                    {brief.tone_guidance && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Tone Guidance</Label>
-                        <p className="text-sm mt-1" data-testid="text-brief-tone">{brief.tone_guidance}</p>
                       </div>
                     )}
                     {brief.contributor_type && (
@@ -943,7 +900,7 @@ export default function BriefDetailPage() {
                         </div>
                       </div>
                     )}
-                    {!brief.summary && !brief.instructions && !brief.notes && briefAttachments.length === 0 && (
+                    {!brief.instructions && !brief.notes && briefAttachments.length === 0 && (
                       <p className="text-sm text-muted-foreground" data-testid="text-no-details">No description or instructions provided.</p>
                     )}
                   </CardContent>
@@ -958,7 +915,7 @@ export default function BriefDetailPage() {
                       </p>
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Reviewer</Label>
+                      <Label className="text-xs text-muted-foreground">Editor</Label>
                       <p className="text-sm font-medium" data-testid="text-reviewer">
                         {brief.review_owner_id ? getMemberName(brief.review_owner_id) : "--"}
                       </p>
@@ -969,14 +926,32 @@ export default function BriefDetailPage() {
                     </div>
                     {brief.deadline && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Deadline</Label>
+                        <Label className="text-xs text-muted-foreground">Submission Deadline</Label>
                         <p className="text-sm" data-testid="text-deadline">{format(new Date(brief.deadline), "MMM d, yyyy")}</p>
                       </div>
                     )}
-                    {brief.word_count_target && (
+                    {brief.writer_deadline && (
                       <div>
-                        <Label className="text-xs text-muted-foreground">Word Count Target</Label>
-                        <p className="text-sm" data-testid="text-target-words">{brief.word_count_target.toLocaleString()}</p>
+                        <Label className="text-xs text-muted-foreground">Writer Deadline</Label>
+                        <p className="text-sm" data-testid="text-writer-deadline">{format(new Date(brief.writer_deadline), "MMM d, yyyy")}</p>
+                      </div>
+                    )}
+                    {brief.editor_deadline && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Editor Deadline</Label>
+                        <p className="text-sm" data-testid="text-editor-deadline">{format(new Date(brief.editor_deadline), "MMM d, yyyy")}</p>
+                      </div>
+                    )}
+                    {brief.sla && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">SLA</Label>
+                        <p className="text-sm" data-testid="text-sla">{brief.sla}</p>
+                      </div>
+                    )}
+                    {brief.contract && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Contract</Label>
+                        <p className="text-sm" data-testid="text-contract">{brief.contract}</p>
                       </div>
                     )}
                     <div>

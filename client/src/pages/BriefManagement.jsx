@@ -35,7 +35,6 @@ import {
   Plus,
   FileText,
   Clock,
-  CheckCircle,
   AlertCircle,
   Loader2,
   Pencil,
@@ -60,7 +59,6 @@ const DEFAULT_STATUS_CONFIG = {
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
   under_review: { label: "Under Review", color: "#a855f7", icon: Eye },
   changes_requested: { label: "Changes Requested", color: "#f97316", icon: AlertCircle },
-  approved: { label: "Approved", color: "#22c55e", icon: CheckCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
 };
 
@@ -79,22 +77,12 @@ function buildStatusConfig(stages) {
   });
 }
 
-const PRIORITY_CONFIG = {
-  low: { label: "Low", color: "#6b7280" },
-  medium: { label: "Medium", color: "#3b82f6" },
-  high: { label: "High", color: "#f59e0b" },
-  urgent: { label: "Urgent", color: "#ef4444" },
-};
-
 const SORT_OPTIONS = [
   { value: "newest", label: "Newest First" },
   { value: "oldest", label: "Oldest First" },
   { value: "deadline_asc", label: "Deadline (Earliest)" },
   { value: "deadline_desc", label: "Deadline (Latest)" },
-  { value: "priority_desc", label: "Priority (Highest)" },
 ];
-
-const PRIORITY_ORDER = { urgent: 4, high: 3, medium: 2, low: 1 };
 
 function StatCard({ title, value, icon: Icon, color }) {
   return (
@@ -128,7 +116,7 @@ export default function BriefManagementPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
+
   const [writerFilter, setWriterFilter] = useState("all");
   const [reviewerFilter, setReviewerFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
@@ -139,8 +127,8 @@ export default function BriefManagementPage() {
   const attachmentInputRef = useRef(null);
 
   const emptyBrief = {
-    title: "", summary: "", instructions: "", target_audience: "",
-    tone_guidance: "", word_count_target: "", deadline: "", priority: "medium",
+    title: "", instructions: "", deadline: "",
+    writer_deadline: "", editor_deadline: "", sla: "2026-2028", contract: "Prospects",
     category: "", notes: "", assigned_writer_id: "", review_owner_id: "",
     assignment_note: "", attachments: [],
   };
@@ -257,7 +245,6 @@ export default function BriefManagementPage() {
       total,
       inProgress: (byStatus["in_progress"] || 0) + (byStatus["assigned"] || 0),
       underReview: byStatus["under_review"] || 0,
-      approved: byStatus["approved"] || 0,
     };
   }, [briefs]);
 
@@ -287,9 +274,6 @@ export default function BriefManagementPage() {
     if (statusFilter !== "all") {
       filtered = filtered.filter((b) => b.status === statusFilter);
     }
-    if (priorityFilter !== "all") {
-      filtered = filtered.filter((b) => b.priority === priorityFilter);
-    }
     if (writerFilter !== "all") {
       if (writerFilter === "__unassigned__") {
         filtered = filtered.filter((b) => !b.assigned_writer_id);
@@ -309,7 +293,6 @@ export default function BriefManagementPage() {
       filtered = filtered.filter(
         (b) =>
           b.title?.toLowerCase().includes(query) ||
-          b.summary?.toLowerCase().includes(query) ||
           b.category?.toLowerCase().includes(query)
       );
     }
@@ -336,14 +319,11 @@ export default function BriefManagementPage() {
           return new Date(b.deadline) - new Date(a.deadline);
         });
         break;
-      case "priority_desc":
-        sorted.sort((a, b) => (PRIORITY_ORDER[b.priority] || 0) - (PRIORITY_ORDER[a.priority] || 0));
-        break;
       default:
         break;
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, priorityFilter, writerFilter, reviewerFilter, searchQuery, sortBy]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, searchQuery, sortBy]);
 
   const handleAttachmentUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -383,13 +363,12 @@ export default function BriefManagementPage() {
     const reviewerId = newBrief.review_owner_id && newBrief.review_owner_id !== "unassigned" ? newBrief.review_owner_id : null;
     const payload = {
       title: newBrief.title.trim(),
-      summary: newBrief.summary.trim() || null,
       instructions: newBrief.instructions.trim() || null,
-      target_audience: newBrief.target_audience.trim() || null,
-      tone_guidance: newBrief.tone_guidance.trim() || null,
-      word_count_target: newBrief.word_count_target ? parseInt(newBrief.word_count_target) : null,
       deadline: newBrief.deadline || null,
-      priority: newBrief.priority,
+      writer_deadline: newBrief.writer_deadline || null,
+      editor_deadline: newBrief.editor_deadline || null,
+      sla: newBrief.sla || null,
+      contract: newBrief.contract || null,
       category: newBrief.category.trim() || null,
       notes: newBrief.notes.trim() || null,
       assigned_writer_id: writerId,
@@ -445,11 +424,10 @@ export default function BriefManagementPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <StatCard title="Total" value={stats.total} icon={FileText} color="#6b7280" />
           <StatCard title="In Progress" value={stats.inProgress} icon={Pencil} color="#f59e0b" />
           <StatCard title="Under Review" value={stats.underReview} icon={Eye} color="#a855f7" />
-          <StatCard title="Approved" value={stats.approved} icon={CheckCircle} color="#22c55e" />
         </div>
 
         <Tabs value={activeView} onValueChange={setActiveView} className="mb-6">
@@ -484,17 +462,6 @@ export default function BriefManagementPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                <SelectTrigger className="w-[140px]" data-testid="select-priority-filter">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priorities</SelectItem>
-                  {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Select value={writerFilter} onValueChange={setWriterFilter}>
                 <SelectTrigger className="w-[150px]" data-testid="select-writer-filter">
                   <SelectValue placeholder="Writer" />
@@ -509,10 +476,10 @@ export default function BriefManagementPage() {
               </Select>
               <Select value={reviewerFilter} onValueChange={setReviewerFilter}>
                 <SelectTrigger className="w-[150px]" data-testid="select-reviewer-filter">
-                  <SelectValue placeholder="Reviewer" />
+                  <SelectValue placeholder="Editor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Reviewers</SelectItem>
+                  <SelectItem value="all">All Editors</SelectItem>
                   <SelectItem value="__unassigned__">Unassigned</SelectItem>
                   {uniqueReviewers.map((r) => (
                     <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
@@ -541,10 +508,9 @@ export default function BriefManagementPage() {
                 <TableRow>
                   <TableHead className="min-w-[220px]">Title</TableHead>
                   <TableHead className="min-w-[120px]">Status</TableHead>
-                  <TableHead className="min-w-[90px]">Priority</TableHead>
                   <TableHead className="min-w-[120px]">Writer</TableHead>
-                  <TableHead className="min-w-[120px]">Reviewer</TableHead>
-                  <TableHead className="min-w-[100px]">Deadline</TableHead>
+                  <TableHead className="min-w-[120px]">Editor</TableHead>
+                  <TableHead className="min-w-[130px]">Submission Deadline</TableHead>
                   <TableHead className="min-w-[110px]">Latest Draft</TableHead>
                   {canDelete && <TableHead className="min-w-[60px]">Actions</TableHead>}
                 </TableRow>
@@ -552,7 +518,7 @@ export default function BriefManagementPage() {
               <TableBody>
                 {filteredAndSorted.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canDelete ? 8 : 7} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={canDelete ? 7 : 6} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
@@ -565,7 +531,6 @@ export default function BriefManagementPage() {
                 ) : (
                   filteredAndSorted.map((brief) => {
                     const statusCfg = STATUS_CONFIG[brief.status] || STATUS_CONFIG.new;
-                    const priorityCfg = PRIORITY_CONFIG[brief.priority] || PRIORITY_CONFIG.medium;
                     const latestVersion = latestVersionByBrief[brief.id];
                     return (
                       <TableRow
@@ -588,15 +553,6 @@ export default function BriefManagementPage() {
                             style={{ backgroundColor: statusCfg.color, color: "#fff" }}
                           >
                             {statusCfg.label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="text-xs"
-                            style={{ borderColor: priorityCfg.color, color: priorityCfg.color }}
-                          >
-                            {priorityCfg.label}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -659,17 +615,6 @@ export default function BriefManagementPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="brief-summary">Summary</Label>
-                <Textarea
-                  id="brief-summary"
-                  value={newBrief.summary}
-                  onChange={(e) => setNewBrief((p) => ({ ...p, summary: e.target.value }))}
-                  placeholder="Brief summary of the article"
-                  className="resize-none"
-                  data-testid="input-brief-summary"
-                />
-              </div>
-              <div className="space-y-1">
                 <Label>Full Instructions</Label>
                 <SimpleRichTextEditor
                   content={newBrief.instructions}
@@ -678,55 +623,6 @@ export default function BriefManagementPage() {
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="brief-audience">Target Audience</Label>
-                  <Input
-                    id="brief-audience"
-                    value={newBrief.target_audience}
-                    onChange={(e) => setNewBrief((p) => ({ ...p, target_audience: e.target.value }))}
-                    placeholder="e.g. Industry professionals"
-                    data-testid="input-brief-audience"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="brief-tone">Tone Guidance</Label>
-                  <Input
-                    id="brief-tone"
-                    value={newBrief.tone_guidance}
-                    onChange={(e) => setNewBrief((p) => ({ ...p, tone_guidance: e.target.value }))}
-                    placeholder="e.g. Professional, conversational"
-                    data-testid="input-brief-tone"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label>Priority</Label>
-                  <Select
-                    value={newBrief.priority}
-                    onValueChange={(v) => setNewBrief((p) => ({ ...p, priority: v }))}
-                  >
-                    <SelectTrigger data-testid="select-brief-priority">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                        <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="brief-words">Word Count Target</Label>
-                  <Input
-                    id="brief-words"
-                    type="number"
-                    value={newBrief.word_count_target}
-                    onChange={(e) => setNewBrief((p) => ({ ...p, word_count_target: e.target.value }))}
-                    placeholder="e.g. 1500"
-                    data-testid="input-brief-word-count"
-                  />
-                </div>
                 <div className="space-y-1">
                   <Label htmlFor="brief-category">Category</Label>
                   {briefSettings?.categories && briefSettings.categories.length > 0 ? (
@@ -750,22 +646,74 @@ export default function BriefManagementPage() {
                     />
                   )}
                 </div>
+                <div className="space-y-1">
+                  <Label>SLA</Label>
+                  <Select
+                    value={newBrief.sla}
+                    onValueChange={(v) => setNewBrief((p) => ({ ...p, sla: v }))}
+                  >
+                    <SelectTrigger data-testid="select-brief-sla">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2026-2028">2026-2028</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="brief-deadline">Deadline</Label>
-                <Input
-                  id="brief-deadline"
-                  type="date"
-                  value={newBrief.deadline}
-                  onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
-                  data-testid="input-brief-deadline"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Contract</Label>
+                  <Select
+                    value={newBrief.contract}
+                    onValueChange={(v) => setNewBrief((p) => ({ ...p, contract: v }))}
+                  >
+                    <SelectTrigger data-testid="select-brief-contract">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Prospects">Prospects</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="brief-deadline">Submission Deadline</Label>
+                  <Input
+                    id="brief-deadline"
+                    type="date"
+                    value={newBrief.deadline}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, deadline: e.target.value }))}
+                    data-testid="input-brief-deadline"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-writer-deadline">Writer Deadline</Label>
+                  <Input
+                    id="brief-writer-deadline"
+                    type="date"
+                    value={newBrief.writer_deadline}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, writer_deadline: e.target.value }))}
+                    data-testid="input-brief-writer-deadline"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="brief-editor-deadline">Editor Deadline</Label>
+                  <Input
+                    id="brief-editor-deadline"
+                    type="date"
+                    value={newBrief.editor_deadline}
+                    onChange={(e) => setNewBrief((p) => ({ ...p, editor_deadline: e.target.value }))}
+                    data-testid="input-brief-editor-deadline"
+                  />
+                </div>
               </div>
               {canAssign && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label>Assign Writer</Label>
+                      <Label>Writer</Label>
                       <MemberCombobox
                         value={newBrief.assigned_writer_id || "unassigned"}
                         onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
@@ -774,11 +722,11 @@ export default function BriefManagementPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>Assign Reviewer</Label>
+                      <Label>Editor</Label>
                       <MemberCombobox
                         value={newBrief.review_owner_id || "unassigned"}
                         onValueChange={(v) => setNewBrief((p) => ({ ...p, review_owner_id: v }))}
-                        placeholder="Search reviewer..."
+                        placeholder="Search editor..."
                         testId="combobox-brief-reviewer"
                       />
                     </div>
@@ -796,7 +744,7 @@ export default function BriefManagementPage() {
                 </>
               )}
               <div className="space-y-1">
-                <Label htmlFor="brief-notes">Additional Notes</Label>
+                <Label htmlFor="brief-notes">Notes</Label>
                 <Textarea
                   id="brief-notes"
                   value={newBrief.notes}
