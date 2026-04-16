@@ -4,7 +4,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy, FileSignature, Building2, Clock, Send, FilePlus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy,
+  FileSignature, Building2, Clock, Send, FilePlus, Search, X, ChevronLeft, ChevronRight,
+} from "lucide-react";
 import ManualSubmissionDialog from "@/components/ManualSubmissionDialog";
 import {
   AlertDialog,
@@ -22,6 +27,17 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const PAGE_SIZE_OPTIONS = [12, 24, 48];
+const DEFAULT_PAGE_SIZE = 12;
+
+const initialFilters = {
+  search: "",
+  status: "all",
+  auth: "all",
+  layout: "all",
+  organization: "all",
+};
+
 export default function FormManagementPage() {
   const { isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -30,9 +46,16 @@ export default function FormManagementPage() {
   const [manualSubmissionOpen, setManualSubmissionOpen] = useState(false);
   const [manualSubmissionForm, setManualSubmissionForm] = useState(null);
 
+  const [activeTab, setActiveTab] = useState("standard");
+  const [standardFilters, setStandardFilters] = useState(initialFilters);
+  const [contractFilters, setContractFilters] = useState(initialFilters);
+  const [standardPage, setStandardPage] = useState(1);
+  const [contractPage, setContractPage] = useState(1);
+  const [standardPageSize, setStandardPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [contractPageSize, setContractPageSize] = useState(DEFAULT_PAGE_SIZE);
+
   const queryClient = useQueryClient();
 
-  // SECURITY: Only consider authenticated when auth check complete AND session validated
   const isAuthenticated = authResolved && sessionValidated;
 
   useEffect(() => {
@@ -45,18 +68,15 @@ export default function FormManagementPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: forms = [], isLoading } = useQuery({
     queryKey: ['forms'],
     queryFn: async () => {
       return await base44.entities.Form.list();
     },
-    staleTime: 0, // Admin views need instant freshness after edits
+    staleTime: 0,
     enabled: isAuthenticated,
   });
 
-  // Fetch actual submission counts from FormSubmission table (use listAll for pagination)
-  // SECURITY: Gate on auth to prevent cross-tenant data leakage
   const { data: submissions = [] } = useQuery({
     queryKey: ['form-submissions-all'],
     queryFn: async () => {
@@ -66,7 +86,6 @@ export default function FormManagementPage() {
     enabled: isAuthenticated,
   });
 
-  // Create a map of form_id to actual submission count
   const submissionCounts = useMemo(() => {
     const counts = {};
     submissions.forEach(sub => {
@@ -77,14 +96,12 @@ export default function FormManagementPage() {
     return counts;
   }, [submissions]);
 
-  // Split forms into standard and contracts
   const { standardForms, contractForms } = useMemo(() => {
     const standard = forms.filter(form => !form.is_contract);
     const contracts = forms.filter(form => form.is_contract);
     return { standardForms: standard, contractForms: contracts };
   }, [forms]);
 
-  // Fetch organizations for contract display
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-form-management'],
     queryFn: async () => {
@@ -111,7 +128,7 @@ export default function FormManagementPage() {
   const duplicateFormMutation = useMutation({
     mutationFn: async (form) => {
       const { id, created_date, updated_date, created_by, submission_count, ...formData } = form;
-      
+
       const newForm = {
         ...formData,
         name: `Copy of ${form.name}`,
@@ -139,6 +156,72 @@ export default function FormManagementPage() {
     duplicateFormMutation.mutate(form);
   };
 
+  const matchesSearch = (form, search) => {
+    if (!search) return true;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (form.name || '').toLowerCase().includes(q) ||
+      (form.description || '').toLowerCase().includes(q) ||
+      (form.slug || '').toLowerCase().includes(q)
+    );
+  };
+
+  const applyCommonFilters = (form, filters) => {
+    if (!matchesSearch(form, filters.search)) return false;
+    if (filters.status !== 'all') {
+      const wantActive = filters.status === 'active';
+      if (Boolean(form.is_active) !== wantActive) return false;
+    }
+    if (filters.auth !== 'all') {
+      const wantAuth = filters.auth === 'yes';
+      if (Boolean(form.require_authentication) !== wantAuth) return false;
+    }
+    return true;
+  };
+
+  const filteredStandardForms = useMemo(() => {
+    return standardForms.filter(form => {
+      if (!applyCommonFilters(form, standardFilters)) return false;
+      if (standardFilters.layout !== 'all') {
+        const layout = form.layout_type === 'card_swipe' ? 'card_swipe' : 'standard';
+        if (layout !== standardFilters.layout) return false;
+      }
+      return true;
+    });
+  }, [standardForms, standardFilters]);
+
+  const filteredContractForms = useMemo(() => {
+    return contractForms.filter(form => {
+      if (!applyCommonFilters(form, contractFilters)) return false;
+      if (contractFilters.organization !== 'all') {
+        const orgId = form.contract_settings?.organization_id || '';
+        if (String(orgId) !== contractFilters.organization) return false;
+      }
+      return true;
+    });
+  }, [contractForms, contractFilters]);
+
+  // Reset pagination when filters / tab change
+  useEffect(() => { setStandardPage(1); }, [standardFilters, standardPageSize, activeTab]);
+  useEffect(() => { setContractPage(1); }, [contractFilters, contractPageSize, activeTab]);
+
+  const standardTotalPages = Math.max(1, Math.ceil(filteredStandardForms.length / standardPageSize));
+  const contractTotalPages = Math.max(1, Math.ceil(filteredContractForms.length / contractPageSize));
+
+  const safeStandardPage = Math.min(standardPage, standardTotalPages);
+  const safeContractPage = Math.min(contractPage, contractTotalPages);
+
+  const pagedStandardForms = useMemo(() => {
+    const start = (safeStandardPage - 1) * standardPageSize;
+    return filteredStandardForms.slice(start, start + standardPageSize);
+  }, [filteredStandardForms, safeStandardPage, standardPageSize]);
+
+  const pagedContractForms = useMemo(() => {
+    const start = (safeContractPage - 1) * contractPageSize;
+    return filteredContractForms.slice(start, start + contractPageSize);
+  }, [filteredContractForms, safeContractPage, contractPageSize]);
+
   if (!accessChecked || isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -147,13 +230,11 @@ export default function FormManagementPage() {
     );
   }
 
-  // Helper function to get organization name by ID
   const getOrgName = (orgId) => {
     const org = organizations.find(o => o.id === orgId);
     return org?.name || 'Unknown';
   };
 
-  // Form card component for reuse
   const FormCard = ({ form, isContract = false }) => (
     <Card key={form.id} className="border-slate-200 hover:shadow-lg transition-shadow" data-testid={`form-card-${form.id}`}>
       <CardHeader className="pb-3">
@@ -280,6 +361,148 @@ export default function FormManagementPage() {
     </Card>
   );
 
+  const FilterBar = ({ filters, setFilters, isContract, testIdPrefix }) => {
+    const hasActiveFilters =
+      filters.search !== '' ||
+      filters.status !== 'all' ||
+      filters.auth !== 'all' ||
+      (!isContract && filters.layout !== 'all') ||
+      (isContract && filters.organization !== 'all');
+
+    return (
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Input
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            placeholder="Search by name, description, or slug..."
+            className="pl-9"
+            data-testid={`${testIdPrefix}-input-search`}
+          />
+        </div>
+        <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
+          <SelectTrigger className="w-full md:w-[160px]" data-testid={`${testIdPrefix}-select-status`}>
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filters.auth} onValueChange={(v) => setFilters({ ...filters, auth: v })}>
+          <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-auth`}>
+            <SelectValue placeholder="Auth required" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any auth</SelectItem>
+            <SelectItem value="yes">Auth required</SelectItem>
+            <SelectItem value="no">No auth</SelectItem>
+          </SelectContent>
+        </Select>
+        {!isContract && (
+          <Select value={filters.layout} onValueChange={(v) => setFilters({ ...filters, layout: v })}>
+            <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-layout`}>
+              <SelectValue placeholder="Layout" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All layouts</SelectItem>
+              <SelectItem value="standard">Standard</SelectItem>
+              <SelectItem value="card_swipe">Card Swipe</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {isContract && (
+          <Select value={filters.organization} onValueChange={(v) => setFilters({ ...filters, organization: v })}>
+            <SelectTrigger className="w-full md:w-[220px]" data-testid={`${testIdPrefix}-select-organization`}>
+              <SelectValue placeholder="Organisation" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All organisations</SelectItem>
+              {organizations.map(org => (
+                <SelectItem key={org.id} value={String(org.id)}>{org.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFilters(initialFilters)}
+            data-testid={`${testIdPrefix}-button-clear-filters`}
+          >
+            <X className="w-3 h-3 mr-1" />
+            Clear
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  const PaginationBar = ({ page, setPage, totalPages, pageSize, setPageSize, totalItems, filteredCount, testIdPrefix }) => (
+    <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="text-sm text-slate-600" data-testid={`${testIdPrefix}-showing-count`}>
+        Showing {filteredCount === 0 ? 0 : (page - 1) * pageSize + 1}
+        –{Math.min(page * pageSize, filteredCount)} of {filteredCount}
+        {filteredCount !== totalItems && ` (filtered from ${totalItems})`}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Per page</span>
+          <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+            <SelectTrigger className="w-[80px]" data-testid={`${testIdPrefix}-select-page-size`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map(size => (
+                <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            data-testid={`${testIdPrefix}-button-prev-page`}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-sm text-slate-600" data-testid={`${testIdPrefix}-page-indicator`}>
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            data-testid={`${testIdPrefix}-button-next-page`}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const NoMatchesState = ({ onClear, isContract }) => (
+    <Card className="border-slate-200">
+      <CardContent className="p-12 text-center">
+        <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold text-slate-900 mb-2">No matching {isContract ? 'contracts' : 'forms'}</h3>
+        <p className="text-slate-600 mb-6">Try adjusting your search or filters.</p>
+        <Button variant="outline" onClick={onClear} data-testid={`button-clear-filters-empty-${isContract ? 'contracts' : 'standard'}`}>
+          <X className="w-4 h-4 mr-2" />
+          Clear filters
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -298,7 +521,7 @@ export default function FormManagementPage() {
           </Link>
         </div>
 
-        <Tabs defaultValue="standard" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-6" data-testid="form-management-tabs">
             <TabsTrigger value="standard" data-testid="tab-standard-forms">
               <FileText className="w-4 h-4 mr-2" />
@@ -332,11 +555,35 @@ export default function FormManagementPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {standardForms.map(form => (
-                  <FormCard key={form.id} form={form} isContract={false} />
-                ))}
-              </div>
+              <>
+                <FilterBar
+                  filters={standardFilters}
+                  setFilters={setStandardFilters}
+                  isContract={false}
+                  testIdPrefix="standard"
+                />
+                {filteredStandardForms.length === 0 ? (
+                  <NoMatchesState onClear={() => setStandardFilters(initialFilters)} isContract={false} />
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {pagedStandardForms.map(form => (
+                        <FormCard key={form.id} form={form} isContract={false} />
+                      ))}
+                    </div>
+                    <PaginationBar
+                      page={safeStandardPage}
+                      setPage={setStandardPage}
+                      totalPages={standardTotalPages}
+                      pageSize={standardPageSize}
+                      setPageSize={setStandardPageSize}
+                      totalItems={standardForms.length}
+                      filteredCount={filteredStandardForms.length}
+                      testIdPrefix="standard"
+                    />
+                  </>
+                )}
+              </>
             )}
           </TabsContent>
 
@@ -356,11 +603,35 @@ export default function FormManagementPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {contractForms.map(form => (
-                  <FormCard key={form.id} form={form} isContract={true} />
-                ))}
-              </div>
+              <>
+                <FilterBar
+                  filters={contractFilters}
+                  setFilters={setContractFilters}
+                  isContract={true}
+                  testIdPrefix="contracts"
+                />
+                {filteredContractForms.length === 0 ? (
+                  <NoMatchesState onClear={() => setContractFilters(initialFilters)} isContract={true} />
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {pagedContractForms.map(form => (
+                        <FormCard key={form.id} form={form} isContract={true} />
+                      ))}
+                    </div>
+                    <PaginationBar
+                      page={safeContractPage}
+                      setPage={setContractPage}
+                      totalPages={contractTotalPages}
+                      pageSize={contractPageSize}
+                      setPageSize={setContractPageSize}
+                      totalItems={contractForms.length}
+                      filteredCount={filteredContractForms.length}
+                      testIdPrefix="contracts"
+                    />
+                  </>
+                )}
+              </>
             )}
           </TabsContent>
         </Tabs>
