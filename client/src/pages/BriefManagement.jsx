@@ -51,6 +51,7 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import MemberCombobox from "@/components/MemberCombobox";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
 
 const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
@@ -114,12 +115,13 @@ export default function BriefManagementPage() {
   const initialView = searchParams.get("view") || "all";
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState([]);
   const [dateField, setDateField] = useState("deadline");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [writerFilter, setWriterFilter] = useState("all");
-  const [reviewerFilter, setReviewerFilter] = useState("all");
+  const [writerFilter, setWriterFilter] = useState([]);
+  const [reviewerFilter, setReviewerFilter] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
   const [activeView, setActiveView] = useState(initialView);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -261,6 +263,15 @@ export default function BriefManagementPage() {
     return Array.from(ids).map((id) => ({ id, name: getMemberName(id) })).sort((a, b) => a.name.localeCompare(b.name));
   }, [briefs, membersById]);
 
+  const uniqueCategories = useMemo(() => {
+    if (briefSettings?.categories && briefSettings.categories.length > 0) {
+      return briefSettings.categories.map((cat) => cat);
+    }
+    const cats = new Set();
+    briefs.forEach((b) => { if (b.category) cats.add(b.category); });
+    return Array.from(cats).sort();
+  }, [briefs, briefSettings?.categories]);
+
   const filteredAndSorted = useMemo(() => {
     let filtered = briefs;
 
@@ -272,22 +283,23 @@ export default function BriefManagementPage() {
       );
     }
 
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((b) => b.status === statusFilter);
+    if (statusFilter.length > 0) {
+      filtered = filtered.filter((b) => statusFilter.includes(b.status));
     }
-    if (writerFilter !== "all") {
-      if (writerFilter === "__unassigned__") {
-        filtered = filtered.filter((b) => !b.assigned_writer_id);
-      } else {
-        filtered = filtered.filter((b) => b.assigned_writer_id === writerFilter);
-      }
+    if (writerFilter.length > 0) {
+      filtered = filtered.filter((b) => {
+        if (writerFilter.includes("__unassigned__") && !b.assigned_writer_id) return true;
+        return writerFilter.includes(b.assigned_writer_id);
+      });
     }
-    if (reviewerFilter !== "all") {
-      if (reviewerFilter === "__unassigned__") {
-        filtered = filtered.filter((b) => !b.review_owner_id);
-      } else {
-        filtered = filtered.filter((b) => b.review_owner_id === reviewerFilter);
-      }
+    if (reviewerFilter.length > 0) {
+      filtered = filtered.filter((b) => {
+        if (reviewerFilter.includes("__unassigned__") && !b.review_owner_id) return true;
+        return reviewerFilter.includes(b.review_owner_id);
+      });
+    }
+    if (categoryFilter.length > 0) {
+      filtered = filtered.filter((b) => categoryFilter.includes(b.category));
     }
     if (dateFrom || dateTo) {
       filtered = filtered.filter((b) => {
@@ -334,7 +346,7 @@ export default function BriefManagementPage() {
         break;
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, dateField, dateFrom, dateTo, searchQuery, sortBy]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, sortBy]);
 
   const handleAttachmentUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -461,41 +473,44 @@ export default function BriefManagementPage() {
                   data-testid="input-search-briefs"
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[160px]" data-testid="select-status-filter">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={writerFilter} onValueChange={setWriterFilter}>
-                <SelectTrigger className="w-[150px]" data-testid="select-writer-filter">
-                  <SelectValue placeholder="Writer" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Writers</SelectItem>
-                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {uniqueWriters.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={reviewerFilter} onValueChange={setReviewerFilter}>
-                <SelectTrigger className="w-[150px]" data-testid="select-reviewer-filter">
-                  <SelectValue placeholder="Editor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Editors</SelectItem>
-                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {uniqueReviewers.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                options={Object.entries(STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+                selected={statusFilter}
+                onChange={setStatusFilter}
+                placeholder="All Statuses"
+                className="w-[160px]"
+                data-testid="select-status-filter"
+              />
+              <MultiSelectFilter
+                options={[
+                  { value: "__unassigned__", label: "Unassigned" },
+                  ...uniqueWriters.map((w) => ({ value: w.id, label: w.name })),
+                ]}
+                selected={writerFilter}
+                onChange={setWriterFilter}
+                placeholder="All Writers"
+                className="w-[160px]"
+                data-testid="select-writer-filter"
+              />
+              <MultiSelectFilter
+                options={[
+                  { value: "__unassigned__", label: "Unassigned" },
+                  ...uniqueReviewers.map((r) => ({ value: r.id, label: r.name })),
+                ]}
+                selected={reviewerFilter}
+                onChange={setReviewerFilter}
+                placeholder="All Editors"
+                className="w-[160px]"
+                data-testid="select-reviewer-filter"
+              />
+              <MultiSelectFilter
+                options={uniqueCategories.map((cat) => ({ value: cat, label: cat }))}
+                selected={categoryFilter}
+                onChange={setCategoryFilter}
+                placeholder="All Categories"
+                className="w-[160px]"
+                data-testid="select-category-filter"
+              />
               <Select value={dateField} onValueChange={setDateField}>
                 <SelectTrigger className="w-[180px]" data-testid="select-date-field">
                   <SelectValue />
