@@ -49,124 +49,126 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, onDemote, isS
   
   return (
     <div 
-      className={`flex items-center gap-3 p-3 rounded-lg border ${isWinner ? 'border-green-500 bg-green-50' : ''}`}
+      className={`flex flex-col gap-2 p-3 rounded-lg border ${isWinner ? 'border-green-500 bg-green-50' : ''}`}
       data-testid={`signer-row-${signer.email}`}
     >
-      <div className="p-2 bg-muted rounded-md flex-shrink-0">
-        <User className="w-4 h-4 text-muted-foreground" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium truncate">{fullName}</p>
-          {signer.isOriginal && (
-            <Badge variant="secondary" className="text-xs flex-shrink-0">Original</Badge>
-          )}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="p-2 bg-muted rounded-md flex-shrink-0">
+          <User className="w-4 h-4 text-muted-foreground" />
         </div>
-        {signer.jobTitle && <p className="text-xs text-muted-foreground truncate">{signer.jobTitle}</p>}
-        {signer.organisation && <p className="text-xs text-muted-foreground truncate">{signer.organisation}</p>}
-        <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-sm font-medium truncate">{fullName}</p>
+            {signer.isOriginal && (
+              <Badge variant="secondary" className="text-xs flex-shrink-0">Original</Badge>
+            )}
+          </div>
+          {signer.jobTitle && <p className="text-xs text-muted-foreground truncate">{signer.jobTitle}</p>}
+          {signer.organisation && <p className="text-xs text-muted-foreground truncate">{signer.organisation}</p>}
+          <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
+        </div>
+        <Badge 
+          variant="outline" 
+          className="flex-shrink-0 text-xs"
+          style={{ borderColor: statusConfig.color, color: statusConfig.color }}
+        >
+          <StatusIcon className="w-3 h-3 mr-1" />
+          {statusConfig.label}
+        </Badge>
       </div>
-      <Badge 
-        variant="outline" 
-        className="flex-shrink-0 text-xs"
-        style={{ borderColor: statusConfig.color, color: statusConfig.color }}
-      >
-        <StatusIcon className="w-3 h-3 mr-1" />
-        {statusConfig.label}
-      </Badge>
-      {canDownload && (
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={() => onDownload(signer.submission_id)}
-          disabled={isDownloading}
-          className="flex-shrink-0"
-          title="View signed PDF"
-          data-testid={`button-download-${signer.email}`}
-        >
-          {isDownloading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Eye className="w-4 h-4" />
-          )}
-        </Button>
-      )}
-      {canManualOverride && (
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={() => onManualOverride(signer)}
-          className="flex-shrink-0 text-amber-600 hover:text-amber-700"
-          title="Manual Override - Enter contract details manually"
-          data-testid={`button-manual-override-${signer.email}`}
-        >
-          <FileEdit className="w-4 h-4" />
-        </Button>
-      )}
-      {canSend ? (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onSend(signer)}
-          disabled={isSending}
-          className="flex-shrink-0"
-          data-testid={`button-send-${signer.email}`}
-        >
-          {isSending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <Send className="w-4 h-4 mr-1" />
-              {buttonLabel}
-            </>
-          )}
-        </Button>
-      ) : isWinner ? (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Badge className="bg-green-100 text-green-700 border-green-300">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
-            Winner
-          </Badge>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isDemoting}
-                className="text-destructive border-destructive/50"
-                data-testid={`button-demote-${signer.email}`}
-              >
-                {isDemoting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <ChevronDown className="w-4 h-4 mr-1" />
-                    Demote
-                  </>
-                )}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent data-testid="demote-confirmation-dialog">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Demote Winner</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will remove the winner status from {fullName} ({signer.email}). The contract will revert to an unsigned state, and you will be able to add a new recipient.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel data-testid="button-demote-cancel">Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => onDemote(signer)}
-                  className="bg-destructive text-destructive-foreground"
-                  data-testid="button-demote-confirm"
+      {(canDownload || canManualOverride || canSend || isWinner) && <div className="flex items-center gap-2 flex-wrap justify-end">
+        {canDownload && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onDownload(signer.submission_id)}
+            disabled={isDownloading}
+            title="View signed PDF"
+            data-testid={`button-download-${signer.email}`}
+          >
+            {isDownloading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Eye className="w-4 h-4" />
+            )}
+          </Button>
+        )}
+        {canManualOverride && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => onManualOverride(signer)}
+            className="text-amber-600 hover:text-amber-700"
+            title="Manual Override - Enter contract details manually"
+            data-testid={`button-manual-override-${signer.email}`}
+          >
+            <FileEdit className="w-4 h-4" />
+          </Button>
+        )}
+        {canSend ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onSend(signer)}
+            disabled={isSending}
+            data-testid={`button-send-${signer.email}`}
+          >
+            {isSending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Send className="w-4 h-4 mr-1" />
+                {buttonLabel}
+              </>
+            )}
+          </Button>
+        ) : isWinner ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge className="bg-green-100 text-green-700 border-green-300">
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              Winner
+            </Badge>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isDemoting}
+                  className="text-destructive border-destructive/50"
+                  data-testid={`button-demote-${signer.email}`}
                 >
-                  Demote Winner
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      ) : null}
+                  {isDemoting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 mr-1" />
+                      Demote
+                    </>
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent data-testid="demote-confirmation-dialog">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Demote Winner</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove the winner status from {fullName} ({signer.email}). The contract will revert to an unsigned state, and you will be able to add a new recipient.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-demote-cancel">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => onDemote(signer)}
+                    className="bg-destructive text-destructive-foreground"
+                    data-testid="button-demote-confirm"
+                  >
+                    Demote Winner
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        ) : null}
+      </div>}
     </div>
   );
 }
