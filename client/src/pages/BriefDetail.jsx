@@ -401,7 +401,6 @@ export default function BriefDetailPage() {
     const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
     setEditData({
       title: brief.title || "",
-      instructions: brief.instructions || "",
       contributor_type: brief.contributor_type || "gfi",
       deadline: brief.deadline ? brief.deadline.split("T")[0] : "",
       writer_deadline: brief.writer_deadline ? brief.writer_deadline.split("T")[0] : "",
@@ -452,7 +451,6 @@ export default function BriefDetailPage() {
     const reviewerId = editData.review_owner_id && editData.review_owner_id !== "unassigned" ? editData.review_owner_id : null;
     const payload = {
       title: editData.title.trim(),
-      instructions: editData.instructions.trim() || null,
       contributor_type: editData.contributor_type || null,
       deadline: editData.deadline || null,
       writer_deadline: editData.writer_deadline || null,
@@ -706,13 +704,6 @@ export default function BriefDetailPage() {
                     <Label htmlFor="edit-title">Title</Label>
                     <Input id="edit-title" value={editData.title} onChange={(e) => setEditData((p) => ({ ...p, title: e.target.value }))} data-testid="input-edit-title" />
                   </div>
-                  <div className="space-y-1">
-                    <Label>Full Instructions</Label>
-                    <SimpleRichTextEditor
-                      content={editData.instructions}
-                      onChange={(html) => setEditData((p) => ({ ...p, instructions: html }))}
-                    />
-                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label>Contributor Type</Label>
@@ -851,111 +842,107 @@ export default function BriefDetailPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid md:grid-cols-3 gap-4">
-                <Card className="md:col-span-2">
-                  <CardHeader><CardTitle className="text-lg">Brief Details</CardTitle></CardHeader>
-                  <CardContent className="space-y-4">
-                    {brief.instructions && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Instructions</Label>
-                        <div className="text-sm mt-1 prose prose-sm max-w-none" data-testid="text-brief-instructions" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.instructions) }} />
-                      </div>
-                    )}
-                    {brief.contributor_type && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Contributor Type</Label>
-                        <p className="text-sm mt-1" data-testid="text-brief-contributor-type">{brief.contributor_type === 'gfi' ? 'GFI' : brief.contributor_type?.charAt(0).toUpperCase() + brief.contributor_type?.slice(1)}</p>
-                      </div>
-                    )}
-                    {brief.notes && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Notes</Label>
-                        <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-notes">{brief.notes}</p>
-                      </div>
-                    )}
-                    {briefAttachments.length > 0 && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Attachments</Label>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {briefAttachments.map((att, i) => (
-                            <a key={i} href={att.file_url} target="_blank" rel="noopener noreferrer" data-testid={`link-attachment-${i}`}>
-                              <Badge variant="secondary" className="flex items-center gap-1 cursor-pointer">
-                                <Paperclip className="w-3 h-3" />
-                                <span className="text-xs max-w-[200px] truncate">{att.file_name}</span>
-                                <ExternalLink className="w-3 h-3 ml-0.5" />
-                              </Badge>
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {!brief.instructions && !brief.notes && briefAttachments.length === 0 && (
-                      <p className="text-sm text-muted-foreground" data-testid="text-no-details">No description or instructions provided.</p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader><CardTitle className="text-lg">Info</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
+              <Card>
+                <CardHeader><CardTitle className="text-lg">Overview</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Contributor Type</Label>
+                      <p className="text-sm mt-1" data-testid="text-brief-contributor-type">
+                        {brief.contributor_type ? (brief.contributor_type === 'gfi' ? 'GFI' : brief.contributor_type.charAt(0).toUpperCase() + brief.contributor_type.slice(1)) : "--"}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Category</Label>
+                      <p className="text-sm mt-1" data-testid="text-brief-category">{brief.category || "--"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">SLA</Label>
+                      <p className="text-sm mt-1" data-testid="text-sla">{brief.sla || "--"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Contract</Label>
+                      <p className="text-sm mt-1" data-testid="text-contract">{brief.contract || "--"}</p>
+                    </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Writer</Label>
-                      <p className="text-sm font-medium" data-testid="text-writer">
+                      <p className="text-sm font-medium mt-1" data-testid="text-writer">
                         {brief.assigned_writer_id ? getMemberName(brief.assigned_writer_id) : "--"}
                       </p>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Editor</Label>
-                      <p className="text-sm font-medium" data-testid="text-reviewer">
+                      <p className="text-sm font-medium mt-1" data-testid="text-reviewer">
                         {brief.review_owner_id ? getMemberName(brief.review_owner_id) : "--"}
                       </p>
                     </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Submission Deadline</Label>
+                      <p className="text-sm mt-1" data-testid="text-deadline">
+                        {brief.deadline ? format(new Date(brief.deadline), "MMM d, yyyy") : "--"}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Writer Deadline</Label>
+                      <p className="text-sm mt-1" data-testid="text-writer-deadline">
+                        {brief.writer_deadline ? format(new Date(brief.writer_deadline), "MMM d, yyyy") : "--"}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Editor Deadline</Label>
+                      <p className="text-sm mt-1" data-testid="text-editor-deadline">
+                        {brief.editor_deadline ? format(new Date(brief.editor_deadline), "MMM d, yyyy") : "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
                     <div>
                       <Label className="text-xs text-muted-foreground">Created By</Label>
-                      <p className="text-sm" data-testid="text-creator">{brief.created_by ? getMemberName(brief.created_by) : "--"}</p>
+                      <p className="text-sm mt-1" data-testid="text-creator">{brief.created_by ? getMemberName(brief.created_by) : "--"}</p>
                     </div>
-                    {brief.deadline && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Submission Deadline</Label>
-                        <p className="text-sm" data-testid="text-deadline">{format(new Date(brief.deadline), "MMM d, yyyy")}</p>
-                      </div>
-                    )}
-                    {brief.writer_deadline && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Writer Deadline</Label>
-                        <p className="text-sm" data-testid="text-writer-deadline">{format(new Date(brief.writer_deadline), "MMM d, yyyy")}</p>
-                      </div>
-                    )}
-                    {brief.editor_deadline && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Editor Deadline</Label>
-                        <p className="text-sm" data-testid="text-editor-deadline">{format(new Date(brief.editor_deadline), "MMM d, yyyy")}</p>
-                      </div>
-                    )}
-                    {brief.sla && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">SLA</Label>
-                        <p className="text-sm" data-testid="text-sla">{brief.sla}</p>
-                      </div>
-                    )}
-                    {brief.contract && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Contract</Label>
-                        <p className="text-sm" data-testid="text-contract">{brief.contract}</p>
-                      </div>
-                    )}
                     <div>
                       <Label className="text-xs text-muted-foreground">Created</Label>
-                      <p className="text-sm" data-testid="text-created-date">
+                      <p className="text-sm mt-1" data-testid="text-created-date">
                         {brief.created_at ? format(new Date(brief.created_at), "MMM d, yyyy 'at' h:mm a") : "--"}
                       </p>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Versions</Label>
-                      <p className="text-sm" data-testid="text-version-count">{versions.length} draft{versions.length !== 1 ? "s" : ""} uploaded</p>
+                      <p className="text-sm mt-1" data-testid="text-version-count">{versions.length} draft{versions.length !== 1 ? "s" : ""} uploaded</p>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                  {brief.instructions && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Instructions</Label>
+                      <div className="text-sm mt-1 prose prose-sm max-w-none" data-testid="text-brief-instructions" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.instructions) }} />
+                    </div>
+                  )}
+                  {brief.notes && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Notes</Label>
+                      <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-brief-notes">{brief.notes}</p>
+                    </div>
+                  )}
+                  {briefAttachments.length > 0 && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Attachments</Label>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {briefAttachments.map((att, i) => (
+                          <a key={i} href={att.file_url} target="_blank" rel="noopener noreferrer" data-testid={`link-attachment-${i}`}>
+                            <Badge variant="secondary" className="flex items-center gap-1 cursor-pointer">
+                              <Paperclip className="w-3 h-3" />
+                              <span className="text-xs max-w-[200px] truncate">{att.file_name}</span>
+                              <ExternalLink className="w-3 h-3 ml-0.5" />
+                            </Badge>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
