@@ -56,6 +56,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
     ctaButtonBgColor: '#2563eb',
     ctaButtonIconColor: '#ffffff',
     ctaButtonMargin: 16,
+    resourceSourceMode: 'specific',
     resourceIds: ['', '', '', '']
   };
   
@@ -593,29 +594,54 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
         </div>
       </div>
 
-      <div>
-        <Label>Select Resources (up to 4)</Label>
-        <div className="space-y-2 mt-2">
-          {[0, 1, 2, 3].map((index) => (
-            <Select
-              key={index}
-              value={(Array.isArray(content.resourceIds) && content.resourceIds[index]) || ''}
-              onValueChange={(value) => updateResourceId(index, value)}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder={`Resource ${index + 1} (optional)`} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={null}>None</SelectItem>
-                {resources.map((resource) => (
-                  <SelectItem key={resource.id} value={resource.id}>
-                    {resource.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ))}
+      <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+        <div>
+          <Label htmlFor="resourceSourceMode">Resource Source</Label>
+          <Select
+            value={content.resourceSourceMode || 'specific'}
+            onValueChange={(value) => updateContent('resourceSourceMode', value)}
+          >
+            <SelectTrigger className="h-9" data-testid="select-resource-source-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="specific">Specific resources (pick manually)</SelectItem>
+              <SelectItem value="latest">Latest resources by date (auto)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-slate-500 mt-1">
+            {content.resourceSourceMode === 'latest'
+              ? 'Automatically displays the 4 most recently released resources, newest first.'
+              : 'Choose up to 4 specific resources to display in the slots below.'}
+          </p>
         </div>
+
+        {(content.resourceSourceMode || 'specific') === 'specific' && (
+          <div>
+            <Label>Select Resources (up to 4)</Label>
+            <div className="space-y-2 mt-2">
+              {[0, 1, 2, 3].map((index) => (
+                <Select
+                  key={index}
+                  value={(Array.isArray(content.resourceIds) && content.resourceIds[index]) || ''}
+                  onValueChange={(value) => updateResourceId(index, value)}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-resource-slot-${index}`}>
+                    <SelectValue placeholder={`Resource ${index + 1} (optional)`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={null}>None</SelectItem>
+                    {resources.map((resource) => (
+                      <SelectItem key={resource.id} value={resource.id}>
+                        {resource.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
@@ -914,10 +940,12 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
     ctaButtonBgColor: '#2563eb',
     ctaButtonIconColor: '#ffffff',
     ctaButtonMargin: 16,
+    resourceSourceMode: 'specific',
     resourceIds: ['', '', '', '']
   };
   
   const content = { ...defaultContent, ...(element.content || {}) };
+  const sourceMode = content.resourceSourceMode === 'latest' ? 'latest' : 'specific';
 
   const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
   const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
@@ -931,14 +959,13 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
     return content.resourceIds.filter(id => id && id.trim() !== '');
   }, [content.resourceIds]);
 
-  // Fetch each configured resource individually by ID using public endpoint
+  // Specific mode: fetch each configured resource individually by ID using public endpoint
   // This ensures we get both public and private resources with all required fields
-  const { data: selectedResources = [], isLoading: isLoadingResources } = useQuery({
+  const { data: specificResources = [], isLoading: isLoadingSpecific } = useQuery({
     queryKey: ['public-resources-showcase', configuredResourceIds],
     queryFn: async () => {
       if (configuredResourceIds.length === 0) return [];
-      
-      // Fetch each resource by ID in parallel
+
       const resourcePromises = configuredResourceIds.map(async (id) => {
         try {
           const resource = await publicClient.getResource(id);
@@ -948,13 +975,38 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
           return null;
         }
       });
-      
+
       const resources = await Promise.all(resourcePromises);
-      // Filter out nulls (failed fetches) and maintain order
       return resources.filter(Boolean);
     },
-    enabled: configuredResourceIds.length > 0
+    enabled: sourceMode === 'specific' && configuredResourceIds.length > 0
   });
+
+  // Latest mode: fetch latest 4 resources by release date
+  const { data: latestResources = [], isLoading: isLoadingLatest } = useQuery({
+    queryKey: ['public-resources-showcase-latest'],
+    queryFn: async () => {
+      try {
+        const all = await publicClient.listResources();
+        if (!Array.isArray(all)) return [];
+        // listResources is already ordered by release_date desc on the server,
+        // but sort defensively in case that changes.
+        const sorted = [...all].sort((a, b) => {
+          const da = a?.release_date ? new Date(a.release_date).getTime() : 0;
+          const db = b?.release_date ? new Date(b.release_date).getTime() : 0;
+          return db - da;
+        });
+        return sorted.slice(0, 4);
+      } catch (error) {
+        console.warn('[ResourcesShowcase] Failed to fetch latest resources:', error);
+        return [];
+      }
+    },
+    enabled: sourceMode === 'latest'
+  });
+
+  const selectedResources = sourceMode === 'latest' ? latestResources : specificResources;
+  const isLoadingResources = sourceMode === 'latest' ? isLoadingLatest : isLoadingSpecific;
 
   const sectionStyle = content.gradient_enabled ? {
     background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`,
@@ -1059,7 +1111,11 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
           {/* Right Columns - Resources */}
           <div className="lg:col-span-2">
-            {selectedResources.length === 0 ? (
+            {isLoadingResources ? (
+              <div className="text-center py-12 bg-white/90 rounded-lg" data-testid="status-resources-loading">
+                <Loader2 className="w-8 h-8 text-slate-400 mx-auto animate-spin" />
+              </div>
+            ) : selectedResources.length === 0 ? (
               <div className="text-center py-12 bg-white/90 rounded-lg">
                 <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                 <p className="text-slate-500">No resources selected</p>
