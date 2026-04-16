@@ -50,6 +50,7 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import MemberCombobox from "@/components/MemberCombobox";
+import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
 
 const DEFAULT_STATUS_CONFIG = {
@@ -131,9 +132,11 @@ export default function BriefManagementPage() {
     title: "", deadline: "",
     writer_deadline: "", editor_deadline: "", sla: "2026-2028", contract: "Prospects",
     category: "", notes: "", assigned_writer_id: "", review_owner_id: "",
+    external_writer_id: "",
     attachments: [],
   };
   const [newBrief, setNewBrief] = useState(emptyBrief);
+  const [writerType, setWriterType] = useState("member");
 
   const { data: briefSettings } = useQuery({
     queryKey: ["brief-settings"],
@@ -165,6 +168,30 @@ export default function BriefManagementPage() {
     });
     return Array.from(ids);
   }, [briefs]);
+
+  const referencedExternalWriterIds = useMemo(() => {
+    const ids = new Set();
+    briefs.forEach((b) => {
+      if (b.external_writer_id) ids.add(b.external_writer_id);
+    });
+    return Array.from(ids);
+  }, [briefs]);
+
+  const { data: referencedExternalWriters = [] } = useQuery({
+    queryKey: ["external-writers-by-ids", referencedExternalWriterIds],
+    queryFn: async () => {
+      if (referencedExternalWriterIds.length === 0) return [];
+      const all = await base44.entities.ExternalWriter.list();
+      return all.filter((w) => referencedExternalWriterIds.includes(w.id));
+    },
+    enabled: isAccessReady && referencedExternalWriterIds.length > 0,
+  });
+
+  const externalWritersById = useMemo(() => {
+    const map = {};
+    referencedExternalWriters.forEach((w) => { map[w.id] = w; });
+    return map;
+  }, [referencedExternalWriters]);
 
   const { data: referencedMembers = [] } = useQuery({
     queryKey: ["members-by-ids", referencedMemberIds],
@@ -215,6 +242,7 @@ export default function BriefManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
       setCreateDialogOpen(false);
       setNewBrief(emptyBrief);
+      setWriterType("member");
       toast.success("Brief created successfully");
     },
     onError: (err) => {
@@ -249,10 +277,20 @@ export default function BriefManagementPage() {
   }, [briefs]);
 
   const uniqueWriters = useMemo(() => {
-    const ids = new Set();
-    briefs.forEach((b) => { if (b.assigned_writer_id) ids.add(b.assigned_writer_id); });
-    return Array.from(ids).map((id) => ({ id, name: getMemberName(id) })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [briefs, membersById]);
+    const memberIds = new Set();
+    const externalIds = new Set();
+    briefs.forEach((b) => {
+      if (b.assigned_writer_id) memberIds.add(b.assigned_writer_id);
+      if (b.external_writer_id) externalIds.add(b.external_writer_id);
+    });
+    const memberWriters = Array.from(memberIds).map((id) => ({ id, name: getMemberName(id) }));
+    const extWriters = Array.from(externalIds).map((id) => {
+      const ew = externalWritersById[id];
+      const name = ew ? [ew.first_name, ew.last_name].filter(Boolean).join(" ") || ew.email : "External (Unknown)";
+      return { id, name: `${name} (Ext)` };
+    });
+    return [...memberWriters, ...extWriters].sort((a, b) => a.name.localeCompare(b.name));
+  }, [briefs, membersById, externalWritersById]);
 
   const uniqueReviewers = useMemo(() => {
     const ids = new Set();
@@ -285,8 +323,8 @@ export default function BriefManagementPage() {
     }
     if (writerFilter.length > 0) {
       filtered = filtered.filter((b) => {
-        if (writerFilter.includes("__unassigned__") && !b.assigned_writer_id) return true;
-        return writerFilter.includes(b.assigned_writer_id);
+        if (writerFilter.includes("__unassigned__") && !b.assigned_writer_id && !b.external_writer_id) return true;
+        return writerFilter.includes(b.assigned_writer_id) || writerFilter.includes(b.external_writer_id);
       });
     }
     if (reviewerFilter.length > 0) {
@@ -379,8 +417,11 @@ export default function BriefManagementPage() {
       toast.error("Title is required");
       return;
     }
-    const writerId = newBrief.assigned_writer_id && newBrief.assigned_writer_id !== "unassigned" ? newBrief.assigned_writer_id : null;
+    const isExternal = writerType === "external";
+    const writerId = !isExternal && newBrief.assigned_writer_id && newBrief.assigned_writer_id !== "unassigned" ? newBrief.assigned_writer_id : null;
+    const externalWriterId = isExternal && newBrief.external_writer_id && newBrief.external_writer_id !== "unassigned" ? newBrief.external_writer_id : null;
     const reviewerId = newBrief.review_owner_id && newBrief.review_owner_id !== "unassigned" ? newBrief.review_owner_id : null;
+    const hasWriter = writerId || externalWriterId;
     const payload = {
       title: newBrief.title.trim(),
       deadline: newBrief.deadline || null,
@@ -391,11 +432,12 @@ export default function BriefManagementPage() {
       category: newBrief.category.trim() || null,
       notes: newBrief.notes.trim() || null,
       assigned_writer_id: writerId,
+      external_writer_id: externalWriterId,
       review_owner_id: reviewerId,
       assignment_note: null,
       attachments: newBrief.attachments.length > 0 ? newBrief.attachments : [],
-      status: writerId ? "assigned" : "new",
-      assigned_date: writerId ? new Date().toISOString() : null,
+      status: hasWriter ? "assigned" : "new",
+      assigned_date: hasWriter ? new Date().toISOString() : null,
       created_by: memberInfo?.id || null,
     };
     createMutation.mutate(payload);
@@ -410,6 +452,15 @@ export default function BriefManagementPage() {
     const member = membersById[memberId];
     if (!member) return "Unknown";
     return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
+  }
+
+  function getWriterDisplay(brief) {
+    if (brief.external_writer_id) {
+      const ew = externalWritersById[brief.external_writer_id];
+      if (!ew) return "External (Unknown)";
+      return [ew.first_name, ew.last_name].filter(Boolean).join(" ") || ew.email || "External";
+    }
+    return getMemberName(brief.assigned_writer_id);
   }
 
   if (isLoading) {
@@ -604,7 +655,10 @@ export default function BriefManagementPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {getMemberName(brief.assigned_writer_id)}
+                          {getWriterDisplay(brief)}
+                          {brief.external_writer_id && (
+                            <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0 no-default-hover-elevate no-default-active-elevate">Ext</Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {getMemberName(brief.review_owner_id)}
@@ -754,12 +808,47 @@ export default function BriefManagementPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label>Writer</Label>
-                      <MemberCombobox
-                        value={newBrief.assigned_writer_id || "unassigned"}
-                        onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
-                        placeholder="Search writer..."
-                        testId="combobox-brief-writer"
-                      />
+                      <div className="flex gap-1 mb-1">
+                        <Button
+                          type="button"
+                          variant={writerType === "member" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setWriterType("member");
+                            setNewBrief((p) => ({ ...p, assigned_writer_id: "", external_writer_id: "" }));
+                          }}
+                          data-testid="button-writer-type-member"
+                        >
+                          Member
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={writerType === "external" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setWriterType("external");
+                            setNewBrief((p) => ({ ...p, assigned_writer_id: "", external_writer_id: "" }));
+                          }}
+                          data-testid="button-writer-type-external"
+                        >
+                          External
+                        </Button>
+                      </div>
+                      {writerType === "member" ? (
+                        <MemberCombobox
+                          value={newBrief.assigned_writer_id || "unassigned"}
+                          onValueChange={(v) => setNewBrief((p) => ({ ...p, assigned_writer_id: v }))}
+                          placeholder="Search writer..."
+                          testId="combobox-brief-writer"
+                        />
+                      ) : (
+                        <ExternalWriterCombobox
+                          value={newBrief.external_writer_id || "unassigned"}
+                          onValueChange={(v) => setNewBrief((p) => ({ ...p, external_writer_id: v }))}
+                          placeholder="Search external writer..."
+                          testId="combobox-brief-external-writer"
+                        />
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label>Editor</Label>
@@ -828,7 +917,7 @@ export default function BriefManagementPage() {
             </div>
           </ScrollArea>
           <DialogFooter className="flex-shrink-0">
-            <Button variant="outline" onClick={() => { setCreateDialogOpen(false); setNewBrief(emptyBrief); }} data-testid="button-cancel-create">
+            <Button variant="outline" onClick={() => { setCreateDialogOpen(false); setNewBrief(emptyBrief); setWriterType("member"); }} data-testid="button-cancel-create">
               Cancel
             </Button>
             <Button

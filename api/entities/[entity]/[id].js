@@ -1,7 +1,7 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
@@ -113,6 +113,8 @@ const entityToTable = {
   'ArticleBriefVersion': 'article_brief_version',
   'ArticleBriefComment': 'article_brief_comment',
   'ArticleBriefActivity': 'article_brief_activity',
+  'ExternalWriter': 'external_writer',
+  'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
 };
 
@@ -136,6 +138,18 @@ export default async function handler(req, res) {
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
   let allowsTenantWideAccess = false;
+
+  const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+  const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
+  if (adminOnlyEntities.includes(entityNorm)) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
   
   // For non-global entities, require authentication and valid tenant context
   if (shouldApplyTenantFilter) {
@@ -214,6 +228,7 @@ export default async function handler(req, res) {
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {
@@ -296,6 +311,7 @@ export default async function handler(req, res) {
                 'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession',
                 'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
                 'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+                'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor'
               ];
               if (tenantCtx.tenantId) {
@@ -339,10 +355,36 @@ export default async function handler(req, res) {
         }
       }
 
-      // Normalize email to lowercase for member, team_member, and magic_link entities
+      // Normalize email to lowercase for member, team_member, magic_link, and external_writer entities
       // Use normalized entity name (already computed above) to handle both PascalCase and slug-case variants
-      if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink') && sanitizedBody.email) {
+      if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink' || entityNormalized === 'externalwriter') && sanitizedBody.email) {
         sanitizedBody.email = sanitizedBody.email.toLowerCase();
+      }
+
+      if (entityNormalized === 'externalwriter' && sanitizedBody.email) {
+        const tenantId = tenantCtx?.tenantId;
+        if (tenantId) {
+          const { data: existingMember } = await supabase
+            .from('member')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .ilike('email', sanitizedBody.email)
+            .not('email', 'ilike', 'deleted_%@deleted.local')
+            .limit(1);
+          if (existingMember && existingMember.length > 0) {
+            return res.status(409).json({ error: 'This email belongs to an existing member' });
+          }
+          const { data: existingWriter } = await supabase
+            .from('external_writer')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .ilike('email', sanitizedBody.email)
+            .neq('id', id)
+            .limit(1);
+          if (existingWriter && existingWriter.length > 0) {
+            return res.status(409).json({ error: 'An external writer with this email already exists' });
+          }
+        }
       }
 
       // SECURITY: Protect system roles from being renamed or having is_system flag changed
@@ -439,6 +481,7 @@ export default async function handler(req, res) {
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {
@@ -690,6 +733,7 @@ export default async function handler(req, res) {
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor'
           ];
           if (tenantCtx.tenantId) {

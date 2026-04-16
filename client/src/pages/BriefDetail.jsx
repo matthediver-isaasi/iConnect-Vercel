@@ -60,6 +60,7 @@ import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import MemberCombobox from "@/components/MemberCombobox";
+import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import DOMPurify from "dompurify";
 
 const DEFAULT_STATUS_CONFIG = {
@@ -148,6 +149,7 @@ export default function BriefDetailPage() {
   const [commentVersionId, setCommentVersionId] = useState("");
 
   const [previewImage, setPreviewImage] = useState(null);
+  const [editWriterType, setEditWriterType] = useState("member");
 
   const [csProvider, setCsProvider] = useState({ first_name: "", last_name: "", email: "" });
   const [csSelectedFormId, setCsSelectedFormId] = useState("");
@@ -263,6 +265,15 @@ export default function BriefDetailPage() {
       return await resp.json();
     },
     enabled: isAccessReady && referencedMemberIds.length > 0,
+  });
+
+  const { data: externalWriter } = useQuery({
+    queryKey: ["external-writer-detail", brief?.external_writer_id],
+    queryFn: async () => {
+      if (!brief?.external_writer_id) return null;
+      return await base44.entities.ExternalWriter.get(brief.external_writer_id);
+    },
+    enabled: isAccessReady && !!brief?.external_writer_id,
   });
 
   const membersById = useMemo(() => {
@@ -408,9 +419,11 @@ export default function BriefDetailPage() {
       category: brief.category || "",
       notes: brief.notes || "",
       assigned_writer_id: brief.assigned_writer_id || "",
+      external_writer_id: brief.external_writer_id || "",
       review_owner_id: brief.review_owner_id || "",
       attachments: existingAttachments,
     });
+    setEditWriterType(brief.external_writer_id ? "external" : "member");
     setIsEditing(true);
   };
 
@@ -445,7 +458,9 @@ export default function BriefDetailPage() {
   };
 
   const handleSaveEdit = () => {
-    const writerId = editData.assigned_writer_id && editData.assigned_writer_id !== "unassigned" ? editData.assigned_writer_id : null;
+    const isExternal = editWriterType === "external";
+    const writerId = !isExternal && editData.assigned_writer_id && editData.assigned_writer_id !== "unassigned" ? editData.assigned_writer_id : null;
+    const externalWriterId = isExternal && editData.external_writer_id && editData.external_writer_id !== "unassigned" ? editData.external_writer_id : null;
     const reviewerId = editData.review_owner_id && editData.review_owner_id !== "unassigned" ? editData.review_owner_id : null;
     const payload = {
       title: editData.title.trim(),
@@ -458,6 +473,7 @@ export default function BriefDetailPage() {
       category: editData.category.trim() || null,
       notes: editData.notes.trim() || null,
       assigned_writer_id: writerId,
+      external_writer_id: externalWriterId,
       review_owner_id: reviewerId,
       attachments: editData.attachments || [],
     };
@@ -769,13 +785,49 @@ export default function BriefDetailPage() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <Label>Writer</Label>
-                          <MemberCombobox
-                            value={editData.assigned_writer_id || "unassigned"}
-                            onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
-                            placeholder="Search writer..."
-                            testId="combobox-edit-writer"
-                            initialMember={brief?.assigned_writer_id ? membersById[brief.assigned_writer_id] : null}
-                          />
+                          <div className="flex gap-1 mb-1">
+                            <Button
+                              type="button"
+                              variant={editWriterType === "member" ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => {
+                                setEditWriterType("member");
+                                setEditData((p) => ({ ...p, assigned_writer_id: "", external_writer_id: "" }));
+                              }}
+                              data-testid="button-edit-writer-type-member"
+                            >
+                              Member
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={editWriterType === "external" ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => {
+                                setEditWriterType("external");
+                                setEditData((p) => ({ ...p, assigned_writer_id: "", external_writer_id: "" }));
+                              }}
+                              data-testid="button-edit-writer-type-external"
+                            >
+                              External
+                            </Button>
+                          </div>
+                          {editWriterType === "member" ? (
+                            <MemberCombobox
+                              value={editData.assigned_writer_id || "unassigned"}
+                              onValueChange={(v) => setEditData((p) => ({ ...p, assigned_writer_id: v }))}
+                              placeholder="Search writer..."
+                              testId="combobox-edit-writer"
+                              initialMember={brief?.assigned_writer_id ? membersById[brief.assigned_writer_id] : null}
+                            />
+                          ) : (
+                            <ExternalWriterCombobox
+                              value={editData.external_writer_id || "unassigned"}
+                              onValueChange={(v) => setEditData((p) => ({ ...p, external_writer_id: v }))}
+                              placeholder="Search external writer..."
+                              testId="combobox-edit-external-writer"
+                              initialWriter={brief?.external_writer_id && externalWriter ? externalWriter : null}
+                            />
+                          )}
                         </div>
                         <div className="space-y-1">
                           <Label>Editor</Label>
@@ -865,7 +917,16 @@ export default function BriefDetailPage() {
                     <div>
                       <Label className="text-xs text-muted-foreground">Writer</Label>
                       <p className="text-sm font-medium mt-1" data-testid="text-writer">
-                        {brief.assigned_writer_id ? getMemberName(brief.assigned_writer_id) : "--"}
+                        {brief.external_writer_id
+                          ? (externalWriter
+                            ? [externalWriter.first_name, externalWriter.last_name].filter(Boolean).join(" ") || externalWriter.email
+                            : "Loading...")
+                          : brief.assigned_writer_id
+                            ? getMemberName(brief.assigned_writer_id)
+                            : "--"}
+                        {brief.external_writer_id && (
+                          <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0 no-default-hover-elevate no-default-active-elevate">Ext</Badge>
+                        )}
                       </p>
                     </div>
                     <div>

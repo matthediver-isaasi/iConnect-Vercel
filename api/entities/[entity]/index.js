@@ -1,7 +1,7 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
@@ -201,6 +201,8 @@ const entityToTable = {
   'ArticleBriefVersion': 'article_brief_version',
   'ArticleBriefComment': 'article_brief_comment',
   'ArticleBriefActivity': 'article_brief_activity',
+  'ExternalWriter': 'external_writer',
+  'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
 };
 
@@ -234,6 +236,17 @@ export default async function handler(req, res) {
   // Tenant users (admins) can access tenant-scoped AND organization-scoped entities via tenantId
   const isTenantAdmin = !!tenantCtx.tenantUserId;
   
+  const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
+  if (adminOnlyEntities.includes(entityNorm)) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
   if (shouldApplyTenantFilter) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -702,6 +715,7 @@ export default async function handler(req, res) {
               'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
               'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
               'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+              'ExternalWriter', 'ExternalWriterDocument',
               'CrmTagColor'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
@@ -887,6 +901,7 @@ export default async function handler(req, res) {
             'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass',
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
+            'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
@@ -934,8 +949,33 @@ export default async function handler(req, res) {
       
       // Normalize email to lowercase for member, team_member, and magic_link entities
       // Use normalized entity name to handle both PascalCase and slug-case variants
-      if ((entityNorm === 'member' || entityNorm === 'teammember' || entityNorm === 'magiclink') && sanitizedBody.email) {
+      if ((entityNorm === 'member' || entityNorm === 'teammember' || entityNorm === 'magiclink' || entityNorm === 'externalwriter') && sanitizedBody.email) {
         sanitizedBody.email = sanitizedBody.email.toLowerCase();
+      }
+
+      if (entityNorm === 'externalwriterdocument' && sanitizedBody.external_writer_id && sanitizedBody.tenant_id) {
+        const { data: writer } = await supabase
+          .from('external_writer')
+          .select('id')
+          .eq('id', sanitizedBody.external_writer_id)
+          .eq('tenant_id', sanitizedBody.tenant_id)
+          .single();
+        if (!writer) {
+          return res.status(403).json({ error: 'External writer does not belong to your tenant' });
+        }
+      }
+
+      if (entityNorm === 'externalwriter' && sanitizedBody.email && sanitizedBody.tenant_id) {
+        const { data: existingMember } = await supabase
+          .from('member')
+          .select('id')
+          .eq('tenant_id', sanitizedBody.tenant_id)
+          .ilike('email', sanitizedBody.email)
+          .not('email', 'ilike', 'deleted_%@deleted.local')
+          .limit(1);
+        if (existingMember && existingMember.length > 0) {
+          return res.status(409).json({ error: 'This email belongs to an existing member' });
+        }
       }
       
       const { data, error } = await supabase

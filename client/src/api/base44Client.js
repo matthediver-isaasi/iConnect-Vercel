@@ -285,6 +285,8 @@ class EntitiesProxy {
   get ArticleBriefVersion() { return this._getEntity('ArticleBriefVersion'); }
   get ArticleBriefComment() { return this._getEntity('ArticleBriefComment'); }
   get ArticleBriefActivity() { return this._getEntity('ArticleBriefActivity'); }
+  get ExternalWriter() { return this._getEntity('ExternalWriter'); }
+  get ExternalWriterDocument() { return this._getEntity('ExternalWriterDocument'); }
   get CrmTagColor() { return this._getEntity('CrmTagColor'); }
 }
 
