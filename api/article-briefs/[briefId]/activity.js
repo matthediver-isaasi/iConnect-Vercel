@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     const { data: activities, error: activityError } = await supabase
       .from('article_brief_activity')
-      .select('*, performed_by_member:member!article_brief_activity_performed_by_fkey(id, full_name, email, profile_image)')
+      .select('*, performed_by_member:member!article_brief_activity_performed_by_fkey(id, first_name, last_name, email, profile_image)')
       .eq('article_brief_id', briefId)
       .eq('tenant_id', tenantCtx.tenantId)
       .order('created_at', { ascending: true });

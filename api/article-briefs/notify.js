@@ -85,7 +85,7 @@ export async function sendBriefNotification({ tenantId, briefId, eventType, perf
     const recipientIds = notifications.map(n => n.recipientId).filter(Boolean);
     const { data: members } = await supabase
       .from('member')
-      .select('id, email, full_name')
+      .select('id, email, first_name, last_name')
       .in('id', recipientIds);
 
     if (!members || members.length === 0) {
@@ -107,7 +107,7 @@ export async function sendBriefNotification({ tenantId, briefId, eventType, perf
       const { subject, html } = buildEmailContent({
         eventType,
         briefTitle: brief.title,
-        recipientName: member.full_name || 'there',
+        recipientName: [member.first_name, member.last_name].filter(Boolean).join(' ') || 'there',
         recipientType: notification.type,
         metadata,
         getStageLabel,
