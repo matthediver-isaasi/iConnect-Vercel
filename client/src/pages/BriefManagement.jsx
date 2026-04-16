@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,9 @@ import {
   ArrowUpDown,
   Paperclip,
   X,
+  ChevronLeft,
+  ChevronRight,
+  CheckSquare,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -110,6 +114,7 @@ export default function BriefManagementPage() {
   const canManage = !isFeatureExcluded("content.briefs.manage");
   const canAssign = !isFeatureExcluded("content.briefs.assign");
   const canDelete = !isFeatureExcluded("content.briefs.delete");
+  const canChangeStatus = !isFeatureExcluded("content.briefs.change-status");
 
   const initialView = searchParams.get("view") || "all";
 
@@ -127,6 +132,13 @@ export default function BriefManagementPage() {
   const [briefToDelete, setBriefToDelete] = useState(null);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const attachmentInputRef = useRef(null);
+
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState("");
+  const [bulkProgress, setBulkProgress] = useState(null);
 
   const emptyBrief = {
     title: "", deadline: "",
@@ -383,6 +395,109 @@ export default function BriefManagementPage() {
     return sorted;
   }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, sortBy]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedBriefs = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredAndSorted.slice(start, start + pageSize);
+  }, [filteredAndSorted, safePage, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, pageSize]);
+
+  const briefsById = useMemo(() => {
+    const map = {};
+    briefs.forEach((b) => { map[b.id] = b; });
+    return map;
+  }, [briefs]);
+
+  const pageIds = paginatedBriefs.map((b) => b.id);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someOnPageSelected = pageIds.some((id) => selectedIds.has(id));
+
+  const togglePageSelection = (checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        pageIds.forEach((id) => next.add(id));
+      } else {
+        pageIds.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleRowSelection = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const runBulkStatusUpdate = async () => {
+    if (!bulkStatusValue) {
+      toast.error("Please select a status");
+      return;
+    }
+    const ids = Array.from(selectedIds);
+    const targets = ids
+      .map((id) => briefsById[id])
+      .filter((b) => b && b.status !== bulkStatusValue);
+    const skipped = ids.length - targets.length;
+
+    if (targets.length === 0) {
+      toast.info(`No briefs to update — all ${ids.length} already have that status.`);
+      setBulkDialogOpen(false);
+      setBulkStatusValue("");
+      clearSelection();
+      return;
+    }
+
+    setBulkProgress({ total: targets.length, done: 0, success: 0, failed: 0 });
+
+    const concurrency = 4;
+    let index = 0;
+    let success = 0;
+    let failed = 0;
+
+    const worker = async () => {
+      while (index < targets.length) {
+        const i = index++;
+        const brief = targets[i];
+        try {
+          await base44.entities.ArticleBrief.update(brief.id, { status: bulkStatusValue });
+          success++;
+        } catch (err) {
+          failed++;
+          console.error("Bulk status update failed for brief", brief.id, err);
+        }
+        setBulkProgress({ total: targets.length, done: success + failed, success, failed });
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, () => worker()));
+
+    queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+
+    const skippedMsg = skipped > 0 ? ` ${skipped} skipped (already set).` : "";
+    if (failed === 0) {
+      toast.success(`Updated ${success} ${success === 1 ? "brief" : "briefs"}.${skippedMsg}`);
+    } else if (success === 0) {
+      toast.error(`Failed to update ${failed} ${failed === 1 ? "brief" : "briefs"}.${skippedMsg}`);
+    } else {
+      toast.warning(`Updated ${success}, failed ${failed}.${skippedMsg}`);
+    }
+
+    setBulkProgress(null);
+    setBulkDialogOpen(false);
+    setBulkStatusValue("");
+    clearSelection();
+  };
+
   const handleAttachmentUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -609,6 +724,16 @@ export default function BriefManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {canChangeStatus && (
+                    <TableHead className="w-[40px]">
+                      <Checkbox
+                        checked={allOnPageSelected ? true : (someOnPageSelected ? "indeterminate" : false)}
+                        onCheckedChange={(v) => togglePageSelection(!!v)}
+                        aria-label="Select all on page"
+                        data-testid="checkbox-select-page"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="min-w-[220px]">Title</TableHead>
                   <TableHead className="min-w-[120px]">Status</TableHead>
                   <TableHead className="min-w-[120px]">Writer</TableHead>
@@ -619,9 +744,9 @@ export default function BriefManagementPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAndSorted.length === 0 ? (
+                {paginatedBriefs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canDelete ? 7 : 6} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={(canDelete ? 7 : 6) + (canChangeStatus ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
@@ -632,16 +757,28 @@ export default function BriefManagementPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAndSorted.map((brief) => {
+                  paginatedBriefs.map((brief) => {
                     const statusCfg = STATUS_CONFIG[brief.status] || STATUS_CONFIG.new;
                     const latestVersion = latestVersionByBrief[brief.id];
+                    const isSelected = selectedIds.has(brief.id);
                     return (
                       <TableRow
                         key={brief.id}
                         className="cursor-pointer hover-elevate"
                         onClick={() => handleRowClick(brief.id)}
+                        data-state={isSelected ? "selected" : undefined}
                         data-testid={`brief-row-${brief.id}`}
                       >
+                        {canChangeStatus && (
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleRowSelection(brief.id)}
+                              aria-label={`Select brief ${brief.title}`}
+                              data-testid={`checkbox-brief-${brief.id}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-medium">
                           <div className="max-w-[280px]">
                             <p className="truncate" data-testid={`text-brief-title-${brief.id}`}>{brief.title}</p>
@@ -700,7 +837,144 @@ export default function BriefManagementPage() {
             </Table>
           </ScrollArea>
         </Card>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4" data-testid="pagination-controls">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span data-testid="text-pagination-summary">
+              {filteredAndSorted.length === 0
+                ? "0 results"
+                : `Showing ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filteredAndSorted.length)} of ${filteredAndSorted.length}`}
+            </span>
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-[110px] h-9" data-testid="select-page-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 25, 50, 100].map((n) => (
+                  <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              data-testid="button-page-prev"
+            >
+              <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+            </Button>
+            <span className="text-sm text-muted-foreground" data-testid="text-page-info">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              data-testid="button-page-next"
+            >
+              Next <ChevronRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
+        </div>
       </div>
+
+      {canChangeStatus && selectedIds.size > 0 && (
+        <div
+          className="sticky bottom-0 left-0 right-0 z-50 mt-4"
+          data-testid="bulk-action-bar"
+        >
+          <div className="max-w-7xl mx-auto px-4 pb-4">
+            <Card className="shadow-lg">
+              <CardContent className="py-3 px-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium" data-testid="text-selected-count">
+                    {selectedIds.size} {selectedIds.size === 1 ? "brief" : "briefs"} selected
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearSelection}
+                    data-testid="button-clear-selection"
+                  >
+                    Clear selection
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => { setBulkStatusValue(""); setBulkDialogOpen(true); }}
+                    data-testid="button-bulk-change-status"
+                  >
+                    Change status
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      <Dialog
+        open={bulkDialogOpen}
+        onOpenChange={(open) => {
+          if (bulkProgress) return;
+          setBulkDialogOpen(open);
+          if (!open) setBulkStatusValue("");
+        }}
+      >
+        <DialogContent data-testid="dialog-bulk-status">
+          <DialogHeader>
+            <DialogTitle>Change status for {selectedIds.size} {selectedIds.size === 1 ? "brief" : "briefs"}</DialogTitle>
+            <DialogDescription>
+              Pick a new status. Briefs already at that status will be skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <div className="space-y-1">
+              <Label>New status</Label>
+              <Select value={bulkStatusValue} onValueChange={setBulkStatusValue} disabled={!!bulkProgress}>
+                <SelectTrigger data-testid="select-bulk-status">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                    <SelectItem key={key} value={key} data-testid={`option-bulk-status-${key}`}>{cfg.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {bulkProgress && (
+              <div className="text-sm text-muted-foreground" data-testid="text-bulk-progress">
+                Updating {bulkProgress.done} of {bulkProgress.total}…
+                {bulkProgress.failed > 0 && ` (${bulkProgress.failed} failed)`}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setBulkDialogOpen(false); setBulkStatusValue(""); }}
+              disabled={!!bulkProgress}
+              data-testid="button-cancel-bulk-status"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={runBulkStatusUpdate}
+              disabled={!bulkStatusValue || !!bulkProgress}
+              data-testid="button-confirm-bulk-status"
+            >
+              {bulkProgress && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {bulkProgress ? "Updating…" : "Apply"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-create-brief">
