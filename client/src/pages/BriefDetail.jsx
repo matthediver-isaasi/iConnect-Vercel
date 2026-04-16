@@ -1037,7 +1037,6 @@ export default function BriefDetailPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium">Version {version.version_number}</span>
-                            <Badge variant="secondary" className="text-xs">{version.status_at_upload || "N/A"}</Badge>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5 truncate">{version.file_name || "Untitled file"}</p>
                           {version.submission_note && (
