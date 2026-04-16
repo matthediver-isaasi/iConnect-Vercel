@@ -173,12 +173,11 @@ export default function ExternalWritersPage() {
     setDialogOpen(true);
   };
 
-  const validateEmail = async (email) => {
+  const checkEmail = async (email) => {
     if (!email || !email.includes("@")) {
       setEmailError("Valid email is required");
       return false;
     }
-    setEmailChecking(true);
     try {
       const resp = await fetch("/api/external-writers/validate-email", {
         method: "POST",
@@ -199,14 +198,12 @@ export default function ExternalWritersPage() {
     } catch {
       setEmailError("Could not validate email");
       return false;
-    } finally {
-      setEmailChecking(false);
     }
   };
 
   const handleEmailBlur = () => {
     if (formData.email.trim()) {
-      validateEmail(formData.email.trim());
+      checkEmail(formData.email.trim());
     }
   };
 
@@ -219,21 +216,26 @@ export default function ExternalWritersPage() {
       toast.error("Valid email is required");
       return;
     }
-    const emailValid = await validateEmail(formData.email.trim());
-    if (!emailValid) return;
+    setEmailChecking(true);
+    try {
+      const emailValid = await checkEmail(formData.email.trim());
+      if (!emailValid) return;
 
-    const payload = {
-      first_name: formData.first_name.trim(),
-      last_name: formData.last_name.trim(),
-      organisation: formData.organisation.trim() || null,
-      job_title: formData.job_title.trim() || null,
-      email: formData.email.trim().toLowerCase(),
-    };
+      const payload = {
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        organisation: formData.organisation.trim() || null,
+        job_title: formData.job_title.trim() || null,
+        email: formData.email.trim().toLowerCase(),
+      };
 
-    if (editingWriter) {
-      updateMutation.mutate({ id: editingWriter.id, data: payload });
-    } else {
-      createMutation.mutate(payload);
+      if (editingWriter) {
+        updateMutation.mutate({ id: editingWriter.id, data: payload });
+      } else {
+        createMutation.mutate(payload);
+      }
+    } finally {
+      setEmailChecking(false);
     }
   };
 
