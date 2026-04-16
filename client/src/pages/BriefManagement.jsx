@@ -509,8 +509,8 @@ export default function BriefManagementPage() {
 
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative flex-1 min-w-[200px]">
+            <div className="flex flex-col gap-3">
+              <div className="relative w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   placeholder="Search briefs..."
@@ -520,82 +520,86 @@ export default function BriefManagementPage() {
                   data-testid="input-search-briefs"
                 />
               </div>
-              <MultiSelectFilter
-                options={Object.entries(STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
-                selected={statusFilter}
-                onChange={setStatusFilter}
-                placeholder="All Statuses"
-                className="w-[160px]"
-                data-testid="select-status-filter"
-              />
-              <MultiSelectFilter
-                options={[
-                  { value: "__unassigned__", label: "Unassigned" },
-                  ...uniqueWriters.map((w) => ({ value: w.id, label: w.name })),
-                ]}
-                selected={writerFilter}
-                onChange={setWriterFilter}
-                placeholder="All Writers"
-                className="w-[160px]"
-                data-testid="select-writer-filter"
-              />
-              <MultiSelectFilter
-                options={[
-                  { value: "__unassigned__", label: "Unassigned" },
-                  ...uniqueReviewers.map((r) => ({ value: r.id, label: r.name })),
-                ]}
-                selected={reviewerFilter}
-                onChange={setReviewerFilter}
-                placeholder="All Editors"
-                className="w-[160px]"
-                data-testid="select-reviewer-filter"
-              />
-              <MultiSelectFilter
-                options={uniqueCategories.map((cat) => ({ value: cat, label: cat }))}
-                selected={categoryFilter}
-                onChange={setCategoryFilter}
-                placeholder="All Categories"
-                className="w-[160px]"
-                data-testid="select-category-filter"
-              />
-              <Select value={dateField} onValueChange={setDateField}>
-                <SelectTrigger className="w-[180px]" data-testid="select-date-field">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="deadline">Submission Deadline</SelectItem>
-                  <SelectItem value="writer_deadline">Writer Deadline</SelectItem>
-                  <SelectItem value="editor_deadline">Editor Deadline</SelectItem>
-                  <SelectItem value="created_at">Created Date</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-[150px]"
-                placeholder="From"
-                data-testid="input-date-from"
-              />
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-[150px]"
-                placeholder="To"
-                data-testid="input-date-to"
-              />
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-[170px]" data-testid="select-sort-by">
-                  <ArrowUpDown className="w-3 h-3 mr-1" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SORT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-center gap-3">
+                <MultiSelectFilter
+                  options={Object.entries(STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+                  selected={statusFilter}
+                  onChange={setStatusFilter}
+                  placeholder="All Statuses"
+                  className="w-[160px]"
+                  data-testid="select-status-filter"
+                />
+                <MultiSelectFilter
+                  options={[
+                    { value: "__unassigned__", label: "Unassigned" },
+                    ...uniqueWriters.map((w) => ({ value: w.id, label: w.name })),
+                  ]}
+                  selected={writerFilter}
+                  onChange={setWriterFilter}
+                  placeholder="All Writers"
+                  className="w-[160px]"
+                  data-testid="select-writer-filter"
+                />
+                <MultiSelectFilter
+                  options={[
+                    { value: "__unassigned__", label: "Unassigned" },
+                    ...uniqueReviewers.map((r) => ({ value: r.id, label: r.name })),
+                  ]}
+                  selected={reviewerFilter}
+                  onChange={setReviewerFilter}
+                  placeholder="All Editors"
+                  className="w-[160px]"
+                  data-testid="select-reviewer-filter"
+                />
+                <MultiSelectFilter
+                  options={uniqueCategories.map((cat) => ({ value: cat, label: cat }))}
+                  selected={categoryFilter}
+                  onChange={setCategoryFilter}
+                  placeholder="All Categories"
+                  className="w-[160px]"
+                  data-testid="select-category-filter"
+                />
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-[170px]" data-testid="select-sort-by">
+                    <ArrowUpDown className="w-3 h-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SORT_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-nowrap items-center gap-3 w-full sm:w-auto">
+                <Select value={dateField} onValueChange={setDateField}>
+                  <SelectTrigger className="w-[180px] shrink-0" data-testid="select-date-field">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deadline">Submission Deadline</SelectItem>
+                    <SelectItem value="writer_deadline">Writer Deadline</SelectItem>
+                    <SelectItem value="editor_deadline">Editor Deadline</SelectItem>
+                    <SelectItem value="created_at">Created Date</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full min-w-0 flex-1 sm:w-[150px] sm:flex-none"
+                  placeholder="From"
+                  data-testid="input-date-from"
+                />
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full min-w-0 flex-1 sm:w-[150px] sm:flex-none"
+                  placeholder="To"
+                  data-testid="input-date-to"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
