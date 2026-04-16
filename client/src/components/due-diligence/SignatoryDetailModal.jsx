@@ -52,20 +52,20 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, onDemote, isS
       className={`flex flex-col gap-2 p-3 rounded-lg border ${isWinner ? 'border-green-500 bg-green-50' : ''}`}
       data-testid={`signer-row-${signer.email}`}
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-start gap-3 min-w-0">
         <div className="p-2 bg-muted rounded-md flex-shrink-0">
           <User className="w-4 h-4 text-muted-foreground" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="text-sm font-medium truncate">{fullName}</p>
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <p className="text-sm font-medium break-words">{fullName}</p>
             {signer.isOriginal && (
               <Badge variant="secondary" className="text-xs flex-shrink-0">Original</Badge>
             )}
           </div>
-          {signer.jobTitle && <p className="text-xs text-muted-foreground truncate">{signer.jobTitle}</p>}
-          {signer.organisation && <p className="text-xs text-muted-foreground truncate">{signer.organisation}</p>}
-          <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
+          {signer.jobTitle && <p className="text-xs text-muted-foreground break-words">{signer.jobTitle}</p>}
+          {signer.organisation && <p className="text-xs text-muted-foreground break-words">{signer.organisation}</p>}
+          <p className="text-xs text-muted-foreground break-all">{signer.email}</p>
         </div>
         <Badge 
           variant="outline" 
