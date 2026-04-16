@@ -164,7 +164,7 @@ function buildEmailContent({ eventType, briefTitle, recipientName, recipientType
 
     case 'status_changed_to_review':
       subject = `Brief submitted for review: ${safeBriefTitle}`;
-      bodyText = `The brief "<strong>${safeBriefTitle}</strong>" has been submitted for review and is now in the "<strong>${escapeHtml(getStageLabel(metadata.new_status || 'under_review'))}</strong>" stage.`;
+      bodyText = `The brief "<strong>${safeBriefTitle}</strong>" has been submitted for review and is now in the "<strong>${escapeHtml(getStageLabel(metadata.new_status))}</strong>" stage.`;
       break;
 
     case 'brief_updated':

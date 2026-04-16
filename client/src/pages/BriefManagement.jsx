@@ -38,7 +38,6 @@ import {
   AlertCircle,
   Loader2,
   Pencil,
-  Eye,
   Trash2,
   XCircle,
   ArrowUpDown,
@@ -57,7 +56,6 @@ const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
   assigned: { label: "Assigned", color: "#3b82f6", icon: FileText },
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
-  under_review: { label: "Under Review", color: "#a855f7", icon: Eye },
   changes_requested: { label: "Changes Requested", color: "#f97316", icon: AlertCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
 };
@@ -247,7 +245,6 @@ export default function BriefManagementPage() {
     return {
       total,
       inProgress: (byStatus["in_progress"] || 0) + (byStatus["assigned"] || 0),
-      underReview: byStatus["under_review"] || 0,
     };
   }, [briefs]);
 
@@ -279,7 +276,7 @@ export default function BriefManagementPage() {
       filtered = filtered.filter((b) => b.review_owner_id === memberInfo.id);
     } else if (activeView === "review_queue" && memberInfo?.id) {
       filtered = filtered.filter(
-        (b) => b.review_owner_id === memberInfo.id && (b.status === "under_review" || b.status === "changes_requested")
+        (b) => b.review_owner_id === memberInfo.id && b.status === "changes_requested"
       );
     }
 
@@ -446,10 +443,9 @@ export default function BriefManagementPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 gap-4 mb-6">
           <StatCard title="Total" value={stats.total} icon={FileText} color="#6b7280" />
           <StatCard title="In Progress" value={stats.inProgress} icon={Pencil} color="#f59e0b" />
-          <StatCard title="Under Review" value={stats.underReview} icon={Eye} color="#a855f7" />
         </div>
 
         <Tabs value={activeView} onValueChange={setActiveView} className="mb-6">

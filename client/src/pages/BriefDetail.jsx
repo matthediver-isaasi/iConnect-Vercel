@@ -38,7 +38,6 @@ import {
   AlertCircle,
   Loader2,
   Pencil,
-  Eye,
   XCircle,
   Upload,
   MessageSquare,
@@ -67,7 +66,6 @@ const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
   assigned: { label: "Assigned", color: "#3b82f6", icon: FileText },
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
-  under_review: { label: "Under Review", color: "#a855f7", icon: Eye },
   changes_requested: { label: "Changes Requested", color: "#f97316", icon: AlertCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
 };

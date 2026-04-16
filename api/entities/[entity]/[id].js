@@ -592,8 +592,6 @@ export default async function handler(req, res) {
             let eventType = null;
             if (newStatus === 'changes_requested') {
               eventType = 'status_changed_to_changes_requested';
-            } else if (newStatus === 'under_review') {
-              eventType = 'status_changed_to_review';
             }
             if (eventType) {
               sendBriefNotification({

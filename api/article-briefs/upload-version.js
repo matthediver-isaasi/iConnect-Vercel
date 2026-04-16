@@ -96,16 +96,6 @@ export default async function handler(req, res) {
 
     const finalVersionNumber = versionNumber;
 
-    const statusesToTransition = ['in_progress', 'assigned', 'changes_requested'];
-    const didTransitionStatus = statusesToTransition.includes(brief.status);
-    if (didTransitionStatus) {
-      await supabase
-        .from('article_brief')
-        .update({ status: 'under_review', updated_at: new Date().toISOString() })
-        .eq('id', article_brief_id)
-        .eq('tenant_id', tenantCtx.tenantId);
-    }
-
     const activityEntries = [
       {
         article_brief_id,
@@ -121,17 +111,6 @@ export default async function handler(req, res) {
       }
     ];
 
-    if (didTransitionStatus) {
-      activityEntries.push({
-        article_brief_id,
-        action: 'status_changed',
-        description: `Status changed from ${brief.status} to under_review`,
-        performed_by: uploaderId,
-        metadata: { old_status: brief.status, new_status: 'under_review' },
-        tenant_id: tenantCtx.tenantId
-      });
-    }
-
     await supabase
       .from('article_brief_activity')
       .insert(activityEntries);
@@ -145,18 +124,6 @@ export default async function handler(req, res) {
     }).catch(err => {
       console.error('[UploadVersion] Notification error:', err);
     });
-
-    if (didTransitionStatus) {
-      sendBriefNotification({
-        tenantId: tenantCtx.tenantId,
-        briefId: article_brief_id,
-        eventType: 'status_changed_to_review',
-        performedById: uploaderId,
-        metadata: { old_status: brief.status, new_status: 'under_review' },
-      }).catch(err => {
-        console.error('[UploadVersion] Status notification error:', err);
-      });
-    }
 
     return res.json({
       success: true,

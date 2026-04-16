@@ -6,7 +6,6 @@ const DEFAULT_STAGES = [
   { key: 'new', label: 'New', color: '#6b7280' },
   { key: 'assigned', label: 'Assigned', color: '#3b82f6' },
   { key: 'in_progress', label: 'In Progress', color: '#f59e0b' },
-  { key: 'under_review', label: 'Under Review', color: '#a855f7' },
   { key: 'changes_requested', label: 'Changes Requested', color: '#f97316' },
   { key: 'approved', label: 'Approved', color: '#22c55e' },
   { key: 'rejected', label: 'Rejected', color: '#ef4444' },
