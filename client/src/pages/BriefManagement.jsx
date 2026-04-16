@@ -50,7 +50,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
-import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import MemberCombobox from "@/components/MemberCombobox";
 
 const DEFAULT_STATUS_CONFIG = {
@@ -129,7 +128,7 @@ export default function BriefManagementPage() {
   const attachmentInputRef = useRef(null);
 
   const emptyBrief = {
-    title: "", instructions: "", deadline: "",
+    title: "", deadline: "",
     writer_deadline: "", editor_deadline: "", sla: "2026-2028", contract: "Prospects",
     category: "", notes: "", assigned_writer_id: "", review_owner_id: "",
     attachments: [],
@@ -375,7 +374,6 @@ export default function BriefManagementPage() {
     const reviewerId = newBrief.review_owner_id && newBrief.review_owner_id !== "unassigned" ? newBrief.review_owner_id : null;
     const payload = {
       title: newBrief.title.trim(),
-      instructions: newBrief.instructions.trim() || null,
       deadline: newBrief.deadline || null,
       writer_deadline: newBrief.writer_deadline || null,
       editor_deadline: newBrief.editor_deadline || null,
@@ -651,14 +649,6 @@ export default function BriefManagementPage() {
                   onChange={(e) => setNewBrief((p) => ({ ...p, title: e.target.value }))}
                   placeholder="Article title or topic"
                   data-testid="input-brief-title"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Full Instructions</Label>
-                <SimpleRichTextEditor
-                  content={newBrief.instructions}
-                  onChange={(html) => setNewBrief((p) => ({ ...p, instructions: html }))}
-                  placeholder="Detailed writing instructions, key points to cover..."
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
