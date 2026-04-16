@@ -651,7 +651,7 @@ export default function BriefDetailPage() {
             {canUploadDraft && (isWriter || canManage) && (
               <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version">
                 <Upload className="w-4 h-4 mr-1" />
-                Upload Draft
+                Upload
               </Button>
             )}
           </div>
@@ -950,11 +950,11 @@ export default function BriefDetailPage() {
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-lg">Draft Versions</CardTitle>
+                  <CardTitle className="text-lg">Versions</CardTitle>
                   {canUploadDraft && (isWriter || canManage) && (
                     <Button size="sm" onClick={() => setUploadDialogOpen(true)} data-testid="button-upload-version-tab">
                       <Upload className="w-4 h-4 mr-1" />
-                      Upload Draft
+                      Upload
                     </Button>
                   )}
                 </div>
@@ -1510,8 +1510,8 @@ export default function BriefDetailPage() {
       <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
         <DialogContent className="max-w-md" data-testid="dialog-upload-version">
           <DialogHeader>
-            <DialogTitle>Upload Draft</DialogTitle>
-            <DialogDescription>Upload a new version of your article draft.</DialogDescription>
+            <DialogTitle>Upload</DialogTitle>
+            <DialogDescription>Upload a new version of your article.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
