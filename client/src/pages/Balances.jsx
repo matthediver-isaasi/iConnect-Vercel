@@ -56,9 +56,9 @@ export default function BalancesPage({ hasBanner }) {
   const [savingRestrictions, setSavingRestrictions] = useState(false);
 
   const { data: rolesData = [], isLoading: rolesLoading } = useQuery({
-    queryKey: ['membership-roles'],
+    queryKey: ['membership-roles', organizationInfo?.id],
     queryFn: async () => {
-      const response = await fetch('/api/membership/roles', { credentials: 'include' });
+      const response = await fetch(`/api/membership/roles?organizationId=${encodeURIComponent(organizationInfo.id)}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch roles');
       const result = await response.json();
       return result.data || [];

@@ -17,6 +17,40 @@ export default async function handler(req, res) {
   }
 
   try {
+    const organizationId = req.query.organizationId || req.query.organization_id;
+
+    if (organizationId) {
+      const { data: members, error: membersError } = await supabase
+        .from('member')
+        .select('role_id')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .not('role_id', 'is', null);
+
+      if (membersError) {
+        throw new Error(membersError.message);
+      }
+
+      const roleIds = Array.from(new Set((members || []).map(m => m.role_id).filter(Boolean)));
+
+      if (roleIds.length === 0) {
+        return res.json({ data: [] });
+      }
+
+      const { data, error } = await supabase
+        .from('role')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('id', roleIds)
+        .order('name', { ascending: true });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return res.json({ data: data || [] });
+    }
+
     const { data, error } = await supabase
       .from('role')
       .select('id, name')
