@@ -228,7 +228,7 @@ export default function OrgFieldVisibilityRulesEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="w-5 h-5" />
@@ -239,7 +239,7 @@ export default function OrgFieldVisibilityRulesEditor({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 pr-4">
+        <ScrollArea className="min-h-0 pr-4">
           <div className="space-y-4 py-4">
             {rules.length === 0 ? (
               <div className="text-center py-12 text-slate-400 border border-dashed border-slate-200 rounded-lg">
