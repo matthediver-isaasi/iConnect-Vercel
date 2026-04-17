@@ -1,11 +1,14 @@
 import { databaseUrl, supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import pg from 'pg';
 
+// Kept in sync with supabase/migrations/20260417_create_zoho_crm_sync.sql.
+// Inlined so the endpoint works even if the migrations directory is not
+// shipped with the deployed serverless bundle.
 const SYNC_SQL = `
 CREATE TABLE IF NOT EXISTS zoho_crm_sync_mapping (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL,
+  tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
   entity_type TEXT NOT NULL CHECK (entity_type IN ('member', 'organization')),
   zoho_module TEXT NOT NULL,
   unique_key_field TEXT NOT NULL,
@@ -21,7 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_zoho_crm_sync_mapping_tenant
 
 CREATE TABLE IF NOT EXISTS zoho_crm_sync_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL,
+  tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
   entity_type TEXT NOT NULL,
   entity_id UUID,
   zoho_module TEXT,
@@ -54,6 +57,9 @@ export default async function handler(req, res) {
   try {
     const ctx = await getTenantContext(req);
     if (!ctx?.tenantId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!(await hasAdminAccess(ctx))) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
 
     if (!databaseUrl) {
       return res.status(500).json({ error: 'DATABASE_URL not configured', sql: SYNC_SQL });
