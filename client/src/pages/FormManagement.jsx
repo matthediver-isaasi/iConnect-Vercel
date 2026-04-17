@@ -38,6 +38,152 @@ const initialFilters = {
   organization: "all",
 };
 
+function FilterBar({ filters, setFilters, isContract, testIdPrefix, organizations }) {
+  const hasActiveFilters =
+    filters.search !== '' ||
+    filters.status !== 'all' ||
+    filters.auth !== 'all' ||
+    (!isContract && filters.layout !== 'all') ||
+    (isContract && filters.organization !== 'all');
+
+  return (
+    <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+      <div className="relative flex-1 min-w-[220px]">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <Input
+          value={filters.search}
+          onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+          placeholder="Search by name, description, or slug..."
+          className="pl-9"
+          data-testid={`${testIdPrefix}-input-search`}
+        />
+      </div>
+      <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
+        <SelectTrigger className="w-full md:w-[160px]" data-testid={`${testIdPrefix}-select-status`}>
+          <SelectValue placeholder="Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All statuses</SelectItem>
+          <SelectItem value="active">Active</SelectItem>
+          <SelectItem value="inactive">Inactive</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select value={filters.auth} onValueChange={(v) => setFilters({ ...filters, auth: v })}>
+        <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-auth`}>
+          <SelectValue placeholder="Auth required" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Any auth</SelectItem>
+          <SelectItem value="yes">Auth required</SelectItem>
+          <SelectItem value="no">No auth</SelectItem>
+        </SelectContent>
+      </Select>
+      {!isContract && (
+        <Select value={filters.layout} onValueChange={(v) => setFilters({ ...filters, layout: v })}>
+          <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-layout`}>
+            <SelectValue placeholder="Layout" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All layouts</SelectItem>
+            <SelectItem value="standard">Standard</SelectItem>
+            <SelectItem value="card_swipe">Card Swipe</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      {isContract && (
+        <Select value={filters.organization} onValueChange={(v) => setFilters({ ...filters, organization: v })}>
+          <SelectTrigger className="w-full md:w-[220px]" data-testid={`${testIdPrefix}-select-organization`}>
+            <SelectValue placeholder="Organisation" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All organisations</SelectItem>
+            {organizations.map(org => (
+              <SelectItem key={org.id} value={String(org.id)}>{org.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {hasActiveFilters && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setFilters(initialFilters)}
+          data-testid={`${testIdPrefix}-button-clear-filters`}
+        >
+          <X className="w-3 h-3 mr-1" />
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function PaginationBar({ page, setPage, totalPages, pageSize, setPageSize, totalItems, filteredCount, testIdPrefix }) {
+  return (
+    <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="text-sm text-slate-600" data-testid={`${testIdPrefix}-showing-count`}>
+        Showing {filteredCount === 0 ? 0 : (page - 1) * pageSize + 1}
+        –{Math.min(page * pageSize, filteredCount)} of {filteredCount}
+        {filteredCount !== totalItems && ` (filtered from ${totalItems})`}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Per page</span>
+          <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+            <SelectTrigger className="w-[80px]" data-testid={`${testIdPrefix}-select-page-size`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map(size => (
+                <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            data-testid={`${testIdPrefix}-button-prev-page`}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-sm text-slate-600" data-testid={`${testIdPrefix}-page-indicator`}>
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            data-testid={`${testIdPrefix}-button-next-page`}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoMatchesState({ onClear, isContract }) {
+  return (
+    <Card className="border-slate-200">
+      <CardContent className="p-12 text-center">
+        <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold text-slate-900 mb-2">No matching {isContract ? 'contracts' : 'forms'}</h3>
+        <p className="text-slate-600 mb-6">Try adjusting your search or filters.</p>
+        <Button variant="outline" onClick={onClear} data-testid={`button-clear-filters-empty-${isContract ? 'contracts' : 'standard'}`}>
+          <X className="w-4 h-4 mr-2" />
+          Clear filters
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function FormManagementPage() {
   const { isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -361,148 +507,6 @@ export default function FormManagementPage() {
     </Card>
   );
 
-  const FilterBar = ({ filters, setFilters, isContract, testIdPrefix }) => {
-    const hasActiveFilters =
-      filters.search !== '' ||
-      filters.status !== 'all' ||
-      filters.auth !== 'all' ||
-      (!isContract && filters.layout !== 'all') ||
-      (isContract && filters.organization !== 'all');
-
-    return (
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <Input
-            value={filters.search}
-            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-            placeholder="Search by name, description, or slug..."
-            className="pl-9"
-            data-testid={`${testIdPrefix}-input-search`}
-          />
-        </div>
-        <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
-          <SelectTrigger className="w-full md:w-[160px]" data-testid={`${testIdPrefix}-select-status`}>
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filters.auth} onValueChange={(v) => setFilters({ ...filters, auth: v })}>
-          <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-auth`}>
-            <SelectValue placeholder="Auth required" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any auth</SelectItem>
-            <SelectItem value="yes">Auth required</SelectItem>
-            <SelectItem value="no">No auth</SelectItem>
-          </SelectContent>
-        </Select>
-        {!isContract && (
-          <Select value={filters.layout} onValueChange={(v) => setFilters({ ...filters, layout: v })}>
-            <SelectTrigger className="w-full md:w-[170px]" data-testid={`${testIdPrefix}-select-layout`}>
-              <SelectValue placeholder="Layout" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All layouts</SelectItem>
-              <SelectItem value="standard">Standard</SelectItem>
-              <SelectItem value="card_swipe">Card Swipe</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-        {isContract && (
-          <Select value={filters.organization} onValueChange={(v) => setFilters({ ...filters, organization: v })}>
-            <SelectTrigger className="w-full md:w-[220px]" data-testid={`${testIdPrefix}-select-organization`}>
-              <SelectValue placeholder="Organisation" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All organisations</SelectItem>
-              {organizations.map(org => (
-                <SelectItem key={org.id} value={String(org.id)}>{org.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setFilters(initialFilters)}
-            data-testid={`${testIdPrefix}-button-clear-filters`}
-          >
-            <X className="w-3 h-3 mr-1" />
-            Clear
-          </Button>
-        )}
-      </div>
-    );
-  };
-
-  const PaginationBar = ({ page, setPage, totalPages, pageSize, setPageSize, totalItems, filteredCount, testIdPrefix }) => (
-    <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div className="text-sm text-slate-600" data-testid={`${testIdPrefix}-showing-count`}>
-        Showing {filteredCount === 0 ? 0 : (page - 1) * pageSize + 1}
-        –{Math.min(page * pageSize, filteredCount)} of {filteredCount}
-        {filteredCount !== totalItems && ` (filtered from ${totalItems})`}
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-600">Per page</span>
-          <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-            <SelectTrigger className="w-[80px]" data-testid={`${testIdPrefix}-select-page-size`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAGE_SIZE_OPTIONS.map(size => (
-                <SelectItem key={size} value={String(size)}>{size}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(Math.max(1, page - 1))}
-            disabled={page <= 1}
-            data-testid={`${testIdPrefix}-button-prev-page`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-sm text-slate-600" data-testid={`${testIdPrefix}-page-indicator`}>
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(Math.min(totalPages, page + 1))}
-            disabled={page >= totalPages}
-            data-testid={`${testIdPrefix}-button-next-page`}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const NoMatchesState = ({ onClear, isContract }) => (
-    <Card className="border-slate-200">
-      <CardContent className="p-12 text-center">
-        <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <h3 className="text-xl font-semibold text-slate-900 mb-2">No matching {isContract ? 'contracts' : 'forms'}</h3>
-        <p className="text-slate-600 mb-6">Try adjusting your search or filters.</p>
-        <Button variant="outline" onClick={onClear} data-testid={`button-clear-filters-empty-${isContract ? 'contracts' : 'standard'}`}>
-          <X className="w-4 h-4 mr-2" />
-          Clear filters
-        </Button>
-      </CardContent>
-    </Card>
-  );
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -561,6 +565,7 @@ export default function FormManagementPage() {
                   setFilters={setStandardFilters}
                   isContract={false}
                   testIdPrefix="standard"
+                  organizations={organizations}
                 />
                 {filteredStandardForms.length === 0 ? (
                   <NoMatchesState onClear={() => setStandardFilters(initialFilters)} isContract={false} />
@@ -609,6 +614,7 @@ export default function FormManagementPage() {
                   setFilters={setContractFilters}
                   isContract={true}
                   testIdPrefix="contracts"
+                  organizations={organizations}
                 />
                 {filteredContractForms.length === 0 ? (
                   <NoMatchesState onClear={() => setContractFilters(initialFilters)} isContract={true} />
