@@ -4776,7 +4776,7 @@ export default function FormBuilderPage() {
         role_id: form.default_member_role_id || null,
         uniqueness_key: 'email',
         mappings: [],
-        login_enabled: false
+        login_enabled: null
       };
       
       // Extract member mappings from field_mappings array
@@ -4822,7 +4822,8 @@ export default function FormBuilderPage() {
             isPrimary: false,
             role_id: am.role_id || null,
             uniqueness_key: 'email',
-            mappings
+            mappings,
+            login_enabled: typeof am.login_enabled === 'boolean' ? am.login_enabled : null
           });
         });
       }
