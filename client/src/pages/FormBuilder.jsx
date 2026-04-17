@@ -6087,7 +6087,7 @@ export default function FormBuilderPage() {
                       data-testid="button-add-member-pipeline"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Member
+                      Add/Update
                     </Button>
                   </div>
                   
@@ -6095,7 +6095,7 @@ export default function FormBuilderPage() {
                     <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
                       <Users className="w-6 h-6 mx-auto mb-2 opacity-50" />
                       <p className="text-sm">No member records configured</p>
-                      <p className="text-xs mt-1">Click "Add Member" to create member records from this form</p>
+                      <p className="text-xs mt-1">Click "Add/Update" to create or update member records from this form</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -6254,7 +6254,7 @@ export default function FormBuilderPage() {
                       data-testid="button-add-org-pipeline"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Add Organisation
+                      Add/Update
                     </Button>
                   </div>
                   
@@ -6262,7 +6262,7 @@ export default function FormBuilderPage() {
                     <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
                       <Building2 className="w-6 h-6 mx-auto mb-2 opacity-50" />
                       <p className="text-sm">No organisation records configured</p>
-                      <p className="text-xs mt-1">Click "Add Organisation" to create organisation records from this form</p>
+                      <p className="text-xs mt-1">Click "Add/Update" to create or update organisation records from this form</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
