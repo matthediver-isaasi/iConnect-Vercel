@@ -750,22 +750,29 @@ export default async function handler(req, res) {
       
       processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings);
       
-      // If pipeline has a role_id, use it
-      if (primaryMemberPipeline?.role_id) {
-        if (primaryMemberPipeline.role_id === '__clear__') {
+      // If pipeline has a role_id, use it. null/undefined/'__keep__' all mean
+      // "don't change" — leave memberData.role_id unset so update/insert skip it.
+      // '__clear__' explicitly sets the role to null. A specific role overwrites.
+      const pipelineRoleId = primaryMemberPipeline?.role_id;
+      if (pipelineRoleId && pipelineRoleId !== '__keep__') {
+        if (pipelineRoleId === '__clear__') {
           memberData.role_id = null;
         } else {
-          memberData.role_id = primaryMemberPipeline.role_id;
+          memberData.role_id = pipelineRoleId;
         }
         console.log('[AppProcessor] Using pipeline role_id:', memberData.role_id);
+      } else {
+        console.log('[AppProcessor] Pipeline role_id is don\'t-change (keep/null) — preserving existing role on update');
       }
-      
-      // If pipeline has login_enabled setting, use it (default to true if not specified)
-      if (primaryMemberPipeline && primaryMemberPipeline.login_enabled !== undefined) {
+
+      // Login: only set when pipeline explicitly chose true/false. null/undefined
+      // mean "don't change" — leave memberData.login_enabled unset so update skips
+      // it; on insert, the create branch supplies its own default.
+      if (primaryMemberPipeline && typeof primaryMemberPipeline.login_enabled === 'boolean') {
         memberData.login_enabled = primaryMemberPipeline.login_enabled;
         console.log('[AppProcessor] Using pipeline login_enabled:', memberData.login_enabled);
       } else {
-        memberData.login_enabled = true; // Default to true if not specified
+        console.log('[AppProcessor] Pipeline login_enabled is don\'t-change (null) — preserving existing login on update');
       }
       
       // Re-convert custom fields after pipeline processing
@@ -1785,21 +1792,30 @@ export default async function handler(req, res) {
           customFieldCount: additionalCustomFieldsMap.size
         });
         
-        // Add role_id if specified in this member config
-        if (memberConfig.role_id) {
-          if (memberConfig.role_id === '__clear__') {
+        // Add role_id if specified. null/undefined/'__keep__' all mean "don't change" —
+        // leave additionalMemberData.role_id unset so update/insert skip it.
+        // '__clear__' explicitly sets the role to null. A specific role overwrites.
+        const additionalRoleId = memberConfig.role_id;
+        if (additionalRoleId && additionalRoleId !== '__keep__') {
+          if (additionalRoleId === '__clear__') {
             additionalMemberData.role_id = null;
             clearFields.push('role_id');
           } else {
-            additionalMemberData.role_id = memberConfig.role_id;
+            additionalMemberData.role_id = additionalRoleId;
           }
           console.log('[AppProcessor] Additional member role_id:', additionalMemberData.role_id);
+        } else {
+          console.log('[AppProcessor] Additional member role_id is don\'t-change — preserving existing role on update');
         }
-        
-        // Add login_enabled from member config if specified
-        if (memberConfig.login_enabled !== undefined) {
+
+        // Login: only set when member config explicitly chose true/false. null/undefined
+        // mean "don't change" — leave additionalMemberData.login_enabled unset so update
+        // skips it; on insert, the create branch supplies its own default.
+        if (typeof memberConfig.login_enabled === 'boolean') {
           additionalMemberData.login_enabled = memberConfig.login_enabled;
           console.log('[AppProcessor] Additional member login_enabled:', memberConfig.login_enabled);
+        } else {
+          console.log('[AppProcessor] Additional member login_enabled is don\'t-change — preserving existing login on update');
         }
         
         console.log('[AppProcessor] Processing additional member:', memberConfig.label, 'email:', normalizedEmail, 'data:', additionalMemberData, 'clearFields:', clearFields);

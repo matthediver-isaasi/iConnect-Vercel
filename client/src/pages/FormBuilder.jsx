@@ -6073,7 +6073,7 @@ export default function FormBuilderPage() {
                           role_id: null,
                           uniqueness_key: 'email',
                           mappings: [],
-                          login_enabled: false
+                          login_enabled: null
                         };
                         setFormData(prev => ({
                           ...prev,
@@ -6128,12 +6128,16 @@ export default function FormBuilderPage() {
                                   data-testid={`input-member-label-${memberIdx}`}
                                 />
                                 <Select
-                                  value={memberConfig.role_id === "__clear__" ? "clear" : (memberConfig.role_id || "none")}
+                                  value={
+                                    memberConfig.role_id === "__clear__" ? "clear"
+                                      : (memberConfig.role_id === "__keep__" || !memberConfig.role_id) ? "keep"
+                                      : memberConfig.role_id
+                                  }
                                   onValueChange={(value) => {
                                     const updated = [...formData.entity_pipelines.members];
                                     updated[memberIdx] = {
                                       ...updated[memberIdx],
-                                      role_id: value === "none" ? null : (value === "clear" ? "__clear__" : value)
+                                      role_id: value === "keep" ? null : (value === "clear" ? "__clear__" : value)
                                     };
                                     setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                   }}
@@ -6142,8 +6146,8 @@ export default function FormBuilderPage() {
                                     <SelectValue placeholder="Select role..." />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="none">-- No role --</SelectItem>
-                                    <SelectItem value="clear" className="text-amber-600">Clear role</SelectItem>
+                                    <SelectItem value="keep">-- Don't change role --</SelectItem>
+                                    <SelectItem value="clear" className="text-amber-600">Clear role (set to none)</SelectItem>
                                     {roles.map(role => (
                                       <SelectItem key={role.id} value={role.id}>
                                         {role.name}
@@ -6151,18 +6155,30 @@ export default function FormBuilderPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <div className="flex items-center gap-1.5">
-                                  <Switch
-                                    checked={memberConfig.login_enabled !== false}
-                                    onCheckedChange={(checked) => {
-                                      const updated = [...formData.entity_pipelines.members];
-                                      updated[memberIdx] = { ...updated[memberIdx], login_enabled: checked };
-                                      setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
-                                    }}
-                                    data-testid={`switch-member-login-${memberIdx}`}
-                                  />
-                                  <Label className="text-xs text-slate-600">Login</Label>
-                                </div>
+                                <Select
+                                  value={
+                                    memberConfig.login_enabled === true ? "enabled"
+                                      : memberConfig.login_enabled === false ? "disabled"
+                                      : "keep"
+                                  }
+                                  onValueChange={(value) => {
+                                    const updated = [...formData.entity_pipelines.members];
+                                    updated[memberIdx] = {
+                                      ...updated[memberIdx],
+                                      login_enabled: value === "enabled" ? true : (value === "disabled" ? false : null)
+                                    };
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 w-44 text-xs" data-testid={`select-member-login-${memberIdx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="keep">-- Don't change login --</SelectItem>
+                                    <SelectItem value="enabled">Login enabled</SelectItem>
+                                    <SelectItem value="disabled">Login disabled</SelectItem>
+                                  </SelectContent>
+                                </Select>
                                 {!hasEmailMapping && (
                                   <span className="text-xs text-amber-600 font-medium">Email mapping required</span>
                                 )}
