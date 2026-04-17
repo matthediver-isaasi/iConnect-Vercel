@@ -1,6 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
-import { fetchComplexEventData } from '../_lib/eventConfirmationEmail.js';
+import { fetchComplexEventData, parseCcField } from '../_lib/eventConfirmationEmail.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -30,6 +30,7 @@ export default async function handler(req, res) {
           id,
           subject,
           body,
+          cc,
           event_id,
           is_complex_event
         )
@@ -198,10 +199,13 @@ export default async function handler(req, res) {
           complexEventData
         });
 
+        const ccList = parseCcField(eventEmail.cc);
+
         const emailResult = await sendEmail({
           to: scheduledEmail.attendee_email,
           subject: subject,
           html: formatBodyAsHtml(body),
+          cc: ccList.length > 0 ? ccList : undefined,
           tenantId: event.tenant_id
         });
 

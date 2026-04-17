@@ -1,6 +1,11 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
 
+export function parseCcField(cc) {
+  if (!cc || typeof cc !== 'string') return [];
+  return cc.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null) {
   if (!supabase) return [];
 
@@ -93,10 +98,13 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
         const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
         const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
 
+        const ccList = parseCcField(emailConfig.cc);
+
         const emailResult = await sendEmail({
           to: bookingData.attendee_email,
           subject: subject,
           html: formatBodyAsHtml(body),
+          cc: ccList.length > 0 ? ccList : undefined,
           tenantId: event.tenant_id
         });
 

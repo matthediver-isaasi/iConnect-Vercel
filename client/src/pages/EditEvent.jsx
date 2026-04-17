@@ -624,6 +624,7 @@ export default function EditEvent() {
     body: emailType === 'booking_confirmation'
       ? 'Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!'
       : 'Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!',
+    cc: '',
     is_enabled: true,
     isNew: true
   });
@@ -664,6 +665,16 @@ export default function EditEvent() {
   };
 
   const saveEventEmails = async () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const e of eventEmails) {
+      if (!e.cc) continue;
+      const parts = String(e.cc).split(',').map(s => s.trim()).filter(Boolean);
+      const invalid = parts.filter(p => !emailRegex.test(p));
+      if (invalid.length > 0) {
+        toast.error(`Invalid CC email address: ${invalid.join(', ')}`);
+        return;
+      }
+    }
     setIsSavingEmails(true);
     try {
       const response = await fetch(`/api/event-emails/${eventId}`, {
@@ -3463,6 +3474,21 @@ export default function EditEvent() {
                           className="bg-white"
                           data-testid={`input-email-subject-${email.id}`}
                         />
+                      </div>
+
+                      {/* CC */}
+                      <div className="mb-3">
+                        <Label className="text-sm font-medium mb-2 block">CC (optional)</Label>
+                        <Input
+                          value={email.cc || ''}
+                          onChange={(e) => updateEventEmail(email.id, 'cc', e.target.value)}
+                          placeholder="team@example.com, manager@example.com"
+                          className="bg-white"
+                          data-testid={`input-email-cc-${email.id}`}
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                          Comma-separate multiple addresses to CC on every send.
+                        </p>
                       </div>
 
                       {/* Email Body with Plain Text / Rich Text Toggle */}

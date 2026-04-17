@@ -65,6 +65,18 @@ export default async function handler(req, res) {
         }
       }
 
+      const ccEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const email of emails) {
+        if (!email.cc || typeof email.cc !== 'string') continue;
+        const parts = email.cc.split(',').map(s => s.trim()).filter(Boolean);
+        const invalid = parts.filter(p => !ccEmailRegex.test(p));
+        if (invalid.length > 0) {
+          return res.status(400).json({
+            error: `Invalid CC email address: ${invalid.join(', ')}`
+          });
+        }
+      }
+
       const savedEmails = [];
       const errors = [];
 
@@ -72,6 +84,10 @@ export default async function handler(req, res) {
         const resolvedUnit = email.timing_type === 'custom' ? (email.custom_unit || 'hours') : null;
         const resolvedSendAt = (email.timing_type === 'custom' && resolvedUnit === 'specific_datetime' && email.custom_send_at)
           ? email.custom_send_at : null;
+
+        const normalizedCc = typeof email.cc === 'string'
+          ? email.cc.split(',').map(s => s.trim()).filter(Boolean).join(', ')
+          : '';
 
         const emailData = {
           event_id: eventId,
@@ -82,6 +98,7 @@ export default async function handler(req, res) {
           custom_send_at: resolvedSendAt,
           subject: email.subject,
           body: email.body,
+          cc: normalizedCc || null,
           is_enabled: email.is_enabled !== false,
           is_complex_event: is_complex_event || false,
           updated_at: new Date().toISOString()

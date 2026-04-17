@@ -28,6 +28,10 @@ ALTER TABLE event_email ADD COLUMN IF NOT EXISTS is_complex_event BOOLEAN DEFAUL
 ALTER TABLE event_email ADD COLUMN IF NOT EXISTS custom_unit VARCHAR(50);
 ALTER TABLE event_email ADD COLUMN IF NOT EXISTS custom_send_at TIMESTAMP WITH TIME ZONE;
 
+-- Migration for existing tables: add manual CC field for confirmation/reminder emails
+-- Stores a comma-separated list of email addresses to CC on outgoing emails.
+ALTER TABLE event_email ADD COLUMN IF NOT EXISTS cc TEXT;
+
 -- Create index for faster lookups by event_id
 CREATE INDEX IF NOT EXISTS idx_event_email_event_id ON event_email(event_id);
 
