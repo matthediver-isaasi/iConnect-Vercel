@@ -94,7 +94,7 @@ export default function DynamicPage() {
       });
       return { page, elements };
     },
-    enabled: !!slug && !dynamicArticleRoute,
+    enabled: !!slug && !dynamicArticleRoute && !articleUrlLoading,
     staleTime: 0
   });
 
@@ -232,7 +232,11 @@ export default function DynamicPage() {
 
     if (dynamicArticleRoute) {
       const isPublicArticleRoute = dynamicArticleRoute.component === 'PublicArticles';
-      setForcePublicLayout(isPublicArticleRoute);
+      // Force public layout for the explicit PublicArticles route, OR for any
+      // dynamic article route when the visitor is not logged in. The Articles
+      // component supports guests internally via publicClient; we just need
+      // the public chrome (no portal sidebar) to wrap it.
+      setForcePublicLayout(isPublicArticleRoute || !isLoggedIn);
       return () => {
         setForcePublicLayout(false);
       };
