@@ -219,13 +219,20 @@ export default function DynamicPage() {
   }, [slug, setChromeReady, setForceBlankLayout]);
 
   useLayoutEffect(() => {
+    // Dynamic article routes bypass the page-data query entirely, so we need
+    // to release the chrome gate as soon as the route is resolved — otherwise
+    // Layout keeps the children wrapped in `visibility: hidden` forever.
+    if (dynamicArticleRoute) {
+      setChromeReady(true);
+      return;
+    }
     if (pageLoading || !page) return;
     if (page.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
     }
     setChromeReady(true);
-  }, [page, pageLoading, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
+  }, [page, pageLoading, dynamicArticleRoute, setForceBlankLayout, setForcePublicLayout, setChromeReady]);
 
   useEffect(() => {
     if (page?.hide_chrome) return;
