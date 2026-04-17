@@ -1,6 +1,7 @@
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../_lib/roleVisibility.js';
+import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -110,6 +111,10 @@ export default async function handler(req, res) {
     if (updateError) {
       console.error('[Admin Update Org] Error:', updateError);
       return res.status(500).json({ error: updateError.message });
+    }
+
+    if (updatedOrg?.tenant_id) {
+      triggerZohoCrmSync(updatedOrg.tenant_id, 'organization', orgId, { action: 'admin_update' });
     }
 
     return res.json(updatedOrg);

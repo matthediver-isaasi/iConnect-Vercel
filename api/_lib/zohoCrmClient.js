@@ -538,3 +538,100 @@ export function clearTenantZohoCrmTokenCache(tenantId) {
 }
 
 export { getTenantZohoCrmCredentials, saveTenantZohoCrmCredentials, encrypt, decrypt };
+
+// ---------------------------------------------------------------------------
+// Metadata + generic upsert helpers used by the Zoho CRM Sync pipeline
+// ---------------------------------------------------------------------------
+
+const SYNC_MODULES = ['Contacts', 'Leads', 'Accounts'];
+
+export async function listZohoCrmSyncModules(tenantId) {
+  try {
+    const data = await zohoCrmApiCall(tenantId, '/settings/modules');
+    const modules = (data?.modules || [])
+      .filter(m => SYNC_MODULES.includes(m.api_name))
+      .map(m => ({
+        api_name: m.api_name,
+        plural_label: m.plural_label || m.api_name,
+        singular_label: m.singular_label || m.api_name
+      }));
+    if (modules.length === 0) {
+      return SYNC_MODULES.map(api_name => ({ api_name, plural_label: api_name, singular_label: api_name }));
+    }
+    return modules;
+  } catch (err) {
+    console.error('[ZohoCRM] listZohoCrmSyncModules failed:', err.message);
+    return SYNC_MODULES.map(api_name => ({ api_name, plural_label: api_name, singular_label: api_name }));
+  }
+}
+
+export async function getZohoCrmModuleFields(tenantId, module) {
+  if (!module) throw new Error('Module is required');
+  const data = await zohoCrmApiCall(tenantId, `/settings/fields?module=${encodeURIComponent(module)}`);
+  const fields = (data?.fields || []).map(f => ({
+    api_name: f.api_name,
+    field_label: f.field_label,
+    data_type: f.data_type,
+    required: !!(f.system_mandatory || f.required),
+    read_only: !!f.read_only,
+    custom_field: !!f.custom_field,
+    length: f.length || null,
+    pick_list_values: (f.pick_list_values || []).map(p => ({ display_value: p.display_value, actual_value: p.actual_value }))
+  }));
+  return fields;
+}
+
+export async function upsertZohoCrmRecord(tenantId, module, recordData, uniqueKeyField) {
+  const payload = {
+    data: [recordData],
+    trigger: ['workflow']
+  };
+  if (uniqueKeyField) {
+    payload.duplicate_check_fields = [uniqueKeyField];
+  }
+  const response = await zohoCrmApiCall(tenantId, `/${module}/upsert`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  if (response?.data?.[0]) {
+    const result = response.data[0];
+    if (result.status === 'success') {
+      const action = result.action || (result.details?.Created_Time === result.details?.Modified_Time ? 'insert' : 'update');
+      return {
+        success: true,
+        id: result.details?.id,
+        action,
+        details: result.details,
+        raw: response
+      };
+    }
+    return {
+      success: false,
+      error: result.message || 'Unknown error from Zoho CRM',
+      code: result.code,
+      details: result.details,
+      raw: response
+    };
+  }
+  return { success: false, error: 'No data in Zoho CRM response', raw: response };
+}
+
+export async function updateZohoCrmRecordById(tenantId, module, recordId, recordData) {
+  const payload = {
+    data: [{ id: recordId, ...recordData }],
+    trigger: ['workflow']
+  };
+  const response = await zohoCrmApiCall(tenantId, `/${module}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  if (response?.data?.[0]) {
+    const result = response.data[0];
+    if (result.status === 'success') {
+      return { success: true, id: result.details?.id || recordId, action: 'update', details: result.details, raw: response };
+    }
+    return { success: false, error: result.message || 'Unknown error', code: result.code, raw: response };
+  }
+  return { success: false, error: 'No data in Zoho CRM response', raw: response };
+}
+

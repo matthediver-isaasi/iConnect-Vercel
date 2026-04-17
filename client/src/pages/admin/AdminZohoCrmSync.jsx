@@ -1,0 +1,569 @@
+import { useEffect, useMemo, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from "@/components/ui/table";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
+} from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye
+} from "lucide-react";
+
+const ENTITY_OPTIONS = [
+  { value: "member", label: "Members" },
+  { value: "organization", label: "Organisations" }
+];
+
+const DEFAULT_UNIQUE_KEY = {
+  Contacts: "Email",
+  Leads: "Email",
+  Accounts: "Account_Name"
+};
+
+function emptyMappingRow() {
+  return { iconnect_field: "", zoho_field: "", iconnect_field_type: "", zoho_field_label: "" };
+}
+
+export default function AdminZohoCrmSync() {
+  const { toast } = useToast();
+
+  const [connected, setConnected] = useState(false);
+  const [checkingConnection, setCheckingConnection] = useState(true);
+  const [entityType, setEntityType] = useState("member");
+  const [modules, setModules] = useState([]);
+  const [zohoFields, setZohoFields] = useState([]);
+  const [iconnectFields, setIconnectFields] = useState({ core: [], custom: [] });
+  const [mapping, setMapping] = useState(null);
+  const [loadingMapping, setLoadingMapping] = useState(true);
+  const [savingMapping, setSavingMapping] = useState(false);
+
+  // Sync log state
+  const [logs, setLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [retryingId, setRetryingId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [logEntityFilter, setLogEntityFilter] = useState("all");
+  const [viewLog, setViewLog] = useState(null);
+
+  useEffect(() => {
+    checkConnection();
+    loadModules();
+  }, []);
+
+  useEffect(() => {
+    loadMapping(entityType);
+    loadIconnectFields(entityType);
+  }, [entityType]);
+
+  useEffect(() => {
+    if (mapping?.zoho_module) {
+      loadZohoFields(mapping.zoho_module);
+    } else {
+      setZohoFields([]);
+    }
+  }, [mapping?.zoho_module]);
+
+  const checkConnection = async () => {
+    setCheckingConnection(true);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/metadata?resource=connection", { credentials: "include" });
+      const d = await r.json();
+      setConnected(!!d.connected);
+    } catch {
+      setConnected(false);
+    } finally {
+      setCheckingConnection(false);
+    }
+  };
+
+  const loadModules = async () => {
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/metadata?resource=modules", { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setModules(d.modules || []);
+    } catch (err) {
+      console.error("Modules load error:", err);
+    }
+  };
+
+  const loadIconnectFields = async (et) => {
+    try {
+      const r = await fetch(`/api/admin/zoho-crm-sync/metadata?resource=iconnect-fields&entity_type=${et}`, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setIconnectFields({ core: d.core || [], custom: d.custom || [] });
+    } catch (err) {
+      console.error("iConnect fields load error:", err);
+    }
+  };
+
+  const loadZohoFields = async (mod) => {
+    try {
+      const r = await fetch(`/api/admin/zoho-crm-sync/metadata?resource=fields&module=${encodeURIComponent(mod)}`, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setZohoFields(d.fields || []);
+      else toast({ variant: "destructive", title: "Failed to load Zoho fields", description: d.error });
+    } catch (err) {
+      console.error("Zoho fields load error:", err);
+    }
+  };
+
+  const loadMapping = async (et) => {
+    setLoadingMapping(true);
+    try {
+      const r = await fetch(`/api/admin/zoho-crm-sync/mappings?entity_type=${et}`, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) {
+        const found = (d.mappings || []).find(m => m.entity_type === et);
+        if (found) {
+          setMapping(found);
+        } else {
+          const defaultModule = et === "organization" ? "Accounts" : "Contacts";
+          setMapping({
+            entity_type: et,
+            zoho_module: defaultModule,
+            unique_key_field: DEFAULT_UNIQUE_KEY[defaultModule],
+            is_enabled: false,
+            field_mappings: []
+          });
+        }
+      }
+    } finally {
+      setLoadingMapping(false);
+    }
+  };
+
+  const updateMapping = (patch) => setMapping(prev => ({ ...prev, ...patch }));
+
+  const updateRow = (idx, patch) => {
+    setMapping(prev => {
+      const rows = [...(prev.field_mappings || [])];
+      rows[idx] = { ...rows[idx], ...patch };
+      return { ...prev, field_mappings: rows };
+    });
+  };
+
+  const addRow = () => {
+    setMapping(prev => ({ ...prev, field_mappings: [...(prev.field_mappings || []), emptyMappingRow()] }));
+  };
+
+  const removeRow = (idx) => {
+    setMapping(prev => ({ ...prev, field_mappings: prev.field_mappings.filter((_, i) => i !== idx) }));
+  };
+
+  const saveMapping = async () => {
+    if (!mapping?.zoho_module || !mapping?.unique_key_field) {
+      toast({ variant: "destructive", title: "Missing required fields", description: "Module and unique key field are required" });
+      return;
+    }
+    setSavingMapping(true);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/mappings", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entity_type: mapping.entity_type,
+          zoho_module: mapping.zoho_module,
+          unique_key_field: mapping.unique_key_field,
+          is_enabled: !!mapping.is_enabled,
+          field_mappings: mapping.field_mappings || []
+        })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setMapping(d.mapping);
+        toast({ title: "Mapping saved", description: `${entityType} sync configuration updated` });
+      } else {
+        toast({ variant: "destructive", title: "Save failed", description: d.error });
+      }
+    } finally {
+      setSavingMapping(false);
+    }
+  };
+
+  const loadLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (logEntityFilter !== "all") params.set("entity_type", logEntityFilter);
+      const r = await fetch(`/api/admin/zoho-crm-sync/logs?${params}`, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setLogs(d.logs || []);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, logEntityFilter]);
+
+  const retryLog = async (logId) => {
+    setRetryingId(logId);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/logs", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", log_id: logId })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        toast({
+          title: d.result?.status === "success" ? "Retry succeeded" : "Retry completed",
+          description: d.result?.status === "failed" ? (d.result.error_message || "Failed again") : `Status: ${d.result?.status || "unknown"}`,
+          variant: d.result?.status === "failed" ? "destructive" : "default"
+        });
+        loadLogs();
+      } else {
+        toast({ variant: "destructive", title: "Retry failed", description: d.error });
+      }
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  const allIconnectOptions = useMemo(() => {
+    return [
+      ...iconnectFields.core.map(f => ({ value: f.key, label: `${f.label}`, type: f.type })),
+      ...iconnectFields.custom.map(f => ({ value: f.key, label: `${f.label} (custom)`, type: f.type }))
+    ];
+  }, [iconnectFields]);
+
+  const writableZohoFields = useMemo(() => {
+    return zohoFields.filter(f => !f.read_only);
+  }, [zohoFields]);
+
+  return (
+    <div className="container mx-auto p-6 space-y-6 max-w-6xl">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Zoho CRM Sync</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Map iConnect member and organisation fields to Zoho CRM. Records are pushed in real time on create and update.
+          </p>
+        </div>
+        {checkingConnection ? (
+          <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking</Badge>
+        ) : connected ? (
+          <Badge className="bg-green-500/20 text-green-700 border-green-500/30" data-testid="badge-connected">
+            <CheckCircle2 className="h-3 w-3 mr-1" />Connected to Zoho CRM
+          </Badge>
+        ) : (
+          <Badge variant="destructive" data-testid="badge-disconnected">
+            <AlertTriangle className="h-3 w-3 mr-1" />Not connected — connect Zoho in Integrations first
+          </Badge>
+        )}
+      </div>
+
+      <Tabs defaultValue="mapping" className="w-full">
+        <TabsList>
+          <TabsTrigger value="mapping" data-testid="tab-mapping">Field Mapping</TabsTrigger>
+          <TabsTrigger value="logs" data-testid="tab-logs">Sync Log</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="mapping" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Mapping Configuration</CardTitle>
+                  <CardDescription>Choose the entity, target Zoho module, and field mappings.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="entity-select" className="text-sm">Entity</Label>
+                  <Select value={entityType} onValueChange={setEntityType}>
+                    <SelectTrigger id="entity-select" className="w-[180px]" data-testid="select-entity-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ENTITY_OPTIONS.map(o => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loadingMapping ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Zoho Module</Label>
+                      <Select
+                        value={mapping?.zoho_module || ""}
+                        onValueChange={(v) => updateMapping({ zoho_module: v, unique_key_field: DEFAULT_UNIQUE_KEY[v] || mapping?.unique_key_field })}
+                      >
+                        <SelectTrigger data-testid="select-zoho-module">
+                          <SelectValue placeholder="Select module" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {modules.map(m => (
+                            <SelectItem key={m.api_name} value={m.api_name}>{m.plural_label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Unique Key (duplicate check)</Label>
+                      <Select
+                        value={mapping?.unique_key_field || ""}
+                        onValueChange={(v) => updateMapping({ unique_key_field: v })}
+                      >
+                        <SelectTrigger data-testid="select-unique-key">
+                          <SelectValue placeholder="Select field" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {writableZohoFields.map(f => (
+                            <SelectItem key={f.api_name} value={f.api_name}>{f.field_label} ({f.api_name})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-3 pt-7">
+                      <Switch
+                        checked={!!mapping?.is_enabled}
+                        onCheckedChange={(v) => updateMapping({ is_enabled: v })}
+                        data-testid="switch-mapping-enabled"
+                      />
+                      <Label>Sync enabled</Label>
+                    </div>
+                  </div>
+
+                  <div className="border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>iConnect Field</TableHead>
+                          <TableHead>Zoho Field</TableHead>
+                          <TableHead className="w-12"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(mapping?.field_mappings || []).map((row, idx) => (
+                          <TableRow key={idx} data-testid={`row-mapping-${idx}`}>
+                            <TableCell>
+                              <Select
+                                value={row.iconnect_field || ""}
+                                onValueChange={(v) => {
+                                  const opt = allIconnectOptions.find(o => o.value === v);
+                                  updateRow(idx, { iconnect_field: v, iconnect_field_type: opt?.type });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-iconnect-field-${idx}`}>
+                                  <SelectValue placeholder="Select source" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {allIconnectOptions.map(opt => (
+                                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={row.zoho_field || ""}
+                                onValueChange={(v) => {
+                                  const f = writableZohoFields.find(z => z.api_name === v);
+                                  updateRow(idx, { zoho_field: v, zoho_field_label: f?.field_label });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-zoho-field-${idx}`}>
+                                  <SelectValue placeholder="Select Zoho field" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {writableZohoFields.map(f => (
+                                    <SelectItem key={f.api_name} value={f.api_name}>
+                                      {f.field_label} ({f.api_name}){f.required ? " *" : ""}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeRow(idx)}
+                                data-testid={`button-remove-row-${idx}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {(!mapping?.field_mappings || mapping.field_mappings.length === 0) && (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground py-6">
+                              No field mappings yet. Click "Add field" to start.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={addRow} data-testid="button-add-row">
+                      <Plus className="h-4 w-4 mr-2" />Add field
+                    </Button>
+                    <Button onClick={saveMapping} disabled={savingMapping} data-testid="button-save-mapping">
+                      {savingMapping ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                      Save mapping
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="logs" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Sync Log</CardTitle>
+                  <CardDescription>Most recent sync attempts. Failed attempts can be retried.</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={logEntityFilter} onValueChange={setLogEntityFilter}>
+                    <SelectTrigger className="w-[150px]" data-testid="select-log-entity-filter"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All entities</SelectItem>
+                      <SelectItem value="member">Members</SelectItem>
+                      <SelectItem value="organization">Organisations</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[140px]" data-testid="select-log-status-filter"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="success">Success</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="skipped">Skipped</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="icon" onClick={loadLogs} data-testid="button-refresh-logs">
+                    <RefreshCw className={`h-4 w-4 ${loadingLogs ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Entity</TableHead>
+                      <TableHead>Module</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Detail</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {logs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-6">
+                          {loadingLogs ? "Loading..." : "No log entries match the current filters."}
+                        </TableCell>
+                      </TableRow>
+                    ) : logs.map(l => (
+                      <TableRow key={l.id} data-testid={`row-log-${l.id}`}>
+                        <TableCell className="text-xs whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs">{l.entity_type}<br /><span className="text-muted-foreground">{l.entity_id?.slice(0, 8)}…</span></TableCell>
+                        <TableCell className="text-xs">{l.zoho_module || "—"}</TableCell>
+                        <TableCell>
+                          {l.status === "success" && <Badge className="bg-green-500/20 text-green-700 border-green-500/30"><CheckCircle2 className="h-3 w-3 mr-1" />success</Badge>}
+                          {l.status === "failed" && <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />failed</Badge>}
+                          {l.status === "skipped" && <Badge variant="secondary">skipped</Badge>}
+                        </TableCell>
+                        <TableCell className="text-xs">{l.action || "—"}</TableCell>
+                        <TableCell className="text-xs max-w-xs truncate" title={l.error_message || l.zoho_record_id || ""}>
+                          {l.error_message || l.zoho_record_id || "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => setViewLog(l)} data-testid={`button-view-log-${l.id}`}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {l.status === "failed" && l.entity_id && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={retryingId === l.id}
+                                onClick={() => retryLog(l.id)}
+                                data-testid={`button-retry-${l.id}`}
+                              >
+                                {retryingId === l.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={!!viewLog} onOpenChange={(o) => !o && setViewLog(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Sync log detail</DialogTitle>
+            <DialogDescription>{viewLog && new Date(viewLog.created_at).toLocaleString()}</DialogDescription>
+          </DialogHeader>
+          {viewLog && (
+            <div className="space-y-3 text-sm">
+              <div><span className="font-medium">Entity:</span> {viewLog.entity_type} / {viewLog.entity_id}</div>
+              <div><span className="font-medium">Module:</span> {viewLog.zoho_module || "—"}</div>
+              <div><span className="font-medium">Status:</span> {viewLog.status}</div>
+              {viewLog.zoho_record_id && <div><span className="font-medium">Zoho record:</span> {viewLog.zoho_record_id}</div>}
+              {viewLog.error_message && (
+                <div>
+                  <div className="font-medium">Error</div>
+                  <pre className="bg-muted rounded p-2 text-xs whitespace-pre-wrap">{viewLog.error_message}</pre>
+                </div>
+              )}
+              {viewLog.request_payload && (
+                <div>
+                  <div className="font-medium">Request payload</div>
+                  <pre className="bg-muted rounded p-2 text-xs overflow-auto max-h-60">{JSON.stringify(viewLog.request_payload, null, 2)}</pre>
+                </div>
+              )}
+              {viewLog.response_payload && (
+                <div>
+                  <div className="font-medium">Response</div>
+                  <pre className="bg-muted rounded p-2 text-xs overflow-auto max-h-60">{JSON.stringify(viewLog.response_payload, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

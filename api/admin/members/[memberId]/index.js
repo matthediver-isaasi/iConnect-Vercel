@@ -2,6 +2,7 @@ import { getSessionMember } from '../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
 import { triggerWorkflows } from '../../../_lib/workflows.js';
+import { triggerZohoCrmSync } from '../../../_lib/zohoCrmSync.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -144,6 +145,9 @@ export default async function handler(req, res) {
         const host = req.headers['x-forwarded-host'] || req.headers.host || '';
         const baseUrl = host ? `${protocol}://${host}` : '';
         
+        if (updatedMember?.tenant_id || beforeData?.tenant_id) {
+          triggerZohoCrmSync(updatedMember?.tenant_id || beforeData.tenant_id, 'member', memberId, { action: 'admin_update' });
+        }
         const workflowResult = await triggerWorkflows('member', memberId, beforeData, updatedMember, 'field_change', baseUrl);
         if (workflowResult?.pendingConfirmations?.length > 0) {
           pendingWorkflowConfirmations = workflowResult.pendingConfirmations;

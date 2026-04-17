@@ -1403,6 +1403,21 @@ export default function AdminIntegrations() {
                   </div>
                 </div>
               )}
+
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-1">Zoho CRM Sync</h4>
+                <p className="text-xs text-slate-400 mb-3">
+                  Map iConnect member and organisation fields to Zoho CRM modules (Contacts, Leads, Accounts) and review sync history.
+                </p>
+                <a
+                  href="/admin/zoho-crm-sync"
+                  className="inline-flex items-center gap-2 text-sm text-orange-400 hover:underline"
+                  data-testid="link-zoho-crm-sync"
+                >
+                  Configure Zoho CRM sync
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
             </CardContent>
           </Card>
 

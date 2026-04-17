@@ -1,5 +1,6 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
+import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
@@ -1032,6 +1033,9 @@ export default async function handler(req, res) {
         triggerWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
+        if ((entityType === 'member' || entityType === 'organization') && data.tenant_id) {
+          triggerZohoCrmSync(data.tenant_id, entityType, data.id, { action: 'create' });
+        }
       }
       
       // Also trigger workflows when preference values are created
@@ -1046,6 +1050,9 @@ export default async function handler(req, res) {
         console.log(`[Entity POST] Preference value created - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         
         if (entityId && fieldId) {
+          if (data.tenant_id) {
+            triggerZohoCrmSync(data.tenant_id, entityType, entityId, { action: 'preference_change' });
+          }
           try {
             const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value, baseUrl);
             if (prefResult?.pendingConfirmations?.length > 0) {

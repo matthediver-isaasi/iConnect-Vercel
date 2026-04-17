@@ -1,0 +1,106 @@
+import { supabase } from '../../_lib/database.js';
+import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+
+const VALID_ENTITY_TYPES = ['member', 'organization'];
+const ALLOWED_MODULES_BY_ENTITY = {
+  member: ['Contacts', 'Leads'],
+  organization: ['Accounts']
+};
+
+export default async function handler(req, res) {
+  try {
+    const ctx = await getTenantContext(req);
+    if (!ctx?.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await hasAdminAccess(ctx))) return res.status(403).json({ error: 'Admin access required' });
+    const tenantId = ctx.tenantId;
+
+    if (req.method === 'GET') {
+      const { entity_type } = req.query;
+      let q = supabase.from('zoho_crm_sync_mapping').select('*').eq('tenant_id', tenantId);
+      if (entity_type) q = q.eq('entity_type', entity_type);
+      const { data, error } = await q;
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ mappings: data || [] });
+    }
+
+    if (req.method === 'PUT' || req.method === 'POST') {
+      const { entity_type, zoho_module, unique_key_field, is_enabled, field_mappings } = req.body || {};
+      if (!VALID_ENTITY_TYPES.includes(entity_type)) {
+        return res.status(400).json({ error: 'entity_type must be member or organization' });
+      }
+      if (!zoho_module) return res.status(400).json({ error: 'zoho_module is required' });
+      const allowedModules = ALLOWED_MODULES_BY_ENTITY[entity_type];
+      if (!allowedModules.includes(zoho_module)) {
+        return res.status(400).json({
+          error: `${entity_type} can only sync to: ${allowedModules.join(', ')}`
+        });
+      }
+      if (!unique_key_field) return res.status(400).json({ error: 'unique_key_field is required' });
+      const sanitizedMappings = Array.isArray(field_mappings)
+        ? field_mappings.filter(m => m && m.iconnect_field && m.zoho_field)
+        : [];
+      // Require the unique_key_field to be one of the mapped Zoho fields so the
+      // duplicate-check upsert always has a value to compare on.
+      const mappedZohoFields = new Set(sanitizedMappings.map(m => m.zoho_field));
+      if (!mappedZohoFields.has(unique_key_field)) {
+        return res.status(400).json({
+          error: `unique_key_field "${unique_key_field}" must be included in the field mappings so it has a value to match on`
+        });
+      }
+
+      const payload = {
+        tenant_id: tenantId,
+        entity_type,
+        zoho_module,
+        unique_key_field,
+        is_enabled: !!is_enabled,
+        field_mappings: sanitizedMappings,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: existing } = await supabase
+        .from('zoho_crm_sync_mapping')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('entity_type', entity_type)
+        .maybeSingle();
+
+      let result;
+      if (existing) {
+        result = await supabase
+          .from('zoho_crm_sync_mapping')
+          .update(payload)
+          .eq('id', existing.id)
+          .select()
+          .single();
+      } else {
+        result = await supabase
+          .from('zoho_crm_sync_mapping')
+          .insert(payload)
+          .select()
+          .single();
+      }
+      if (result.error) return res.status(500).json({ error: result.error.message });
+      return res.status(200).json({ mapping: result.data });
+    }
+
+    if (req.method === 'DELETE') {
+      const { entity_type } = req.query;
+      if (!VALID_ENTITY_TYPES.includes(entity_type)) {
+        return res.status(400).json({ error: 'entity_type must be member or organization' });
+      }
+      const { error } = await supabase
+        .from('zoho_crm_sync_mapping')
+        .delete()
+        .eq('tenant_id', tenantId)
+        .eq('entity_type', entity_type);
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ success: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('[ZohoCrmSync mappings] Error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}

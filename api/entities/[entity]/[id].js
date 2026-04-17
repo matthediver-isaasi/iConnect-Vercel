@@ -1,4 +1,5 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
+import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
@@ -521,6 +522,9 @@ export default async function handler(req, res) {
       if (isWorkflowEntity && data) {
         const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
         try {
+          if ((entityType === 'member' || entityType === 'organization') && (data.tenant_id || beforeData?.tenant_id)) {
+            triggerZohoCrmSync(data.tenant_id || beforeData.tenant_id, entityType, id, { action: 'update' });
+          }
           const workflowResult = await triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl);
           if (workflowResult?.pendingConfirmations?.length > 0) {
             pendingWorkflowConfirmations = workflowResult.pendingConfirmations;
@@ -542,6 +546,9 @@ export default async function handler(req, res) {
         const prevValue = prefValueBefore;
         
         if (entityId && fieldId) {
+          if (data.tenant_id || beforeData?.tenant_id) {
+            triggerZohoCrmSync(data.tenant_id || beforeData.tenant_id, entityType, entityId, { action: 'preference_change' });
+          }
           try {
             const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl, prevValue);
             if (prefResult?.pendingConfirmations?.length > 0) {

@@ -328,6 +328,7 @@ import AdminTeam from "./admin/AdminTeam";
 import AdminEmailLogs from "./admin/AdminEmailLogs";
 import AdminScheduledTasks from "./admin/AdminScheduledTasks";
 import AdminIntegrations from "./admin/AdminIntegrations";
+import AdminZohoCrmSync from "./admin/AdminZohoCrmSync";
 import SaasLanding from "./admin/SaasLanding";
 
 import PlatformLogin from "./platform/PlatformLogin";
@@ -1066,6 +1067,7 @@ function AdminRoutes() {
             <Route path="/admin/email-logs" element={<AdminEmailLogs />} />
             <Route path="/admin/scheduled-tasks" element={<AdminScheduledTasks />} />
             <Route path="/admin/integrations" element={<AdminIntegrations />} />
+            <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
     );
@@ -1103,6 +1105,7 @@ function SaasRoutes() {
             <Route path="/admin/email-logs" element={<AdminEmailLogs />} />
             <Route path="/admin/scheduled-tasks" element={<AdminScheduledTasks />} />
             <Route path="/admin/integrations" element={<AdminIntegrations />} />
+            <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/platform/setup" element={<PlatformSetup />} />
             <Route path="/platform/login" element={<PlatformLogin />} />
