@@ -167,12 +167,22 @@ function evaluateCondition(condition, formData, customFields) {
     }
   }
 
-  const isBooleanField = fieldDef?.field_type === 'boolean' || typeof fieldValue === 'boolean';
+  const isDeclaredBooleanField = fieldDef?.field_type === 'boolean';
+  const isBooleanField = isDeclaredBooleanField || typeof fieldValue === 'boolean';
+
+  const canonicalBoolFieldValue = () => {
+    const canon = toBoolCanonical(fieldValue);
+    if (canon !== null) return canon;
+    if (isDeclaredBooleanField && (fieldValue === undefined || fieldValue === null || fieldValue === '')) {
+      return 'false';
+    }
+    return null;
+  };
 
   switch (operator) {
     case 'equals': {
       if (isBooleanField) {
-        const a = toBoolCanonical(fieldValue);
+        const a = canonicalBoolFieldValue();
         const b = toBoolCanonical(value);
         if (a !== null && b !== null) return a === b;
       }
@@ -180,7 +190,7 @@ function evaluateCondition(condition, formData, customFields) {
     }
     case 'not_equals': {
       if (isBooleanField) {
-        const a = toBoolCanonical(fieldValue);
+        const a = canonicalBoolFieldValue();
         const b = toBoolCanonical(value);
         if (a !== null && b !== null) return a !== b;
       }
