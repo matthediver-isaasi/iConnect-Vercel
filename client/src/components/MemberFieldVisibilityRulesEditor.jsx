@@ -340,6 +340,8 @@ export default function MemberFieldVisibilityRulesEditor({
                             {conditions.map((condition, condIndex) => {
                               const fieldOptions = getFieldOptions(condition.field_id);
                               const needsValueInput = !['is_empty', 'not_empty'].includes(condition.operator);
+                              const selectedField = allFields.find(f => f.id === condition.field_id);
+                              const isBooleanField = selectedField?.type === 'boolean';
                               
                               return (
                                 <div 
@@ -395,7 +397,20 @@ export default function MemberFieldVisibilityRulesEditor({
                                   </Select>
 
                                   {needsValueInput && (
-                                    fieldOptions.length > 0 ? (
+                                    isBooleanField ? (
+                                      <Select
+                                        value={condition.value || undefined}
+                                        onValueChange={(value) => updateCondition(rule.id, condition.id, { value })}
+                                      >
+                                        <SelectTrigger className="h-8 flex-1" data-testid={`select-member-condition-value-${ruleIndex}-${condIndex}`}>
+                                          <SelectValue placeholder="Select value..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="true">Yes</SelectItem>
+                                          <SelectItem value="false">No</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    ) : fieldOptions.length > 0 ? (
                                       <Select
                                         value={condition.value || undefined}
                                         onValueChange={(value) => updateCondition(rule.id, condition.id, { value })}

@@ -139,33 +139,62 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
   return { hiddenFields, hiddenCards };
 }
 
+const BOOLEAN_TRUE_STRINGS = new Set(['true', 'yes', '1']);
+const BOOLEAN_FALSE_STRINGS = new Set(['false', 'no', '0']);
+
+function toBoolCanonical(v) {
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().toLowerCase();
+  if (BOOLEAN_TRUE_STRINGS.has(s)) return 'true';
+  if (BOOLEAN_FALSE_STRINGS.has(s)) return 'false';
+  return null;
+}
+
 function evaluateCondition(condition, formData, customFields) {
   const { field_id, operator, value } = condition;
-  
+
   let fieldValue;
+  let fieldDef;
   if (field_id.startsWith('core:')) {
     const fieldKey = field_id.replace('core:', '');
     fieldValue = formData[fieldKey];
   } else if (field_id.startsWith('custom:')) {
     const customFieldId = field_id.replace('custom:', '');
-    const customField = customFields?.find(cf => cf.id === customFieldId);
-    if (customField && formData.custom_field_values) {
+    fieldDef = customFields?.find(cf => cf.id === customFieldId);
+    if (fieldDef && formData.custom_field_values) {
       fieldValue = formData.custom_field_values[customFieldId];
     }
   }
-  
+
+  const isBooleanField = fieldDef?.field_type === 'boolean' || typeof fieldValue === 'boolean';
+
   switch (operator) {
-    case 'equals':
-      return String(fieldValue || '') === String(value || '');
-    case 'not_equals':
-      return String(fieldValue || '') !== String(value || '');
+    case 'equals': {
+      if (isBooleanField) {
+        const a = toBoolCanonical(fieldValue);
+        const b = toBoolCanonical(value);
+        if (a !== null && b !== null) return a === b;
+      }
+      return String(fieldValue ?? '') === String(value ?? '');
+    }
+    case 'not_equals': {
+      if (isBooleanField) {
+        const a = toBoolCanonical(fieldValue);
+        const b = toBoolCanonical(value);
+        if (a !== null && b !== null) return a !== b;
+      }
+      return String(fieldValue ?? '') !== String(value ?? '');
+    }
     case 'contains':
-      return String(fieldValue || '').toLowerCase().includes(String(value || '').toLowerCase());
+      return String(fieldValue ?? '').toLowerCase().includes(String(value ?? '').toLowerCase());
     case 'not_contains':
-      return !String(fieldValue || '').toLowerCase().includes(String(value || '').toLowerCase());
+      return !String(fieldValue ?? '').toLowerCase().includes(String(value ?? '').toLowerCase());
     case 'is_empty':
+      if (typeof fieldValue === 'boolean') return false;
       return !fieldValue || (Array.isArray(fieldValue) && fieldValue.length === 0) || String(fieldValue).trim() === '';
     case 'not_empty':
+      if (typeof fieldValue === 'boolean') return true;
       return fieldValue && (!Array.isArray(fieldValue) || fieldValue.length > 0) && String(fieldValue).trim() !== '';
     case 'greater_than':
       return Number(fieldValue) > Number(value);
