@@ -275,7 +275,7 @@ export default function ArticlesPage() {
   const authorHandles = authorData.handles;
   const authorNames = authorData.names;
 
-  const { data: articleDisplayName, isLoading: displayNameLoading } = useQuery({
+  const { data: articleDisplayNameData, isLoading: displayNameLoading } = useQuery({
     queryKey: ['article-display-name', isAuthenticated],
     queryFn: async () => {
       if (isAuthenticated) {
@@ -288,6 +288,11 @@ export default function ArticlesPage() {
       }
     }
   });
+  // Always use a safe string so downstream `.endsWith` / `.toLowerCase` calls
+  // never throw if the query errored (data: undefined while isLoading is false).
+  const articleDisplayName = (typeof articleDisplayNameData === 'string' && articleDisplayNameData)
+    ? articleDisplayNameData
+    : 'Articles';
 
   // Load saved preferences once
   React.useEffect(() => {
@@ -388,10 +393,10 @@ export default function ArticlesPage() {
         sorted.sort((a, b) => new Date(a.published_date || a.created_date) - new Date(b.published_date || a.created_date));
         break;
       case 'title-asc':
-        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
         break;
       case 'title-desc':
-        sorted.sort((a, b) => b.title.localeCompare(a.title));
+        sorted.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
         break;
       case 'most-viewed':
         sorted.sort((a, b) => (articleStats[b.id]?.viewCount || 0) - (articleStats[a.id]?.viewCount || 0));

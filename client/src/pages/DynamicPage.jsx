@@ -15,6 +15,7 @@ import Articles from "./Articles";
 import ArticleView from "./ArticleView";
 import ArticleEditor from "./ArticleEditor";
 import PublicArticles from "./PublicArticles";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function DynamicPage() {
   const { slug } = useParams();
@@ -311,18 +312,28 @@ export default function DynamicPage() {
 
   if (dynamicArticleRoute) {
     console.log('[DynamicPage] Rendering component:', dynamicArticleRoute.component);
+    let routeEl = null;
     switch (dynamicArticleRoute.component) {
       case 'Articles':
-        return <Articles />;
+        routeEl = <Articles />;
+        break;
       case 'ArticleView':
-        return <ArticleView />;
+        routeEl = <ArticleView />;
+        break;
       case 'ArticleEditor':
-        return <ArticleEditor />;
+        routeEl = <ArticleEditor />;
+        break;
       case 'PublicArticles':
-        return <PublicArticles />;
+        routeEl = <PublicArticles />;
+        break;
       default:
-        return null;
+        routeEl = null;
     }
+    return (
+      <ErrorBoundary name={`DynamicArticleRoute:${dynamicArticleRoute.component}`}>
+        {routeEl}
+      </ErrorBoundary>
+    );
   }
 
   if (pageLoading || elementsLoading) {

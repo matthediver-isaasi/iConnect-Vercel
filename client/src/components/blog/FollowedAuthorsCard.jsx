@@ -9,11 +9,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "Articles" }) {
   const { isFeatureExcluded } = useMemberAccess();
-  
-  // Hide entire card if follow-author feature is excluded
-  if (isFeatureExcluded('content.articles.follow-author')) {
-    return null;
-  }
   const queryClient = useQueryClient();
 
   const { data: followedAuthors = [], isLoading } = useQuery({
@@ -70,6 +65,12 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
   });
 
   if (!memberInfo) {
+    return null;
+  }
+
+  // Hide entire card if follow-author feature is excluded.
+  // Placed after hooks so React's Rules of Hooks aren't violated.
+  if (isFeatureExcluded('content.articles.follow-author')) {
     return null;
   }
 
