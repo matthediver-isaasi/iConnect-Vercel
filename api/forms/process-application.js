@@ -1127,7 +1127,7 @@ export default async function handler(req, res) {
             first_name: memberData.first_name || '',
             last_name: memberData.last_name || '',
             organization_id: orgIdForNewMember,
-            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : true,
+            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : false,
             show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
           };
           
@@ -1966,7 +1966,7 @@ export default async function handler(req, res) {
           delete additionalMemberData.organization_id;
           const newMemberData = {
             email: memberEmail,
-            login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : true,
+            login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : false,
             show_in_directory: additionalMemberData.show_in_directory !== undefined ? additionalMemberData.show_in_directory : true,
             ...additionalMemberData,
             organization_id: additionalOrgId,
