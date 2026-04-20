@@ -39,17 +39,29 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = ZOHO_HTTP_TIMEOUT
 
 const crmTokenCacheByTenant = new Map();
 
+// Matches our encrypted-at-rest shape: `<32-hex-char IV>:<non-empty hex ciphertext>`.
+// Anything else is treated as plaintext and returns null silently so callers
+// can fall back via `decrypt(x) || x` without polluting logs.
+const ENCRYPTED_VALUE_RE = /^[0-9a-fA-F]{32}:[0-9a-fA-F]+$/;
+
+function looksEncrypted(value) {
+  return typeof value === 'string' && ENCRYPTED_VALUE_RE.test(value);
+}
+
 function decrypt(encryptedText) {
   if (!encryptedText) return null;
+  if (!looksEncrypted(encryptedText)) {
+    // Plaintext value (e.g. `https://www.zohoapis.eu`) — not an error.
+    return null;
+  }
   if (!ENCRYPTION_KEY) {
     console.error('[ZohoCRM] Cannot decrypt - no encryption key configured');
     return null;
   }
   try {
     const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const parts = encryptedText.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
+    const [ivHex, encrypted] = encryptedText.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
