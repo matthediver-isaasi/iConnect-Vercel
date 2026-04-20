@@ -58,6 +58,18 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
+
+const ORG_SORT_KEYS = {
+  name: 'name',
+  members: 'members',
+  contact: 'invoicing_email',
+  email: 'invoicing_email',
+  phone: 'phone',
+  website: 'website_url',
+  description: 'description',
+  created_at: 'created_at',
+};
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
@@ -121,6 +133,19 @@ export default function OrganisationsListPage() {
   const [singleDeleteOrg, setSingleDeleteOrg] = useState(null);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
+  const [sortField, setSortField] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+
+  const handleSort = useCallback((field) => {
+    if (!field) return;
+    setCurrentPage(1);
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }, [sortField]);
 
   useRealtimeSubscription('organization', [['organizations-crm-list']], { 
     enabled: accessChecked, 
@@ -166,7 +191,6 @@ export default function OrganisationsListPage() {
     enabled: accessChecked,
     queryFn: async () => {
       return await base44.entities.Organization.list({
-        sort: { name: 'asc' },
         queryParams: { skipDirectoryFilters: 'true' }
       });
     }
@@ -560,12 +584,46 @@ export default function OrganisationsListPage() {
     return result;
   }, [organizations, searchQuery, coreFieldFilters, customFieldFilters, orgValuesMap]);
 
+  const sortedOrganizations = useMemo(() => {
+    const arr = [...filteredOrganizations];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const getValue = (org) => {
+      if (sortField === 'members') {
+        return organizationMemberCounts[org.id] || 0;
+      }
+      if (sortField?.startsWith('cf_')) {
+        const fieldId = sortField.slice(3);
+        const v = orgValuesMap[org.id]?.[fieldId];
+        if (v == null) return null;
+        return Array.isArray(v) ? v.join(', ') : v;
+      }
+      if (sortField === 'created_at') {
+        return org.created_at ? new Date(org.created_at).getTime() : null;
+      }
+      return org[sortField];
+    };
+    arr.sort((a, b) => {
+      const av = getValue(a);
+      const bv = getValue(b);
+      const aEmpty = av === null || av === undefined || av === '';
+      const bEmpty = bv === null || bv === undefined || bv === '';
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * dir;
+      }
+      return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base', numeric: true }) * dir;
+    });
+    return arr;
+  }, [filteredOrganizations, sortField, sortDir, organizationMemberCounts, orgValuesMap]);
+
   const paginatedOrganizations = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return filteredOrganizations.slice(start, start + itemsPerPage);
-  }, [filteredOrganizations, currentPage, itemsPerPage]);
+    return sortedOrganizations.slice(start, start + itemsPerPage);
+  }, [sortedOrganizations, currentPage, itemsPerPage]);
 
-  const totalPages = Math.ceil(filteredOrganizations.length / itemsPerPage);
+  const totalPages = Math.ceil(sortedOrganizations.length / itemsPerPage);
 
   const allPageSelected = paginatedOrganizations.filter(org => !org.is_primary).length > 0 &&
     paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id));
@@ -1129,11 +1187,29 @@ export default function OrganisationsListPage() {
                           data-testid="checkbox-select-all"
                         />
                       </th>
-                      {visibleColumns.map(col => (
-                        <th key={col.id} className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                          {col.label}
-                        </th>
-                      ))}
+                      {visibleColumns.map(col => {
+                        let sortKey = ORG_SORT_KEYS[col.id];
+                        if (!sortKey && col.isCustomField) {
+                          sortKey = `cf_${col.fieldId}`;
+                        }
+                        return (
+                          <th
+                            key={col.id}
+                            className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide"
+                            aria-sort={getAriaSort(sortKey, sortField, sortDir)}
+                          >
+                            <SortableHeader
+                              field={sortKey}
+                              sortField={sortField}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              sortable={!!sortKey}
+                            >
+                              {col.label}
+                            </SortableHeader>
+                          </th>
+                        );
+                      })}
                       <th className="w-12 px-4 py-3"></th>
                     </tr>
                   </thead>

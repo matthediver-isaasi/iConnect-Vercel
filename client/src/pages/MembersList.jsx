@@ -51,6 +51,16 @@ import {
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
+import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
+
+const MEMBER_SORT_KEYS = {
+  name: 'first_name',
+  email: 'email',
+  organization: 'organization_name',
+  job_title: 'job_title',
+  mobile: 'mobile',
+  status: 'login_enabled',
+};
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -138,6 +148,17 @@ export default function MembersListPage() {
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [sortField, setSortField] = useState('created_on');
   const [sortDir, setSortDir] = useState('desc');
+
+  const handleSort = useCallback((field) => {
+    if (!field) return;
+    setCurrentPage(1);
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }, [sortField]);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -1095,9 +1116,26 @@ export default function MembersListPage() {
                           data-testid="checkbox-select-all-members"
                         />
                       </TableHead>
-                      {visibleColumns.map(col => (
-                        <TableHead key={col.id} className="whitespace-nowrap">{col.label}</TableHead>
-                      ))}
+                      {visibleColumns.map(col => {
+                        const sortKey = col.isCustomField ? null : MEMBER_SORT_KEYS[col.id];
+                        return (
+                          <TableHead
+                            key={col.id}
+                            className="whitespace-nowrap"
+                            aria-sort={getAriaSort(sortKey, sortField, sortDir)}
+                          >
+                            <SortableHeader
+                              field={sortKey}
+                              sortField={sortField}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              sortable={!!sortKey}
+                            >
+                              {col.label}
+                            </SortableHeader>
+                          </TableHead>
+                        );
+                      })}
                       <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>

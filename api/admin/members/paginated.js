@@ -74,11 +74,15 @@ export default async function handler(req, res) {
       query = query.eq('login_enabled', false);
     }
 
-    const validSortFields = ['first_name', 'last_name', 'email', 'created_on', 'job_title'];
+    const validSortFields = ['first_name', 'last_name', 'email', 'created_on', 'job_title', 'mobile', 'login_enabled', 'organization_name'];
     const actualSortField = validSortFields.includes(sortField) ? sortField : 'created_on';
     const ascending = sortDir === 'asc';
 
-    query = query.order(actualSortField, { ascending });
+    if (actualSortField === 'organization_name') {
+      query = query.order('name', { ascending, foreignTable: 'organization', nullsFirst: false });
+    } else {
+      query = query.order(actualSortField, { ascending });
+    }
     query = query.range(offset, offset + limitNum - 1);
 
     const { data: members, error, count } = await query;
