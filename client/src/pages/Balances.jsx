@@ -80,6 +80,43 @@ export default function BalancesPage({ hasBanner }) {
   const trainingFundAllowedRoles = roleRestrictions?.training_fund_allowed_role_ids || [];
   const voucherAllowedRoles = roleRestrictions?.voucher_allowed_role_ids || [];
 
+  const { data: eligibleRolesSetting } = useQuery({
+    queryKey: ['balances-eligible-roles'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'balances_eligible_roles');
+      let value = { training_fund_role_ids: [], voucher_role_ids: [] };
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          value = {
+            training_fund_role_ids: Array.isArray(parsed.training_fund_role_ids) ? parsed.training_fund_role_ids : [],
+            voucher_role_ids: Array.isArray(parsed.voucher_role_ids) ? parsed.voucher_role_ids : []
+          };
+        } catch {
+          // keep defaults
+        }
+      }
+      return { record: setting || null, value };
+    },
+    staleTime: 60_000
+  });
+
+  const trainingFundEligibleIds = eligibleRolesSetting?.value?.training_fund_role_ids || [];
+  const voucherEligibleIds = eligibleRolesSetting?.value?.voucher_role_ids || [];
+
+  const trainingFundRoleOptions = useMemo(() => {
+    if (trainingFundEligibleIds.length === 0) return rolesData;
+    const eligible = new Set(trainingFundEligibleIds);
+    return rolesData.filter(r => eligible.has(r.id));
+  }, [rolesData, trainingFundEligibleIds]);
+
+  const voucherRoleOptions = useMemo(() => {
+    if (voucherEligibleIds.length === 0) return rolesData;
+    const eligible = new Set(voucherEligibleIds);
+    return rolesData.filter(r => eligible.has(r.id));
+  }, [rolesData, voucherEligibleIds]);
+
   const saveRoleRestrictions = useCallback(async (field, roleIds) => {
     setSavingRestrictions(true);
     try {
@@ -106,10 +143,12 @@ export default function BalancesPage({ hasBanner }) {
     }
   }, [organizationInfo?.id, queryClient]);
 
-  const handleToggleRole = useCallback((field, roleId, currentRoles) => {
-    const newRoles = currentRoles.includes(roleId)
-      ? currentRoles.filter(id => id !== roleId)
-      : [...currentRoles, roleId];
+  const handleToggleRole = useCallback((field, roleId, currentRoles, visibleRoles) => {
+    const visibleIds = new Set((visibleRoles || []).map(r => r.id));
+    const sanitized = currentRoles.filter(id => visibleIds.has(id));
+    const newRoles = sanitized.includes(roleId)
+      ? sanitized.filter(id => id !== roleId)
+      : [...sanitized, roleId];
     saveRoleRestrictions(field, newRoles);
   }, [saveRoleRestrictions]);
 
@@ -260,7 +299,9 @@ export default function BalancesPage({ hasBanner }) {
                             </div>
                           ) : (
                             <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                              {rolesData.map((role) => (
+                              {trainingFundRoleOptions.length === 0 ? (
+                                <p className="text-xs text-slate-500">No eligible roles available. Ask your tenant admin to configure eligible roles in Team Settings.</p>
+                              ) : trainingFundRoleOptions.map((role) => (
                                 <label
                                   key={role.id}
                                   className="flex items-center gap-2 p-2 rounded-md bg-white/60 cursor-pointer"
@@ -268,7 +309,7 @@ export default function BalancesPage({ hasBanner }) {
                                 >
                                   <Checkbox
                                     checked={trainingFundAllowedRoles.includes(role.id)}
-                                    onCheckedChange={() => handleToggleRole('training_fund_allowed_role_ids', role.id, trainingFundAllowedRoles)}
+                                    onCheckedChange={() => handleToggleRole('training_fund_allowed_role_ids', role.id, trainingFundAllowedRoles, trainingFundRoleOptions)}
                                     disabled={savingRestrictions}
                                   />
                                   <span className="text-sm text-slate-700">{role.name}</span>
@@ -346,7 +387,9 @@ export default function BalancesPage({ hasBanner }) {
                             </div>
                           ) : (
                             <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                              {rolesData.map((role) => (
+                              {voucherRoleOptions.length === 0 ? (
+                                <p className="text-xs text-slate-500">No eligible roles available. Ask your tenant admin to configure eligible roles in Team Settings.</p>
+                              ) : voucherRoleOptions.map((role) => (
                                 <label
                                   key={role.id}
                                   className="flex items-center gap-2 p-2 rounded-md bg-white/60 cursor-pointer"
@@ -354,7 +397,7 @@ export default function BalancesPage({ hasBanner }) {
                                 >
                                   <Checkbox
                                     checked={voucherAllowedRoles.includes(role.id)}
-                                    onCheckedChange={() => handleToggleRole('voucher_allowed_role_ids', role.id, voucherAllowedRoles)}
+                                    onCheckedChange={() => handleToggleRole('voucher_allowed_role_ids', role.id, voucherAllowedRoles, voucherRoleOptions)}
                                     disabled={savingRestrictions}
                                   />
                                   <span className="text-sm text-slate-700">{role.name}</span>

@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Plus, Trash2 } from "lucide-react";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Plus, Trash2, Wallet, Ticket } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -49,6 +50,75 @@ export default function TeamSettingsPage() {
   });
 
   const [addedRoleIds, setAddedRoleIds] = useState(new Set());
+
+  const [eligibleRoles, setEligibleRoles] = useState({
+    training_fund_role_ids: [],
+    voucher_role_ids: []
+  });
+
+  const { data: eligibleRolesData } = useQuery({
+    queryKey: ['balances-eligible-roles'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'balances_eligible_roles');
+      let value = { training_fund_role_ids: [], voucher_role_ids: [] };
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          value = {
+            training_fund_role_ids: Array.isArray(parsed.training_fund_role_ids) ? parsed.training_fund_role_ids : [],
+            voucher_role_ids: Array.isArray(parsed.voucher_role_ids) ? parsed.voucher_role_ids : []
+          };
+        } catch {
+          // ignore
+        }
+      }
+      return { record: setting || null, value };
+    },
+    staleTime: 0
+  });
+
+  useEffect(() => {
+    if (eligibleRolesData?.value) {
+      setEligibleRoles(eligibleRolesData.value);
+    }
+  }, [eligibleRolesData]);
+
+  const updateEligibleRolesMutation = useMutation({
+    mutationFn: async (newValue) => {
+      const settingValue = JSON.stringify(newValue);
+      const existing = eligibleRolesData?.record;
+      if (existing) {
+        return await base44.entities.SystemSettings.update(existing.id, {
+          setting_value: settingValue
+        });
+      }
+      return await base44.entities.SystemSettings.create({
+        setting_key: 'balances_eligible_roles',
+        setting_value: settingValue,
+        description: 'Tenant-level eligible roles for training fund and voucher restriction pickers'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['balances-eligible-roles'] });
+      toast.success('Eligible roles updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update eligible roles: ' + error.message);
+    }
+  });
+
+  const toggleEligibleRole = (field, roleId) => {
+    setEligibleRoles(prev => {
+      const current = prev[field] || [];
+      const next = current.includes(roleId)
+        ? current.filter(id => id !== roleId)
+        : [...current, roleId];
+      const updated = { ...prev, [field]: next };
+      updateEligibleRolesMutation.mutate(updated);
+      return updated;
+    });
+  };
 
   const configuredRoles = useMemo(() => {
     return roles.filter(r => r.invite_email_template_id || r.signup_link_template || addedRoleIds.has(r.id));
@@ -475,6 +545,76 @@ export default function TeamSettingsPage() {
                       </div>
                     )}
                   </>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Training Fund &amp; Voucher Eligible Roles
+                </CardTitle>
+                <CardDescription>
+                  Choose which roles can be selected as eligible for training funds and training vouchers across the tenant.
+                  Organisation admins on the Balances page will only see these roles in their restriction pickers.
+                  Leave a list empty to allow organisations to choose from all of their member roles.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {rolesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  </div>
+                ) : roles.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-2">No roles found for this tenant.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="border border-slate-200 rounded-md p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-green-600" />
+                        <Label className="text-base font-medium">Training Fund Eligible Roles</Label>
+                      </div>
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                        {roles.map((role) => (
+                          <label
+                            key={role.id}
+                            className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer"
+                          >
+                            <Checkbox
+                              checked={eligibleRoles.training_fund_role_ids.includes(role.id)}
+                              onCheckedChange={() => toggleEligibleRole('training_fund_role_ids', role.id)}
+                              disabled={updateEligibleRolesMutation.isPending}
+                              data-testid={`checkbox-eligible-training-fund-${role.id}`}
+                            />
+                            <span className="text-sm text-slate-700">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="border border-slate-200 rounded-md p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Ticket className="w-4 h-4 text-blue-600" />
+                        <Label className="text-base font-medium">Training Voucher Eligible Roles</Label>
+                      </div>
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                        {roles.map((role) => (
+                          <label
+                            key={role.id}
+                            className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer"
+                          >
+                            <Checkbox
+                              checked={eligibleRoles.voucher_role_ids.includes(role.id)}
+                              onCheckedChange={() => toggleEligibleRole('voucher_role_ids', role.id)}
+                              disabled={updateEligibleRolesMutation.isPending}
+                              data-testid={`checkbox-eligible-voucher-${role.id}`}
+                            />
+                            <span className="text-sm text-slate-700">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
