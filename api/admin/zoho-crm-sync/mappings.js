@@ -24,7 +24,16 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT' || req.method === 'POST') {
-      const { entity_type, zoho_module, unique_key_field, is_enabled, field_mappings } = req.body || {};
+      const {
+        entity_type, zoho_module, unique_key_field, is_enabled, field_mappings,
+        sync_direction, conflict_policy, unmatched_policy
+      } = req.body || {};
+      const VALID_DIRECTIONS = ['outbound', 'inbound', 'bidirectional'];
+      const VALID_POLICIES = ['last_write_wins', 'zoho_wins', 'iconnect_wins'];
+      const VALID_UNMATCHED = ['ignore', 'create', 'queue'];
+      const resolvedDirection = VALID_DIRECTIONS.includes(sync_direction) ? sync_direction : 'outbound';
+      const resolvedPolicy = VALID_POLICIES.includes(conflict_policy) ? conflict_policy : 'last_write_wins';
+      const resolvedUnmatched = VALID_UNMATCHED.includes(unmatched_policy) ? unmatched_policy : 'ignore';
       if (!VALID_ENTITY_TYPES.includes(entity_type)) {
         return res.status(400).json({ error: 'entity_type must be member or organization' });
       }
@@ -55,6 +64,9 @@ export default async function handler(req, res) {
         unique_key_field,
         is_enabled: !!is_enabled,
         field_mappings: sanitizedMappings,
+        sync_direction: resolvedDirection,
+        conflict_policy: resolvedPolicy,
+        unmatched_policy: resolvedUnmatched,
         updated_at: new Date().toISOString()
       };
 

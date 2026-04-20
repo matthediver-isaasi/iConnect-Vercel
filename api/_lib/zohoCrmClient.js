@@ -96,17 +96,21 @@ async function saveTenantZohoCrmCredentials(tenantId, credentials, mergeWithExis
   try {
     let finalCredentials = { ...credentials };
 
+    let existingIsEnabled = null;
     if (mergeWithExisting) {
       // Use the same integration as Zoho Campaigns (shared Zoho connector)
       const { data: existing } = await supabase
         .from('tenant_integrations')
-        .select('credentials')
+        .select('credentials, is_enabled')
         .eq('tenant_id', tenantId)
         .eq('integration_type', 'zoho_campaigns')
         .single();
 
       if (existing?.credentials) {
         finalCredentials = { ...existing.credentials, ...credentials };
+      }
+      if (typeof existing?.is_enabled === 'boolean') {
+        existingIsEnabled = existing.is_enabled;
       }
     }
 
@@ -117,14 +121,16 @@ async function saveTenantZohoCrmCredentials(tenantId, credentials, mergeWithExis
       finalCredentials.access_token = encrypt(credentials.access_token);
     }
 
-    // Update the shared Zoho integration
+    // Update the shared Zoho integration. Preserve existing is_enabled
+    // (e.g. webhook-secret rotations should never silently re-enable a
+    // disabled integration). Only default to true when no row exists yet.
     const { error } = await supabase
       .from('tenant_integrations')
       .upsert({
         tenant_id: tenantId,
         integration_type: 'zoho_campaigns',
         credentials: finalCredentials,
-        is_enabled: true,
+        is_enabled: existingIsEnabled === null ? true : existingIsEnabled,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'tenant_id,integration_type'
@@ -538,6 +544,43 @@ export function clearTenantZohoCrmTokenCache(tenantId) {
 }
 
 export { getTenantZohoCrmCredentials, saveTenantZohoCrmCredentials, encrypt, decrypt };
+
+// ---------------------------------------------------------------------------
+// Per-tenant shared secret used to authenticate inbound Zoho CRM webhooks.
+// Stored alongside the existing Zoho integration credentials (encrypted at rest).
+// ---------------------------------------------------------------------------
+
+export async function getOrCreateCrmWebhookSecret(tenantId) {
+  const credentials = await getTenantZohoCrmCredentials(tenantId, { bypassEnabledCheck: true });
+  if (credentials?.crm_webhook_secret) {
+    return decrypt(credentials.crm_webhook_secret) || credentials.crm_webhook_secret;
+  }
+  const newSecret = crypto.randomBytes(32).toString('hex');
+  await saveTenantZohoCrmCredentials(tenantId, { crm_webhook_secret: encrypt(newSecret) });
+  return newSecret;
+}
+
+export async function regenerateCrmWebhookSecret(tenantId) {
+  const newSecret = crypto.randomBytes(32).toString('hex');
+  await saveTenantZohoCrmCredentials(tenantId, { crm_webhook_secret: encrypt(newSecret) });
+  return newSecret;
+}
+
+export async function validateCrmWebhookSecret(tenantId, providedSecret) {
+  if (!providedSecret) return false;
+  const credentials = await getTenantZohoCrmCredentials(tenantId, { bypassEnabledCheck: true });
+  if (!credentials?.crm_webhook_secret) return false;
+  const stored = decrypt(credentials.crm_webhook_secret) || credentials.crm_webhook_secret;
+  // Constant-time compare to avoid timing attacks.
+  try {
+    const a = Buffer.from(stored, 'utf8');
+    const b = Buffer.from(providedSecret, 'utf8');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Metadata + generic upsert helpers used by the Zoho CRM Sync pipeline

@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     const tenantId = ctx.tenantId;
 
     if (req.method === 'GET') {
-      const { entity_type, status, entity_id, limit = '50' } = req.query;
+      const { entity_type, status, entity_id, direction, limit = '50' } = req.query;
       let q = supabase
         .from('zoho_crm_sync_log')
         .select('*')
@@ -20,6 +20,7 @@ export default async function handler(req, res) {
       if (entity_type) q = q.eq('entity_type', entity_type);
       if (status) q = q.eq('status', status);
       if (entity_id) q = q.eq('entity_id', entity_id);
+      if (direction) q = q.eq('direction', direction);
       const { data, error } = await q;
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ logs: data || [] });

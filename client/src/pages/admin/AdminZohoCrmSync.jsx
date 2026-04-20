@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from "@/components/ui/table";
@@ -16,7 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import {
-  Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye
+  Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye,
+  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown
 } from "lucide-react";
 
 const ENTITY_OPTIONS = [
@@ -29,6 +31,30 @@ const DEFAULT_UNIQUE_KEY = {
   Leads: "Email",
   Accounts: "Account_Name"
 };
+
+const SYNC_DIRECTIONS = [
+  { value: "outbound", label: "Outbound only (iConnect → Zoho)" },
+  { value: "inbound", label: "Inbound only (Zoho → iConnect)" },
+  { value: "bidirectional", label: "Bidirectional" }
+];
+
+const CONFLICT_POLICIES = [
+  { value: "last_write_wins", label: "Last write wins (compare timestamps)" },
+  { value: "zoho_wins", label: "Zoho always wins" },
+  { value: "iconnect_wins", label: "iConnect always wins" }
+];
+
+const UNMATCHED_POLICIES = [
+  { value: "ignore", label: "Ignore (log and skip)" },
+  { value: "create", label: "Create new iConnect record" },
+  { value: "queue", label: "Queue for admin review" }
+];
+
+function directionBadge(d) {
+  if (d === "inbound") return <Badge variant="secondary"><ArrowDown className="h-3 w-3 mr-1" />inbound</Badge>;
+  if (d === "outbound") return <Badge variant="secondary"><ArrowUp className="h-3 w-3 mr-1" />outbound</Badge>;
+  return <Badge variant="outline"><ArrowUpDown className="h-3 w-3 mr-1" />{d || "—"}</Badge>;
+}
 
 function emptyMappingRow() {
   return { iconnect_field: "", zoho_field: "", iconnect_field_type: "", zoho_field_label: "" };
@@ -53,12 +79,59 @@ export default function AdminZohoCrmSync() {
   const [retryingId, setRetryingId] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [logEntityFilter, setLogEntityFilter] = useState("all");
+  const [logDirectionFilter, setLogDirectionFilter] = useState("all");
   const [viewLog, setViewLog] = useState(null);
+
+  // Webhook config
+  const [webhookInfo, setWebhookInfo] = useState(null);
+  const [loadingWebhook, setLoadingWebhook] = useState(false);
+  const [regeneratingSecret, setRegeneratingSecret] = useState(false);
 
   useEffect(() => {
     checkConnection();
     loadModules();
+    loadWebhookInfo();
   }, []);
+
+  const loadWebhookInfo = async () => {
+    setLoadingWebhook(true);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/webhook-url", { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setWebhookInfo(d);
+    } finally {
+      setLoadingWebhook(false);
+    }
+  };
+
+  const regenerateSecret = async () => {
+    if (!confirm("Regenerating the secret will break any existing Zoho workflow rules until you update them. Continue?")) return;
+    setRegeneratingSecret(true);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/webhook-url", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "regenerate" })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setWebhookInfo(d);
+        toast({ title: "Secret regenerated", description: "Update your Zoho workflow rules with the new secret." });
+      } else {
+        toast({ variant: "destructive", title: "Regenerate failed", description: d.error });
+      }
+    } finally {
+      setRegeneratingSecret(false);
+    }
+  };
+
+  const copyText = (text) => {
+    navigator.clipboard?.writeText(text).then(
+      () => toast({ title: "Copied to clipboard" }),
+      () => toast({ variant: "destructive", title: "Copy failed" })
+    );
+  };
 
   useEffect(() => {
     loadMapping(entityType);
@@ -133,7 +206,10 @@ export default function AdminZohoCrmSync() {
             zoho_module: defaultModule,
             unique_key_field: DEFAULT_UNIQUE_KEY[defaultModule],
             is_enabled: false,
-            field_mappings: []
+            field_mappings: [],
+            sync_direction: "outbound",
+            conflict_policy: "last_write_wins",
+            unmatched_policy: "ignore"
           });
         }
       }
@@ -176,7 +252,10 @@ export default function AdminZohoCrmSync() {
           zoho_module: mapping.zoho_module,
           unique_key_field: mapping.unique_key_field,
           is_enabled: !!mapping.is_enabled,
-          field_mappings: mapping.field_mappings || []
+          field_mappings: mapping.field_mappings || [],
+          sync_direction: mapping.sync_direction || "outbound",
+          conflict_policy: mapping.conflict_policy || "last_write_wins",
+          unmatched_policy: mapping.unmatched_policy || "ignore"
         })
       });
       const d = await r.json();
@@ -197,6 +276,7 @@ export default function AdminZohoCrmSync() {
       const params = new URLSearchParams({ limit: "100" });
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (logEntityFilter !== "all") params.set("entity_type", logEntityFilter);
+      if (logDirectionFilter !== "all") params.set("direction", logDirectionFilter);
       const r = await fetch(`/api/admin/zoho-crm-sync/logs?${params}`, { credentials: "include" });
       const d = await r.json();
       if (r.ok) setLogs(d.logs || []);
@@ -208,7 +288,7 @@ export default function AdminZohoCrmSync() {
   useEffect(() => {
     loadLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, logEntityFilter]);
+  }, [statusFilter, logEntityFilter, logDirectionFilter]);
 
   const retryLog = async (logId) => {
     setRetryingId(logId);
@@ -347,6 +427,68 @@ export default function AdminZohoCrmSync() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Sync Direction</Label>
+                      <Select
+                        value={mapping?.sync_direction || "outbound"}
+                        onValueChange={(v) => updateMapping({ sync_direction: v })}
+                      >
+                        <SelectTrigger data-testid="select-sync-direction">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SYNC_DIRECTIONS.map(d => (
+                            <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Inbound and bidirectional require the webhook (or the 15-minute reconciliation poller) to be configured in Zoho.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Conflict Policy</Label>
+                      <Select
+                        value={mapping?.conflict_policy || "last_write_wins"}
+                        onValueChange={(v) => updateMapping({ conflict_policy: v })}
+                        disabled={(mapping?.sync_direction || "outbound") === "outbound"}
+                      >
+                        <SelectTrigger data-testid="select-conflict-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CONFLICT_POLICIES.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Applies when an inbound update arrives and the iConnect record has been edited since the last sync.
+                      </p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>When Zoho sends a record with no matching iConnect record</Label>
+                      <Select
+                        value={mapping?.unmatched_policy || "ignore"}
+                        onValueChange={(v) => updateMapping({ unmatched_policy: v })}
+                        disabled={(mapping?.sync_direction || "outbound") === "outbound"}
+                      >
+                        <SelectTrigger data-testid="select-unmatched-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNMATCHED_POLICIES.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        "Create" inserts a new member/organization populated from the mapped fields. "Queue" logs the record as pending so an admin can resolve it manually.
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="border rounded-md">
                     <Table>
                       <TableHeader>
@@ -433,6 +575,70 @@ export default function AdminZohoCrmSync() {
               )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><KeyRound className="h-4 w-4" /> Inbound Webhook</CardTitle>
+                  <CardDescription>
+                    Configure these in Zoho CRM under Setup → Automation → Workflow Rules → Webhooks. The secret authenticates inbound calls and is unique per tenant.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={regenerateSecret}
+                  disabled={regeneratingSecret}
+                  data-testid="button-regenerate-secret"
+                >
+                  {regeneratingSecret ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                  Regenerate secret
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {loadingWebhook ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                </div>
+              ) : webhookInfo ? (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs uppercase text-muted-foreground">Webhook URL (per Zoho module)</Label>
+                    {Object.entries(webhookInfo.example_urls || {}).map(([mod, url]) => (
+                      <div key={mod} className="flex items-center gap-2">
+                        <Badge variant="outline" className="w-24 justify-center">{mod}</Badge>
+                        <Input readOnly value={url} className="font-mono text-xs" data-testid={`input-webhook-url-${mod}`} />
+                        <Button variant="ghost" size="icon" onClick={() => copyText(url)} data-testid={`button-copy-url-${mod}`}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs uppercase text-muted-foreground">Custom header</Label>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="w-24 justify-center">Header</Badge>
+                      <Input readOnly value={webhookInfo.header_name || "X-Zoho-Webhook-Secret"} className="font-mono text-xs" data-testid="input-webhook-header" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="w-24 justify-center">Secret</Badge>
+                      <Input readOnly type="password" value={webhookInfo.secret || ""} className="font-mono text-xs" data-testid="input-webhook-secret" />
+                      <Button variant="ghost" size="icon" onClick={() => copyText(webhookInfo.secret || "")} data-testid="button-copy-secret">
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Tip: as a fallback, you can append <code>&amp;secret=…</code> to the URL when Zoho cannot send custom headers. A reconciliation poller also runs every 15 minutes to catch missed events.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Webhook configuration unavailable.</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="logs" className="space-y-4">
@@ -452,6 +658,14 @@ export default function AdminZohoCrmSync() {
                       <SelectItem value="organization">Organisations</SelectItem>
                     </SelectContent>
                   </Select>
+                  <Select value={logDirectionFilter} onValueChange={setLogDirectionFilter}>
+                    <SelectTrigger className="w-[150px]" data-testid="select-log-direction-filter"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All directions</SelectItem>
+                      <SelectItem value="outbound">Outbound</SelectItem>
+                      <SelectItem value="inbound">Inbound</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger className="w-[140px]" data-testid="select-log-status-filter"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -459,6 +673,7 @@ export default function AdminZohoCrmSync() {
                       <SelectItem value="success">Success</SelectItem>
                       <SelectItem value="failed">Failed</SelectItem>
                       <SelectItem value="skipped">Skipped</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" size="icon" onClick={loadLogs} data-testid="button-refresh-logs">
@@ -473,6 +688,7 @@ export default function AdminZohoCrmSync() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>When</TableHead>
+                      <TableHead>Direction</TableHead>
                       <TableHead>Entity</TableHead>
                       <TableHead>Module</TableHead>
                       <TableHead>Status</TableHead>
@@ -484,19 +700,21 @@ export default function AdminZohoCrmSync() {
                   <TableBody>
                     {logs.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-6">
+                        <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-6">
                           {loadingLogs ? "Loading..." : "No log entries match the current filters."}
                         </TableCell>
                       </TableRow>
                     ) : logs.map(l => (
                       <TableRow key={l.id} data-testid={`row-log-${l.id}`}>
                         <TableCell className="text-xs whitespace-nowrap">{new Date(l.created_at).toLocaleString()}</TableCell>
+                        <TableCell>{directionBadge(l.direction)}</TableCell>
                         <TableCell className="text-xs">{l.entity_type}<br /><span className="text-muted-foreground">{l.entity_id?.slice(0, 8)}…</span></TableCell>
                         <TableCell className="text-xs">{l.zoho_module || "—"}</TableCell>
                         <TableCell>
                           {l.status === "success" && <Badge className="bg-green-500/20 text-green-700 border-green-500/30"><CheckCircle2 className="h-3 w-3 mr-1" />success</Badge>}
                           {l.status === "failed" && <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />failed</Badge>}
                           {l.status === "skipped" && <Badge variant="secondary">skipped</Badge>}
+                          {l.status === "pending" && <Badge variant="outline">pending</Badge>}
                         </TableCell>
                         <TableCell className="text-xs">{l.action || "—"}</TableCell>
                         <TableCell className="text-xs max-w-xs truncate" title={l.error_message || l.zoho_record_id || ""}>
