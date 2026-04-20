@@ -252,7 +252,7 @@ export default async function handler(req, res) {
             reason: 'Spam complaint',
             source: 'complaint'
           }, { 
-            onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id' 
+            onConflict: 'tenant_id,email,unsubscribe_type' 
           });
           break;
         }
@@ -275,7 +275,7 @@ export default async function handler(req, res) {
             campaign_id: recipient.campaign_id,
             source: 'webhook'
           }, { 
-            onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id' 
+            onConflict: 'tenant_id,email,unsubscribe_type' 
           });
           break;
         }

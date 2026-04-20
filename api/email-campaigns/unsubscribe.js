@@ -22,7 +22,7 @@ async function processUnsubscribe(campaignId, recipientId, recipient, campaign, 
       source: source,
       unsubscribed_at: new Date().toISOString()
     }, {
-      onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+      onConflict: 'tenant_id,email,unsubscribe_type'
     });
 
   await supabase

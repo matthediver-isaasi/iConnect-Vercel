@@ -243,7 +243,7 @@ async function processEvent(eventData, campaignId, tenantId) {
           reason: 'Spam complaint',
           source: 'complaint'
         }, {
-          onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+          onConflict: 'tenant_id,email,unsubscribe_type'
         });
         updated = true;
       }
@@ -266,7 +266,7 @@ async function processEvent(eventData, campaignId, tenantId) {
           campaign_id: campaignId,
           source: 'webhook'
         }, {
-          onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+          onConflict: 'tenant_id,email,unsubscribe_type'
         });
         updated = true;
       }

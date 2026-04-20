@@ -295,7 +295,7 @@ async function handlePreferenceUpdate(req, res, context) {
             source: 'user',
             unsubscribed_at: new Date().toISOString()
           }, {
-            onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+            onConflict: 'tenant_id,email,unsubscribe_type'
           });
       } else {
         await supabase
