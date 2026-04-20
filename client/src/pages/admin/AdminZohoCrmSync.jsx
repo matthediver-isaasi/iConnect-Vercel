@@ -647,7 +647,33 @@ export default function AdminZohoCrmSync() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle>Sync Log</CardTitle>
-                  <CardDescription>Most recent sync attempts. Failed attempts can be retried.</CardDescription>
+                  <CardDescription>
+                    Most recent sync attempts. Failed attempts can be retried. <span className="font-medium">Skipped</span> rows include the reason a record was not written — open the row detail to see what to fix.
+                  </CardDescription>
+                  {(() => {
+                    const recent = logs.filter(l => l.direction === 'inbound');
+                    const inboundSkipped = recent.filter(l => l.status === 'skipped').length;
+                    const inboundTotal = recent.length;
+                    if (inboundTotal === 0) {
+                      return (
+                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="text-no-inbound-hint">
+                          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>
+                            No inbound sync activity recorded yet. If you expect Zoho updates to land here, check the Inbound Webhook section under Field Mapping — the Zoho-side workflow rule (or Zoho Flow) must POST to that URL with the secret header on every Account/Contact/Lead update.
+                          </span>
+                        </div>
+                      );
+                    }
+                    if (inboundSkipped > 0) {
+                      return (
+                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="text-inbound-skipped-summary">
+                          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>{inboundSkipped} of the last {inboundTotal} inbound webhook calls were skipped — open the row detail to see why and adjust your mapping.</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Select value={logEntityFilter} onValueChange={setLogEntityFilter}>

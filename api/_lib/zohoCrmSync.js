@@ -434,32 +434,58 @@ function buildReversePayload(mapping, zohoRecord) {
 async function findEntityByZohoId(tenantId, entityType, zohoModule, zohoId) {
   const table = ENTITY_TABLE[entityType];
   if (!table) return null;
-  const { data } = await supabase
+  // Prefer an exact match on (zoho_crm_id, zoho_crm_module) — but fall back
+  // to a module-agnostic match so legacy records linked before
+  // `zoho_crm_module` was populated still resolve. Within a tenant, a Zoho
+  // record id is effectively unique across modules in practice, and we only
+  // call this when the module came from the inbound webhook anyway.
+  const { data: scoped } = await supabase
     .from(table)
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('zoho_crm_id', zohoId)
     .eq('zoho_crm_module', zohoModule)
     .maybeSingle();
-  return data || null;
+  if (scoped) return scoped;
+  const { data: fallback } = await supabase
+    .from(table)
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('zoho_crm_id', zohoId)
+    .or('zoho_crm_module.is.null,zoho_crm_module.eq.' + zohoModule)
+    .limit(2);
+  if (Array.isArray(fallback) && fallback.length === 1) {
+    // Backfill the module so subsequent lookups take the scoped path.
+    await persistZohoIdOnEntity(tenantId, entityType, fallback[0].id, zohoId, zohoModule);
+    return fallback[0];
+  }
+  return null;
 }
 
+// Returns one of:
+//   { entity: <row> }                 — exactly one match
+//   { entity: null, reason: 'none' }  — no rows
+//   { entity: null, reason: 'ambiguous', count: N } — multiple matches
+//   { entity: null, reason: 'error', error: <msg> }
 async function findEntityByUniqueField(tenantId, entityType, fieldName, value) {
-  if (!fieldName || value === undefined || value === null || value === '') return null;
+  if (!fieldName || value === undefined || value === null || value === '') {
+    return { entity: null, reason: 'none' };
+  }
   const table = ENTITY_TABLE[entityType];
-  if (!table) return null;
-  // Match on the iConnect column with the same name as the unique mapped field
-  // resolved via the mapping (e.g. email → email).
+  if (!table) return { entity: null, reason: 'none' };
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from(table)
       .select('*')
       .eq('tenant_id', tenantId)
       .eq(fieldName, value)
-      .maybeSingle();
-    return data || null;
-  } catch {
-    return null;
+      .limit(2);
+    if (error) return { entity: null, reason: 'error', error: error.message };
+    if (!Array.isArray(data) || data.length === 0) return { entity: null, reason: 'none' };
+    if (data.length > 1) return { entity: null, reason: 'ambiguous', count: data.length };
+    return { entity: data[0] };
+  } catch (err) {
+    return { entity: null, reason: 'error', error: err?.message || String(err) };
   }
 }
 
@@ -542,28 +568,57 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
 
   const zohoId = zohoRecord?.id || zohoRecord?.Id || null;
   let entity = null;
+  // Track every match attempt so the skip log can explain what failed instead
+  // of just emitting the bare "No matching iConnect record" message that is
+  // impossible to act on from the admin UI.
+  const matchAttempts = [];
   if (zohoId) {
     entity = await findEntityByZohoId(tenantId, entityType, zohoModule, zohoId);
+    matchAttempts.push(entity
+      ? `zoho_crm_id=${zohoId} matched`
+      : `zoho_crm_id=${zohoId} not linked to any iConnect ${entityType}`);
+  } else {
+    matchAttempts.push('Zoho payload had no id field');
   }
   if (!entity) {
     const localKey = resolveLocalKeyForZohoUnique(mapping);
-    if (localKey) {
+    if (!localKey) {
+      matchAttempts.push(
+        `unique_key_field "${mapping.unique_key_field || '(unset)'}" is not paired with a core iConnect column in field_mappings — cannot match by unique key`
+      );
+    } else {
       const matchValue = zohoRecord[mapping.unique_key_field];
-      entity = await findEntityByUniqueField(tenantId, entityType, localKey, matchValue);
-      if (entity && zohoId) {
-        await persistZohoIdOnEntity(tenantId, entityType, entity.id, zohoId, zohoModule);
+      const result = await findEntityByUniqueField(tenantId, entityType, localKey, matchValue);
+      if (result.entity) {
+        entity = result.entity;
+        matchAttempts.push(`${localKey}="${matchValue}" matched 1 iConnect ${entityType}`);
+        if (zohoId) {
+          await persistZohoIdOnEntity(tenantId, entityType, entity.id, zohoId, zohoModule);
+        }
+      } else if (result.reason === 'ambiguous') {
+        matchAttempts.push(
+          `${localKey}="${matchValue}" is not unique — ${result.count}+ iConnect ${entityType} rows matched`
+        );
+      } else if (result.reason === 'error') {
+        matchAttempts.push(`${localKey} lookup errored: ${result.error}`);
+      } else {
+        const valueRepr = matchValue === undefined || matchValue === null || matchValue === ''
+          ? '(empty)'
+          : `"${matchValue}"`;
+        matchAttempts.push(`${localKey}=${valueRepr} did not match any iConnect ${entityType}`);
       }
     }
   }
 
   if (!entity) {
     const policy = mapping.unmatched_policy || 'ignore';
+    const detail = matchAttempts.join('; ');
     if (policy === 'queue') {
       return await writeLog({
         tenant_id: tenantId, entity_type: entityType, entity_id: null,
         zoho_module: zohoModule, zoho_record_id: zohoId,
         status: 'pending', direction: 'inbound', source, action: 'inbound',
-        error_message: 'Queued: no matching iConnect record (policy=queue) — admin review required',
+        error_message: `Queued: no matching iConnect record (policy=queue) — ${detail}`,
         request_payload: zohoRecord
       });
     }
@@ -574,7 +629,7 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       tenant_id: tenantId, entity_type: entityType, entity_id: null,
       zoho_module: zohoModule, zoho_record_id: zohoId,
       status: 'skipped', direction: 'inbound', source, action: 'inbound',
-      error_message: 'No matching iConnect record (policy=ignore)',
+      error_message: `No matching iConnect record (policy=ignore) — ${detail}`,
       request_payload: zohoRecord
     });
   }
