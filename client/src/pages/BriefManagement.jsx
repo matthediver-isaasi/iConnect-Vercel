@@ -42,6 +42,8 @@ import {
   Trash2,
   XCircle,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Paperclip,
   X,
   ChevronLeft,
@@ -87,6 +89,23 @@ const SORT_OPTIONS = [
   { value: "deadline_desc", label: "Deadline (Latest)" },
 ];
 
+function SortableHeader({ field, label, sortField, sortDir, onSort }) {
+  const active = sortField === field;
+  const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className="inline-flex items-center gap-1 -ml-2 px-2 py-1 rounded-md hover-elevate active-elevate-2 font-medium text-left"
+      data-testid={`button-sort-${field}`}
+      aria-label={`Sort by ${label}`}
+    >
+      <span>{label}</span>
+      <Icon className={`w-3 h-3 ${active ? "" : "text-muted-foreground/60"}`} />
+    </button>
+  );
+}
+
 function StatCard({ title, value, icon: Icon, color }) {
   return (
     <Card data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -127,6 +146,8 @@ export default function BriefManagementPage() {
   const [reviewerFilter, setReviewerFilter] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
+  const [sortField, setSortField] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
   const [activeView, setActiveView] = useState(initialView);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [briefToDelete, setBriefToDelete] = useState(null);
@@ -368,32 +389,76 @@ export default function BriefManagementPage() {
     }
 
     const sorted = [...filtered];
-    switch (sortBy) {
-      case "newest":
-        sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-        break;
-      case "oldest":
-        sorted.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
-        break;
-      case "deadline_asc":
-        sorted.sort((a, b) => {
-          if (!a.deadline) return 1;
-          if (!b.deadline) return -1;
-          return new Date(a.deadline) - new Date(b.deadline);
-        });
-        break;
-      case "deadline_desc":
-        sorted.sort((a, b) => {
-          if (!a.deadline) return 1;
-          if (!b.deadline) return -1;
-          return new Date(b.deadline) - new Date(a.deadline);
-        });
-        break;
-      default:
-        break;
+    if (sortField) {
+      const getKey = (b) => {
+        switch (sortField) {
+          case "title":
+            return (b.title || "").trim().toLowerCase() || null;
+          case "status": {
+            const cfg = STATUS_CONFIG[b.status];
+            return (cfg?.label || b.status || "").toLowerCase() || null;
+          }
+          case "writer": {
+            const v = getWriterDisplay(b);
+            return v && v !== "--" ? v.toLowerCase() : null;
+          }
+          case "editor": {
+            const v = getMemberName(b.review_owner_id);
+            return v && v !== "--" ? v.toLowerCase() : null;
+          }
+          case "deadline":
+            return b.deadline ? new Date(b.deadline).getTime() : null;
+          case "latest_draft": {
+            const v = latestVersionByBrief[b.id];
+            if (!v) return null;
+            if (v.created_at) return new Date(v.created_at).getTime();
+            return v.version_number ?? null;
+          }
+          default:
+            return null;
+        }
+      };
+      const dir = sortDir === "desc" ? -1 : 1;
+      sorted.sort((a, b) => {
+        const av = getKey(a);
+        const bv = getKey(b);
+        const aNull = av === null || av === undefined;
+        const bNull = bv === null || bv === undefined;
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      });
+    } else {
+      switch (sortBy) {
+        case "newest":
+          sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          break;
+        case "oldest":
+          sorted.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+          break;
+        case "deadline_asc":
+          sorted.sort((a, b) => {
+            if (!a.deadline) return 1;
+            if (!b.deadline) return -1;
+            return new Date(a.deadline) - new Date(b.deadline);
+          });
+          break;
+        case "deadline_desc":
+          sorted.sort((a, b) => {
+            if (!a.deadline) return 1;
+            if (!b.deadline) return -1;
+            return new Date(b.deadline) - new Date(a.deadline);
+          });
+          break;
+        default:
+          break;
+      }
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, sortBy]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, sortBy, sortField, sortDir, STATUS_CONFIG, latestVersionByBrief, membersById, externalWritersById]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -404,7 +469,19 @@ export default function BriefManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, pageSize]);
+  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, pageSize, sortField, sortDir, sortBy]);
+
+  const handleHeaderSort = (field) => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortField(null);
+      setSortDir("asc");
+    }
+  };
 
   const briefsById = useMemo(() => {
     const map = {};
@@ -734,12 +811,24 @@ export default function BriefManagementPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead className="min-w-[220px]">Title</TableHead>
-                  <TableHead className="min-w-[120px]">Status</TableHead>
-                  <TableHead className="min-w-[120px]">Writer</TableHead>
-                  <TableHead className="min-w-[120px]">Editor</TableHead>
-                  <TableHead className="min-w-[130px]">Submission Deadline</TableHead>
-                  <TableHead className="min-w-[110px]">Latest Draft</TableHead>
+                  <TableHead className="min-w-[220px]">
+                    <SortableHeader field="title" label="Title" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
+                  <TableHead className="min-w-[120px]">
+                    <SortableHeader field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
+                  <TableHead className="min-w-[120px]">
+                    <SortableHeader field="writer" label="Writer" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
+                  <TableHead className="min-w-[120px]">
+                    <SortableHeader field="editor" label="Editor" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
+                  <TableHead className="min-w-[130px]">
+                    <SortableHeader field="deadline" label="Submission Deadline" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
+                  <TableHead className="min-w-[110px]">
+                    <SortableHeader field="latest_draft" label="Latest Draft" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
                   {canDelete && <TableHead className="min-w-[60px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
