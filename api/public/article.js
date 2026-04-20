@@ -142,7 +142,7 @@ export default async function handler(req, res) {
       
       const { data: member, error: memberError } = await supabase
         .from('member')
-        .select('id, first_name, last_name, handle, profile_image_url, job_title, short_bio, linkedin_profile_url, email')
+        .select('id, first_name, last_name, handle, profile_image_url, job_title, biography, linkedin_profile_url, email')
         .eq('id', article.author_id)
         .single();
 
@@ -155,7 +155,7 @@ export default async function handler(req, res) {
           handle: member.handle,
           profilePicture: member.profile_image_url,
           jobTitle: member.job_title,
-          shortBio: member.short_bio,
+          shortBio: member.biography,
           linkedinUrl: member.linkedin_profile_url,
           email: member.email
         };
