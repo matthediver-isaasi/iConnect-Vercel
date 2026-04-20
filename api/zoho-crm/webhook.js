@@ -17,7 +17,8 @@ const inFlightByTenant = new Map();
 
 class InboundBudgetExceededError extends Error {
   constructor(ms) {
-    super(`Inbound processing exceeded time budget of ${ms}ms`);
+    // Keep the exact prefix stable for downstream alerting/log keying.
+    super(`Inbound processing exceeded time budget (${ms}ms)`);
     this.name = 'InboundBudgetExceededError';
     this.budgetMs = ms;
   }
