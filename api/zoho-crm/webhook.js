@@ -1,6 +1,35 @@
 import { supabase } from '../_lib/database.js';
-import { validateCrmWebhookSecret, zohoCrmApiCall } from '../_lib/zohoCrmClient.js';
+import { validateCrmWebhookSecret, zohoCrmApiCall, ZohoTimeoutError } from '../_lib/zohoCrmClient.js';
 import { applyInboundFromZoho, writeSyncLog } from '../_lib/zohoCrmSync.js';
+
+// Hard budget for the inbound webhook's record-fetch + apply step. The Zoho
+// HTTP client itself is already capped at ~10s; this is an outer bound so a
+// pathological mapping/DB step can't push the function towards Vercel's 60s
+// runtime cap and saturate concurrency.
+const INBOUND_BUDGET_MS = Number(process.env.ZOHO_WEBHOOK_BUDGET_MS) || 15000;
+
+// Single-flight per tenant. If a webhook arrives for a tenant while another
+// invocation is already processing in this process, we skip the new one with
+// a `202 in_flight` so Zoho Flow doesn't pile retries on top of an already
+// busy worker. This is best-effort (Vercel may run multiple instances) but
+// it is the cheap, in-process line of defence.
+const inFlightByTenant = new Map();
+
+class InboundBudgetExceededError extends Error {
+  constructor(ms) {
+    super(`Inbound processing exceeded time budget of ${ms}ms`);
+    this.name = 'InboundBudgetExceededError';
+    this.budgetMs = ms;
+  }
+}
+
+function withBudget(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new InboundBudgetExceededError(ms)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Inbound webhook for Zoho CRM workflow rules and Zoho Flow.
@@ -147,53 +176,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Build the records list. If we have an inline record use it as-is
-    // (backward compatible). Otherwise, fetch the record by id from Zoho.
-    let records = [];
-    if (inlineRecord) {
-      if (Array.isArray(body)) records = body;
-      else if (Array.isArray(body.data)) records = body.data;
-      else if (body.record) records = [body.record];
-      else records = [body];
-    } else if (idParam) {
-      try {
-        const resp = await zohoCrmApiCall(tenantId, `/${idParam.module}/${encodeURIComponent(idParam.value)}`);
-        const fetched = Array.isArray(resp?.data) ? resp.data[0] : null;
-        if (!fetched) {
-          const log = await writeSyncLog({
-            tenant_id: tenantId, entity_type: 'unknown', zoho_module: idParam.module,
-            zoho_record_id: idParam.value,
-            status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
-            error_message: `Zoho returned no record for ${idParam.module}/${idParam.value}`
-          });
-          return res.status(404).json({
-            error: `No ${idParam.module} record found in Zoho for id ${idParam.value}`,
-            log_id: log?.id || null
-          });
-        }
-        records = [fetched];
-      } catch (err) {
-        const msg = err?.message || String(err);
-        const status = /\b404\b/.test(msg)
-          ? 404
-          : /\b401\b|INVALID_TOKEN|reconnect/i.test(msg)
-            ? 401
-            : /\b400\b|INVALID_DATA|invalid.?id|INVALID_REQUEST/i.test(msg)
-              ? 400
-              : 502;
-        const log = await writeSyncLog({
-          tenant_id: tenantId, entity_type: 'unknown', zoho_module: idParam.module,
-          zoho_record_id: idParam.value,
-          status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
-          error_message: `Failed to fetch ${idParam.module}/${idParam.value} from Zoho: ${msg}`
-        });
-        return res.status(status).json({
-          error: 'Failed to fetch record from Zoho',
-          details: msg,
-          log_id: log?.id || null
-        });
-      }
-    } else {
+    if (!inlineRecord && !idParam) {
       const log = await writeSyncLog({
         tenant_id: tenantId, entity_type: 'unknown', zoho_module: module,
         status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
@@ -205,22 +188,114 @@ export default async function handler(req, res) {
       });
     }
 
-    if (records.length === 0) {
-      return res.status(400).json({ error: 'No records found in payload' });
+    // Single-flight per tenant: if another webhook for this tenant is still
+    // in-flight in the same process, drop fast so Zoho retries don't pile
+    // up concurrent invocations.
+    if (inFlightByTenant.has(tenantId)) {
+      const log = await writeSyncLog({
+        tenant_id: tenantId, entity_type: 'unknown', zoho_module: module,
+        zoho_record_id: idParam?.value || null,
+        status: 'skipped', direction: 'inbound', source: 'webhook', action: 'inbound',
+        error_message: 'Skipped: another inbound webhook is already in-flight for this tenant'
+      });
+      return res.status(202).json({
+        success: false,
+        skipped: 'in_flight',
+        log_id: log?.id || null
+      });
     }
 
-    const results = [];
-    for (const rec of records) {
-      try {
-        const log = await applyInboundFromZoho(tenantId, module, rec, { source: 'webhook' });
-        results.push({ id: rec.id || rec.Id || null, status: log?.status || 'unknown', log_id: log?.id || null });
-      } catch (err) {
-        console.error('[ZohoCRM Webhook] Record error:', err);
-        results.push({ id: rec.id || rec.Id || null, status: 'failed', error: err.message });
+    const work = (async () => {
+      let records = [];
+      if (inlineRecord) {
+        if (Array.isArray(body)) records = body;
+        else if (Array.isArray(body.data)) records = body.data;
+        else if (body.record) records = [body.record];
+        else records = [body];
+      } else {
+        const resp = await zohoCrmApiCall(tenantId, `/${idParam.module}/${encodeURIComponent(idParam.value)}`);
+        const fetched = Array.isArray(resp?.data) ? resp.data[0] : null;
+        if (!fetched) {
+          const log = await writeSyncLog({
+            tenant_id: tenantId, entity_type: 'unknown', zoho_module: idParam.module,
+            zoho_record_id: idParam.value,
+            status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
+            error_message: `Zoho returned no record for ${idParam.module}/${idParam.value}`
+          });
+          return { httpStatus: 404, body: {
+            error: `No ${idParam.module} record found in Zoho for id ${idParam.value}`,
+            log_id: log?.id || null
+          }};
+        }
+        records = [fetched];
       }
-    }
 
-    return res.status(200).json({ success: true, processed: results.length, results });
+      if (records.length === 0) {
+        return { httpStatus: 400, body: { error: 'No records found in payload' } };
+      }
+
+      const results = [];
+      for (const rec of records) {
+        try {
+          const log = await applyInboundFromZoho(tenantId, module, rec, { source: 'webhook' });
+          results.push({ id: rec.id || rec.Id || null, status: log?.status || 'unknown', log_id: log?.id || null });
+        } catch (err) {
+          console.error('[ZohoCRM Webhook] Record error:', err);
+          results.push({ id: rec.id || rec.Id || null, status: 'failed', error: err.message });
+        }
+      }
+      return { httpStatus: 200, body: { success: true, processed: results.length, results } };
+    })();
+
+    inFlightByTenant.set(tenantId, work);
+    try {
+      const result = await withBudget(work, INBOUND_BUDGET_MS);
+      return res.status(result.httpStatus).json(result.body);
+    } catch (err) {
+      // Budget exhaustion or Zoho HTTP timeout — surface a 504 so Zoho Flow
+      // sees a clear failure and stops piling retries on a hung pipeline.
+      if (err instanceof InboundBudgetExceededError) {
+        const log = await writeSyncLog({
+          tenant_id: tenantId, entity_type: 'unknown', zoho_module: module,
+          zoho_record_id: idParam?.value || null,
+          status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
+          error_message: err.message
+        });
+        return res.status(504).json({ error: 'Inbound webhook timed out', details: err.message, log_id: log?.id || null });
+      }
+      if (err instanceof ZohoTimeoutError) {
+        const log = await writeSyncLog({
+          tenant_id: tenantId, entity_type: 'unknown', zoho_module: idParam?.module || module,
+          zoho_record_id: idParam?.value || null,
+          status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
+          error_message: `Zoho HTTP timeout: ${err.message}`
+        });
+        return res.status(504).json({ error: 'Zoho API request timed out', details: err.message, log_id: log?.id || null });
+      }
+      const msg = err?.message || String(err);
+      const status = /\b404\b/.test(msg)
+        ? 404
+        : /\b401\b|INVALID_TOKEN|reconnect/i.test(msg)
+          ? 401
+          : /\b400\b|INVALID_DATA|invalid.?id|INVALID_REQUEST/i.test(msg)
+            ? 400
+            : 502;
+      const log = await writeSyncLog({
+        tenant_id: tenantId, entity_type: 'unknown', zoho_module: idParam?.module || module,
+        zoho_record_id: idParam?.value || null,
+        status: 'failed', direction: 'inbound', source: 'webhook', action: 'inbound',
+        error_message: `Inbound webhook failed: ${msg}`
+      });
+      return res.status(status).json({ error: 'Webhook processing failed', details: msg, log_id: log?.id || null });
+    } finally {
+      // Allow the in-flight work to settle in the background even if we
+      // already responded due to budget exhaustion, then release the lock.
+      Promise.resolve(work).catch(() => {}).finally(() => {
+        if (inFlightByTenant.get(tenantId) === work) {
+          inFlightByTenant.delete(tenantId);
+        }
+      });
+    }
   } catch (err) {
     console.error('[ZohoCRM Webhook] Error:', err);
     return res.status(500).json({ error: 'Webhook processing failed', details: err.message });

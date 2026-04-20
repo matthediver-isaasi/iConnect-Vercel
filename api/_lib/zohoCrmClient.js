@@ -6,6 +6,37 @@ const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SES
 const DEFAULT_ACCOUNTS_DOMAIN = 'https://accounts.zoho.com';
 const DEFAULT_CRM_DOMAIN = 'https://www.zohoapis.com';
 
+// Hard cap on every outbound HTTP call to Zoho. Without this, a single slow
+// or hung Zoho response will tie up a Vercel function for the full 60s
+// runtime limit, which under retry pressure (e.g. Zoho Flow re-firing a
+// webhook) saturates concurrency and makes the whole app appear "stuck on
+// Loading". Tune via env if needed but keep it well below the 60s cap.
+export const ZOHO_HTTP_TIMEOUT_MS = Number(process.env.ZOHO_HTTP_TIMEOUT_MS) || 10000;
+
+export class ZohoTimeoutError extends Error {
+  constructor(url, timeoutMs) {
+    super(`Zoho HTTP request timed out after ${timeoutMs}ms: ${url}`);
+    this.name = 'ZohoTimeoutError';
+    this.timeoutMs = timeoutMs;
+    this.url = url;
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = ZOHO_HTTP_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new ZohoTimeoutError(url, timeoutMs);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const crmTokenCacheByTenant = new Map();
 
 function decrypt(encryptedText) {
@@ -173,7 +204,7 @@ async function refreshCrmAccessToken(tenantId, refreshToken, credentials = null)
     refresh_token: refreshToken
   });
 
-  const response = await fetch(`${accountsDomain}/oauth/v2/token`, {
+  const response = await fetchWithTimeout(`${accountsDomain}/oauth/v2/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -287,7 +318,7 @@ export async function zohoCrmApiCall(tenantId, endpoint, options = {}, retryCoun
   
   console.log('[ZohoCRM] API call:', options.method || 'GET', url);
   
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...options,
     headers: {
       'Authorization': `Zoho-oauthtoken ${token}`,
@@ -494,7 +525,7 @@ export async function exchangeCrmCodeForTokens(tenantId, code, redirectUri) {
     code
   });
 
-  const response = await fetch(`${accountsDomain}/oauth/v2/token`, {
+  const response = await fetchWithTimeout(`${accountsDomain}/oauth/v2/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
