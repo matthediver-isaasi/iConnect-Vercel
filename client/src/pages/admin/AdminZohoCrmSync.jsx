@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye,
-  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown, Link2
+  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown, Link2, Download
 } from "lucide-react";
 
 const ENTITY_OPTIONS = [
@@ -91,6 +91,12 @@ export default function AdminZohoCrmSync() {
   const [relinking, setRelinking] = useState(false);
   const [relinkSummary, setRelinkSummary] = useState(null);
 
+  // One-time import from Zoho
+  const [importingOrgs, setImportingOrgs] = useState(false);
+  const [importingMembers, setImportingMembers] = useState(false);
+  const [importOrgsSummary, setImportOrgsSummary] = useState(null);
+  const [importMembersSummary, setImportMembersSummary] = useState(null);
+
   useEffect(() => {
     checkConnection();
     loadModules();
@@ -154,6 +160,40 @@ export default function AdminZohoCrmSync() {
       toast({ variant: "destructive", title: "Re-link failed", description: err.message });
     } finally {
       setRelinking(false);
+    }
+  };
+
+  const runImport = async (kind) => {
+    const label = kind === 'organisations' ? 'organisations' : 'members';
+    if (!confirm(
+      `This will paginate through every ${label[0].toUpperCase() + label.slice(1).replace(/s$/, '')} record in Zoho CRM and create or update the matching iConnect record. ` +
+      `Existing iConnect values are preserved when the corresponding Zoho field is empty. The import is idempotent and safe to re-run. Continue?`
+    )) return;
+
+    const setRunning = kind === 'organisations' ? setImportingOrgs : setImportingMembers;
+    const setSummary = kind === 'organisations' ? setImportOrgsSummary : setImportMembersSummary;
+    setRunning(true);
+    setSummary(null);
+    try {
+      const r = await fetch(`/api/admin/zoho-crm-sync/import-${kind === 'organisations' ? 'organisations' : 'members'}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSummary(d.summary);
+        toast({
+          title: `${kind === 'organisations' ? 'Organisation' : 'Member'} import complete`,
+          description: `Processed ${d.summary.processed}: ${d.summary.created} created, ${d.summary.updated} updated, ${d.summary.skipped} skipped, ${d.summary.failed} failed`
+        });
+        loadLogs();
+      } else {
+        toast({ variant: "destructive", title: "Import failed", description: d.error });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Import failed", description: err.message });
+    } finally {
+      setRunning(false);
     }
   };
 
@@ -605,6 +645,90 @@ export default function AdminZohoCrmSync() {
                 </>
               )}
             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Download className="h-4 w-4" /> One-time import from Zoho CRM</CardTitle>
+                  <CardDescription>
+                    Bulk-import every organisation or member from Zoho CRM into iConnect using the configured field mappings. Existing iConnect values are preserved when the corresponding Zoho field is empty. The import is idempotent and safe to re-run.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runImport('organisations')}
+                    disabled={importingOrgs || importingMembers}
+                    data-testid="button-import-organisations"
+                  >
+                    {importingOrgs ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                    Import organisations from Zoho
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runImport('members')}
+                    disabled={importingOrgs || importingMembers}
+                    data-testid="button-import-members"
+                  >
+                    {importingMembers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                    Import members from Zoho
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            {(importOrgsSummary || importMembersSummary || importingOrgs || importingMembers) && (
+              <CardContent className="space-y-4">
+                {(importingOrgs || importingMembers) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — this can take several minutes for large tenants. Please keep this tab open.
+                  </div>
+                )}
+                {importOrgsSummary && (
+                  <div data-testid="text-import-orgs-summary">
+                    <div className="text-xs uppercase text-muted-foreground mb-2">Organisations ({importOrgsSummary.zoho_module})</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{importOrgsSummary.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600">{importOrgsSummary.created}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium">{importOrgsSummary.updated}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium">{importOrgsSummary.skipped}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{importOrgsSummary.failed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium">{importOrgsSummary.pages}</div></div>
+                    </div>
+                    {importOrgsSummary.errors?.length > 0 && (
+                      <p className="text-xs text-destructive mt-2">
+                        First error: {importOrgsSummary.errors[0].error}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {importMembersSummary && (
+                  <div data-testid="text-import-members-summary">
+                    <div className="text-xs uppercase text-muted-foreground mb-2">Members ({importMembersSummary.zoho_module})</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{importMembersSummary.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600">{importMembersSummary.created}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium">{importMembersSummary.updated}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium">{importMembersSummary.skipped}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{importMembersSummary.failed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium">{importMembersSummary.pages}</div></div>
+                    </div>
+                    {importMembersSummary.errors?.length > 0 && (
+                      <p className="text-xs text-destructive mt-2">
+                        First error: {importMembersSummary.errors[0].error}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  See the Sync Log tab (filter by action <code>one_time_import</code>) for per-record details.
+                </p>
+              </CardContent>
+            )}
           </Card>
 
           <Card>
