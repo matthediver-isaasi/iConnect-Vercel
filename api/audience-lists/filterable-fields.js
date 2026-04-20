@@ -68,6 +68,12 @@ export default async function handler(req, res) {
         core: CORE_ORG_FIELDS.map(f => ({ ...f, field_type: 'core' })),
         custom: orgCustomFields,
       },
+      event: {
+        core: [
+          { key: 'attended_event', label: 'Attended Event', data_type: 'event_id', field_type: 'core' },
+        ],
+        custom: [],
+      },
     });
   } catch (err) {
     console.error('[FilterableFields] Error:', err);

@@ -927,8 +927,9 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
   } else if (targetType === 'field_filter' && segmentData) {
     const ALLOWED_CORE_MEMBER_KEYS = new Set(['first_name', 'last_name', 'email', 'job_title', 'role_id', 'login_enabled', 'communications_opted_out_all']);
     const ALLOWED_CORE_ORG_KEYS = new Set(['name', 'status']);
-    const ALLOWED_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'is_empty', 'is_not_empty', 'is_true', 'is_false', 'greater_than', 'less_than', 'before', 'after', 'is_one_of']);
-    const ALLOWED_SCOPES = new Set(['member', 'organization']);
+    const ALLOWED_CORE_EVENT_KEYS = new Set(['attended_event']);
+    const ALLOWED_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'is_empty', 'is_not_empty', 'is_true', 'is_false', 'greater_than', 'less_than', 'before', 'after', 'is_one_of', 'is_not_one_of']);
+    const ALLOWED_SCOPES = new Set(['member', 'organization', 'event']);
 
     const filterGroups = segmentData.filter_groups || [];
     if (filterGroups.length > 0) {
@@ -938,7 +939,10 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         const conditions = (group.conditions || []).filter(c => {
           if (!ALLOWED_SCOPES.has(c.entity_scope)) return false;
           if (!ALLOWED_OPERATORS.has(c.operator)) return false;
-          if (c.field_type === 'core') {
+          if (c.entity_scope === 'event') {
+            if (!ALLOWED_CORE_EVENT_KEYS.has(c.field_key)) return false;
+            if (c.operator !== 'is_one_of' && c.operator !== 'is_not_one_of') return false;
+          } else if (c.field_type === 'core') {
             const allowedKeys = c.entity_scope === 'member' ? ALLOWED_CORE_MEMBER_KEYS : ALLOWED_CORE_ORG_KEYS;
             if (!allowedKeys.has(c.field_key)) return false;
           }
@@ -948,6 +952,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
 
         const memberConditions = conditions.filter(c => c.entity_scope === 'member');
         const orgConditions = conditions.filter(c => c.entity_scope === 'organization');
+        const eventConditions = conditions.filter(c => c.entity_scope === 'event');
 
         let memberIds = null;
 
@@ -1181,6 +1186,93 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             memberIds = memberIds ? new Set([...memberIds].filter(id => orgMemberIds.has(id))) : orgMemberIds;
           } else if (matchedOrgIds && matchedOrgIds.size === 0) {
             memberIds = new Set();
+          }
+        }
+
+        if (eventConditions.length > 0) {
+          let eventMatchedIds = null;
+          let allTenantMemberIds = null;
+
+          const fetchAllTenantMemberIds = async () => {
+            if (allTenantMemberIds) return allTenantMemberIds;
+            const ids = new Set();
+            const pageSize = 1000;
+            let offset = 0;
+            let hasMore = true;
+            while (hasMore) {
+              const { data: batch, error } = await supabase
+                .from('member')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .not('email', 'ilike', 'deleted_%@deleted.local')
+                .range(offset, offset + pageSize - 1);
+              if (error) { console.error('[FieldFilter] all-members query error:', error); break; }
+              if (batch && batch.length > 0) {
+                batch.forEach(r => ids.add(r.id));
+                offset += batch.length;
+                hasMore = batch.length === pageSize;
+              } else { hasMore = false; }
+            }
+            allTenantMemberIds = ids;
+            return ids;
+          };
+
+          const collectAttendeeIds = async (eventIds) => {
+            const ids = new Set();
+            if (!Array.isArray(eventIds) || eventIds.length === 0) return ids;
+            for (const table of ['booking', 'complex_event_booking']) {
+              const idBatchSize = 200;
+              for (let i = 0; i < eventIds.length; i += idBatchSize) {
+                const idBatch = eventIds.slice(i, i + idBatchSize);
+                let offset = 0;
+                const pageSize = 1000;
+                let hasMore = true;
+                while (hasMore) {
+                  const { data, error } = await supabase
+                    .from(table)
+                    .select('member_id')
+                    .eq('tenant_id', tenantId)
+                    .eq('status', 'confirmed')
+                    .not('member_id', 'is', null)
+                    .in('event_id', idBatch)
+                    .range(offset, offset + pageSize - 1);
+                  if (error) {
+                    console.error(`[FieldFilter] ${table} event-attendee query error:`, error);
+                    break;
+                  }
+                  if (data && data.length > 0) {
+                    for (const row of data) {
+                      if (row.member_id) ids.add(row.member_id);
+                    }
+                    offset += data.length;
+                    hasMore = data.length === pageSize;
+                  } else { hasMore = false; }
+                }
+              }
+            }
+            return ids;
+          };
+
+          for (const cond of eventConditions) {
+            const eventIds = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : []);
+            if (eventIds.length === 0) continue;
+            const attendeeIds = await collectAttendeeIds(eventIds);
+            let condSet;
+            if (cond.operator === 'is_one_of') {
+              condSet = attendeeIds;
+            } else {
+              const all = await fetchAllTenantMemberIds();
+              condSet = new Set([...all].filter(id => !attendeeIds.has(id)));
+            }
+            eventMatchedIds = eventMatchedIds
+              ? new Set([...eventMatchedIds].filter(id => condSet.has(id)))
+              : condSet;
+          }
+
+          if (eventMatchedIds !== null) {
+            memberIds = memberIds !== null
+              ? new Set([...memberIds].filter(id => eventMatchedIds.has(id)))
+              : eventMatchedIds;
           }
         }
 

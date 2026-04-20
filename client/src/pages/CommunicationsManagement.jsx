@@ -57,6 +57,7 @@ export default function CommunicationsManagementPage() {
   const [eventSearchInput, setEventSearchInput] = useState('');
   const [selectedEvents, setSelectedEvents] = useState([]);
   const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
+  const [eventFilterSearches, setEventFilterSearches] = useState({});
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewListName, setPreviewListName] = useState('');
@@ -402,13 +403,18 @@ export default function CommunicationsManagementPage() {
       const parts = groups.map(g => {
         const conds = (g.conditions || []).map(c => {
           const fieldLabel = c.field_label || c.field_key;
-          const opLabels = { equals: '=', not_equals: '!=', contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty', is_true: 'is true', is_false: 'is false', greater_than: '>', less_than: '<', before: 'before', after: 'after', is_one_of: 'is one of' };
+          const opLabels = { equals: '=', not_equals: '!=', contains: 'contains', is_empty: 'is empty', is_not_empty: 'is not empty', is_true: 'is true', is_false: 'is false', greater_than: '>', less_than: '<', before: 'before', after: 'after', is_one_of: 'is one of', is_not_one_of: 'is not one of' };
           const opLabel = opLabels[c.operator] || c.operator;
-          const scope = c.entity_scope === 'organization' ? 'Org' : 'Member';
+          const scope = c.entity_scope === 'organization' ? 'Org' : c.entity_scope === 'event' ? 'Event' : 'Member';
           if (c.operator === 'is_empty' || c.operator === 'is_not_empty' || c.operator === 'is_true' || c.operator === 'is_false') {
             return `${scope}.${fieldLabel} ${opLabel}`;
           }
-          const displayVal = Array.isArray(c.value) ? c.value.join(', ') : c.value;
+          let displayVal;
+          if (c.entity_scope === 'event' && Array.isArray(c.value)) {
+            displayVal = c.value.map(id => (c.value_names && c.value_names[id]) || eventLookup[id] || id).join(', ');
+          } else {
+            displayVal = Array.isArray(c.value) ? c.value.join(', ') : c.value;
+          }
           return `${scope}.${fieldLabel} ${opLabel} ${displayVal}`;
         });
         return conds.join(' AND ');
@@ -450,6 +456,11 @@ export default function CommunicationsManagementPage() {
           { value: 'contains', label: 'Contains any of' },
           { value: 'is_empty', label: 'Is empty' },
           { value: 'is_not_empty', label: 'Is not empty' },
+        ];
+      case 'event_id':
+        return [
+          { value: 'is_one_of', label: 'Is one of' },
+          { value: 'is_not_one_of', label: 'Is not one of' },
         ];
       default:
         return [...base, { value: 'contains', label: 'Contains' }];
@@ -2712,13 +2723,31 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               {group.conditions.map((cond, cIdx) => {
                                 const scopeFields = cond.entity_scope === 'organization'
                                   ? [...(filterableFields.organization?.core || []), ...(filterableFields.organization?.custom || [])]
+                                  : cond.entity_scope === 'event'
+                                  ? [...(filterableFields.event?.core || []), ...(filterableFields.event?.custom || [])]
                                   : [...(filterableFields.member?.core || []), ...(filterableFields.member?.custom || [])];
                                 const selectedField = scopeFields.find(f => f.key === cond.field_key);
                                 const operators = getOperatorsForDataType(selectedField?.data_type || cond.data_type || 'text');
                                 const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(cond.operator);
                                 const isPicklist = selectedField?.data_type === 'picklist' || selectedField?.data_type === 'dropdown';
                                 const isMultiSelect = isMultiSelectDataType(selectedField?.data_type);
+                                const isEventField = selectedField?.data_type === 'event_id' || cond.data_type === 'event_id';
                                 const fieldOptions = selectedField?.options || [];
+                                const eventScopeCore = filterableFields.event?.core || [];
+                                const eventScopeCustom = filterableFields.event?.custom || [];
+                                const scopeCore = cond.entity_scope === 'member'
+                                  ? filterableFields.member?.core
+                                  : cond.entity_scope === 'organization'
+                                  ? filterableFields.organization?.core
+                                  : eventScopeCore;
+                                const scopeCustom = cond.entity_scope === 'member'
+                                  ? filterableFields.member?.custom
+                                  : cond.entity_scope === 'organization'
+                                  ? filterableFields.organization?.custom
+                                  : eventScopeCustom;
+                                const selectedEventValueIds = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : []);
+                                const selectedEventValueObjects = selectedEventValueIds
+                                  .map(id => audienceListEvents.find(ev => ev.id === id) || (cond.value_names && cond.value_names[id] ? { id, title: cond.value_names[id] } : { id, title: id }));
 
                                 return (
                                   <div key={cIdx} className="space-y-1.5">
@@ -2740,6 +2769,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         <SelectContent>
                                           <SelectItem value="member">Member</SelectItem>
                                           <SelectItem value="organization">Organisation</SelectItem>
+                                          <SelectItem value="event">Event</SelectItem>
                                         </SelectContent>
                                       </Select>
                                       <Select
@@ -2766,18 +2796,18 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         </SelectTrigger>
                                         <SelectContent>
                                           {scopeFields.length === 0 && <SelectItem value="_none" disabled>No fields available</SelectItem>}
-                                          {(cond.entity_scope === 'member' ? filterableFields.member?.core : filterableFields.organization?.core)?.length > 0 && (
+                                          {scopeCore?.length > 0 && (
                                             <>
                                               <SelectItem value="_core_label" disabled className="text-xs font-semibold text-muted-foreground">Core Fields</SelectItem>
-                                              {(cond.entity_scope === 'member' ? filterableFields.member?.core : filterableFields.organization?.core).map(f => (
+                                              {scopeCore.map(f => (
                                                 <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
                                               ))}
                                             </>
                                           )}
-                                          {(cond.entity_scope === 'member' ? filterableFields.member?.custom : filterableFields.organization?.custom)?.length > 0 && (
+                                          {scopeCustom?.length > 0 && (
                                             <>
                                               <SelectItem value="_custom_label" disabled className="text-xs font-semibold text-muted-foreground">Custom Fields</SelectItem>
-                                              {(cond.entity_scope === 'member' ? filterableFields.member?.custom : filterableFields.organization?.custom).map(f => (
+                                              {scopeCustom.map(f => (
                                                 <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
                                               ))}
                                             </>
@@ -2809,7 +2839,92 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         </Select>
                                       )}
                                       {cond.operator && needsValue && (
-                                        isMultiSelect && cond.operator === 'contains' && fieldOptions.length > 0 ? (
+                                        isEventField ? (
+                                          <div className="flex-1 min-w-[200px] border rounded-md p-1.5 space-y-1 bg-background" data-testid={`event-filter-value-${gIdx}-${cIdx}`}>
+                                            <div className="relative">
+                                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                                              <Input
+                                                placeholder="Search events..."
+                                                value={eventFilterSearches[`${gIdx}-${cIdx}`] || ''}
+                                                onChange={(e) => setEventFilterSearches(prev => ({ ...prev, [`${gIdx}-${cIdx}`]: e.target.value }))}
+                                                className="pl-7 h-7 text-xs"
+                                                data-testid={`input-event-filter-search-${gIdx}-${cIdx}`}
+                                              />
+                                            </div>
+                                            <div className="max-h-32 overflow-y-auto space-y-0.5">
+                                              {audienceListEvents
+                                                .filter(ev => !selectedEventValueIds.includes(ev.id))
+                                                .filter(ev => {
+                                                  const term = (eventFilterSearches[`${gIdx}-${cIdx}`] || '').toLowerCase();
+                                                  if (!term) return true;
+                                                  return (ev.title || '').toLowerCase().includes(term);
+                                                })
+                                                .slice(0, 50)
+                                                .map(ev => (
+                                                  <div
+                                                    key={ev.id}
+                                                    className="flex items-center gap-1.5 p-1 rounded cursor-pointer hover-elevate text-xs"
+                                                    onClick={() => {
+                                                      setFieldFilterGroups(prev => {
+                                                        const updated = JSON.parse(JSON.stringify(prev));
+                                                        const c = updated[gIdx].conditions[cIdx];
+                                                        const arr = Array.isArray(c.value) ? [...c.value] : [];
+                                                        arr.push(ev.id);
+                                                        c.value = arr;
+                                                        c.value_names = { ...(c.value_names || {}), [ev.id]: ev.title };
+                                                        return updated;
+                                                      });
+                                                      setEventFilterSearches(prev => ({ ...prev, [`${gIdx}-${cIdx}`]: '' }));
+                                                    }}
+                                                    data-testid={`event-filter-result-${gIdx}-${cIdx}-${ev.id}`}
+                                                  >
+                                                    <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                                                    <span className="truncate">{ev.title}</span>
+                                                    {ev.start_date && (
+                                                      <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{formatEventDate(ev.start_date)}</span>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              {audienceListEvents.length === 0 && (
+                                                <div className="text-[11px] text-muted-foreground py-1 px-1">No events available</div>
+                                              )}
+                                            </div>
+                                            {selectedEventValueObjects.length > 0 && (
+                                              <div className="space-y-0.5 border-t pt-1">
+                                                {selectedEventValueObjects.map(ev => (
+                                                  <div key={ev.id} className="flex items-center justify-between gap-1.5 p-1 text-xs" data-testid={`event-filter-selected-${gIdx}-${cIdx}-${ev.id}`}>
+                                                    <span className="truncate flex items-center gap-1">
+                                                      <span className="truncate">{ev.title}</span>
+                                                      {ev.start_date && <span className="text-[10px] text-muted-foreground shrink-0">({formatEventDate(ev.start_date)})</span>}
+                                                    </span>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className="h-5 w-5 shrink-0"
+                                                      onClick={() => {
+                                                        setFieldFilterGroups(prev => {
+                                                          const updated = JSON.parse(JSON.stringify(prev));
+                                                          const c = updated[gIdx].conditions[cIdx];
+                                                          const arr = (Array.isArray(c.value) ? c.value : []).filter(id => id !== ev.id);
+                                                          c.value = arr;
+                                                          if (c.value_names) {
+                                                            const names = { ...c.value_names };
+                                                            delete names[ev.id];
+                                                            c.value_names = names;
+                                                          }
+                                                          return updated;
+                                                        });
+                                                      }}
+                                                      data-testid={`button-remove-event-filter-${gIdx}-${cIdx}-${ev.id}`}
+                                                    >
+                                                      <X className="w-3 h-3" />
+                                                    </Button>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : isMultiSelect && cond.operator === 'contains' && fieldOptions.length > 0 ? (
                                           <div className="flex-1 min-w-[100px] border rounded-md p-1.5 max-h-24 overflow-y-auto space-y-0.5 bg-background" data-testid={`checklist-filter-multivalue-${gIdx}-${cIdx}`}>
                                             {fieldOptions.map((opt, oIdx) => {
                                               const optVal = String(typeof opt === 'object' ? (opt.value || opt.label) : opt);
@@ -3081,7 +3196,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             const noValueOps = ['is_empty', 'is_not_empty', 'is_true', 'is_false'];
                             const validGroups = fieldFilterGroups
                               .map(g => ({
-                                conditions: g.conditions.filter(c => c.field_key && c.operator && (noValueOps.includes(c.operator) || (c.value !== '' && c.value !== undefined && c.value !== null)))
+                                conditions: g.conditions.filter(c => c.field_key && c.operator && (noValueOps.includes(c.operator) || (c.value !== '' && c.value !== undefined && c.value !== null && (!Array.isArray(c.value) || c.value.length > 0))))
                               }))
                               .filter(g => g.conditions.length > 0);
                             if (validGroups.length > 0) {
