@@ -4,7 +4,8 @@ import {
   upsertZohoCrmRecord,
   updateZohoCrmRecordById,
   isZohoCrmConnected,
-  zohoCrmApiCall
+  zohoCrmApiCall,
+  searchZohoCrmRecords
 } from './zohoCrmClient.js';
 
 const ENTITY_TABLE = {
@@ -922,6 +923,188 @@ export async function pollZohoCrmReconciliation(tenantId, options = {}) {
         error_message: err?.message || String(err)
       });
       summary.mappings.push({ entity_type: mapping.entity_type, processed, error: err.message });
+    }
+  }
+
+  return summary;
+}
+
+// ===========================================================================
+// Relink: backfill iConnect → Zoho record-id links after a Zoho module
+// switchover (e.g. Accounts module rebuilt) invalidates stored zoho_crm_id
+// values. Link-only — does NOT update any field values.
+// ===========================================================================
+
+// Whitelist of organisation columns that may be used as the local
+// unique-key for relink. Matches ENTITY_CORE_FIELDS.organization in
+// api/admin/zoho-crm-sync/metadata.js and prevents PostgREST select-string
+// injection via a tampered field_mappings JSON.
+const ALLOWED_ORG_LOCAL_KEYS = new Set([
+  'name', 'website', 'phone', 'email',
+  'address_line_1', 'address_line_2', 'city', 'country',
+  'description', 'status'
+]);
+
+async function validateZohoRecordExists(tenantId, module, recordId) {
+  try {
+    const resp = await zohoCrmApiCall(tenantId, `/${module}/${encodeURIComponent(recordId)}`);
+    return Array.isArray(resp?.data) && resp.data.length > 0;
+  } catch (err) {
+    if (/\b404\b|invalid.?id|INVALID_DATA/i.test(err?.message || '')) return false;
+    throw err;
+  }
+}
+
+function escapeZohoCriteriaValue(v) {
+  // Zoho criteria values must escape special chars (parens, commas, etc.)
+  // Conservative: backslash-escape parens, commas and backslashes.
+  return String(v).replace(/([\\(),])/g, '\\$1');
+}
+
+/**
+ * For every organization in the tenant, look it up in the new Zoho Accounts
+ * module by the configured unique_key_field and persist the resulting
+ * zoho_crm_id. Existing links are validated; stale ones are re-resolved.
+ *
+ * Decision matrix per org:
+ *   - existing zoho_crm_id valid → log 'skipped' (already_linked)
+ *   - existing zoho_crm_id stale → search; relink or log 'no_match'/'ambiguous'
+ *   - no zoho_crm_id            → search; relink or log 'no_match'/'ambiguous'
+ *
+ * Returns a summary { processed, relinked, already_linked, no_match,
+ * ambiguous, failed }.
+ */
+export async function relinkOrganizationsToZoho(tenantId, options = {}) {
+  const source = options.source || 'admin_relink';
+  const summary = {
+    tenant_id: tenantId,
+    processed: 0,
+    relinked: 0,
+    already_linked: 0,
+    no_match: 0,
+    ambiguous: 0,
+    failed: 0,
+    skipped_no_value: 0
+  };
+
+  const { data: mapping } = await supabase
+    .from('zoho_crm_sync_mapping')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_type', 'organization')
+    .maybeSingle();
+
+  if (!mapping) {
+    throw new Error('No organisation mapping configured for this tenant');
+  }
+  const zohoModule = mapping.zoho_module || 'Accounts';
+  const uniqueKey = mapping.unique_key_field;
+  if (!uniqueKey) throw new Error('Mapping has no unique_key_field configured');
+  // Defence-in-depth: although unique_key_field is admin-controlled via the
+  // mappings UI, refuse anything other than a plain Zoho API name so a
+  // malicious value cannot break the criteria string syntax.
+  if (!/^[A-Za-z0-9_]+$/.test(uniqueKey)) {
+    throw new Error(`unique_key_field "${uniqueKey}" is not a valid Zoho API name`);
+  }
+  const localKey = resolveLocalKeyForZohoUnique(mapping);
+  if (!localKey) {
+    throw new Error(`unique_key_field "${uniqueKey}" is not paired with a core organisation column in field_mappings`);
+  }
+  // Whitelist the local column to prevent PostgREST select-string injection
+  // via a tampered field_mappings JSON (the admin UI is the only writer, but
+  // relying on it for injection safety is brittle).
+  if (!ALLOWED_ORG_LOCAL_KEYS.has(localKey)) {
+    throw new Error(`Local field "${localKey}" is not permitted as a relink unique key`);
+  }
+
+  const { data: orgs, error: orgErr } = await supabase
+    .from('organization')
+    .select(`id, name, zoho_crm_id, zoho_crm_module, ${localKey}`)
+    .eq('tenant_id', tenantId);
+  if (orgErr) throw orgErr;
+
+  for (const org of orgs || []) {
+    summary.processed += 1;
+    const matchValue = org[localKey];
+
+    try {
+      // 1. Validate existing link if present
+      if (org.zoho_crm_id) {
+        const existingModule = org.zoho_crm_module || zohoModule;
+        const stillValid = existingModule === zohoModule
+          ? await validateZohoRecordExists(tenantId, zohoModule, org.zoho_crm_id)
+          : false;
+        if (stillValid) {
+          summary.already_linked += 1;
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            status: 'skipped', direction: 'inbound', source, action: 'relink',
+            error_message: `Already linked to valid ${zohoModule}/${org.zoho_crm_id}`
+          });
+          continue;
+        }
+      }
+
+      // 2. Need to (re)link by searching Zoho
+      if (matchValue === undefined || matchValue === null || matchValue === '') {
+        summary.skipped_no_value += 1;
+        await writeLog({
+          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+          source, action: 'relink',
+          error_message: `Local field "${localKey}" is empty — cannot search Zoho`
+        });
+        continue;
+      }
+
+      const criteria = `(${uniqueKey}:equals:${escapeZohoCriteriaValue(matchValue)})`;
+      const records = await searchZohoCrmRecords(tenantId, zohoModule, criteria, ['id', uniqueKey]);
+
+      if (records.length === 0) {
+        summary.no_match += 1;
+        await writeLog({
+          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+          source, action: 'relink',
+          error_message: `No ${zohoModule} found in Zoho where ${uniqueKey}="${matchValue}"`
+        });
+        continue;
+      }
+      if (records.length > 1) {
+        summary.ambiguous += 1;
+        await writeLog({
+          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+          source, action: 'relink',
+          error_message: `Ambiguous: ${records.length} ${zohoModule} records in Zoho match ${uniqueKey}="${matchValue}"`,
+          response_payload: { matches: records.map(r => r.id) }
+        });
+        continue;
+      }
+
+      const newZohoId = records[0].id;
+      const wasStale = !!org.zoho_crm_id && org.zoho_crm_id !== newZohoId;
+      await persistZohoIdOnEntity(tenantId, 'organization', org.id, newZohoId, zohoModule);
+      summary.relinked += 1;
+      await writeLog({
+        tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+        zoho_module: zohoModule, zoho_record_id: newZohoId,
+        status: 'success', direction: 'inbound', source, action: 'relink',
+        error_message: wasStale
+          ? `Re-linked: stale id ${org.zoho_crm_id} → ${newZohoId}`
+          : `Linked via ${uniqueKey}="${matchValue}" → ${newZohoId}`,
+        response_payload: { previous_zoho_crm_id: org.zoho_crm_id || null, new_zoho_crm_id: newZohoId }
+      });
+    } catch (err) {
+      console.error('[ZohoCrmSync] Relink error for org', org.id, err);
+      summary.failed += 1;
+      await writeLog({
+        tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+        zoho_module: zohoModule, status: 'failed', direction: 'inbound',
+        source, action: 'relink',
+        error_message: err?.message || String(err)
+      });
     }
   }
 

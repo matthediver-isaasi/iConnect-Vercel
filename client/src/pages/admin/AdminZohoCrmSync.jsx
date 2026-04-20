@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye,
-  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown
+  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown, Link2
 } from "lucide-react";
 
 const ENTITY_OPTIONS = [
@@ -87,6 +87,10 @@ export default function AdminZohoCrmSync() {
   const [loadingWebhook, setLoadingWebhook] = useState(false);
   const [regeneratingSecret, setRegeneratingSecret] = useState(false);
 
+  // Re-link to Zoho
+  const [relinking, setRelinking] = useState(false);
+  const [relinkSummary, setRelinkSummary] = useState(null);
+
   useEffect(() => {
     checkConnection();
     loadModules();
@@ -123,6 +127,33 @@ export default function AdminZohoCrmSync() {
       }
     } finally {
       setRegeneratingSecret(false);
+    }
+  };
+
+  const relinkOrganisations = async () => {
+    if (!confirm("This will look up every organisation in Zoho by the configured unique key and update the stored Zoho record id. It does not change any field values. Continue?")) return;
+    setRelinking(true);
+    setRelinkSummary(null);
+    try {
+      const r = await fetch("/api/admin/zoho-crm-sync/relink-organisations", {
+        method: "POST",
+        credentials: "include"
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setRelinkSummary(d.summary);
+        toast({
+          title: "Re-link complete",
+          description: `${d.summary.relinked} re-linked, ${d.summary.already_linked} already linked, ${d.summary.no_match} no match, ${d.summary.ambiguous} ambiguous, ${d.summary.failed} failed`
+        });
+        loadLogs();
+      } else {
+        toast({ variant: "destructive", title: "Re-link failed", description: d.error });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Re-link failed", description: err.message });
+    } finally {
+      setRelinking(false);
     }
   };
 
@@ -574,6 +605,47 @@ export default function AdminZohoCrmSync() {
                 </>
               )}
             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Link2 className="h-4 w-4" /> Re-link Organisations to Zoho</CardTitle>
+                  <CardDescription>
+                    Use after switching Zoho Account modules (or any time stored Zoho record ids may be stale). Each organisation is searched in Zoho by the configured unique key, and its <code>zoho_crm_id</code> is updated. Field values are not changed — run the one-time import for that.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={relinkOrganisations}
+                  disabled={relinking}
+                  data-testid="button-relink-organisations"
+                >
+                  {relinking ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+                  Re-link organisations
+                </Button>
+              </div>
+            </CardHeader>
+            {relinkSummary && (
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm" data-testid="text-relink-summary">
+                  <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{relinkSummary.processed}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Re-linked</div><div className="font-medium text-green-600">{relinkSummary.relinked}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Already linked</div><div className="font-medium">{relinkSummary.already_linked}</div></div>
+                  <div><div className="text-xs text-muted-foreground">No match</div><div className="font-medium">{relinkSummary.no_match}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Ambiguous</div><div className="font-medium">{relinkSummary.ambiguous}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{relinkSummary.failed}</div></div>
+                </div>
+                {relinkSummary.skipped_no_value > 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {relinkSummary.skipped_no_value} organisation(s) skipped because the local unique-key field was empty.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">See the Sync Log tab (filter by action <code>relink</code>) for per-organisation details.</p>
+              </CardContent>
+            )}
           </Card>
 
           <Card>
