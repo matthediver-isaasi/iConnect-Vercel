@@ -97,19 +97,20 @@ async function loadCustomFieldValues(tenantId, entityType, entityId) {
   const table = PREF_VALUE_TABLE[entityType];
   const fk = PREF_VALUE_FK[entityType];
   if (!table || !fk) return {};
-  let query = supabase
-    .from(table)
-    .select('field_id, value, tenant_id, preference_field:field_id(id, label, name)')
-    .eq(fk, entityId);
-  let { data, error } = await query.eq('tenant_id', tenantId);
-  if (error && /column .*tenant_id/i.test(error.message || '')) {
-    const fallback = await supabase
+  let query;
+  if (entityType === 'organization') {
+    query = supabase
+      .from(table)
+      .select('field_id, value, tenant_id, preference_field:field_id(id, label, name)')
+      .eq(fk, entityId)
+      .eq('tenant_id', tenantId);
+  } else {
+    query = supabase
       .from(table)
       .select('field_id, value, preference_field:field_id(id, label, name)')
       .eq(fk, entityId);
-    data = fallback.data;
-    error = fallback.error;
   }
+  const { data, error } = await query;
   if (error) {
     console.error('[ZohoCrmSync] Failed to load custom values:', error);
     return {};
