@@ -159,6 +159,10 @@ function buildCanonicalPayload(mappings, entity, customValues) {
   return canonical;
 }
 
+export async function writeSyncLog(row) {
+  return writeLog(row);
+}
+
 async function writeLog(row) {
   try {
     const { data, error } = await supabase
