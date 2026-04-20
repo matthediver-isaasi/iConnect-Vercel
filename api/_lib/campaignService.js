@@ -833,6 +833,78 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           last_name: nameParts.slice(1).join(' ') || ''
         };
       });
+  } else if (targetType === 'event_attendees' && targetIds.length > 0) {
+    const collectMemberIds = async (table) => {
+      const ids = new Set();
+      const idBatchSize = 200;
+      for (let i = 0; i < targetIds.length; i += idBatchSize) {
+        const idBatch = targetIds.slice(i, i + idBatchSize);
+        let offset = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from(table)
+            .select('member_id')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'confirmed')
+            .not('member_id', 'is', null)
+            .in('event_id', idBatch)
+            .range(offset, offset + pageSize - 1);
+          if (error) {
+            console.error(`[EventAttendees] ${table} query error:`, error);
+            break;
+          }
+          if (data && data.length > 0) {
+            for (const row of data) {
+              if (row.member_id) ids.add(row.member_id);
+            }
+            offset += data.length;
+            hasMore = data.length === pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+      }
+      return ids;
+    };
+
+    const [regularIds, complexIds] = await Promise.all([
+      collectMemberIds('booking'),
+      collectMemberIds('complex_event_booking'),
+    ]);
+    const memberIdSet = new Set([...regularIds, ...complexIds]);
+
+    if (memberIdSet.size > 0) {
+      const memberIdArr = [...memberIdSet];
+      const seenEmails = new Set();
+      const idBatchSize = 500;
+      for (let i = 0; i < memberIdArr.length; i += idBatchSize) {
+        const batch = memberIdArr.slice(i, i + idBatchSize);
+        const { data: members } = await supabase
+          .from('member')
+          .select('id, email, first_name, last_name, communications_opted_out_all')
+          .eq('tenant_id', tenantId)
+          .in('id', batch)
+          .not('email', 'ilike', 'deleted_%@deleted.local');
+        if (members) {
+          for (const m of members) {
+            if (!m.email) continue;
+            const key = m.email.toLowerCase();
+            if (seenEmails.has(key)) continue;
+            seenEmails.add(key);
+            recipients.push({
+              id: m.id,
+              member_id: m.id,
+              email: m.email,
+              first_name: m.first_name,
+              last_name: m.last_name,
+              communications_opted_out_all: m.communications_opted_out_all,
+            });
+          }
+        }
+      }
+    }
   } else if (targetType === 'audience_list' && targetIds.length > 0) {
     const { data: lists } = await supabase
       .from('audience_list')
@@ -963,7 +1035,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
                 .select('member_id')
                 .eq('field_id', cond.field_key)
                 .not('value', 'is', null)
-                .neq('value', '');
+                .neq('value', '')
+                .neq('value', '[]');
               let hvOffset = 0;
               let hvHasMore = true;
               while (hvHasMore) {
@@ -1072,7 +1145,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
                 .select('organization_id')
                 .eq('field_id', cond.field_key)
                 .not('value', 'is', null)
-                .neq('value', '');
+                .neq('value', '')
+                .neq('value', '[]');
               let hvOffset = 0;
               let hvHasMore = true;
               while (hvHasMore) {
@@ -1178,15 +1252,28 @@ function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
 
 function applyPrefValueCondition(query, operator, value, dataType) {
   const isNumericType = dataType === 'number' || dataType === 'decimal';
+  const isMultiSelectType = dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
   switch (operator) {
     case 'equals':
       return { query: query.eq('value', String(value)), postFilter: null };
     case 'not_equals':
       return { query: query.neq('value', String(value)), postFilter: null };
     case 'contains':
+      if (isMultiSelectType && Array.isArray(value) && value.length > 0) {
+        const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
+        const escapeOr = (s) => String(s).replace(/([\\(),"])/g, '\\$1');
+        const orClause = value
+          .map(v => `value.ilike."%\\"${escapeOr(escapeLike(v))}\\"%"`)
+          .join(',');
+        return { query: query.or(orClause), postFilter: null };
+      }
+      if (isMultiSelectType && value) {
+        const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
+        return { query: query.ilike('value', `%"${escapeLike(value)}"%`), postFilter: null };
+      }
       return { query: query.ilike('value', `%${value}%`), postFilter: null };
     case 'is_not_empty':
-      return { query: query.not('value', 'is', null).neq('value', ''), postFilter: null };
+      return { query: query.not('value', 'is', null).neq('value', '').neq('value', '[]'), postFilter: null };
     case 'is_true':
       return { query: query.eq('value', 'true'), postFilter: null };
     case 'is_false':

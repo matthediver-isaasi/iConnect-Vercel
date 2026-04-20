@@ -54,6 +54,8 @@ export default function CommunicationsManagementPage() {
   const [indMemberSearchResults, setIndMemberSearchResults] = useState([]);
   const [indMemberSearchLoading, setIndMemberSearchLoading] = useState(false);
   const [indSelectedMembers, setIndSelectedMembers] = useState([]);
+  const [eventSearchInput, setEventSearchInput] = useState('');
+  const [selectedEvents, setSelectedEvents] = useState([]);
   const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -282,6 +284,24 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
+  const { data: audienceListEvents = [] } = useQuery({
+    queryKey: ['audience-list-events'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/audience-lists/events', { credentials: 'include' });
+        if (!response.ok) return [];
+        return await response.json() || [];
+      } catch (e) { return []; }
+    },
+    staleTime: 60000,
+  });
+
+  const eventLookup = useMemo(() => {
+    const map = {};
+    audienceListEvents.forEach(e => { map[e.id] = e.title; });
+    return map;
+  }, [audienceListEvents]);
+
   const { data: fundraisingCampaigns = [] } = useQuery({
     queryKey: ['fundraising-campaigns-list'],
     queryFn: async () => {
@@ -334,7 +354,8 @@ export default function CommunicationsManagementPage() {
       all_members: 'All Members',
       audience_list: 'Saved Lists',
       individual_members: 'Individual Members',
-      field_filter: 'Field Filter'
+      field_filter: 'Field Filter',
+      event_attendees: 'Event Attendees'
     };
     const label = typeLabels[segment.type] || segment.type;
     if (segment.type === 'all_members') return label;
@@ -369,6 +390,11 @@ export default function CommunicationsManagementPage() {
     }
     if (segment.type === 'audience_list') {
       const names = (segment.ids || []).map(id => audienceLists.find(l => l.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'event_attendees') {
+      const lookup = segment.names || {};
+      const names = (segment.ids || []).map(id => lookup[id] || eventLookup[id]).filter(Boolean);
       return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
     }
     if (segment.type === 'field_filter') {
@@ -415,19 +441,40 @@ export default function CommunicationsManagementPage() {
       case 'picklist':
       case 'dropdown':
         return [...base, { value: 'is_one_of', label: 'Is one of' }];
+      case 'list':
+      case 'multiselect':
+      case 'multi_select':
       case 'country':
       case 'countries':
-        return [...base, { value: 'contains', label: 'Contains' }];
+        return [
+          { value: 'contains', label: 'Contains any of' },
+          { value: 'is_empty', label: 'Is empty' },
+          { value: 'is_not_empty', label: 'Is not empty' },
+        ];
       default:
         return [...base, { value: 'contains', label: 'Contains' }];
     }
   };
+
+  const isMultiSelectDataType = (dataType) =>
+    dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
 
   const resetIndMemberSearch = () => {
     setIndMemberSearchInput('');
     setIndMemberSearchResults([]);
     setIndMemberSearchLoading(false);
     setIndSelectedMembers([]);
+    setEventSearchInput('');
+    setSelectedEvents([]);
+  };
+
+  const formatEventDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return ''; }
   };
 
   const openEditListDialog = (list) => {
@@ -2508,6 +2555,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           <SelectItem value="donors">Donors</SelectItem>
                         )}
                         <SelectItem value="individual_members">Individual Members</SelectItem>
+                        {audienceListEvents.length > 0 && (
+                          <SelectItem value="event_attendees">Event Attendees</SelectItem>
+                        )}
                         <SelectItem value="field_filter">Field Filter</SelectItem>
                       </SelectContent>
                     </Select>
@@ -2577,6 +2627,76 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
+                    {addListSegmentType === 'event_attendees' && (
+                      <div className="border rounded-md p-2 space-y-2 bg-background">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search events by title..."
+                            value={eventSearchInput}
+                            onChange={(e) => setEventSearchInput(e.target.value)}
+                            className="pl-8 h-8 text-sm"
+                            data-testid="input-event-search"
+                          />
+                        </div>
+                        <div className="max-h-40 overflow-y-auto space-y-0.5">
+                          {audienceListEvents
+                            .filter(ev => !selectedEvents.some(s => s.id === ev.id))
+                            .filter(ev => !eventSearchInput || (ev.title || '').toLowerCase().includes(eventSearchInput.toLowerCase()))
+                            .slice(0, 50)
+                            .map(ev => (
+                              <div
+                                key={ev.id}
+                                className="flex items-center gap-2 p-1.5 rounded cursor-pointer hover-elevate text-sm"
+                                onClick={() => {
+                                  setSelectedEvents(prev => [...prev, ev]);
+                                  setAddListSegmentIds(prev => [...prev, ev.id]);
+                                  setEventSearchInput('');
+                                }}
+                                data-testid={`event-result-${ev.id}`}
+                              >
+                                <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                                <span className="truncate">{ev.title}</span>
+                                {ev.status && (
+                                  <Badge variant="secondary" className="text-[10px] ml-1 shrink-0">{ev.status}</Badge>
+                                )}
+                                {ev.start_date && (
+                                  <span className="text-xs text-muted-foreground ml-auto shrink-0">{formatEventDate(ev.start_date)}</span>
+                                )}
+                              </div>
+                            ))}
+                          {audienceListEvents.length === 0 && (
+                            <div className="text-xs text-muted-foreground py-1">No events available</div>
+                          )}
+                        </div>
+                        {selectedEvents.length > 0 && (
+                          <div className="space-y-0.5 border-t pt-1">
+                            {selectedEvents.map(ev => (
+                              <div key={ev.id} className="flex items-center justify-between gap-2 p-1 text-sm" data-testid={`event-selected-${ev.id}`}>
+                                <span className="truncate flex items-center gap-1.5">
+                                  <span className="truncate">{ev.title}</span>
+                                  {ev.status && <Badge variant="secondary" className="text-[10px] shrink-0">{ev.status}</Badge>}
+                                  {ev.start_date && <span className="text-xs text-muted-foreground shrink-0">({formatEventDate(ev.start_date)})</span>}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 shrink-0"
+                                  onClick={() => {
+                                    setSelectedEvents(prev => prev.filter(s => s.id !== ev.id));
+                                    setAddListSegmentIds(prev => prev.filter(i => i !== ev.id));
+                                  }}
+                                  data-testid={`button-remove-event-${ev.id}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {addListSegmentType === 'field_filter' && filterableFields && (
                       <div className="border rounded-md p-2 space-y-3 bg-background">
                         {fieldFilterGroups.map((group, gIdx) => (
@@ -2597,6 +2717,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 const operators = getOperatorsForDataType(selectedField?.data_type || cond.data_type || 'text');
                                 const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(cond.operator);
                                 const isPicklist = selectedField?.data_type === 'picklist' || selectedField?.data_type === 'dropdown';
+                                const isMultiSelect = isMultiSelectDataType(selectedField?.data_type);
                                 const fieldOptions = selectedField?.options || [];
 
                                 return (
@@ -2688,7 +2809,32 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                         </Select>
                                       )}
                                       {cond.operator && needsValue && (
-                                        isPicklist && cond.operator === 'is_one_of' ? (
+                                        isMultiSelect && cond.operator === 'contains' && fieldOptions.length > 0 ? (
+                                          <div className="flex-1 min-w-[100px] border rounded-md p-1.5 max-h-24 overflow-y-auto space-y-0.5 bg-background" data-testid={`checklist-filter-multivalue-${gIdx}-${cIdx}`}>
+                                            {fieldOptions.map((opt, oIdx) => {
+                                              const optVal = String(typeof opt === 'object' ? (opt.value || opt.label) : opt);
+                                              const optLabel = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                                              const currentArr = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : []);
+                                              return (
+                                                <label key={oIdx} className="flex items-center gap-1.5 cursor-pointer text-xs">
+                                                  <input type="checkbox" className="rounded" checked={currentArr.includes(optVal)}
+                                                    onChange={(e) => {
+                                                      setFieldFilterGroups(prev => {
+                                                        const updated = JSON.parse(JSON.stringify(prev));
+                                                        const arr = Array.isArray(updated[gIdx].conditions[cIdx].value) ? [...updated[gIdx].conditions[cIdx].value] : (updated[gIdx].conditions[cIdx].value ? [updated[gIdx].conditions[cIdx].value] : []);
+                                                        if (e.target.checked) arr.push(optVal);
+                                                        else arr.splice(arr.indexOf(optVal), 1);
+                                                        updated[gIdx].conditions[cIdx].value = arr;
+                                                        return updated;
+                                                      });
+                                                    }}
+                                                  />
+                                                  <span>{optLabel}</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        ) : isPicklist && cond.operator === 'is_one_of' ? (
                                           <div className="flex-1 min-w-[100px] border rounded-md p-1.5 max-h-24 overflow-y-auto space-y-0.5 bg-background" data-testid={`checklist-filter-value-${gIdx}-${cIdx}`}>
                                             {fieldOptions.map((opt, oIdx) => {
                                               const optVal = String(typeof opt === 'object' ? (opt.value || opt.label) : opt);
@@ -2941,6 +3087,25 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             if (validGroups.length > 0) {
                               setEditListAudiences(prev => [...prev, { type: 'field_filter', ids: [], filter_groups: validGroups }]);
                             }
+                          } else if (addListSegmentType === 'event_attendees' && selectedEvents.length > 0) {
+                            const newNames = {};
+                            selectedEvents.forEach(ev => { newNames[ev.id] = ev.title; });
+                            const existingIdx = editListAudiences.findIndex(a => a.type === 'event_attendees');
+                            if (existingIdx >= 0) {
+                              setEditListAudiences(prev => {
+                                const updated = [...prev];
+                                const existing = new Set(updated[existingIdx].ids || []);
+                                const existingNames = { ...(updated[existingIdx].names || {}) };
+                                selectedEvents.forEach(ev => {
+                                  existing.add(ev.id);
+                                  existingNames[ev.id] = ev.title;
+                                });
+                                updated[existingIdx] = { ...updated[existingIdx], ids: [...existing], names: existingNames };
+                                return updated;
+                              });
+                            } else {
+                              setEditListAudiences(prev => [...prev, { type: 'event_attendees', ids: selectedEvents.map(ev => ev.id), names: newNames }]);
+                            }
                           } else if (addListSegmentType === 'individual_members' && indSelectedMembers.length > 0) {
                             const newNames = {};
                             indSelectedMembers.forEach(m => { newNames[m.id] = `${m.first_name} ${m.last_name}`; });
@@ -2990,7 +3155,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               }))
                             : addListSegmentType === 'individual_members'
                               ? indSelectedMembers.length === 0
-                              : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)
+                              : addListSegmentType === 'event_attendees'
+                                ? selectedEvents.length === 0
+                                : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)
                         }
                         data-testid="button-confirm-add-list-segment"
                       >
