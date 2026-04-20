@@ -21,6 +21,97 @@ function toIcsUtc(value) {
   );
 }
 
+function isValidTimeZone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getTzOffsetMinutes(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const parts = dtf.formatToParts(date).reduce((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  const asUtc = Date.UTC(
+    parseInt(parts.year, 10),
+    parseInt(parts.month, 10) - 1,
+    parseInt(parts.day, 10),
+    parseInt(hour, 10),
+    parseInt(parts.minute, 10),
+    parseInt(parts.second, 10)
+  );
+  return Math.round((asUtc - date.getTime()) / 60000);
+}
+
+function formatOffsetIcs(minutes) {
+  const sign = minutes >= 0 ? '+' : '-';
+  const abs = Math.abs(minutes);
+  return `${sign}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`;
+}
+
+function toIcsLocal(value, timeZone) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return null;
+  const offsetMin = getTzOffsetMinutes(d, timeZone);
+  const local = new Date(d.getTime() + offsetMin * 60000);
+  return (
+    local.getUTCFullYear().toString() +
+    pad(local.getUTCMonth() + 1) +
+    pad(local.getUTCDate()) +
+    'T' +
+    pad(local.getUTCHours()) +
+    pad(local.getUTCMinutes()) +
+    pad(local.getUTCSeconds())
+  );
+}
+
+function buildVTimezone(timeZone, referenceDate) {
+  // Emit a minimal, conservative VTIMEZONE declaring the actual offset
+  // active at the event time in the given IANA zone. We deliberately do
+  // NOT emit RRULE recurrence rules because real DST transition rules
+  // vary widely between zones (and over time) and we don't bundle a
+  // tzdata library. Modern calendar clients (Apple, Google, Outlook)
+  // recognise the TZID against their built-in IANA database and use
+  // that for rendering; clients that fall back to the VTIMEZONE block
+  // will still display the correct offset for this specific event.
+  const ref = referenceDate instanceof Date && !isNaN(referenceDate.getTime())
+    ? referenceDate
+    : new Date();
+  const offsetMin = getTzOffsetMinutes(ref, timeZone);
+  const offsetStr = formatOffsetIcs(offsetMin);
+  const localDtstart = toIcsLocal(ref, timeZone) || '19700101T000000';
+
+  const lines = [
+    'BEGIN:VTIMEZONE',
+    `TZID:${timeZone}`,
+    `X-LIC-LOCATION:${timeZone}`,
+    'BEGIN:STANDARD',
+    `DTSTART:${localDtstart}`,
+    `TZOFFSETFROM:${offsetStr}`,
+    `TZOFFSETTO:${offsetStr}`,
+    'END:STANDARD',
+    'END:VTIMEZONE',
+  ];
+
+  return lines.map(foldLine).join('\r\n');
+}
+
 function escapeText(value) {
   if (value === null || value === undefined) return '';
   return String(value)
@@ -67,16 +158,30 @@ function foldLine(line) {
 }
 
 function buildVEvent(entry, dtstamp) {
-  const dtStart = toIcsUtc(entry.start);
-  const dtEnd = toIcsUtc(entry.end);
-  if (!dtStart || !dtEnd) return null;
+  const tz = entry.timeZone && isValidTimeZone(entry.timeZone) ? entry.timeZone : null;
+
+  let dtStartLine;
+  let dtEndLine;
+  if (tz) {
+    const ds = toIcsLocal(entry.start, tz);
+    const de = toIcsLocal(entry.end, tz);
+    if (!ds || !de) return null;
+    dtStartLine = `DTSTART;TZID=${tz}:${ds}`;
+    dtEndLine = `DTEND;TZID=${tz}:${de}`;
+  } else {
+    const ds = toIcsUtc(entry.start);
+    const de = toIcsUtc(entry.end);
+    if (!ds || !de) return null;
+    dtStartLine = `DTSTART:${ds}`;
+    dtEndLine = `DTEND:${de}`;
+  }
 
   const lines = [
     'BEGIN:VEVENT',
     `UID:${entry.uid}`,
     `DTSTAMP:${dtstamp}`,
-    `DTSTART:${dtStart}`,
-    `DTEND:${dtEnd}`,
+    dtStartLine,
+    dtEndLine,
     `SUMMARY:${escapeText(entry.title || '')}`,
   ];
 
@@ -107,6 +212,15 @@ export function buildIcs(entries) {
 
   if (veventBlocks.length === 0) return null;
 
+  const tzMap = new Map();
+  for (const entry of entries) {
+    if (entry.timeZone && isValidTimeZone(entry.timeZone) && !tzMap.has(entry.timeZone)) {
+      const refDate = entry.start instanceof Date ? entry.start : new Date(entry.start);
+      tzMap.set(entry.timeZone, isNaN(refDate.getTime()) ? new Date() : refDate);
+    }
+  }
+  const vtimezoneBlocks = Array.from(tzMap.entries()).map(([tz, ref]) => buildVTimezone(tz, ref));
+
   const header = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -117,7 +231,9 @@ export function buildIcs(entries) {
 
   const footer = 'END:VCALENDAR';
 
-  return header + '\r\n' + veventBlocks.join('\r\n') + '\r\n' + footer + '\r\n';
+  const middle = [...vtimezoneBlocks, ...veventBlocks].join('\r\n');
+
+  return header + '\r\n' + middle + '\r\n' + footer + '\r\n';
 }
 
 export function buildEventUid(bookingId, eventId) {

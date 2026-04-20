@@ -29,7 +29,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let eventQuery = supabase
       .from('event')
-      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
+      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
       .eq('id', eventId);
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
@@ -39,7 +39,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     if (eventError || !event) {
       let complexQuery = supabase
         .from('complex_event')
-        .select('id, title, description, start_date, end_date, location, is_online, tenant_id')
+        .select('id, title, description, start_date, end_date, location, is_online, tenant_id, timezone')
         .eq('id', eventId);
       if (tenantId) {
         complexQuery = complexQuery.eq('tenant_id', tenantId);
@@ -154,6 +154,7 @@ function buildIcsAttachment(event, booking, complexEventData) {
           end: s.end_time,
           location,
           url: sessionUrl || undefined,
+          timeZone: s.timezone || event.timezone || undefined,
         });
       }
       if (entries.length === 0) {
@@ -176,6 +177,7 @@ function buildIcsAttachment(event, booking, complexEventData) {
         end: event.end_date,
         location,
         url: url || undefined,
+        timeZone: event.timezone || undefined,
       });
     }
 
@@ -211,7 +213,7 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
 
     let sessionQuery = supabase
       .from('complex_event_session')
-      .select('id, title, description, start_time, end_time, delivery_mode, track_name, zoom_join_url, zoom_webinar_id, zoom_meeting_id, location')
+      .select('id, title, description, start_time, end_time, delivery_mode, track_name, zoom_join_url, zoom_webinar_id, zoom_meeting_id, location, timezone')
       .eq('event_id', eventId)
       .eq('status', 'scheduled')
       .order('start_time', { ascending: true })
