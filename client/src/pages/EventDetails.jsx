@@ -72,6 +72,7 @@ export default function EventDetailsPage() {
   // Terms and conditions state
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
   
   // Get eventId for terms reset tracking
   const routeParams = useParams();
@@ -320,6 +321,7 @@ export default function EventDetailsPage() {
     : '';
   useEffect(() => {
     setTermsAccepted(false);
+    setThirdPartyConsent(true);
   }, [currentEventId, termsSettingValue]);
 
   // Query for webinar join link visibility settings (using public endpoint)
@@ -1065,6 +1067,16 @@ export default function EventDetailsPage() {
   // Terms must be accepted if they exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
 
+  // Third-party consent: organiser-controlled per event via pricing_config
+  const collectThirdPartyConsent = (() => {
+    const cfg = event?.pricing_config;
+    if (!cfg) return false;
+    if (typeof cfg === 'string') {
+      try { return JSON.parse(cfg)?.collectThirdPartyConsent === true; } catch { return false; }
+    }
+    return cfg?.collectThirdPartyConsent === true;
+  })();
+
   const checkGuestEmailIsMember = async (emailToCheck) => {
     const email = emailToCheck || guestInfo?.email;
     if (!isGuestCheckout || !email) return false;
@@ -1166,7 +1178,8 @@ export default function EventDetailsPage() {
         registrationMode: registrationMode,
         numberOfLinks: registrationMode === 'links' ? 0 : 0,
         ticketsRequired: ticketsRequired,
-        programTag: event.program_tag
+        programTag: event.program_tag,
+        thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null
       };
       console.log('[EventDetails] Request payload:', JSON.stringify(requestPayload));
       console.log('[EventDetails] Event location:', event.location);
@@ -1842,7 +1855,24 @@ export default function EventDetailsPage() {
                                 </label>
                               </div>
                             )}
-                            
+
+                            {hasBookingTerms && collectThirdPartyConsent && (
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id="third-party-consent-program"
+                                  checked={thirdPartyConsent}
+                                  onCheckedChange={(v) => setThirdPartyConsent(v === true)}
+                                  data-testid="checkbox-third-party-consent-program"
+                                />
+                                <label
+                                  htmlFor="third-party-consent-program"
+                                  className="text-sm text-slate-600 leading-tight cursor-pointer"
+                                >
+                                  I consent to my name, organisation, email and job title being shared with relevant third-party suppliers in connection with this event.
+                                </label>
+                              </div>
+                            )}
+
                             <Button
                               onClick={() => {
                                 console.log('[EventDetails] Button clicked!');
@@ -2236,6 +2266,9 @@ export default function EventDetailsPage() {
               termsAccepted={termsAccepted}
               setTermsAccepted={setTermsAccepted}
               onShowTermsModal={() => setShowTermsModal(true)}
+              collectThirdPartyConsent={collectThirdPartyConsent}
+              thirdPartyConsent={thirdPartyConsent}
+              setThirdPartyConsent={setThirdPartyConsent}
               checkGuestEmailIsMember={checkGuestEmailIsMember}
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}

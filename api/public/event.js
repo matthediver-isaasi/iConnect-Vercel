@@ -131,6 +131,7 @@ export default async function handler(req, res) {
       pricing_config: event.pricing_config ? {
         ticket_classes: publicTicketClasses,
         allowGuestsToViewAllTickets: allowGuestsToViewAllTickets,
+        collectThirdPartyConsent: event.pricing_config?.collectThirdPartyConsent === true,
         ticket_price: event.pricing_config.ticket_price,
         offer_type: event.pricing_config.offer_type
       } : null,

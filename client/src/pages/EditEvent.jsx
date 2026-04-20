@@ -165,6 +165,7 @@ export default function EditEvent() {
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
+  const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
   // Email configuration state
   const [eventEmails, setEventEmails] = useState([]);
@@ -913,6 +914,7 @@ export default function EditEvent() {
         
         // Load allowGuestsToViewAllTickets setting
         setAllowGuestsToViewAllTickets(config.allowGuestsToViewAllTickets || false);
+        setCollectThirdPartyConsent(config.collectThirdPartyConsent === true);
       }
 
       // Load speaker_ids from event
@@ -1306,7 +1308,8 @@ export default function EditEvent() {
         ticket_price: defaultTicket.price,
         offer_type: defaultTicket.offer_type,
         ticket_classes: formattedTicketClasses,
-        allowGuestsToViewAllTickets: allowGuestsToViewAllTickets
+        allowGuestsToViewAllTickets: allowGuestsToViewAllTickets,
+        collectThirdPartyConsent: collectThirdPartyConsent
       };
     }
 
@@ -2970,6 +2973,25 @@ export default function EditEvent() {
                         checked={allowGuestsToViewAllTickets}
                         onCheckedChange={setAllowGuestsToViewAllTickets}
                         data-testid="switch-allow-guests-view-all"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mt-3">
+                      <div className="flex items-start gap-3">
+                        <Eye className="h-5 w-5 text-slate-600 mt-0.5" />
+                        <div>
+                          <Label htmlFor="edit-collect-third-party-consent" className="text-sm font-medium text-slate-900 cursor-pointer">
+                            Collect third-party data sharing consent
+                          </Label>
+                          <p className="text-xs text-slate-500 mt-1">
+                            When enabled, attendees will see an optional, default-checked checkbox below the terms &amp; conditions agreeing to share their details with relevant third parties. Submission is not required.
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        id="edit-collect-third-party-consent"
+                        checked={collectThirdPartyConsent}
+                        onCheckedChange={setCollectThirdPartyConsent}
+                        data-testid="switch-collect-third-party-consent"
                       />
                     </div>
                   </div>

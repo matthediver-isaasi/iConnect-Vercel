@@ -51,7 +51,8 @@ export default async function handler(req, res) {
       selected_voucher_ids,
       training_fund_amount: requestedTrainingFundAmount,
       purchase_order_number: purchaseOrderNumber,
-      po_to_follow: poToFollow
+      po_to_follow: poToFollow,
+      third_party_consent: thirdPartyConsent
     } = req.body;
 
     let authenticatedMember = null;
@@ -87,7 +88,7 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, available_seats, internal_reference, xero_account_code')
+      .select('id, title, status, event_state, tenant_id, available_seats, internal_reference, xero_account_code, pricing_config')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -587,7 +588,8 @@ export default async function handler(req, res) {
           voucher_id: validatedVouchers.length > 0 ? validatedVouchers[0].voucherId : null,
           account_balance_amount: confirmedPaymentMethod === 'account_balance' ? totalCostPounds / totalAttendees : 0,
           purchase_order_number: purchaseOrderNumber || null,
-          po_to_follow: (confirmedPaymentMethod === 'account' || confirmedPaymentMethod === 'invoice') ? (poToFollow || false) : false
+          po_to_follow: (confirmedPaymentMethod === 'account' || confirmedPaymentMethod === 'invoice') ? (poToFollow || false) : false,
+          third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null
         };
 
         const { data: booking, error: insertError } = await supabase

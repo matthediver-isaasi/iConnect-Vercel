@@ -433,6 +433,9 @@ export default function PaymentOptions({
   termsAccepted = false,
   setTermsAccepted = null,
   onShowTermsModal = null,
+  collectThirdPartyConsent = false,
+  thirdPartyConsent = true,
+  setThirdPartyConsent = null,
   checkGuestEmailIsMember = null,
   checkingMemberEmail = false,
   guestEmailIsMember = false,
@@ -605,6 +608,9 @@ export default function PaymentOptions({
             stripe_payment_intent_id: paymentIntentFromUrl,
             _savedCartItems: savedPayload.complexCartItems || []
           };
+          if (typeof savedPayload.thirdPartyConsent === 'boolean') {
+            complexPayload.third_party_consent = savedPayload.thirdPartyConsent;
+          }
           const result = await complexEventApi.submitBooking(complexPayload);
           if (result.success) {
             sessionStorage.removeItem(savedPayloadKey);
@@ -1080,6 +1086,7 @@ export default function PaymentOptions({
         isComplexEvent: isComplexEvent,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
+        thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null,
         complexCartItems: isComplexEvent ? (complexEventApi?._getCartItems?.() || []) : undefined,
       };
       
@@ -1141,6 +1148,9 @@ export default function PaymentOptions({
         if (appliedDiscount?.code) {
           complexPayload.discount_code = appliedDiscount.code;
         }
+        if (collectThirdPartyConsent) {
+          complexPayload.third_party_consent = thirdPartyConsent === true;
+        }
 
         const result = await complexEventApi.submitBooking(complexPayload);
 
@@ -1189,6 +1199,7 @@ export default function PaymentOptions({
           isGuestBooking: isGuestCheckout,
           discountCodeId: appliedDiscount?.discount_code_id || null,
           discountCodeAmount: discountCodeSavings || 0,
+          thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null,
           _testMode: testMode
         };
 
@@ -2014,6 +2025,23 @@ export default function PaymentOptions({
                     >
                       terms and conditions
                     </button>
+                  </label>
+                </div>
+              )}
+
+              {hasBookingTerms && collectThirdPartyConsent && setThirdPartyConsent && (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="third-party-consent-payment"
+                    checked={thirdPartyConsent}
+                    onCheckedChange={(v) => setThirdPartyConsent(v === true)}
+                    data-testid="checkbox-third-party-consent-payment"
+                  />
+                  <label
+                    htmlFor="third-party-consent-payment"
+                    className="text-sm text-slate-600 leading-tight cursor-pointer"
+                  >
+                    I consent to my name, organisation, email and job title being shared with relevant third-party suppliers in connection with this event.
                   </label>
                 </div>
               )}

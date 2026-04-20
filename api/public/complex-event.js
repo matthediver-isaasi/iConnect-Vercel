@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability')
+      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc', 'draft']);
 
@@ -115,9 +115,13 @@ export default async function handler(req, res) {
       is_unlimited_registration: event.is_unlimited_registration !== false,
       show_seat_count: event.show_seat_count !== false,
       show_ticket_availability: event.show_ticket_availability === true,
+      collect_third_party_consent: event.pricing_config?.collectThirdPartyConsent === true,
       is_complex: true,
       tracks: tracks || [],
-      pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
+      pricing_config: {
+        ...(publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : {}),
+        collectThirdPartyConsent: event.pricing_config?.collectThirdPartyConsent === true
+      }
     });
   } catch (error) {
     console.error('[Public Complex Event] Error:', error);

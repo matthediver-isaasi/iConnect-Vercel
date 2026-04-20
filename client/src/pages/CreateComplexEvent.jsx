@@ -635,6 +635,7 @@ export default function CreateComplexEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
   const [showSeatCount, setShowSeatCount] = useState(true);
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
+  const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
     queryKey: ['/api/entities/Role'],
@@ -935,8 +936,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1028,6 +1029,7 @@ export default function CreateComplexEvent() {
       }
       setShowSeatCount(existingEvent.show_seat_count !== false);
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
+      setCollectThirdPartyConsent(existingEvent.pricing_config?.collectThirdPartyConsent === true);
 
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
         .then(assignments => { setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)); setSponsorsInitialized(true); })
@@ -1551,6 +1553,7 @@ export default function CreateComplexEvent() {
         is_unlimited_registration: unlimitedSeats,
         show_seat_count: showSeatCount,
         show_ticket_availability: showTicketAvailability,
+        pricing_config: { collectThirdPartyConsent: collectThirdPartyConsent === true },
         internal_reference: formData.internal_reference || null,
         xero_account_code: formData.xero_account_code || null,
         event_type: serializeEventTypes(formData.event_type),
@@ -2478,6 +2481,19 @@ export default function CreateComplexEvent() {
                       checked={showTicketAvailability}
                       onCheckedChange={setShowTicketAvailability}
                       data-testid="switch-show-ticket-availability"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="collect-third-party-consent" className="text-sm">Collect third-party data sharing consent</Label>
+                      <p className="text-xs text-slate-500">Adds an optional, default-checked consent checkbox below the terms &amp; conditions on the registration page</p>
+                    </div>
+                    <Switch
+                      id="collect-third-party-consent"
+                      checked={collectThirdPartyConsent}
+                      onCheckedChange={setCollectThirdPartyConsent}
+                      data-testid="switch-collect-third-party-consent"
                     />
                   </div>
                 </div>

@@ -952,7 +952,8 @@ const functionHandlers = {
       registrationMode,
       numberOfLinks = 0,
       ticketsRequired,
-      programTag
+      programTag,
+      thirdPartyConsent = null
     } = params;
 
     if (!eventId || !memberEmail) {
@@ -1291,6 +1292,7 @@ const functionHandlers = {
           booking_group_reference: bookingReference, // Base reference to group all attendees
           status: bookingStatus,
           payment_method: 'program_ticket',
+          third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
           created_at: new Date().toISOString()
         };
 
@@ -1489,6 +1491,7 @@ const functionHandlers = {
       discountCodeId = null,
       discountCodeAmount = 0,
       donationData = null,
+      thirdPartyConsent = null,
       _testMode = false
     } = params;
 
@@ -2096,6 +2099,7 @@ const functionHandlers = {
         attendee_job_title: attendee.job_title || null,
         discount_code_id: validatedDiscountCodeId || null,
         discount_code_amount: validatedDiscountAmount > 0 ? validatedDiscountAmount / ticketsRequired : 0,
+        third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
       };

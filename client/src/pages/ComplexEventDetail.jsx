@@ -1029,6 +1029,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
+  const collectThirdPartyConsent = event?.collect_third_party_consent === true;
 
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['/api/public/system-settings'],
@@ -1240,7 +1242,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
         event_id: event.id,
         items,
         payment_method: data.payment_method,
-        stripe_payment_intent_id: data.stripe_payment_intent_id || null
+        stripe_payment_intent_id: data.stripe_payment_intent_id || null,
+        third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null
       });
     },
     _getCartItems: () => {
@@ -1408,6 +1411,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
       termsAccepted={termsAccepted}
       setTermsAccepted={setTermsAccepted}
       onShowTermsModal={() => setShowTermsModal(true)}
+      collectThirdPartyConsent={collectThirdPartyConsent}
+      thirdPartyConsent={thirdPartyConsent}
+      setThirdPartyConsent={setThirdPartyConsent}
     />
   ) : null;
 
