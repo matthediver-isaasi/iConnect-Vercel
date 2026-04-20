@@ -206,6 +206,7 @@ export default function EventRegistrationReport() {
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [transferIsPublic, setTransferIsPublic] = useState(false);
   const [statusFilter, setStatusFilter] = useState("active");
+  const [consentFilter, setConsentFilter] = useState("all");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -286,6 +287,16 @@ export default function EventRegistrationReport() {
       }).filter(Boolean);
     }
 
+    if (consentFilter !== "all") {
+      result = result.map(group => {
+        const filtered = group.attendees.filter(a =>
+          consentFilter === "consented" ? a.third_party_consent === true : a.third_party_consent !== true
+        );
+        if (filtered.length === 0) return null;
+        return { ...group, attendees: filtered };
+      }).filter(Boolean);
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(group =>
@@ -329,7 +340,7 @@ export default function EventRegistrationReport() {
     });
 
     return result;
-  }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter]);
+  }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter, consentFilter]);
 
   const totalAttendees = useMemo(() => {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
@@ -374,7 +385,7 @@ export default function EventRegistrationReport() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter]);
+  }, [searchQuery, statusFilter, consentFilter]);
 
   const handleExportCSV = () => {
     if (filteredGroups.length === 0) return;
@@ -404,6 +415,7 @@ export default function EventRegistrationReport() {
       'Status',
       'Date',
       'Guest Booking',
+      'Third-party Consent',
       'Attended',
       'Zoom Join Time',
       'Zoom Leave Time',
@@ -441,6 +453,7 @@ export default function EventRegistrationReport() {
           a.status || '',
           a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '',
           a.is_guest_booking ? 'Yes' : 'No',
+          a.third_party_consent === true ? 'Yes' : a.third_party_consent === false ? 'No' : '',
           a.attended === true ? 'Yes' : a.attended === false ? 'Partial' : (a.attended === null && group.hasZoom ? 'No' : ''),
           a.zoom_join_time ? format(parseISO(a.zoom_join_time), 'yyyy-MM-dd HH:mm:ss') : '',
           a.zoom_leave_time ? format(parseISO(a.zoom_leave_time), 'yyyy-MM-dd HH:mm:ss') : '',
@@ -910,6 +923,16 @@ export default function EventRegistrationReport() {
                     <SelectItem value="cancelled">Cancelled Only</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={consentFilter} onValueChange={setConsentFilter}>
+                  <SelectTrigger className="w-[180px]" data-testid="select-consent-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Consent</SelectItem>
+                    <SelectItem value="consented">Consented Only</SelectItem>
+                    <SelectItem value="not_consented">Not Consented</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[160px]" data-testid="select-sort">
                     <SelectValue />
@@ -953,6 +976,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">PO Number</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Invoice</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">3rd Party Consent</th>
                           {showAttendanceColumn && (
                             <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
                           )}
@@ -1033,6 +1057,15 @@ export default function EventRegistrationReport() {
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
                                   </Badge>
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap" data-testid={`text-consent-${attendee.id}`}>
+                                  {attendee.third_party_consent === true ? (
+                                    <Badge variant="secondary">Yes</Badge>
+                                  ) : attendee.third_party_consent === false ? (
+                                    <span className="text-xs text-muted-foreground">No</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-3 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
@@ -1139,6 +1172,15 @@ export default function EventRegistrationReport() {
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
                                   </Badge>
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap" data-testid={`text-consent-${attendee.id}`}>
+                                  {attendee.third_party_consent === true ? (
+                                    <Badge variant="secondary">Yes</Badge>
+                                  ) : attendee.third_party_consent === false ? (
+                                    <span className="text-xs text-muted-foreground">No</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-2 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
