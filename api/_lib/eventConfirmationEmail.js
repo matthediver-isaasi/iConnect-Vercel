@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
+import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -28,7 +29,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let eventQuery = supabase
       .from('event')
-      .select('id, title, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
+      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
       .eq('id', eventId);
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
@@ -38,7 +39,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     if (eventError || !event) {
       let complexQuery = supabase
         .from('complex_event')
-        .select('id, title, start_date, end_date, location, is_online, tenant_id')
+        .select('id, title, description, start_date, end_date, location, is_online, tenant_id')
         .eq('id', eventId);
       if (tenantId) {
         complexQuery = complexQuery.eq('tenant_id', tenantId);
@@ -81,6 +82,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id);
     }
 
+    const icsAttachment = buildIcsAttachment(event, booking, complexEventData);
+
     const bookingData = {
       id: booking?.id || '',
       attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
@@ -105,7 +108,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
           subject: subject,
           html: formatBodyAsHtml(body),
           cc: ccList.length > 0 ? ccList : undefined,
-          tenantId: event.tenant_id
+          tenantId: event.tenant_id,
+          attachments: icsAttachment ? [icsAttachment] : undefined
         });
 
         if (emailResult.success) {
@@ -126,6 +130,70 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
   }
 
   return results;
+}
+
+function buildIcsAttachment(event, booking, complexEventData) {
+  try {
+    const bookingId = booking?.id || '';
+    const entries = [];
+
+    if (event?.is_complex) {
+      const sessions = complexEventData?.sessions || [];
+      for (const s of sessions) {
+        if (!s.start_time || !s.end_time) continue;
+        const isVirtual = s.delivery_mode === 'virtual';
+        const sessionUrl = s.zoom_join_url || '';
+        const location = isVirtual
+          ? (sessionUrl || 'Online')
+          : (s.location || '');
+        entries.push({
+          uid: buildSessionUid(bookingId, s.id),
+          title: [event.title, s.title].filter(Boolean).join(' — ') || 'Event',
+          description: s.description || '',
+          start: s.start_time,
+          end: s.end_time,
+          location,
+          url: sessionUrl || undefined,
+        });
+      }
+      if (entries.length === 0) {
+        console.warn('[buildIcsAttachment] Skipping ICS — complex event has no accessible sessions with valid times');
+        return null;
+      }
+    } else {
+      if (!event?.start_date || !event?.end_date) {
+        console.warn('[buildIcsAttachment] Skipping ICS — event missing start/end date');
+        return null;
+      }
+      const isOnline = !!event.is_online;
+      const url = event.zoom_join_url || '';
+      const location = isOnline ? (url || 'Online') : (event.location || '');
+      entries.push({
+        uid: buildEventUid(bookingId, event.id),
+        title: event.title || 'Event',
+        description: event.description || '',
+        start: event.start_date,
+        end: event.end_date,
+        location,
+        url: url || undefined,
+      });
+    }
+
+    const ics = buildIcs(entries);
+    if (!ics) {
+      console.warn('[buildIcsAttachment] No valid entries for ICS attachment');
+      return null;
+    }
+
+    return {
+      filename: 'event.ics',
+      data: Buffer.from(ics, 'utf8'),
+      contentType: 'text/calendar; method=PUBLISH; charset=utf-8',
+    };
+  } catch (err) {
+    console.error('[buildIcsAttachment] Failed to build ICS attachment:', err.message);
+    return null;
+  }
 }
 
 async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, tenantId) {
