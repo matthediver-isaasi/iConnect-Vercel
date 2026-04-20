@@ -945,12 +945,24 @@ const ALLOWED_ORG_LOCAL_KEYS = new Set([
   'description', 'status'
 ]);
 
-async function validateZohoRecordExists(tenantId, module, recordId) {
+// Returns one of:
+//   { status: 'valid', record }
+//   { status: 'mismatch', record, zohoValue }   — Zoho has the id but the
+//                                                 unique-key value differs
+//   { status: 'missing' }                       — record no longer exists
+async function validateExistingZohoLink(tenantId, module, recordId, uniqueKey, expectedValue) {
   try {
     const resp = await zohoCrmApiCall(tenantId, `/${module}/${encodeURIComponent(recordId)}`);
-    return Array.isArray(resp?.data) && resp.data.length > 0;
+    const record = Array.isArray(resp?.data) ? resp.data[0] : null;
+    if (!record) return { status: 'missing' };
+    const zohoValue = record[uniqueKey];
+    const norm = v => v === undefined || v === null ? '' : String(v).trim().toLowerCase();
+    if (norm(zohoValue) !== norm(expectedValue)) {
+      return { status: 'mismatch', record, zohoValue };
+    }
+    return { status: 'valid', record };
   } catch (err) {
-    if (/\b404\b|invalid.?id|INVALID_DATA/i.test(err?.message || '')) return false;
+    if (/\b404\b|invalid.?id|INVALID_DATA/i.test(err?.message || '')) return { status: 'missing' };
     throw err;
   }
 }
@@ -959,6 +971,26 @@ function escapeZohoCriteriaValue(v) {
   // Zoho criteria values must escape special chars (parens, commas, etc.)
   // Conservative: backslash-escape parens, commas and backslashes.
   return String(v).replace(/([\\(),])/g, '\\$1');
+}
+
+// Deterministic search helper for relink: returns one of
+//   { status: 'one',   records: [r] }
+//   { status: 'none',  records: [] }
+//   { status: 'many',  records: [...] }
+//   { status: 'error', error: <msg> }
+async function searchZohoByUniqueKey(tenantId, module, fieldName, value) {
+  if (value === undefined || value === null || value === '') {
+    return { status: 'none', records: [] };
+  }
+  try {
+    const criteria = `(${fieldName}:equals:${escapeZohoCriteriaValue(value)})`;
+    const records = await searchZohoCrmRecords(tenantId, module, criteria, ['id', fieldName]);
+    if (records.length === 0) return { status: 'none', records: [] };
+    if (records.length === 1) return { status: 'one', records };
+    return { status: 'many', records };
+  } catch (err) {
+    return { status: 'error', error: err?.message || String(err) };
+  }
 }
 
 /**
@@ -1017,95 +1049,117 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
     throw new Error(`Local field "${localKey}" is not permitted as a relink unique key`);
   }
 
-  const { data: orgs, error: orgErr } = await supabase
-    .from('organization')
-    .select(`id, name, zoho_crm_id, zoho_crm_module, ${localKey}`)
-    .eq('tenant_id', tenantId);
-  if (orgErr) throw orgErr;
+  // Paginate over the organization table — PostgREST caps a single .select()
+  // at ~1000 rows, so an unpaged query would silently skip large tenants.
+  const PAGE = 500;
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data: orgs, error: orgErr } = await supabase
+      .from('organization')
+      .select(`id, name, zoho_crm_id, zoho_crm_module, ${localKey}`)
+      .eq('tenant_id', tenantId)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (orgErr) throw orgErr;
+    if (!orgs || orgs.length === 0) break;
 
-  for (const org of orgs || []) {
-    summary.processed += 1;
-    const matchValue = org[localKey];
+    for (const org of orgs) {
+      summary.processed += 1;
+      const matchValue = org[localKey];
 
-    try {
-      // 1. Validate existing link if present
-      if (org.zoho_crm_id) {
-        const existingModule = org.zoho_crm_module || zohoModule;
-        const stillValid = existingModule === zohoModule
-          ? await validateZohoRecordExists(tenantId, zohoModule, org.zoho_crm_id)
-          : false;
-        if (stillValid) {
-          summary.already_linked += 1;
+      try {
+        // 1. Validate existing link if present — must check that Zoho's
+        //    unique_key_field value still matches the iConnect value, not just
+        //    that the record exists. A "mismatch" means the Zoho record was
+        //    re-purposed and we should re-search instead of trusting the id.
+        if (org.zoho_crm_id) {
+          const existingModule = org.zoho_crm_module || zohoModule;
+          if (existingModule === zohoModule) {
+            const check = await validateExistingZohoLink(
+              tenantId, zohoModule, org.zoho_crm_id, uniqueKey, matchValue
+            );
+            if (check.status === 'valid') {
+              summary.already_linked += 1;
+              await writeLog({
+                tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+                zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+                status: 'skipped', direction: 'inbound', source, action: 'relink',
+                error_message: `Already linked to valid ${zohoModule}/${org.zoho_crm_id}`
+              });
+              continue;
+            }
+            // 'missing' or 'mismatch' → fall through and re-search
+          }
+        }
+
+        // 2. (Re)search Zoho by unique key
+        if (matchValue === undefined || matchValue === null || matchValue === '') {
+          summary.skipped_no_value += 1;
           await writeLog({
             tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
-            status: 'skipped', direction: 'inbound', source, action: 'relink',
-            error_message: `Already linked to valid ${zohoModule}/${org.zoho_crm_id}`
+            zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+            source, action: 'relink',
+            error_message: `Local field "${localKey}" is empty — cannot search Zoho`
           });
           continue;
         }
-      }
 
-      // 2. Need to (re)link by searching Zoho
-      if (matchValue === undefined || matchValue === null || matchValue === '') {
-        summary.skipped_no_value += 1;
+        const result = await searchZohoByUniqueKey(tenantId, zohoModule, uniqueKey, matchValue);
+
+        if (result.status === 'error') {
+          throw new Error(result.error);
+        }
+        if (result.status === 'none') {
+          summary.no_match += 1;
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+            source, action: 'relink',
+            error_message: `No ${zohoModule} found in Zoho where ${uniqueKey}="${matchValue}"`
+          });
+          continue;
+        }
+        if (result.status === 'many') {
+          summary.ambiguous += 1;
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+            source, action: 'relink',
+            error_message: `Ambiguous: ${result.records.length} ${zohoModule} records in Zoho match ${uniqueKey}="${matchValue}"`,
+            response_payload: { matches: result.records.map(r => r.id) }
+          });
+          continue;
+        }
+
+        // status === 'one'
+        const newZohoId = result.records[0].id;
+        const wasStale = !!org.zoho_crm_id && org.zoho_crm_id !== newZohoId;
+        await persistZohoIdOnEntity(tenantId, 'organization', org.id, newZohoId, zohoModule);
+        summary.relinked += 1;
         await writeLog({
           tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
-          source, action: 'relink',
-          error_message: `Local field "${localKey}" is empty — cannot search Zoho`
+          zoho_module: zohoModule, zoho_record_id: newZohoId,
+          status: 'success', direction: 'inbound', source, action: 'relink',
+          error_message: wasStale
+            ? `Re-linked: stale id ${org.zoho_crm_id} → ${newZohoId}`
+            : `Linked via ${uniqueKey}="${matchValue}" → ${newZohoId}`,
+          response_payload: { previous_zoho_crm_id: org.zoho_crm_id || null, new_zoho_crm_id: newZohoId }
         });
-        continue;
-      }
-
-      const criteria = `(${uniqueKey}:equals:${escapeZohoCriteriaValue(matchValue)})`;
-      const records = await searchZohoCrmRecords(tenantId, zohoModule, criteria, ['id', uniqueKey]);
-
-      if (records.length === 0) {
-        summary.no_match += 1;
+      } catch (err) {
+        console.error('[ZohoCrmSync] Relink error for org', org.id, err);
+        summary.failed += 1;
         await writeLog({
           tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
+          zoho_module: zohoModule, status: 'failed', direction: 'inbound',
           source, action: 'relink',
-          error_message: `No ${zohoModule} found in Zoho where ${uniqueKey}="${matchValue}"`
+          error_message: err?.message || String(err)
         });
-        continue;
       }
-      if (records.length > 1) {
-        summary.ambiguous += 1;
-        await writeLog({
-          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-          zoho_module: zohoModule, status: 'skipped', direction: 'inbound',
-          source, action: 'relink',
-          error_message: `Ambiguous: ${records.length} ${zohoModule} records in Zoho match ${uniqueKey}="${matchValue}"`,
-          response_payload: { matches: records.map(r => r.id) }
-        });
-        continue;
-      }
-
-      const newZohoId = records[0].id;
-      const wasStale = !!org.zoho_crm_id && org.zoho_crm_id !== newZohoId;
-      await persistZohoIdOnEntity(tenantId, 'organization', org.id, newZohoId, zohoModule);
-      summary.relinked += 1;
-      await writeLog({
-        tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-        zoho_module: zohoModule, zoho_record_id: newZohoId,
-        status: 'success', direction: 'inbound', source, action: 'relink',
-        error_message: wasStale
-          ? `Re-linked: stale id ${org.zoho_crm_id} → ${newZohoId}`
-          : `Linked via ${uniqueKey}="${matchValue}" → ${newZohoId}`,
-        response_payload: { previous_zoho_crm_id: org.zoho_crm_id || null, new_zoho_crm_id: newZohoId }
-      });
-    } catch (err) {
-      console.error('[ZohoCrmSync] Relink error for org', org.id, err);
-      summary.failed += 1;
-      await writeLog({
-        tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-        zoho_module: zohoModule, status: 'failed', direction: 'inbound',
-        source, action: 'relink',
-        error_message: err?.message || String(err)
-      });
     }
+
+    if (orgs.length < PAGE) break;
+    offset += PAGE;
   }
 
   return summary;
