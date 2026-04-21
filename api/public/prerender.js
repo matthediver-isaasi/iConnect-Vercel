@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -714,17 +715,10 @@ export default async function handler(req, res) {
     const requestPath = req.query.path || '/';
     const baseUrl = getBaseUrl(req, tenant);
 
-    const { data: articleUrlSetting } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('tenant_id', tenant.id)
-      .eq('setting_key', 'article_url_slug')
-      .maybeSingle();
-
-    const articleBaseSlug = articleUrlSetting?.setting_value;
-    const isCustomArticleSlug = articleBaseSlug && articleBaseSlug !== 'articles';
-    const articleBasePath = isCustomArticleSlug ? `/${articleBaseSlug}` : '/articles';
-    const publicArticlesPageName = isCustomArticleSlug ? articleBaseSlug : 'PublicArticles';
+    const articleConfig = await getArticleUrlConfig(supabase, tenant.id);
+    const articleBasePath = articleConfig.canonicalBasePath;
+    const supportedArticleBasePaths = articleConfig.supportedBasePaths;
+    const publicArticlesPageName = articleConfig.isCustomDisplay ? articleConfig.canonicalBaseSlug : 'PublicArticles';
 
     let pageData = null;
 
@@ -741,9 +735,22 @@ export default async function handler(req, res) {
       }
     }
 
-    const articleMatch = requestPath.match(new RegExp(`^${articleBasePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/([^/]+)\\/([^/?]+)`));
-    if (!pageData && articleMatch) {
-      pageData = await renderArticlePage(supabase, tenant, decodeURIComponent(articleMatch[1]), decodeURIComponent(articleMatch[2]), baseUrl, articleBasePath);
+    if (!pageData) {
+      for (const basePath of supportedArticleBasePaths) {
+        const escaped = basePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = requestPath.match(new RegExp(`^${escaped}\\/([^/]+)\\/([^/?]+)`, 'i'));
+        if (m) {
+          pageData = await renderArticlePage(
+            supabase,
+            tenant,
+            decodeURIComponent(m[1]),
+            decodeURIComponent(m[2]),
+            baseUrl,
+            articleBasePath
+          );
+          if (pageData) break;
+        }
+      }
     }
 
     if (!pageData && requestPath.startsWith('/NewsView')) {
@@ -772,8 +779,17 @@ export default async function handler(req, res) {
 
     const listPages = ['PublicEvents', 'PublicNews', 'JobBoard', 'OrganisationDirectory', 'Resources'];
     if (!pageData) {
-      if (requestPath === `/${publicArticlesPageName}` || requestPath === '/PublicArticles') {
+      const normalizedReq = (requestPath.replace(/\/+$/, '') || '/').toLowerCase();
+      const articleListPaths = new Set([
+        `/${publicArticlesPageName}`,
+        '/PublicArticles',
+        ...supportedArticleBasePaths,
+      ].map(p => p.toLowerCase()));
+      if (articleListPaths.has(normalizedReq)) {
         pageData = await renderListPage(supabase, tenant, 'PublicArticles', baseUrl);
+        if (pageData) {
+          pageData.ogUrl = `${baseUrl}${articleConfig.canonicalListPath}`;
+        }
       } else {
         for (const lp of listPages) {
           if (requestPath === `/${lp}`) {

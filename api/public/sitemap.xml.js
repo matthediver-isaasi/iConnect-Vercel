@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 
 function getArticleUrlParts(article, authorHandles = {}) {
   let authorHandle = 'guest';
@@ -93,17 +94,9 @@ export default async function handler(req, res) {
     urls.push({ loc: baseUrl + '/OrganisationDirectory', changefreq: 'weekly', priority: '0.6' });
     urls.push({ loc: baseUrl + '/Resources', changefreq: 'daily', priority: '0.7' });
 
-    const { data: articleUrlSetting } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('tenant_id', tenant.id)
-      .eq('setting_key', 'article_url_slug')
-      .maybeSingle();
-
-    const articleBaseSlug = articleUrlSetting?.setting_value;
-    const isCustomArticleSlug = articleBaseSlug && articleBaseSlug !== 'articles';
-    const articlesListPath = isCustomArticleSlug ? `/${articleBaseSlug}` : '/PublicArticles';
-    const articleBasePath = isCustomArticleSlug ? `/${articleBaseSlug}` : '/articles';
+    const articleConfig = await getArticleUrlConfig(supabase, tenant.id);
+    const articlesListPath = articleConfig.canonicalListPath;
+    const articleBasePath = articleConfig.canonicalBasePath;
 
     urls.push({ loc: baseUrl + articlesListPath, changefreq: 'daily', priority: '0.8' });
 
