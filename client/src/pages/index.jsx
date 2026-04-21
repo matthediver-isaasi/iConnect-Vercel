@@ -734,7 +734,10 @@ function PagesContent() {
                 <Route path="/UnpackedInternationalEmployability" element={<UnpackedInternationalEmployability />} />
                 
                 <Route path="/Articles" element={<Articles />} />
-                <Route path="/articles/author/:authorHandle" element={<Articles />} />
+                {/* Author listing routes for every article alias - see @shared/articleAliases.js */}
+                {BUILTIN_ARTICLE_ALIASES.map((alias) => (
+                  <Route key={`${alias}-author`} path={`/${alias}/author/:authorHandle`} element={<Articles />} />
+                ))}
                 
                 <Route path="/ArticleEditor" element={<ArticleEditor />} />
                 <Route path="/articleeditor" element={<ArticleEditor />} />
