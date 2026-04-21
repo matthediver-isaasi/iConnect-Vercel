@@ -1,4 +1,5 @@
 import Layout from "./Layout.jsx";
+import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
 
 import CatchAllNotFound from "./CatchAllNotFound";
 
@@ -1007,12 +1008,10 @@ function PagesContent() {
                 <Route path="/Search" element={<SearchResults />} />
                 
                 {/* Folder-based article URLs: /{basePath}/{authorHandle}/{slug} */}
-                {/* Supports common display names: Articles, Blogs, Insights, Posts, Stories, News */}
-                <Route path="/articles/:authorHandle/:articleSlug" element={<ArticleView />} />
-                <Route path="/blogs/:authorHandle/:articleSlug" element={<ArticleView />} />
-                <Route path="/insights/:authorHandle/:articleSlug" element={<ArticleView />} />
-                <Route path="/posts/:authorHandle/:articleSlug" element={<ArticleView />} />
-                <Route path="/stories/:authorHandle/:articleSlug" element={<ArticleView />} />
+                {/* Aliases come from the shared list in @shared/articleAliases.js */}
+                {BUILTIN_ARTICLE_ALIASES.map((alias) => (
+                  <Route key={alias} path={`/${alias}/:authorHandle/:articleSlug`} element={<ArticleView />} />
+                ))}
                 
                 {/* /auth/verify route removed - using password auth */}
                 

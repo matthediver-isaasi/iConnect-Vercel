@@ -1,3 +1,5 @@
+import { BUILTIN_ARTICLE_ALIASES } from '../../shared/articleAliases.js';
+
 function slugify(text) {
   if (!text) return '';
   return String(text)
@@ -6,7 +8,7 @@ function slugify(text) {
     .trim();
 }
 
-export const BUILTIN_ARTICLE_ALIASES = ['articles', 'blogs', 'insights', 'posts', 'stories'];
+export { BUILTIN_ARTICLE_ALIASES };
 
 export async function getArticleUrlConfig(supabaseClient, tenantId) {
   let displayName = 'Articles';
