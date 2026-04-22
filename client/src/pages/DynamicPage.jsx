@@ -226,8 +226,12 @@ export default function DynamicPage() {
       setChromeReady(true);
       return;
     }
-    if (pageLoading || !page) return;
-    if (page.hide_chrome) {
+    if (pageLoading) return;
+    // Release the chrome gate as soon as the page query has resolved, even
+    // when no page was found. Otherwise the not-found / unpublished /
+    // member-only / error branches below render inside Layout's
+    // `visibility: hidden` wrapper and the user sees a blank screen.
+    if (page?.hide_chrome) {
       setForcePublicLayout(false);
       setForceBlankLayout(true);
     }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLayoutContext } from "@/contexts/LayoutContext";
@@ -6,16 +6,21 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 export default function CatchAllNotFound() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { setForcePublicLayout } = useLayoutContext();
+  const { setForcePublicLayout, setChromeReady } = useLayoutContext();
 
   const fullPath = location.pathname;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setForcePublicLayout(true);
+    // Defensively release the Layout chrome gate before paint. The previous
+    // route may have left it closed (e.g. DynamicPage's slug-change effect)
+    // and this component never opens it on its own — leaving the not-found
+    // UI hidden behind `visibility: hidden`.
+    setChromeReady(true);
     return () => {
       setForcePublicLayout(false);
     };
-  }, [setForcePublicLayout]);
+  }, [setForcePublicLayout, setChromeReady]);
 
   const { data: redirectResult, isLoading: redirectLoading } = useQuery({
     queryKey: ['redirect-resolve', fullPath],
