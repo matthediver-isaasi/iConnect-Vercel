@@ -14,7 +14,16 @@ const ENTITY_CORE_FIELDS = {
     { key: 'phone', label: 'Phone', type: 'phone' },
     { key: 'job_title', label: 'Job Title', type: 'text' },
     { key: 'organization_id', label: 'Organisation Id', type: 'text' },
-    { key: 'status', label: 'Status', type: 'text' },
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'picklist',
+      allowed_values: [
+        { label: 'Active', value: 'active' },
+        { label: 'Inactive', value: 'inactive' },
+        { label: 'Pending', value: 'pending' }
+      ]
+    },
     { key: 'membership_type', label: 'Membership Type', type: 'text' }
   ],
   organization: [
@@ -27,16 +36,64 @@ const ENTITY_CORE_FIELDS = {
     { key: 'city', label: 'City', type: 'text' },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'description', label: 'Description', type: 'longtext' },
-    { key: 'status', label: 'Status', type: 'text' }
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'picklist',
+      allowed_values: [
+        { label: 'Active', value: 'active' },
+        { label: 'Inactive', value: 'inactive' },
+        { label: 'Pending', value: 'pending' }
+      ]
+    }
   ]
 };
+
+// Custom preference_field field_type values that have a fixed value list.
+const PICKLIST_LIKE_TYPES = new Set([
+  'picklist', 'dropdown', 'list', 'select',
+  'multiselect', 'multi_select', 'multi-select',
+  'radio', 'checkbox_group', 'boolean', 'checkbox', 'yes_no'
+]);
+
+function deriveCustomAllowedValues(field) {
+  const ft = (field.field_type || '').toLowerCase();
+  if (ft === 'boolean' || ft === 'checkbox' || ft === 'yes_no') {
+    return [
+      { label: 'Yes', value: 'true' },
+      { label: 'No', value: 'false' }
+    ];
+  }
+  if (!PICKLIST_LIKE_TYPES.has(ft)) return null;
+  const opts = field.options;
+  if (!opts) return null;
+  if (Array.isArray(opts)) {
+    return opts
+      .map(o => {
+        if (o == null) return null;
+        if (typeof o === 'string' || typeof o === 'number') {
+          const s = String(o);
+          return { label: s, value: s };
+        }
+        if (typeof o === 'object') {
+          const value = o.value ?? o.key ?? o.id ?? o.label ?? o.name;
+          const label = o.label ?? o.name ?? o.value ?? o.key ?? o.id;
+          if (value == null) return null;
+          return { label: String(label), value: String(value) };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+  return null;
+}
 
 async function loadCustomFields(tenantId, entityType) {
   const target = entityType === 'organization' ? 'organization' : 'member';
   try {
     const { data, error } = await supabase
       .from('preference_field')
-      .select('id, name, label, field_type, entity_scope')
+      .select('id, name, label, field_type, options, entity_scope')
       .eq('tenant_id', tenantId)
       .eq('entity_scope', target)
       .eq('is_active', true);
@@ -44,12 +101,16 @@ async function loadCustomFields(tenantId, entityType) {
       console.error('[ZohoCrmSync metadata] custom fields error:', error);
       return [];
     }
-    return (data || []).map(f => ({
-      key: `custom:${f.id}`,
-      label: f.label || f.name,
-      type: f.field_type || 'text',
-      custom: true
-    }));
+    return (data || []).map(f => {
+      const allowed = deriveCustomAllowedValues(f);
+      return {
+        key: `custom:${f.id}`,
+        label: f.label || f.name,
+        type: f.field_type || 'text',
+        custom: true,
+        ...(allowed && allowed.length > 0 ? { allowed_values: allowed } : {})
+      };
+    });
   } catch {
     return [];
   }

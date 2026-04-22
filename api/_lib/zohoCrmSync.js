@@ -133,13 +133,41 @@ function resolveMappedValue(mapping, entity, customValues) {
   return entity?.[src];
 }
 
-function buildPayload(mappings, entity, customValues) {
+/**
+ * Apply a per-row value translation in the requested direction. Returns the
+ * translated value when a mapping exists, otherwise the original value. When
+ * the row has a value_map but the value is not in it, push a warning entry
+ * onto `warnings` so the caller can surface unmapped values to the sync log.
+ */
+function applyValueMap(mapping, value, direction, warnings) {
+  if (value === undefined || value === null || value === '') return value;
+  const vm = mapping?.value_map;
+  if (!vm || typeof vm !== 'object') return value;
+  const dir = direction === 'iconnect_to_zoho' ? vm.iconnect_to_zoho : vm.zoho_to_iconnect;
+  if (!dir || typeof dir !== 'object' || Object.keys(dir).length === 0) return value;
+  const key = String(value);
+  if (Object.prototype.hasOwnProperty.call(dir, key)) {
+    return dir[key];
+  }
+  if (Array.isArray(warnings)) {
+    warnings.push({
+      direction,
+      iconnect_field: mapping.iconnect_field,
+      zoho_field: mapping.zoho_field,
+      unmapped_value: key
+    });
+  }
+  return value;
+}
+
+function buildPayload(mappings, entity, customValues, warnings) {
   const payload = {};
   for (const m of mappings || []) {
     if (!m?.zoho_field) continue;
-    const v = resolveMappedValue(m, entity, customValues);
-    if (v === undefined || v === null || v === '') continue;
-    payload[m.zoho_field] = v;
+    const raw = resolveMappedValue(m, entity, customValues);
+    if (raw === undefined || raw === null || raw === '') continue;
+    const translated = applyValueMap(m, raw, 'iconnect_to_zoho', warnings);
+    payload[m.zoho_field] = translated;
   }
   return payload;
 }
@@ -284,8 +312,12 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
     }
 
     const customValues = await loadCustomFieldValues(tenantId, entityType, entityId);
-    const payload = buildPayload(mapping.field_mappings, entity, customValues);
+    const translationWarnings = [];
+    const payload = buildPayload(mapping.field_mappings, entity, customValues, translationWarnings);
     const canonicalPayload = buildCanonicalPayload(mapping.field_mappings, entity, customValues);
+    if (translationWarnings.length > 0) {
+      console.warn('[ZohoCrmSync] Outbound value translation gaps:', translationWarnings);
+    }
 
     if (Object.keys(payload).length === 0) {
       return await writeLog({
@@ -330,6 +362,11 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       result = await upsertZohoCrmRecord(tenantId, mapping.zoho_module, payload, mapping.unique_key_field);
     }
 
+    const warningSuffix = translationWarnings.length > 0
+      ? ` [translation warnings: ${translationWarnings
+          .map(w => `${w.iconnect_field}→${w.zoho_field}="${w.unmapped_value}"`).join('; ')}]`
+      : '';
+
     if (result.success) {
       await persistZohoIdOnEntity(tenantId, entityType, entityId, result.id, mapping.zoho_module);
       await recordSyncState(tenantId, entityType, entityId, 'outbound', payloadHash);
@@ -338,7 +375,12 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
         zoho_module: mapping.zoho_module, zoho_record_id: result.id,
         status: 'success', action: result.action || action, source,
         payload_hash: payloadHash,
-        request_payload: payload, response_payload: result.details || null
+        error_message: warningSuffix ? `OK${warningSuffix}` : null,
+        request_payload: payload,
+        response_payload: {
+          ...(result.details || {}),
+          ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {})
+        }
       });
     }
 
@@ -346,8 +388,12 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       tenant_id: tenantId, entity_type: entityType, entity_id: entityId,
       zoho_module: mapping.zoho_module, status: 'failed', action, source,
       payload_hash: payloadHash,
-      error_message: result.error || 'Unknown failure',
-      request_payload: payload, response_payload: result.details || result.raw || null
+      error_message: (result.error || 'Unknown failure') + warningSuffix,
+      request_payload: payload,
+      response_payload: {
+        ...(result.details || result.raw || {}),
+        ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {})
+      }
     });
   } catch (err) {
     console.error('[ZohoCrmSync] Sync failed:', err);
@@ -413,7 +459,7 @@ const MODULE_TO_ENTITY_TYPE = {
  * configured field_mappings. Returns { coreUpdates, customUpdates } where
  * `customUpdates` is a map of preference_field id → value to upsert.
  */
-function buildReversePayload(mapping, zohoRecord) {
+function buildReversePayload(mapping, zohoRecord, warnings) {
   const coreUpdates = {};
   const customUpdates = {};
   for (const m of mapping.field_mappings || []) {
@@ -421,7 +467,8 @@ function buildReversePayload(mapping, zohoRecord) {
     const iconnectField = m?.iconnect_field;
     if (!zohoField || !iconnectField) continue;
     if (!Object.prototype.hasOwnProperty.call(zohoRecord, zohoField)) continue;
-    const value = zohoRecord[zohoField];
+    const raw = zohoRecord[zohoField];
+    const value = applyValueMap(m, raw, 'zoho_to_iconnect', warnings);
     if (iconnectField.startsWith('custom:')) {
       const fieldId = iconnectField.slice('custom:'.length);
       customUpdates[fieldId] = value;
@@ -635,7 +682,15 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
     });
   }
 
-  const { coreUpdates, customUpdates } = buildReversePayload(mapping, zohoRecord);
+  const inboundWarnings = [];
+  const { coreUpdates, customUpdates } = buildReversePayload(mapping, zohoRecord, inboundWarnings);
+  if (inboundWarnings.length > 0) {
+    console.warn('[ZohoCrmSync] Inbound value translation gaps:', inboundWarnings);
+  }
+  const inboundWarningSuffix = inboundWarnings.length > 0
+    ? ` [translation warnings: ${inboundWarnings
+        .map(w => `${w.zoho_field}→${w.iconnect_field}="${w.unmapped_value}"`).join('; ')}]`
+    : '';
   const combinedPayload = { ...coreUpdates, ...Object.fromEntries(Object.entries(customUpdates).map(([k, v]) => [`custom:${k}`, v])) };
 
   if (Object.keys(combinedPayload).length === 0) {
@@ -766,8 +821,13 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       status: 'success', direction: 'inbound', source, action: 'inbound',
       payload_hash: payloadHash,
       conflict_resolution: conflictResolution,
+      error_message: inboundWarningSuffix ? `OK${inboundWarningSuffix}` : null,
       request_payload: zohoRecord,
-      response_payload: { core: coreChanged, custom: customChanged }
+      response_payload: {
+        core: coreChanged,
+        custom: customChanged,
+        ...(inboundWarnings.length > 0 ? { translation_warnings: inboundWarnings } : {})
+      }
     });
   } catch (err) {
     console.error('[ZohoCrmSync] Inbound write failed:', err);
@@ -777,9 +837,13 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       status: 'failed', direction: 'inbound', source, action: 'inbound',
       payload_hash: payloadHash,
       conflict_resolution: conflictResolution,
-      error_message: err?.message || String(err),
+      error_message: (err?.message || String(err)) + inboundWarningSuffix,
       request_payload: zohoRecord,
-      response_payload: { core: coreChanged, custom: customChanged }
+      response_payload: {
+        core: coreChanged,
+        custom: customChanged,
+        ...(inboundWarnings.length > 0 ? { translation_warnings: inboundWarnings } : {})
+      }
     });
   }
 }
@@ -792,7 +856,11 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
  */
 async function createEntityFromZoho(tenantId, entityType, mapping, zohoModule, zohoRecord, source) {
   const zohoId = zohoRecord?.id || zohoRecord?.Id || null;
-  const { coreUpdates, customUpdates } = buildReversePayload(mapping, zohoRecord);
+  const inboundWarnings = [];
+  const { coreUpdates, customUpdates } = buildReversePayload(mapping, zohoRecord, inboundWarnings);
+  if (inboundWarnings.length > 0) {
+    console.warn(`[ZohoCrmSync] Inbound translation warnings on create (entity=${entityType} zoho_id=${zohoId}):`, inboundWarnings);
+  }
 
   if (Object.keys(coreUpdates).length === 0 && Object.keys(customUpdates).length === 0) {
     return await writeLog({
@@ -833,7 +901,15 @@ async function createEntityFromZoho(tenantId, entityType, mapping, zohoModule, z
       status: 'success', direction: 'inbound', source, action: 'create',
       payload_hash: payloadHash,
       request_payload: zohoRecord,
-      response_payload: { core: coreUpdates, custom: customUpdates, created_id: created.id }
+      response_payload: {
+        core: coreUpdates,
+        custom: customUpdates,
+        created_id: created.id,
+        ...(inboundWarnings.length > 0 ? { translation_warnings: inboundWarnings } : {})
+      },
+      error_message: inboundWarnings.length > 0
+        ? `Translation warnings: ${inboundWarnings.join('; ')}`
+        : undefined
     });
   } catch (err) {
     console.error('[ZohoCrmSync] Create-from-zoho failed:', err);
@@ -841,8 +917,9 @@ async function createEntityFromZoho(tenantId, entityType, mapping, zohoModule, z
       tenant_id: tenantId, entity_type: entityType, entity_id: null,
       zoho_module: zohoModule, zoho_record_id: zohoId,
       status: 'failed', direction: 'inbound', source, action: 'create',
-      error_message: err?.message || String(err),
-      request_payload: zohoRecord
+      error_message: [err?.message || String(err), ...inboundWarnings].filter(Boolean).join(' | '),
+      request_payload: zohoRecord,
+      response_payload: inboundWarnings.length > 0 ? { translation_warnings: inboundWarnings } : undefined
     });
   }
 }

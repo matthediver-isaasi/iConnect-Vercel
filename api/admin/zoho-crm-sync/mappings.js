@@ -46,7 +46,44 @@ export default async function handler(req, res) {
       }
       if (!unique_key_field) return res.status(400).json({ error: 'unique_key_field is required' });
       const sanitizedMappings = Array.isArray(field_mappings)
-        ? field_mappings.filter(m => m && m.iconnect_field && m.zoho_field)
+        ? field_mappings
+            .filter(m => m && m.iconnect_field && m.zoho_field)
+            .map(m => {
+              const row = {
+                iconnect_field: m.iconnect_field,
+                zoho_field: m.zoho_field,
+                ...(m.iconnect_field_type ? { iconnect_field_type: m.iconnect_field_type } : {}),
+                ...(m.zoho_field_label ? { zoho_field_label: m.zoho_field_label } : {})
+              };
+              // Persist per-row value translation map. Shape:
+              //   value_map: {
+              //     iconnect_to_zoho: { <iconnect value>: <zoho value>, ... },
+              //     zoho_to_iconnect: { <zoho value>: <iconnect value>, ... }
+              //   }
+              // Either side may be empty/missing. Keys/values are coerced to
+              // strings to keep the JSONB shape predictable.
+              if (m.value_map && typeof m.value_map === 'object') {
+                const cleanDir = (dir) => {
+                  if (!dir || typeof dir !== 'object') return null;
+                  const out = {};
+                  for (const [k, v] of Object.entries(dir)) {
+                    if (k === '' || k == null) continue;
+                    if (v === '' || v == null) continue;
+                    out[String(k)] = String(v);
+                  }
+                  return Object.keys(out).length > 0 ? out : null;
+                };
+                const i2z = cleanDir(m.value_map.iconnect_to_zoho);
+                const z2i = cleanDir(m.value_map.zoho_to_iconnect);
+                if (i2z || z2i) {
+                  row.value_map = {
+                    ...(i2z ? { iconnect_to_zoho: i2z } : {}),
+                    ...(z2i ? { zoho_to_iconnect: z2i } : {})
+                  };
+                }
+              }
+              return row;
+            })
         : [];
       // Require the unique_key_field to be one of the mapped Zoho fields so the
       // duplicate-check upsert always has a value to compare on.

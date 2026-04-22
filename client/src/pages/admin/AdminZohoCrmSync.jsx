@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   Loader2, Plus, RefreshCw, Save, Trash2, AlertTriangle, CheckCircle2, XCircle, Eye,
-  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown, Link2, Download
+  Copy, KeyRound, ArrowDown, ArrowUp, ArrowUpDown, Link2, Download, Shuffle
 } from "lucide-react";
 
 const ENTITY_OPTIONS = [
@@ -60,6 +60,48 @@ function emptyMappingRow() {
   return { iconnect_field: "", zoho_field: "", iconnect_field_type: "", zoho_field_label: "" };
 }
 
+// Allowed values for an iConnect field option (core or custom). Returns
+// `[{ label, value }]` or `null` when the field is free-text / not picklist-like.
+function getIconnectAllowedValues(opt) {
+  if (!opt) return null;
+  const av = opt.allowed_values;
+  if (!Array.isArray(av) || av.length === 0) return null;
+  return av;
+}
+
+// Allowed values for a Zoho field. Returns `[{ label, value }]` or `null`.
+function getZohoAllowedValues(field) {
+  if (!field) return null;
+  if ((field.data_type || "").toLowerCase() === "boolean") {
+    return [
+      { label: "True", value: "true" },
+      { label: "False", value: "false" }
+    ];
+  }
+  const pl = field.pick_list_values;
+  if (Array.isArray(pl) && pl.length > 0) {
+    return pl
+      .map(p => {
+        const value = p.actual_value ?? p.display_value;
+        const label = p.display_value ?? p.actual_value;
+        if (value == null || value === "") return null;
+        return { label: String(label), value: String(value) };
+      })
+      .filter(Boolean);
+  }
+  return null;
+}
+
+function rowHasValueMap(row) {
+  const vm = row?.value_map;
+  if (!vm || typeof vm !== "object") return false;
+  const i2z = vm.iconnect_to_zoho;
+  const z2i = vm.zoho_to_iconnect;
+  if (i2z && typeof i2z === "object" && Object.keys(i2z).length > 0) return true;
+  if (z2i && typeof z2i === "object" && Object.keys(z2i).length > 0) return true;
+  return false;
+}
+
 export default function AdminZohoCrmSync() {
   const { toast } = useToast();
 
@@ -96,6 +138,9 @@ export default function AdminZohoCrmSync() {
   const [relinkSamples, setRelinkSamples] = useState([]);
   const [relinkError, setRelinkError] = useState(null);
   const [showRelinkSamples, setShowRelinkSamples] = useState(false);
+
+  // Value translation modal
+  const [translationModal, setTranslationModal] = useState(null); // { idx, iconnectAllowed, zohoAllowed, draft: { iconnect_to_zoho, zoho_to_iconnect } }
 
   // One-time import from Zoho
   const [importingOrgs, setImportingOrgs] = useState(false);
@@ -407,10 +452,63 @@ export default function AdminZohoCrmSync() {
 
   const allIconnectOptions = useMemo(() => {
     return [
-      ...iconnectFields.core.map(f => ({ value: f.key, label: `${f.label}`, type: f.type })),
-      ...iconnectFields.custom.map(f => ({ value: f.key, label: `${f.label} (custom)`, type: f.type }))
+      ...iconnectFields.core.map(f => ({
+        value: f.key, label: `${f.label}`, type: f.type,
+        allowed_values: f.allowed_values
+      })),
+      ...iconnectFields.custom.map(f => ({
+        value: f.key, label: `${f.label} (custom)`, type: f.type,
+        allowed_values: f.allowed_values
+      }))
     ];
   }, [iconnectFields]);
+
+  const openTranslationModal = (idx) => {
+    const row = mapping?.field_mappings?.[idx];
+    if (!row) return;
+    const iOpt = allIconnectOptions.find(o => o.value === row.iconnect_field);
+    const zField = zohoFields.find(z => z.api_name === row.zoho_field);
+    const iAllowed = getIconnectAllowedValues(iOpt) || [];
+    const zAllowed = getZohoAllowedValues(zField) || [];
+    setTranslationModal({
+      idx,
+      iconnectField: row.iconnect_field,
+      zohoField: row.zoho_field,
+      iconnectAllowed: iAllowed,
+      zohoAllowed: zAllowed,
+      draft: {
+        iconnect_to_zoho: { ...(row.value_map?.iconnect_to_zoho || {}) },
+        zoho_to_iconnect: { ...(row.value_map?.zoho_to_iconnect || {}) }
+      }
+    });
+  };
+
+  const setTranslationPair = (direction, key, value) => {
+    setTranslationModal(prev => {
+      if (!prev) return prev;
+      const next = { ...prev.draft[direction] };
+      if (value === "" || value == null) delete next[key];
+      else next[key] = value;
+      return { ...prev, draft: { ...prev.draft, [direction]: next } };
+    });
+  };
+
+  const saveTranslationModal = () => {
+    if (!translationModal) return;
+    const { idx, draft } = translationModal;
+    const i2zClean = Object.fromEntries(Object.entries(draft.iconnect_to_zoho).filter(([k, v]) => k !== "" && v !== "" && v != null));
+    const z2iClean = Object.fromEntries(Object.entries(draft.zoho_to_iconnect).filter(([k, v]) => k !== "" && v !== "" && v != null));
+    const hasAny = Object.keys(i2zClean).length > 0 || Object.keys(z2iClean).length > 0;
+    updateRow(idx, {
+      value_map: hasAny
+        ? {
+            ...(Object.keys(i2zClean).length > 0 ? { iconnect_to_zoho: i2zClean } : {}),
+            ...(Object.keys(z2iClean).length > 0 ? { zoho_to_iconnect: z2iClean } : {})
+          }
+        : undefined
+    });
+    setTranslationModal(null);
+  };
 
   const writableZohoFields = useMemo(() => {
     return zohoFields.filter(f => !f.read_only);
@@ -584,66 +682,92 @@ export default function AdminZohoCrmSync() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>iConnect Field</TableHead>
+                          <TableHead className="w-12"></TableHead>
                           <TableHead>Zoho Field</TableHead>
                           <TableHead className="w-12"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(mapping?.field_mappings || []).map((row, idx) => (
-                          <TableRow key={idx} data-testid={`row-mapping-${idx}`}>
-                            <TableCell>
-                              <Select
-                                value={row.iconnect_field || ""}
-                                onValueChange={(v) => {
-                                  const opt = allIconnectOptions.find(o => o.value === v);
-                                  updateRow(idx, { iconnect_field: v, iconnect_field_type: opt?.type });
-                                }}
-                              >
-                                <SelectTrigger data-testid={`select-iconnect-field-${idx}`}>
-                                  <SelectValue placeholder="Select source" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {allIconnectOptions.map(opt => (
-                                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell>
-                              <Select
-                                value={row.zoho_field || ""}
-                                onValueChange={(v) => {
-                                  const f = writableZohoFields.find(z => z.api_name === v);
-                                  updateRow(idx, { zoho_field: v, zoho_field_label: f?.field_label });
-                                }}
-                              >
-                                <SelectTrigger data-testid={`select-zoho-field-${idx}`}>
-                                  <SelectValue placeholder="Select Zoho field" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {writableZohoFields.map(f => (
-                                    <SelectItem key={f.api_name} value={f.api_name}>
-                                      {f.field_label} ({f.api_name}){f.required ? " *" : ""}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeRow(idx)}
-                                data-testid={`button-remove-row-${idx}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {(mapping?.field_mappings || []).map((row, idx) => {
+                          const iOpt = allIconnectOptions.find(o => o.value === row.iconnect_field);
+                          const zField = zohoFields.find(z => z.api_name === row.zoho_field);
+                          const iAllowed = getIconnectAllowedValues(iOpt);
+                          const zAllowed = getZohoAllowedValues(zField);
+                          const translatable = !!(iAllowed && zAllowed);
+                          const hasMap = rowHasValueMap(row);
+                          return (
+                            <TableRow key={idx} data-testid={`row-mapping-${idx}`}>
+                              <TableCell>
+                                <Select
+                                  value={row.iconnect_field || ""}
+                                  onValueChange={(v) => {
+                                    const opt = allIconnectOptions.find(o => o.value === v);
+                                    const patch = { iconnect_field: v, iconnect_field_type: opt?.type };
+                                    if (v !== row.iconnect_field && rowHasValueMap(row)) patch.value_map = undefined;
+                                    updateRow(idx, patch);
+                                  }}
+                                >
+                                  <SelectTrigger data-testid={`select-iconnect-field-${idx}`}>
+                                    <SelectValue placeholder="Select source" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {allIconnectOptions.map(opt => (
+                                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell className="w-12 text-center">
+                                {translatable ? (
+                                  <Button
+                                    variant={hasMap ? "default" : "outline"}
+                                    size="icon"
+                                    onClick={() => openTranslationModal(idx)}
+                                    title={hasMap ? "Value translation configured" : "Set up value translation"}
+                                    data-testid={`button-value-map-${idx}`}
+                                  >
+                                    <Shuffle className="h-4 w-4" />
+                                  </Button>
+                                ) : null}
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={row.zoho_field || ""}
+                                  onValueChange={(v) => {
+                                    const f = writableZohoFields.find(z => z.api_name === v);
+                                    const patch = { zoho_field: v, zoho_field_label: f?.field_label };
+                                    if (v !== row.zoho_field && rowHasValueMap(row)) patch.value_map = undefined;
+                                    updateRow(idx, patch);
+                                  }}
+                                >
+                                  <SelectTrigger data-testid={`select-zoho-field-${idx}`}>
+                                    <SelectValue placeholder="Select Zoho field" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {writableZohoFields.map(f => (
+                                      <SelectItem key={f.api_name} value={f.api_name}>
+                                        {f.field_label} ({f.api_name}){f.required ? " *" : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => removeRow(idx)}
+                                  data-testid={`button-remove-row-${idx}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                         {(!mapping?.field_mappings || mapping.field_mappings.length === 0) && (
                           <TableRow>
-                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground py-6">
+                            <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">
                               No field mappings yet. Click "Add field" to start.
                             </TableCell>
                           </TableRow>
@@ -1120,6 +1244,88 @@ export default function AdminZohoCrmSync() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!translationModal} onOpenChange={(o) => !o && setTranslationModal(null)}>
+        <DialogContent className="max-w-2xl" data-testid="dialog-value-translation">
+          <DialogHeader>
+            <DialogTitle>Value translation</DialogTitle>
+            <DialogDescription>
+              Map each Zoho value to its iConnect counterpart (and vice versa). Either side may be left
+              blank — unmapped values pass through unchanged and a warning is recorded in the sync log.
+            </DialogDescription>
+          </DialogHeader>
+          {translationModal && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+              <div className="space-y-2">
+                <div className="font-medium">Zoho → iConnect</div>
+                <div className="text-xs text-muted-foreground">
+                  For each Zoho value, choose the iConnect value to write on inbound sync.
+                </div>
+                <div className="space-y-2">
+                  {translationModal.zohoAllowed.length === 0 && (
+                    <div className="text-xs text-muted-foreground">No Zoho values discovered.</div>
+                  )}
+                  {translationModal.zohoAllowed.map(zv => (
+                    <div key={zv.value} className="flex items-center gap-2" data-testid={`row-z2i-${zv.value}`}>
+                      <div className="flex-1 truncate" title={zv.label}>{zv.label}</div>
+                      <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                      <Select
+                        value={translationModal.draft.zoho_to_iconnect[zv.value] || "__none__"}
+                        onValueChange={(v) => setTranslationPair("zoho_to_iconnect", zv.value, v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger className="flex-1" data-testid={`select-z2i-${zv.value}`}>
+                          <SelectValue placeholder="(unmapped)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">(unmapped)</SelectItem>
+                          {translationModal.iconnectAllowed.map(iv => (
+                            <SelectItem key={iv.value} value={iv.value}>{iv.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="font-medium">iConnect → Zoho</div>
+                <div className="text-xs text-muted-foreground">
+                  For each iConnect value, choose the Zoho value to send on outbound sync.
+                </div>
+                <div className="space-y-2">
+                  {translationModal.iconnectAllowed.length === 0 && (
+                    <div className="text-xs text-muted-foreground">No iConnect values discovered.</div>
+                  )}
+                  {translationModal.iconnectAllowed.map(iv => (
+                    <div key={iv.value} className="flex items-center gap-2" data-testid={`row-i2z-${iv.value}`}>
+                      <div className="flex-1 truncate" title={iv.label}>{iv.label}</div>
+                      <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                      <Select
+                        value={translationModal.draft.iconnect_to_zoho[iv.value] || "__none__"}
+                        onValueChange={(v) => setTranslationPair("iconnect_to_zoho", iv.value, v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger className="flex-1" data-testid={`select-i2z-${iv.value}`}>
+                          <SelectValue placeholder="(unmapped)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">(unmapped)</SelectItem>
+                          {translationModal.zohoAllowed.map(zv => (
+                            <SelectItem key={zv.value} value={zv.value}>{zv.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setTranslationModal(null)} data-testid="button-value-map-cancel">Cancel</Button>
+            <Button onClick={saveTranslationModal} data-testid="button-value-map-save">Save</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
