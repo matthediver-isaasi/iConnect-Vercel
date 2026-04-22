@@ -12,8 +12,13 @@ export default async function handler(req, res) {
     const tenantId = ctx.tenantId;
     if (!tenantId) return res.status(400).json({ error: 'Tenant context missing' });
 
-    const summary = await relinkOrganizationsToZoho(tenantId, { source: 'admin_relink' });
-    return res.status(200).json({ success: true, summary });
+    const result = await relinkOrganizationsToZoho(tenantId, { source: 'admin_relink' });
+    return res.status(200).json({
+      success: true,
+      summary: result.summary,
+      config: result.config,
+      samples: result.samples
+    });
   } catch (err) {
     console.error('[ZohoCrmSync relink-organisations] Error:', err);
     return res.status(500).json({ error: err.message || String(err) });

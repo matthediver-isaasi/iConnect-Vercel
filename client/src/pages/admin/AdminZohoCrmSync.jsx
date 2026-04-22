@@ -80,6 +80,8 @@ export default function AdminZohoCrmSync() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [logEntityFilter, setLogEntityFilter] = useState("all");
   const [logDirectionFilter, setLogDirectionFilter] = useState("all");
+  const [logActionFilter, setLogActionFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("mapping");
   const [viewLog, setViewLog] = useState(null);
 
   // Webhook config
@@ -90,6 +92,10 @@ export default function AdminZohoCrmSync() {
   // Re-link to Zoho
   const [relinking, setRelinking] = useState(false);
   const [relinkSummary, setRelinkSummary] = useState(null);
+  const [relinkConfig, setRelinkConfig] = useState(null);
+  const [relinkSamples, setRelinkSamples] = useState([]);
+  const [relinkError, setRelinkError] = useState(null);
+  const [showRelinkSamples, setShowRelinkSamples] = useState(false);
 
   // One-time import from Zoho
   const [importingOrgs, setImportingOrgs] = useState(false);
@@ -139,7 +145,7 @@ export default function AdminZohoCrmSync() {
   const relinkOrganisations = async () => {
     if (!confirm("This will look up every organisation in Zoho by the configured unique key and update the stored Zoho record id. It does not change any field values. Continue?")) return;
     setRelinking(true);
-    setRelinkSummary(null);
+    setRelinkError(null);
     try {
       const r = await fetch("/api/admin/zoho-crm-sync/relink-organisations", {
         method: "POST",
@@ -148,19 +154,31 @@ export default function AdminZohoCrmSync() {
       const d = await r.json();
       if (r.ok) {
         setRelinkSummary(d.summary);
+        setRelinkConfig(d.config || null);
+        setRelinkSamples(Array.isArray(d.samples) ? d.samples : []);
         toast({
           title: "Re-link complete",
           description: `${d.summary.relinked} re-linked, ${d.summary.already_linked} already linked, ${d.summary.no_match} no match, ${d.summary.ambiguous} ambiguous, ${d.summary.failed} failed`
         });
         loadLogs();
       } else {
+        setRelinkError(d.error || `Server returned ${r.status}`);
         toast({ variant: "destructive", title: "Re-link failed", description: d.error });
       }
     } catch (err) {
+      setRelinkError(err.message || String(err));
       toast({ variant: "destructive", title: "Re-link failed", description: err.message });
     } finally {
       setRelinking(false);
     }
+  };
+
+  const openRelinkLogs = () => {
+    setLogEntityFilter("organization");
+    setLogActionFilter("relink");
+    setLogDirectionFilter("all");
+    setStatusFilter("all");
+    setActiveTab("logs");
   };
 
   const runImport = async (kind) => {
@@ -348,6 +366,7 @@ export default function AdminZohoCrmSync() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (logEntityFilter !== "all") params.set("entity_type", logEntityFilter);
       if (logDirectionFilter !== "all") params.set("direction", logDirectionFilter);
+      if (logActionFilter !== "all") params.set("action", logActionFilter);
       const r = await fetch(`/api/admin/zoho-crm-sync/logs?${params}`, { credentials: "include" });
       const d = await r.json();
       if (r.ok) setLogs(d.logs || []);
@@ -359,7 +378,7 @@ export default function AdminZohoCrmSync() {
   useEffect(() => {
     loadLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, logEntityFilter, logDirectionFilter]);
+  }, [statusFilter, logEntityFilter, logDirectionFilter, logActionFilter]);
 
   const retryLog = async (logId) => {
     setRetryingId(logId);
@@ -419,7 +438,7 @@ export default function AdminZohoCrmSync() {
         )}
       </div>
 
-      <Tabs defaultValue="mapping" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="mapping" data-testid="tab-mapping">Field Mapping</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">Sync Log</TabsTrigger>
@@ -752,22 +771,108 @@ export default function AdminZohoCrmSync() {
                 </Button>
               </div>
             </CardHeader>
-            {relinkSummary && (
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm" data-testid="text-relink-summary">
-                  <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{relinkSummary.processed}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Re-linked</div><div className="font-medium text-green-600">{relinkSummary.relinked}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Already linked</div><div className="font-medium">{relinkSummary.already_linked}</div></div>
-                  <div><div className="text-xs text-muted-foreground">No match</div><div className="font-medium">{relinkSummary.no_match}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Ambiguous</div><div className="font-medium">{relinkSummary.ambiguous}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{relinkSummary.failed}</div></div>
-                </div>
-                {relinkSummary.skipped_no_value > 0 && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {relinkSummary.skipped_no_value} organisation(s) skipped because the local unique-key field was empty.
-                  </p>
+            {(relinkError || relinkSummary || relinkConfig) && (
+              <CardContent className="space-y-3">
+                {relinkError && (
+                  <div
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2"
+                    data-testid="text-relink-error"
+                  >
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-medium">Re-link failed</div>
+                      <div className="text-xs mt-0.5 break-words">{relinkError}</div>
+                      <div className="text-xs mt-1 text-muted-foreground">
+                        Check that the organisation mapping is enabled, has a <code>unique_key_field</code> configured, and that the unique-key field is included in the field mappings.
+                      </div>
+                    </div>
+                  </div>
                 )}
-                <p className="text-xs text-muted-foreground mt-2">See the Sync Log tab (filter by action <code>relink</code>) for per-organisation details.</p>
+
+                {relinkConfig && (
+                  <div className="text-xs text-muted-foreground" data-testid="text-relink-config">
+                    <span className="font-medium text-foreground">Configuration used:</span>{' '}
+                    Zoho module <code>{relinkConfig.zoho_module}</code>, unique key{' '}
+                    <code>{relinkConfig.unique_key_field}</code> paired with iConnect column{' '}
+                    <code>{relinkConfig.local_key}</code>.
+                  </div>
+                )}
+
+                {relinkSummary && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm" data-testid="text-relink-summary">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{relinkSummary.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Re-linked</div><div className="font-medium text-green-600">{relinkSummary.relinked}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Already linked</div><div className="font-medium">{relinkSummary.already_linked}</div></div>
+                      <div><div className="text-xs text-muted-foreground">No match</div><div className="font-medium">{relinkSummary.no_match}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Ambiguous</div><div className="font-medium">{relinkSummary.ambiguous}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{relinkSummary.failed}</div></div>
+                    </div>
+                    {relinkSummary.skipped_no_value > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {relinkSummary.skipped_no_value} organisation(s) skipped because the local unique-key field was empty.
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {relinkSamples.length > 0 && (
+                  <div className="border rounded-md">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm hover-elevate active-elevate-2"
+                      onClick={() => setShowRelinkSamples(v => !v)}
+                      data-testid="button-toggle-relink-samples"
+                    >
+                      <span className="font-medium">
+                        Sample outcomes ({relinkSamples.length}{relinkSamples.length === 25 ? '+' : ''})
+                      </span>
+                      <span className="text-xs text-muted-foreground">{showRelinkSamples ? 'Hide' : 'Show'}</span>
+                    </button>
+                    {showRelinkSamples && (
+                      <div className="border-t max-h-72 overflow-auto" data-testid="list-relink-samples">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Organisation</TableHead>
+                              <TableHead>Local value</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Detail</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {relinkSamples.map((s, i) => (
+                              <TableRow key={`${s.org_id}-${i}`} data-testid={`row-relink-sample-${s.org_id}`}>
+                                <TableCell className="text-xs">{s.org_name || s.org_id?.slice(0, 8)}</TableCell>
+                                <TableCell className="text-xs font-mono break-all">{String(s.local_value ?? '')}</TableCell>
+                                <TableCell className="text-xs">
+                                  {s.status === 'relinked' && <Badge className="bg-green-500/20 text-green-700 border-green-500/30">re-linked</Badge>}
+                                  {s.status === 'already_linked' && <Badge variant="secondary">already linked</Badge>}
+                                  {s.status === 'no_match' && <Badge variant="outline">no match</Badge>}
+                                  {s.status === 'ambiguous' && <Badge variant="outline">ambiguous</Badge>}
+                                  {s.status === 'skipped_no_value' && <Badge variant="outline">no value</Badge>}
+                                  {s.status === 'failed' && <Badge variant="destructive">failed</Badge>}
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground break-words">{s.message}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openRelinkLogs}
+                    data-testid="button-view-relink-logs"
+                  >
+                    View in Sync Log
+                  </Button>
+                </div>
               </CardContent>
             )}
           </Card>
@@ -896,6 +1001,19 @@ export default function AdminZohoCrmSync() {
                       <SelectItem value="failed">Failed</SelectItem>
                       <SelectItem value="skipped">Skipped</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={logActionFilter} onValueChange={setLogActionFilter}>
+                    <SelectTrigger className="w-[140px]" data-testid="select-log-action-filter"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All actions</SelectItem>
+                      <SelectItem value="create">Create</SelectItem>
+                      <SelectItem value="update">Update</SelectItem>
+                      <SelectItem value="delete">Delete</SelectItem>
+                      <SelectItem value="manual">Manual</SelectItem>
+                      <SelectItem value="relink">Relink</SelectItem>
+                      <SelectItem value="import">Import</SelectItem>
+                      <SelectItem value="webhook">Webhook</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" size="icon" onClick={loadLogs} data-testid="button-refresh-logs">
