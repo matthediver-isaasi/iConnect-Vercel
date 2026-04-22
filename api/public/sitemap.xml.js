@@ -88,8 +88,8 @@ export default async function handler(req, res) {
     const urls = [];
 
     urls.push({ loc: baseUrl + '/', changefreq: 'daily', priority: '1.0' });
-    urls.push({ loc: baseUrl + '/PublicEvents', changefreq: 'daily', priority: '0.8' });
-    urls.push({ loc: baseUrl + '/PublicNews', changefreq: 'daily', priority: '0.7' });
+    urls.push({ loc: baseUrl + '/Events', changefreq: 'daily', priority: '0.8' });
+    urls.push({ loc: baseUrl + '/News', changefreq: 'daily', priority: '0.7' });
     urls.push({ loc: baseUrl + '/JobBoard', changefreq: 'daily', priority: '0.7' });
     urls.push({ loc: baseUrl + '/OrganisationDirectory', changefreq: 'weekly', priority: '0.6' });
     urls.push({ loc: baseUrl + '/Resources', changefreq: 'daily', priority: '0.7' });

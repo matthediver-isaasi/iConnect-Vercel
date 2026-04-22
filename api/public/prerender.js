@@ -511,11 +511,12 @@ function buildElementSection(el) {
 async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   if (!pageSlug) return null;
 
+  const escapedSlug = pageSlug.replace(/([\\%_])/g, '\\$1');
   const { data: page } = await supabaseClient
     .from('i_edit_page')
     .select('id, title, slug, description, meta_title, meta_description')
     .eq('tenant_id', tenant.id)
-    .eq('slug', pageSlug)
+    .ilike('slug', escapedSlug)
     .eq('status', 'published')
     .in('layout_type', ['public', 'hybrid'])
     .single();
@@ -777,7 +778,13 @@ export default async function handler(req, res) {
       }
     }
 
-    const listPages = ['PublicEvents', 'PublicNews', 'JobBoard', 'OrganisationDirectory', 'Resources'];
+    const listPages = [
+      { type: 'PublicEvents', aliases: ['/Events', '/PublicEvents'], canonicalPath: '/Events' },
+      { type: 'PublicNews', aliases: ['/News', '/PublicNews'], canonicalPath: '/News' },
+      { type: 'JobBoard', aliases: ['/JobBoard'] },
+      { type: 'OrganisationDirectory', aliases: ['/OrganisationDirectory'] },
+      { type: 'Resources', aliases: ['/Resources'] },
+    ];
     if (!pageData) {
       const normalizedReq = (requestPath.replace(/\/+$/, '') || '/').toLowerCase();
       const articleListPaths = new Set([
@@ -792,8 +799,12 @@ export default async function handler(req, res) {
         }
       } else {
         for (const lp of listPages) {
-          if (requestPath === `/${lp}`) {
-            pageData = await renderListPage(supabase, tenant, lp, baseUrl);
+          const aliasesLower = lp.aliases.map(a => a.toLowerCase());
+          if (aliasesLower.includes(normalizedReq)) {
+            pageData = await renderListPage(supabase, tenant, lp.type, baseUrl);
+            if (pageData && lp.canonicalPath) {
+              pageData.ogUrl = `${baseUrl}${lp.canonicalPath}`;
+            }
             break;
           }
         }
@@ -801,7 +812,7 @@ export default async function handler(req, res) {
     }
 
     if (!pageData) {
-      const bareSlugMatch = requestPath.match(/^\/([a-z][a-z0-9-]+)$/);
+      const bareSlugMatch = requestPath.match(/^\/([a-zA-Z][a-zA-Z0-9-]+)$/);
       if (bareSlugMatch) {
         pageData = await renderCustomPage(supabase, tenant, decodeURIComponent(bareSlugMatch[1]), baseUrl);
       }
