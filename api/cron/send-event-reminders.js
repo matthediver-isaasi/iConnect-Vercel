@@ -144,7 +144,7 @@ export default async function handler(req, res) {
         } else {
           const { data: regularEvent, error: eventError } = await supabase
             .from('event')
-            .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
+            .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -182,7 +182,8 @@ export default async function handler(req, res) {
             event.id,
             booking.ticket_class_id,
             booking.ticket_class_name,
-            event.tenant_id
+            event.tenant_id,
+            event.timezone
           );
           console.log(`[cron/send-event-reminders] Fetched complex event data: ${complexEventData?.sessions?.length || 0} sessions`);
         }
@@ -271,7 +272,7 @@ function replacePlaceholders(template, data) {
   let result = template;
   
   result = result.replace(/\{\{event_name\}\}/gi, event.title || '');
-  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event.start_date));
+  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event.start_date, event.timezone));
   result = result.replace(/\{\{event_location\}\}/gi, event.is_online ? 'Online Event' : (event.location || ''));
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking.attendee_last_name || '');
@@ -285,7 +286,7 @@ function replacePlaceholders(template, data) {
   
   result = result.replace(/\[\[event\.name\]\]/gi, event.title || '');
   result = result.replace(/\[\[event\.title\]\]/gi, event.title || '');
-  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event.start_date));
+  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event.start_date, event.timezone));
   result = result.replace(/\[\[event\.location\]\]/gi, event.is_online ? 'Online Event' : (event.location || ''));
   
   const zoomLink = event.zoom_join_url || booking.zoom_join_url || '';
@@ -334,7 +335,7 @@ function replacePlaceholders(template, data) {
   return result;
 }
 
-function formatEventDate(dateStr) {
+function formatEventDate(dateStr, timeZone = 'UTC') {
   if (!dateStr) return '';
   try {
     const date = new Date(dateStr);
@@ -345,7 +346,8 @@ function formatEventDate(dateStr) {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      timeZoneName: 'short'
+      timeZoneName: 'short',
+      timeZone: timeZone || 'UTC'
     });
   } catch {
     return dateStr;

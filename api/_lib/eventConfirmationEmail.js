@@ -79,7 +79,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let complexEventData = null;
     if (event.is_complex) {
-      complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id);
+      complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id, event.timezone);
     }
 
     const icsAttachment = buildIcsAttachment(event, booking, complexEventData);
@@ -198,7 +198,7 @@ function buildIcsAttachment(event, booking, complexEventData) {
   }
 }
 
-async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, tenantId) {
+async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, tenantId, eventTimezone = null) {
   try {
     let ticketClass = null;
     if (ticketClassId) {
@@ -250,7 +250,7 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
       accessibleTracks.push(...uniqueTracks);
     }
 
-    const sessionScheduleHtml = buildSessionScheduleHtml(accessibleSessions);
+    const sessionScheduleHtml = buildSessionScheduleHtml(accessibleSessions, eventTimezone);
 
     return {
       sessions: accessibleSessions,
@@ -264,12 +264,13 @@ async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, te
   }
 }
 
-function buildSessionScheduleHtml(sessions) {
+function buildSessionScheduleHtml(sessions, eventTimezone = null) {
   if (!sessions || sessions.length === 0) return '';
 
   const rows = sessions.map(s => {
-    const startTime = s.start_time ? formatSessionTime(s.start_time) : 'TBC';
-    const endTime = s.end_time ? formatSessionTime(s.end_time) : '';
+    const tz = s.timezone || eventTimezone || 'UTC';
+    const startTime = s.start_time ? formatSessionTime(s.start_time, tz) : 'TBC';
+    const endTime = s.end_time ? formatSessionTime(s.end_time, tz) : '';
     const timeRange = endTime ? `${startTime} - ${endTime}` : startTime;
     const locationStr = s.delivery_mode === 'virtual' ? 'Online' : (s.location || '');
     const zoomLink = s.zoom_join_url || '';
@@ -303,7 +304,7 @@ function buildSessionScheduleHtml(sessions) {
   </table>`;
 }
 
-function formatSessionTime(dateStr) {
+function formatSessionTime(dateStr, timeZone = 'UTC') {
   if (!dateStr) return '';
   try {
     const date = new Date(dateStr);
@@ -312,7 +313,8 @@ function formatSessionTime(dateStr) {
       day: 'numeric',
       month: 'short',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: timeZone || 'UTC'
     });
   } catch {
     return dateStr;
@@ -325,7 +327,7 @@ export function replacePlaceholders(template, data) {
   let result = template || '';
 
   result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
-  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date));
+  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date, event?.timezone));
   result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
@@ -339,7 +341,7 @@ export function replacePlaceholders(template, data) {
 
   result = result.replace(/\[\[event\.name\]\]/gi, event?.title || '');
   result = result.replace(/\[\[event\.title\]\]/gi, event?.title || '');
-  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date));
+  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date, event?.timezone));
   result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
 
   result = result.replace(/\{\{booking_id\}\}/gi, booking?.id || '');
@@ -429,7 +431,7 @@ export function replacePlaceholders(template, data) {
   return result;
 }
 
-export function formatEventDate(dateStr) {
+export function formatEventDate(dateStr, timeZone = 'UTC') {
   if (!dateStr) return '';
   try {
     const date = new Date(dateStr);
@@ -440,7 +442,8 @@ export function formatEventDate(dateStr) {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      timeZoneName: 'short'
+      timeZoneName: 'short',
+      timeZone: timeZone || 'UTC'
     });
   } catch {
     return dateStr;
