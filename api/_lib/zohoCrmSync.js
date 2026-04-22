@@ -1020,12 +1020,20 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
     skipped_no_value: 0
   };
   // Per-org outcome samples surfaced to the admin UI so a failed run is
-  // diagnosable without grepping the sync log. Capped to keep the response
-  // small. Prioritise non-success outcomes so admins see what's broken.
-  const samples = [];
+  // diagnosable without grepping the sync log. Two buckets ensure the
+  // diagnostic outcomes (failed/no_match/ambiguous/skipped_no_value) are
+  // not crowded out by early already_linked rows in large tenants.
+  const PROBLEM_STATUSES = new Set(['failed', 'no_match', 'ambiguous', 'skipped_no_value']);
+  const PROBLEM_CAP = 20;
+  const SUCCESS_CAP = 5;
+  const problemSamples = [];
+  const successSamples = [];
   const pushSample = (sample) => {
-    if (samples.length >= SAMPLE_CAP) return;
-    samples.push(sample);
+    if (PROBLEM_STATUSES.has(sample.status)) {
+      if (problemSamples.length < PROBLEM_CAP) problemSamples.push(sample);
+    } else if (successSamples.length < SUCCESS_CAP) {
+      successSamples.push(sample);
+    }
   };
 
   const { data: mapping } = await supabase
@@ -1216,7 +1224,7 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
       unique_key_field: uniqueKey,
       local_key: localKey
     },
-    samples
+    samples: [...problemSamples, ...successSamples]
   };
 }
 
