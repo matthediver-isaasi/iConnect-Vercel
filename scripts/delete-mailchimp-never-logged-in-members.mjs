@@ -139,7 +139,7 @@ async function main() {
     { name: 'booking', col: 'member_id' },
     { name: 'team_member', col: 'member_id' },
     { name: 'forum_post', col: 'member_id' },
-    { name: 'article_comment', col: 'member_id' },
+    { name: 'article_comment', col: 'author_member_id' },
   ];
 
   for (const table of dependentTables) {

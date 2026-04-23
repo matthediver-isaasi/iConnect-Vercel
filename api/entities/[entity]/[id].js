@@ -946,9 +946,7 @@ export default async function handler(req, res) {
           { table: 'member_credentials', column: 'member_id' },
           { table: 'article_follow', column: 'follower_member_id' },
           { table: 'article_follow', column: 'followed_member_id' },
-          { table: 'article_comment', column: 'member_id' },
-          { table: 'article_view', column: 'member_id' },
-          { table: 'article_reaction', column: 'member_id' },
+          { table: 'article_comment', column: 'author_member_id' },
           { table: 'comment_reaction', column: 'member_id' },
           { table: 'form_submission', column: 'member_id' },
           { table: 'support_ticket_response', column: 'member_id' },
@@ -967,6 +965,22 @@ export default async function handler(req, res) {
             console.log(`[Member Delete] Note: Could not delete from ${table}.${column}: ${deleteError.message}`);
           } else {
             console.log(`[Member Delete] Deleted records from ${table} where ${column} = ${id}`);
+          }
+        }
+
+        // article_view and article_reaction track members via user_identifier+is_member
+        // (no member_id column). Only delete member rows; leave guest rows (is_member=false) alone.
+        for (const memberTrackedTable of ['article_view', 'article_reaction']) {
+          const { error: deleteError } = await supabase
+            .from(memberTrackedTable)
+            .delete()
+            .eq('is_member', true)
+            .eq('user_identifier', id);
+
+          if (deleteError) {
+            console.log(`[Member Delete] Note: Could not delete from ${memberTrackedTable}: ${deleteError.message}`);
+          } else {
+            console.log(`[Member Delete] Deleted member records from ${memberTrackedTable} where user_identifier = ${id}`);
           }
         }
         
@@ -1056,9 +1070,7 @@ export default async function handler(req, res) {
             { table: 'member_credentials', column: 'member_id' },
             { table: 'article_follow', column: 'follower_member_id' },
             { table: 'article_follow', column: 'followed_member_id' },
-            { table: 'article_comment', column: 'member_id' },
-            { table: 'article_view', column: 'member_id' },
-            { table: 'article_reaction', column: 'member_id' },
+            { table: 'article_comment', column: 'author_member_id' },
             { table: 'comment_reaction', column: 'member_id' },
             { table: 'form_submission', column: 'member_id' },
             { table: 'support_ticket_response', column: 'member_id' },
@@ -1076,6 +1088,22 @@ export default async function handler(req, res) {
               console.log(`[Organization Delete] Note: Could not delete from ${table}.${column}: ${deleteError.message}`);
             } else {
               console.log(`[Organization Delete] Deleted records from ${table} for ${memberIds.length} members`);
+            }
+          }
+
+          // article_view and article_reaction track members via user_identifier+is_member
+          // (no member_id column). Only delete member rows; leave guest rows alone.
+          for (const memberTrackedTable of ['article_view', 'article_reaction']) {
+            const { error: deleteError } = await supabase
+              .from(memberTrackedTable)
+              .delete()
+              .eq('is_member', true)
+              .in('user_identifier', memberIds);
+
+            if (deleteError) {
+              console.log(`[Organization Delete] Note: Could not delete from ${memberTrackedTable}: ${deleteError.message}`);
+            } else {
+              console.log(`[Organization Delete] Deleted member records from ${memberTrackedTable} for ${memberIds.length} members`);
             }
           }
           
