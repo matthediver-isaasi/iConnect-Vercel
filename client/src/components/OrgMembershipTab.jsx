@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +28,10 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft
+  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Copy
 } from "lucide-react";
+import { base44 } from "@/api/base44Client";
+import { createPageUrl } from "@/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
@@ -554,6 +557,82 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [emailFeesConfirmStep, setEmailFeesConfirmStep] = useState(false);
   const [feesApprovedMap, setFeesApprovedMap] = useState({});
 
+  const { data: joinFormSetting } = useQuery({
+    queryKey: ['member-join-form-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'member_join_form' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          return JSON.parse(settings[0].setting_value);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    },
+  });
+
+  const joinFormUrl = joinFormSetting?.slug && organizationId
+    ? `${window.location.origin}${createPageUrl('FormView')}?slug=${encodeURIComponent(joinFormSetting.slug)}&organization_id=${encodeURIComponent(organizationId)}`
+    : null;
+
+  const handleCopyJoinUrl = async () => {
+    if (!joinFormUrl) return;
+    try {
+      await navigator.clipboard.writeText(joinFormUrl);
+      toast.success('Join link copied to clipboard');
+    } catch {
+      toast.error('Failed to copy link');
+    }
+  };
+
+  const joinFormCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Link2 className="w-4 h-4" />
+          Member Join Link
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {joinFormUrl ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Share this link with prospective members. The form is prefilled with this organisation.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={joinFormUrl}
+                className="flex-1 font-mono text-xs"
+                onFocus={(e) => e.target.select()}
+                data-testid="input-join-form-url"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopyJoinUrl}
+                data-testid="button-copy-join-form-url"
+              >
+                <Copy className="w-3 h-3 mr-1" />
+                Copy
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground" data-testid="text-join-form-empty">
+            <p>No join form configured yet.</p>
+            <p className="mt-1">
+              Choose a form in <Link to={createPageUrl('MemberPreferences')} className="underline font-medium">Member Preferences</Link> &rarr; Join to enable a shareable link here.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
     queryFn: async () => {
@@ -1012,13 +1091,16 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
 
   if (!data?.config) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-          <p>No membership tier structure has been configured yet</p>
-          <p className="text-sm mt-1">Set up tier bands in Membership Tier Management to see pricing here</p>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        {joinFormCard}
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
+            <p>No membership tier structure has been configured yet</p>
+            <p className="text-sm mt-1">Set up tier bands in Membership Tier Management to see pricing here</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -1038,6 +1120,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
 
   return (
     <div className="space-y-4">
+      {joinFormCard}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">

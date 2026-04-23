@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, User, Shield, Save, Pencil, Eye, EyeOff, GripVertical } from "lucide-react";
+import { Loader2, User, Shield, Save, Pencil, Eye, EyeOff, GripVertical, Link2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -79,6 +80,65 @@ export default function MemberPreferencesPage() {
       return null;
     },
     enabled: accessChecked,
+  });
+
+  const { data: allForms = [], isLoading: formsLoading } = useQuery({
+    queryKey: ['forms-for-member-join'],
+    queryFn: async () => {
+      const forms = await base44.entities.Form.list();
+      return (forms || []).filter(f => !f.is_contract);
+    },
+    enabled: accessChecked,
+  });
+
+  const { data: joinFormSetting, isLoading: joinFormSettingLoading } = useQuery({
+    queryKey: ['member-join-form-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'member_join_form' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          return { id: settings[0].id, value: JSON.parse(settings[0].setting_value) };
+        } catch {
+          return { id: settings[0].id, value: null };
+        }
+      }
+      return null;
+    },
+    enabled: accessChecked,
+  });
+
+  const [selectedJoinFormId, setSelectedJoinFormId] = useState('');
+
+  useEffect(() => {
+    if (joinFormSetting?.value?.id) {
+      setSelectedJoinFormId(joinFormSetting.value.id);
+    }
+  }, [joinFormSetting]);
+
+  const saveJoinFormMutation = useMutation({
+    mutationFn: async (formId) => {
+      const form = allForms.find(f => f.id === formId);
+      if (!form) throw new Error('Form not found');
+      const value = JSON.stringify({ id: form.id, slug: form.slug });
+      if (joinFormSetting?.id) {
+        await base44.entities.SystemSettings.update(joinFormSetting.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'member_join_form',
+          setting_value: value,
+          description: 'Form used as the public join form for prospective members'
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Join form saved');
+      queryClient.invalidateQueries({ queryKey: ['member-join-form-setting'] });
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save join form');
+    }
   });
 
   const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
@@ -297,6 +357,10 @@ export default function MemberPreferencesPage() {
               <GripVertical className="w-4 h-4 mr-1.5" />
               Field Order
             </TabsTrigger>
+            <TabsTrigger value="join" data-testid="tab-join">
+              <Link2 className="w-4 h-4 mr-1.5" />
+              Join
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="permissions">
@@ -442,6 +506,74 @@ export default function MemberPreferencesPage() {
                 )}
               </div>
             </DragDropContext>
+          </TabsContent>
+
+          <TabsContent value="join">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link2 className="w-5 h-5" />
+                  Member Join Form
+                </CardTitle>
+                <CardDescription>
+                  Choose a form to use as the public joining form. The link can be shared with prospective members and is shown on each organisation's Membership tab, prefilled with that organisation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2 max-w-xl">
+                  <label className="text-sm font-medium" htmlFor="select-join-form">Joining form</label>
+                  {(formsLoading || joinFormSettingLoading) ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading forms...
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={selectedJoinFormId}
+                        onValueChange={(val) => setSelectedJoinFormId(val)}
+                      >
+                        <SelectTrigger id="select-join-form" className="flex-1" data-testid="select-join-form">
+                          <SelectValue placeholder="Select a form..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allForms.length === 0 ? (
+                            <div className="px-2 py-3 text-sm text-muted-foreground">No forms available</div>
+                          ) : (
+                            allForms.map(form => (
+                              <SelectItem key={form.id} value={form.id} data-testid={`option-join-form-${form.id}`}>
+                                {form.title || form.slug}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        onClick={() => saveJoinFormMutation.mutate(selectedJoinFormId)}
+                        disabled={
+                          !selectedJoinFormId ||
+                          saveJoinFormMutation.isPending ||
+                          selectedJoinFormId === joinFormSetting?.value?.id
+                        }
+                        data-testid="button-save-join-form"
+                      >
+                        {saveJoinFormMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4 mr-2" />
+                        )}
+                        Save
+                      </Button>
+                    </div>
+                  )}
+                  {joinFormSetting?.value?.slug && (
+                    <p className="text-sm text-muted-foreground" data-testid="text-current-join-form">
+                      Current join form slug: <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{joinFormSetting.value.slug}</code>
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
