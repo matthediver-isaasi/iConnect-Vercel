@@ -1248,7 +1248,7 @@ export default function AdminZohoCrmSync() {
       </Dialog>
 
       <Dialog open={!!translationModal} onOpenChange={(o) => !o && setTranslationModal(null)}>
-        <DialogContent className="max-w-2xl flex flex-col max-h-[90vh] p-0" data-testid="dialog-value-translation">
+        <DialogContent className="max-w-5xl w-[95vw] flex flex-col max-h-[90vh] p-0" data-testid="dialog-value-translation">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>Value translation</DialogTitle>
             <DialogDescription>
