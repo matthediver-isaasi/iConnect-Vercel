@@ -1084,7 +1084,7 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
   // per row (id asc ordering preserved by our query).
   const startAfterIdRaw = options.startAfterId;
   let cursorId = null;
-  if (startAfterIdRaw !== undefined && startAfterIdRaw !== null && startAfterIdRaw !== '') {
+  if (startAfterIdRaw !== undefined && startAfterIdRaw !== null) {
     if (typeof startAfterIdRaw !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(startAfterIdRaw)) {
       throw new Error(`startAfterId must be a UUID-shaped id string (got ${JSON.stringify(startAfterIdRaw)})`);
     }

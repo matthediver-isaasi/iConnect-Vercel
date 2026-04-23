@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     // cursor is a string of UUID-shaped characters, not an integer.
     let startAfterId = null;
     const raw = req.body?.startAfterId;
-    if (raw !== undefined && raw !== null && raw !== '') {
+    if (raw !== undefined && raw !== null) {
       if (typeof raw !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(raw)) {
         return res.status(400).json({
           error: 'startAfterId must be a UUID-shaped id string'
