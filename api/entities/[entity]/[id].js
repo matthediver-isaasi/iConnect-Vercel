@@ -935,6 +935,30 @@ export default async function handler(req, res) {
         const sessionResult = await invalidateMemberSessions(id);
         console.log(`[Member Delete] Session invalidation result:`, sessionResult);
         
+        // Look up member's email before anonymization so we can clean up magic_link
+        // (magic_link is keyed by email, not member_id)
+        const { data: memberRow, error: memberFetchError } = await supabase
+          .from('member')
+          .select('email')
+          .eq('id', id)
+          .single();
+        if (memberFetchError) {
+          console.log(`[Member Delete] Note: Could not fetch member email for magic_link cleanup: ${memberFetchError.message}`);
+        }
+        const memberEmail = memberRow?.email ? memberRow.email.toLowerCase() : null;
+        
+        if (memberEmail) {
+          const { error: magicLinkError } = await supabase
+            .from('magic_link')
+            .delete()
+            .eq('email', memberEmail);
+          if (magicLinkError) {
+            console.log(`[Member Delete] Note: Could not delete from magic_link.email: ${magicLinkError.message}`);
+          } else {
+            console.log(`[Member Delete] Deleted magic_link rows for email ${memberEmail}`);
+          }
+        }
+        
         // Delete from member-related tables (personal data, preferences, activity)
         const deleteTables = [
           { table: 'member_resource_category', column: 'member_id' },
@@ -942,7 +966,6 @@ export default async function handler(req, res) {
           { table: 'member_group_guest', column: 'member_id' },
           { table: 'member_preference_value', column: 'member_id' },
           { table: 'member_communication_preference', column: 'member_id' },
-          { table: 'magic_link', column: 'member_id' },
           { table: 'member_credentials', column: 'member_id' },
           { table: 'article_follow', column: 'follower_member_id' },
           { table: 'article_follow', column: 'followed_member_id' },
@@ -1038,7 +1061,7 @@ export default async function handler(req, res) {
         // First, get all members belonging to this organization
         const { data: members, error: membersError } = await supabase
           .from('member')
-          .select('id')
+          .select('id, email')
           .eq('organization_id', id);
         
         if (membersError) {
@@ -1047,6 +1070,9 @@ export default async function handler(req, res) {
         }
         
         const memberIds = (members || []).map(m => m.id);
+        const memberEmails = (members || [])
+          .map(m => (m.email ? m.email.toLowerCase() : null))
+          .filter(Boolean);
         console.log(`[Organization Delete] Found ${memberIds.length} members to delete`);
         
         // SECURITY: Invalidate all sessions for all members in this organization
@@ -1066,7 +1092,6 @@ export default async function handler(req, res) {
             { table: 'member_group_guest', column: 'member_id' },
             { table: 'member_preference_value', column: 'member_id' },
             { table: 'member_communication_preference', column: 'member_id' },
-            { table: 'magic_link', column: 'member_id' },
             { table: 'member_credentials', column: 'member_id' },
             { table: 'article_follow', column: 'follower_member_id' },
             { table: 'article_follow', column: 'followed_member_id' },
@@ -1104,6 +1129,19 @@ export default async function handler(req, res) {
               console.log(`[Organization Delete] Note: Could not delete from ${memberTrackedTable}: ${deleteError.message}`);
             } else {
               console.log(`[Organization Delete] Deleted member records from ${memberTrackedTable} for ${memberIds.length} members`);
+            }
+          }
+          
+          // magic_link is keyed by email, not member_id - clean up by email
+          if (memberEmails.length > 0) {
+            const { error: magicLinkError } = await supabase
+              .from('magic_link')
+              .delete()
+              .in('email', memberEmails);
+            if (magicLinkError) {
+              console.log(`[Organization Delete] Note: Could not delete from magic_link.email: ${magicLinkError.message}`);
+            } else {
+              console.log(`[Organization Delete] Deleted magic_link rows for ${memberEmails.length} member emails`);
             }
           }
           
