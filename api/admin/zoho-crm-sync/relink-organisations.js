@@ -17,7 +17,9 @@ export default async function handler(req, res) {
       success: true,
       summary: result.summary,
       config: result.config,
-      samples: result.samples
+      samples: result.samples,
+      truncated: !!result.truncated,
+      budget_exceeded: !!result.budget_exceeded
     });
   } catch (err) {
     console.error('[ZohoCrmSync relink-organisations] Error:', err);

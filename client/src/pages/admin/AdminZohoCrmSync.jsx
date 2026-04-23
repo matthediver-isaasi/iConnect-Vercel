@@ -137,6 +137,7 @@ export default function AdminZohoCrmSync() {
   const [relinkConfig, setRelinkConfig] = useState(null);
   const [relinkSamples, setRelinkSamples] = useState([]);
   const [relinkError, setRelinkError] = useState(null);
+  const [relinkWarning, setRelinkWarning] = useState(null);
   const [showRelinkSamples, setShowRelinkSamples] = useState(false);
 
   // Value translation modal
@@ -191,20 +192,49 @@ export default function AdminZohoCrmSync() {
     if (!confirm("This will look up every organisation in Zoho by the configured unique key and update the stored Zoho record id. It does not change any field values. Continue?")) return;
     setRelinking(true);
     setRelinkError(null);
+    setRelinkWarning(null);
     try {
       const r = await fetch("/api/admin/zoho-crm-sync/relink-organisations", {
         method: "POST",
         credentials: "include"
       });
-      const d = await r.json();
+      // The server may return a non-JSON response when Vercel kills the
+      // function on timeout (it serves an HTML gateway error page). Parse
+      // defensively so the user gets a clear message instead of a raw
+      // `SyntaxError: Unexpected token <` from JSON.parse.
+      let d = null;
+      let parseError = null;
+      try {
+        d = await r.json();
+      } catch (parseErr) {
+        parseError = parseErr;
+      }
+      if (parseError) {
+        const msg = r.status === 504 || r.status === 502
+          ? "Request timed out — the re-link took too long. Try again, or process in smaller batches."
+          : `Server error (${r.status}) — the request may have timed out for large datasets. Try again.`;
+        setRelinkError(msg);
+        toast({ variant: "destructive", title: "Re-link failed", description: msg });
+        return;
+      }
       if (r.ok) {
         setRelinkSummary(d.summary);
         setRelinkConfig(d.config || null);
         setRelinkSamples(Array.isArray(d.samples) ? d.samples : []);
-        toast({
-          title: "Re-link complete",
-          description: `${d.summary.relinked} re-linked, ${d.summary.already_linked} already linked, ${d.summary.no_match} no match, ${d.summary.ambiguous} ambiguous, ${d.summary.failed} failed`
-        });
+        const isTruncated = !!(d.truncated || (d.summary && d.summary.truncated));
+        if (isTruncated) {
+          const warnMsg = `Time budget reached after processing ${d.summary?.processed ?? 0} organisation(s). Showing partial results — run again to continue with the remaining records.`;
+          setRelinkWarning(warnMsg);
+          toast({
+            title: "Re-link partially complete",
+            description: warnMsg
+          });
+        } else {
+          toast({
+            title: "Re-link complete",
+            description: `${d.summary.relinked} re-linked, ${d.summary.already_linked} already linked, ${d.summary.no_match} no match, ${d.summary.ambiguous} ambiguous, ${d.summary.failed} failed`
+          });
+        }
         loadLogs();
       } else {
         setRelinkError(d.error || `Server returned ${r.status}`);
@@ -895,8 +925,20 @@ export default function AdminZohoCrmSync() {
                 </Button>
               </div>
             </CardHeader>
-            {(relinkError || relinkSummary || relinkConfig) && (
+            {(relinkError || relinkWarning || relinkSummary || relinkConfig) && (
               <CardContent className="space-y-3">
+                {relinkWarning && (
+                  <div
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex items-start gap-2"
+                    data-testid="text-relink-warning"
+                  >
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                    <div>
+                      <div className="font-medium">Re-link partially complete</div>
+                      <div className="text-xs mt-0.5 break-words">{relinkWarning}</div>
+                    </div>
+                  </div>
+                )}
                 {relinkError && (
                   <div
                     className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2"

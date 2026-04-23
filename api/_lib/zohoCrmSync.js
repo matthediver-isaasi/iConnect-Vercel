@@ -1147,6 +1147,12 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
   // at ~1000 rows, so an unpaged query would silently skip large tenants.
   const PAGE = 500;
   let offset = 0;
+  // Vercel serverless functions get cut off at 60s; leave 10s headroom so we
+  // can return a partial result instead of an HTML gateway error page.
+  const startedAt = Date.now();
+  const TIME_BUDGET_MS = 50_000;
+  let truncated = false;
+  let budgetExceeded = false;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data: orgs, error: orgErr } = await supabase
@@ -1292,10 +1298,23 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
 
     if (orgs.length < PAGE) break;
     offset += PAGE;
+
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      truncated = true;
+      budgetExceeded = true;
+      break;
+    }
+  }
+
+  if (truncated) {
+    summary.truncated = true;
+    summary.budget_exceeded = budgetExceeded;
   }
 
   return {
     summary,
+    truncated,
+    budget_exceeded: budgetExceeded,
     config: {
       zoho_module: zohoModule,
       unique_key_field: uniqueKey,
