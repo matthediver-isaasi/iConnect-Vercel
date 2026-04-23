@@ -116,7 +116,7 @@ export default function PendingPurchaseOrdersReport() {
   const organizations = reportData?.organizations || {};
   const xeroCheckPerformed = reportData?.xeroCheckPerformed || false;
   const xeroError = reportData?.xeroError || null;
-  const paidExcluded = reportData?.paidExcluded || 0;
+  const paidInXero = reportData?.paidInXero || 0;
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, entityType, purchase_order_number }) => {
@@ -421,7 +421,7 @@ export default function PendingPurchaseOrdersReport() {
           <div className="space-y-2">
             <p className="font-medium text-lg">Loading Pending Purchase Orders</p>
             <p className="text-muted-foreground text-sm">Checking invoice status with Xero...</p>
-            <p className="text-muted-foreground text-xs">Paid invoices will be automatically excluded</p>
+            <p className="text-muted-foreground text-xs">Invoices already paid in Xero are flagged</p>
           </div>
         </div>
       </div>
@@ -465,9 +465,9 @@ export default function PendingPurchaseOrdersReport() {
                 <Check className="h-3 w-3 mr-1" />
                 Xero synced
               </Badge>
-              {paidExcluded > 0 && (
-                <Badge variant="secondary" className="text-xs" data-testid="badge-paid-excluded">
-                  {paidExcluded} paid invoice{paidExcluded !== 1 ? 's' : ''} excluded
+              {paidInXero > 0 && (
+                <Badge variant="secondary" className="text-xs" data-testid="badge-paid-in-xero">
+                  {paidInXero} paid in Xero
                 </Badge>
               )}
             </div>
@@ -656,6 +656,11 @@ export default function PendingPurchaseOrdersReport() {
                           <Badge variant="outline" data-testid={`badge-type-${record.id}`}>
                             {record.source_type}
                           </Badge>
+                          {record.xero_status === 'PAID' && (
+                            <Badge variant="secondary" data-testid={`badge-paid-in-xero-${record.id}`}>
+                              Paid in Xero
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">

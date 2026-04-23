@@ -108,42 +108,109 @@ export default async function handler(req, res) {
         return res.json({ records: [], organizations: {} });
       }
 
-      const { data: transactions, error: txError } = await supabase
-        .from('program_ticket_transaction')
-        .select('id, organization_id, program_name, xero_invoice_id, xero_invoice_number, xero_invoice_pdf_uri, created_date, quantity, total_cost_before_discount, member_email, transaction_type, status, purchase_order_number')
-        .in('organization_id', tenantOrgIds);
-      
-      if (txError) {
-        console.error('[PendingPO] Error fetching transactions:', txError);
+      // Paginated fetch helper. Supabase JS caps a single response at 1000 rows,
+      // so we page through results until we get a short page.
+      const PAGE_SIZE = 1000;
+      const paginationStats = {};
+      const fetchAllPages = async (label, buildQuery) => {
+        const all = [];
+        let from = 0;
+        let pageCount = 0;
+        while (true) {
+          const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+          if (error) {
+            console.error(`[PendingPO] Error paginating ${label} (page ${pageCount}):`, error);
+            paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length, error: error.message };
+            throw error;
+          }
+          pageCount += 1;
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < PAGE_SIZE) break;
+          from += PAGE_SIZE;
+        }
+        console.log(`[PendingPO] Fetched ${all.length} ${label} rows across ${pageCount} page(s)`);
+        paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length };
+        return all;
+      };
+
+      // Push the report's filters down to the database so we don't get hit by the
+      // 1000-row default cap. Predicates:
+      //   - has invoice (xero_invoice_id OR xero_invoice_number not null)
+      //   - missing PO (purchase_order_number is null OR empty string)
+      //   - not cancelled
+      //   - transactions: transaction_type = 'purchase'
+      //   - bookings: payment_method = 'account' OR po_to_follow = true
+      const HAS_INVOICE_OR = 'xero_invoice_id.not.is.null,xero_invoice_number.not.is.null';
+      const MISSING_PO_OR = 'purchase_order_number.is.null,purchase_order_number.eq.';
+
+      let transactions;
+      try {
+        transactions = await fetchAllPages('program_ticket_transaction', () => supabase
+          .from('program_ticket_transaction')
+          .select('id, organization_id, program_name, xero_invoice_id, xero_invoice_number, xero_invoice_pdf_uri, created_date, quantity, total_cost_before_discount, member_email, transaction_type, status, purchase_order_number')
+          .in('organization_id', tenantOrgIds)
+          .eq('transaction_type', 'purchase')
+          .neq('status', 'cancelled')
+          .or(HAS_INVOICE_OR)
+          .or(MISSING_PO_OR)
+          .order('id', { ascending: true }));
+      } catch (txError) {
         return res.status(500).json({ error: 'Failed to fetch transactions' });
       }
 
-      const { data: bookingsWithOrg, error: bookingError } = await supabase
-        .from('booking')
-        .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
-        .in('organization_id', tenantOrgIds);
-      
-      if (bookingError) {
-        console.error('[PendingPO] Error fetching bookings with org:', bookingError);
+      let bookingsWithOrg;
+      try {
+        bookingsWithOrg = await fetchAllPages('booking (with org)', () => supabase
+          .from('booking')
+          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+          .in('organization_id', tenantOrgIds)
+          .neq('status', 'cancelled')
+          .or('payment_method.eq.account,po_to_follow.eq.true')
+          .or(HAS_INVOICE_OR)
+          .or(MISSING_PO_OR)
+          .order('id', { ascending: true }));
+      } catch (bookingError) {
         return res.status(500).json({ error: 'Failed to fetch bookings' });
       }
 
-      const { data: membersInTenant } = await supabase
-        .from('member')
-        .select('id, organization_id')
-        .in('organization_id', tenantOrgIds);
-      
-      const memberIdsInTenant = (membersInTenant || []).map(m => m.id);
+      let membersInTenant = [];
+      try {
+        membersInTenant = await fetchAllPages('member (tenant org members)', () => supabase
+          .from('member')
+          .select('id, organization_id')
+          .in('organization_id', tenantOrgIds)
+          .order('id', { ascending: true }));
+      } catch (memberError) {
+        // Non-fatal: we still return org-bound bookings/transactions
+        membersInTenant = [];
+      }
+
+      const memberIdsInTenant = membersInTenant.map(m => m.id);
 
       let bookingsWithNullOrg = [];
       if (memberIdsInTenant.length > 0) {
-        const { data: nullOrgBookings } = await supabase
-          .from('booking')
-          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
-          .is('organization_id', null)
-          .in('member_id', memberIdsInTenant);
-        
-        bookingsWithNullOrg = nullOrgBookings || [];
+        // Member id list can also be large; page through it in chunks to keep the
+        // .in() filter under sensible URL/length limits, and paginate each chunk.
+        const MEMBER_CHUNK = 500;
+        try {
+          for (let i = 0; i < memberIdsInTenant.length; i += MEMBER_CHUNK) {
+            const memberChunk = memberIdsInTenant.slice(i, i + MEMBER_CHUNK);
+            const chunkRows = await fetchAllPages(`booking (null org, member chunk ${i / MEMBER_CHUNK})`, () => supabase
+              .from('booking')
+              .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+              .is('organization_id', null)
+              .in('member_id', memberChunk)
+              .neq('status', 'cancelled')
+              .or('payment_method.eq.account,po_to_follow.eq.true')
+              .or(HAS_INVOICE_OR)
+              .or(MISSING_PO_OR)
+              .order('id', { ascending: true }));
+            bookingsWithNullOrg.push(...chunkRows);
+          }
+        } catch (nullOrgErr) {
+          // Non-fatal — already logged inside fetchAllPages
+        }
       }
 
       const existingBookingIds = new Set((bookingsWithOrg || []).map(b => b.id));
@@ -234,26 +301,27 @@ export default async function handler(req, res) {
         }
       });
 
-      // Check Xero for invoice payment status and exclude paid invoices
-      let filteredRecords = records;
+      // Annotate each record with its current Xero status (PAID, AUTHORISED, etc.)
+      // so the UI can show a "Paid in Xero" badge. We deliberately no longer drop
+      // paid-in-Xero rows from the report — the report's purpose is to chase
+      // missing PO numbers regardless of payment state.
       let xeroCheckPerformed = false;
       let xeroError = null;
-      
+      let paidCount = 0;
+
       const invoiceIdsToCheck = [...new Set(records.map(r => r.xero_invoice_id).filter(Boolean))];
-      
+
       if (invoiceIdsToCheck.length > 0) {
         try {
           const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
-          
-          // Xero allows fetching multiple invoices by IDs (comma-separated)
-          // Batch in groups of 50 to avoid URL length limits
-          const paidInvoiceIds = new Set();
+
+          const xeroStatusById = new Map();
           const batchSize = 50;
-          
+
           for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
             const batch = invoiceIdsToCheck.slice(i, i + batchSize);
             const idsParam = batch.join(',');
-            
+
             const invoiceResponse = await fetch(
               `https://api.xero.com/api.xro/2.0/Invoices?IDs=${encodeURIComponent(idsParam)}`,
               {
@@ -265,41 +333,52 @@ export default async function handler(req, res) {
                 }
               }
             );
-            
+
             if (invoiceResponse.ok) {
               const invoiceData = await invoiceResponse.json();
               const invoices = invoiceData.Invoices || [];
-              
               invoices.forEach(inv => {
-                if (inv.Status === 'PAID') {
-                  paidInvoiceIds.add(inv.InvoiceID);
+                if (inv.InvoiceID) {
+                  xeroStatusById.set(inv.InvoiceID, inv.Status || null);
                 }
               });
             } else {
               console.error('[PendingPO] Xero batch fetch error:', invoiceResponse.status);
             }
           }
-          
-          // Filter out records with paid invoices
-          filteredRecords = records.filter(r => !paidInvoiceIds.has(r.xero_invoice_id));
+
+          records.forEach(r => {
+            if (r.xero_invoice_id && xeroStatusById.has(r.xero_invoice_id)) {
+              r.xero_status = xeroStatusById.get(r.xero_invoice_id);
+              if (r.xero_status === 'PAID') paidCount += 1;
+            } else {
+              r.xero_status = null;
+            }
+          });
+
           xeroCheckPerformed = true;
-          
-          console.log(`[PendingPO] Xero check: ${records.length} records, ${paidInvoiceIds.size} paid, ${filteredRecords.length} remaining`);
-          
+          console.log(`[PendingPO] Xero annotation: ${records.length} records, ${paidCount} paid in Xero (kept in report)`);
         } catch (xeroErr) {
           console.error('[PendingPO] Xero status check error:', xeroErr.message);
           xeroError = xeroErr.message;
-          // Continue with unfiltered records if Xero check fails
+          // Continue with un-annotated records if Xero check fails
         }
       }
 
-      return res.json({ 
-        records: filteredRecords, 
+      console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${records.length} records (${transactions.length} tx + ${bookings.length} bookings scanned), xeroChecked=${xeroCheckPerformed}, paidInXero=${paidCount}`);
+
+      return res.json({
+        records,
         organizations: orgMap,
         xeroCheckPerformed,
         xeroError,
         totalBeforeFilter: records.length,
-        paidExcluded: records.length - filteredRecords.length
+        // Kept for backward compatibility with the existing UI badge.
+        // We no longer drop paid invoices, so this is always 0 when annotation
+        // succeeds. `paidInXero` exposes the new annotated count.
+        paidExcluded: 0,
+        paidInXero: paidCount,
+        pagination: paginationStats,
       });
       
     } else if (req.method === 'POST') {
