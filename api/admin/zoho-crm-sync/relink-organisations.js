@@ -14,14 +14,17 @@ export default async function handler(req, res) {
 
     // Optional resume cursor: the admin page sends the `lastProcessedId`
     // from the previous partial response so we continue strictly after it.
+    // The organization table's primary key is a UUID (varchar), so the
+    // cursor is a string of UUID-shaped characters, not an integer.
     let startAfterId = null;
     const raw = req.body?.startAfterId;
     if (raw !== undefined && raw !== null && raw !== '') {
-      const n = Number(raw);
-      if (!Number.isInteger(n)) {
-        return res.status(400).json({ error: 'startAfterId must be an integer' });
+      if (typeof raw !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(raw)) {
+        return res.status(400).json({
+          error: 'startAfterId must be a UUID-shaped id string'
+        });
       }
-      startAfterId = n;
+      startAfterId = raw;
     }
 
     const result = await relinkOrganizationsToZoho(tenantId, {

@@ -1078,14 +1078,17 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
   // Optional resume cursor: only process orgs with id > startAfterId. Lets
   // the caller break a large tenant across multiple invocations without
   // re-validating already-processed records on every run.
+  // organization.id is a varchar UUID, so the cursor is a UUID-shaped
+  // string. PostgREST's .gt('id', cursorId) on a varchar column is a
+  // lexicographic comparison, which is monotonic for UUIDs we generate
+  // per row (id asc ordering preserved by our query).
   const startAfterIdRaw = options.startAfterId;
   let cursorId = null;
   if (startAfterIdRaw !== undefined && startAfterIdRaw !== null && startAfterIdRaw !== '') {
-    const n = Number(startAfterIdRaw);
-    if (!Number.isInteger(n)) {
-      throw new Error(`startAfterId must be an integer id (got ${JSON.stringify(startAfterIdRaw)})`);
+    if (typeof startAfterIdRaw !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(startAfterIdRaw)) {
+      throw new Error(`startAfterId must be a UUID-shaped id string (got ${JSON.stringify(startAfterIdRaw)})`);
     }
-    cursorId = n;
+    cursorId = startAfterIdRaw;
   }
   const SAMPLE_CAP = 25;
   const summary = {
