@@ -1144,7 +1144,7 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
   let truncated = false;
   let budgetExceeded = false;
   // eslint-disable-next-line no-constant-condition
-  while (true) {
+  outer: while (true) {
     const { data: orgs, error: orgErr } = await supabase
       .from('organization')
       .select(`id, name, zoho_crm_id, zoho_crm_module, ${localKey}`)
@@ -1155,8 +1155,10 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
     if (!orgs || orgs.length === 0) break;
 
     for (const org of orgs) {
+      if (budgetExceeded) break outer;
       summary.processed += 1;
       const rawValue = org[localKey];
+      try {
       // Trim leading/trailing whitespace before searching — the most common
       // real-world cause of a no-match against records that visibly exist in
       // Zoho. Zoho's :equals: search on string fields is already case-
@@ -1284,16 +1286,28 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
           status: 'failed', message: msg
         });
       }
+      } finally {
+        // Enforce the time budget after every org regardless of which
+        // branch (already_linked / no_match / ambiguous / etc.) handled
+        // it. The inner try/catch above uses `continue` for those paths,
+        // which would skip a check placed at the bottom of the for-body
+        // — but a `finally` always runs before `continue` jumps to the
+        // next iteration. We set the flag here and bail out at the top
+        // of the next iteration via the labelled break above.
+        if (Date.now() - startedAt > TIME_BUDGET_MS) {
+          truncated = true;
+          budgetExceeded = true;
+        }
+      }
     }
 
+    // Catch the edge case where the budget was exceeded on the last org
+    // of the page — the inner-loop's top-of-iteration check would not
+    // fire again, so the outer `while` would otherwise fetch another
+    // page before noticing.
+    if (budgetExceeded) break;
     if (orgs.length < PAGE) break;
     offset += PAGE;
-
-    if (Date.now() - startedAt > TIME_BUDGET_MS) {
-      truncated = true;
-      budgetExceeded = true;
-      break;
-    }
   }
 
   if (truncated) {
