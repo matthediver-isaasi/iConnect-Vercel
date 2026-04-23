@@ -139,6 +139,13 @@ export default function AdminZohoCrmSync() {
   const [relinkError, setRelinkError] = useState(null);
   const [relinkWarning, setRelinkWarning] = useState(null);
   const [showRelinkSamples, setShowRelinkSamples] = useState(false);
+  // Cursor + cumulative counters for resumable re-link runs. Each server
+  // invocation advances through a slice of orgs within its 50s budget; the
+  // next click sends `relinkCursor` as `startAfterId` so we pick up where
+  // we left off instead of re-validating the earlier records.
+  const [relinkCursor, setRelinkCursor] = useState(null);
+  const [relinkTotals, setRelinkTotals] = useState(null);
+  const [relinkCompleted, setRelinkCompleted] = useState(false);
 
   // Value translation modal
   const [translationModal, setTranslationModal] = useState(null); // { idx, iconnectAllowed, zohoAllowed, draft: { iconnect_to_zoho, zoho_to_iconnect } }
@@ -188,15 +195,31 @@ export default function AdminZohoCrmSync() {
     }
   };
 
+  const resetRelinkProgress = () => {
+    setRelinkCursor(null);
+    setRelinkTotals(null);
+    setRelinkCompleted(false);
+    setRelinkSummary(null);
+    setRelinkConfig(null);
+    setRelinkSamples([]);
+    setRelinkError(null);
+    setRelinkWarning(null);
+  };
+
   const relinkOrganisations = async () => {
-    if (!confirm("This will look up every organisation in Zoho by the configured unique key and update the stored Zoho record id. It does not change any field values. Continue?")) return;
+    const isResuming = relinkCursor !== null && !relinkCompleted;
+    if (!isResuming) {
+      if (!confirm("This will look up every organisation in Zoho by the configured unique key and update the stored Zoho record id. It does not change any field values. Continue?")) return;
+    }
     setRelinking(true);
     setRelinkError(null);
     setRelinkWarning(null);
     try {
       const r = await fetch("/api/admin/zoho-crm-sync/relink-organisations", {
         method: "POST",
-        credentials: "include"
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isResuming ? { startAfterId: relinkCursor } : {})
       });
       // The server may return a non-JSON response when Vercel kills the
       // function on timeout (it serves an HTML gateway error page). Parse
@@ -222,17 +245,41 @@ export default function AdminZohoCrmSync() {
         setRelinkConfig(d.config || null);
         setRelinkSamples(Array.isArray(d.samples) ? d.samples : []);
         const isTruncated = !!(d.truncated || (d.summary && d.summary.truncated));
+        // Accumulate counters across successive partial runs so the banner
+        // reflects real forward progress rather than resetting each click.
+        const s = d.summary || {};
+        setRelinkTotals(prev => {
+          const base = (isResuming && prev) ? prev : {
+            processed: 0, relinked: 0, already_linked: 0,
+            no_match: 0, ambiguous: 0, failed: 0, skipped_no_value: 0, runs: 0
+          };
+          return {
+            processed: base.processed + (s.processed || 0),
+            relinked: base.relinked + (s.relinked || 0),
+            already_linked: base.already_linked + (s.already_linked || 0),
+            no_match: base.no_match + (s.no_match || 0),
+            ambiguous: base.ambiguous + (s.ambiguous || 0),
+            failed: base.failed + (s.failed || 0),
+            skipped_no_value: base.skipped_no_value + (s.skipped_no_value || 0),
+            runs: base.runs + 1
+          };
+        });
         if (isTruncated) {
-          const warnMsg = `Time budget reached after processing ${d.summary?.processed ?? 0} organisation(s). Showing partial results — run again to continue with the remaining records.`;
+          const nextCursor = d.last_processed_id ?? s.last_processed_id ?? null;
+          setRelinkCursor(nextCursor);
+          setRelinkCompleted(false);
+          const warnMsg = `Time budget reached after processing ${s.processed ?? 0} organisation(s) in this run. Click "Continue re-link" to resume with the remaining records.`;
           setRelinkWarning(warnMsg);
           toast({
             title: "Re-link partially complete",
             description: warnMsg
           });
         } else {
+          setRelinkCursor(null);
+          setRelinkCompleted(true);
           toast({
             title: "Re-link complete",
-            description: `${d.summary.relinked} re-linked, ${d.summary.already_linked} already linked, ${d.summary.no_match} no match, ${d.summary.ambiguous} ambiguous, ${d.summary.failed} failed`
+            description: `${s.relinked} re-linked, ${s.already_linked} already linked, ${s.no_match} no match, ${s.ambiguous} ambiguous, ${s.failed} failed`
           });
         }
         loadLogs();
@@ -300,6 +347,11 @@ export default function AdminZohoCrmSync() {
   useEffect(() => {
     loadMapping(entityType);
     loadIconnectFields(entityType);
+    // Re-link progress is tied to the organisation mapping specifically;
+    // switching entities invalidates any in-flight cursor so a fresh run
+    // starts from the top once the user returns to organisations.
+    resetRelinkProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityType]);
 
   useEffect(() => {
@@ -382,7 +434,20 @@ export default function AdminZohoCrmSync() {
     }
   };
 
-  const updateMapping = (patch) => setMapping(prev => ({ ...prev, ...patch }));
+  const updateMapping = (patch) => {
+    // Changing relink-critical config mid-flight invalidates any in-flight
+    // cursor — resuming after `last_processed_id` under a new Zoho module
+    // or unique key would silently skip earlier orgs under the new mapping.
+    if (entityType === "organization" && patch && (
+      Object.prototype.hasOwnProperty.call(patch, "zoho_module") ||
+      Object.prototype.hasOwnProperty.call(patch, "unique_key_field")
+    )) {
+      if (relinkCursor !== null || relinkTotals || relinkCompleted) {
+        resetRelinkProgress();
+      }
+    }
+    setMapping(prev => ({ ...prev, ...patch }));
+  };
 
   const updateRow = (idx, patch) => {
     setMapping(prev => {
@@ -425,6 +490,12 @@ export default function AdminZohoCrmSync() {
       const d = await r.json();
       if (r.ok) {
         setMapping(d.mapping);
+        // Saved mapping may change the effective unique key / module /
+        // field mappings relative to whatever an in-flight relink cursor
+        // was built against, so start fresh from the top on next click.
+        if (entityType === "organization" && (relinkCursor !== null || relinkTotals || relinkCompleted)) {
+          resetRelinkProgress();
+        }
         toast({ title: "Mapping saved", description: `${entityType} sync configuration updated` });
       } else {
         toast({ variant: "destructive", title: "Save failed", description: d.error });
@@ -913,19 +984,34 @@ export default function AdminZohoCrmSync() {
                     Use after switching Zoho Account modules (or any time stored Zoho record ids may be stale). Each organisation is searched in Zoho by the configured unique key, and its <code>zoho_crm_id</code> is updated. Field values are not changed — run the one-time import for that.
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={relinkOrganisations}
-                  disabled={relinking}
-                  data-testid="button-relink-organisations"
-                >
-                  {relinking ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
-                  Re-link organisations
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(relinkCursor !== null || relinkTotals || relinkCompleted) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetRelinkProgress}
+                      disabled={relinking}
+                      data-testid="button-reset-relink"
+                    >
+                      Reset
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={relinkOrganisations}
+                    disabled={relinking}
+                    data-testid="button-relink-organisations"
+                  >
+                    {relinking ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+                    {relinkCursor !== null && !relinkCompleted
+                      ? "Continue re-link"
+                      : "Re-link organisations"}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
-            {(relinkError || relinkWarning || relinkSummary || relinkConfig) && (
+            {(relinkError || relinkWarning || relinkSummary || relinkConfig || relinkTotals || relinkCompleted) && (
               <CardContent className="space-y-3">
                 {relinkWarning && (
                   <div
@@ -964,19 +1050,31 @@ export default function AdminZohoCrmSync() {
                   </div>
                 )}
 
-                {relinkSummary && (
+                {relinkTotals && (
                   <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm" data-testid="text-relink-summary">
-                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{relinkSummary.processed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Re-linked</div><div className="font-medium text-green-600">{relinkSummary.relinked}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Already linked</div><div className="font-medium">{relinkSummary.already_linked}</div></div>
-                      <div><div className="text-xs text-muted-foreground">No match</div><div className="font-medium">{relinkSummary.no_match}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Ambiguous</div><div className="font-medium">{relinkSummary.ambiguous}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{relinkSummary.failed}</div></div>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="text-xs uppercase text-muted-foreground">
+                        {relinkCompleted
+                          ? `Cumulative totals across ${relinkTotals.runs} run${relinkTotals.runs === 1 ? '' : 's'} — complete`
+                          : `Cumulative totals across ${relinkTotals.runs} run${relinkTotals.runs === 1 ? '' : 's'} so far`}
+                      </div>
+                      {relinkCompleted && (
+                        <Badge className="bg-green-500/20 text-green-700 border-green-500/30" data-testid="badge-relink-complete">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />Complete
+                        </Badge>
+                      )}
                     </div>
-                    {relinkSummary.skipped_no_value > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm" data-testid="text-relink-summary">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{relinkTotals.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Re-linked</div><div className="font-medium text-green-600">{relinkTotals.relinked}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Already linked</div><div className="font-medium">{relinkTotals.already_linked}</div></div>
+                      <div><div className="text-xs text-muted-foreground">No match</div><div className="font-medium">{relinkTotals.no_match}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Ambiguous</div><div className="font-medium">{relinkTotals.ambiguous}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{relinkTotals.failed}</div></div>
+                    </div>
+                    {relinkTotals.skipped_no_value > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        {relinkSummary.skipped_no_value} organisation(s) skipped because the local unique-key field was empty.
+                        {relinkTotals.skipped_no_value} organisation(s) skipped because the local unique-key field was empty.
                       </p>
                     )}
                   </>

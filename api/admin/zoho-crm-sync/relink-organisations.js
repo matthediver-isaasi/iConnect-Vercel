@@ -12,14 +12,31 @@ export default async function handler(req, res) {
     const tenantId = ctx.tenantId;
     if (!tenantId) return res.status(400).json({ error: 'Tenant context missing' });
 
-    const result = await relinkOrganizationsToZoho(tenantId, { source: 'admin_relink' });
+    // Optional resume cursor: the admin page sends the `lastProcessedId`
+    // from the previous partial response so we continue strictly after it.
+    let startAfterId = null;
+    const raw = req.body?.startAfterId;
+    if (raw !== undefined && raw !== null && raw !== '') {
+      const n = Number(raw);
+      if (!Number.isInteger(n)) {
+        return res.status(400).json({ error: 'startAfterId must be an integer' });
+      }
+      startAfterId = n;
+    }
+
+    const result = await relinkOrganizationsToZoho(tenantId, {
+      source: 'admin_relink',
+      startAfterId
+    });
     return res.status(200).json({
       success: true,
       summary: result.summary,
       config: result.config,
       samples: result.samples,
       truncated: !!result.truncated,
-      budget_exceeded: !!result.budget_exceeded
+      completed: !!result.completed,
+      budget_exceeded: !!result.budget_exceeded,
+      last_processed_id: result.last_processed_id ?? null
     });
   } catch (err) {
     console.error('[ZohoCrmSync relink-organisations] Error:', err);

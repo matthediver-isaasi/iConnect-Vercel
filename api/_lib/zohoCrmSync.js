@@ -1075,6 +1075,18 @@ async function searchZohoByUniqueKey(tenantId, module, fieldName, value) {
  */
 export async function relinkOrganizationsToZoho(tenantId, options = {}) {
   const source = options.source || 'admin_relink';
+  // Optional resume cursor: only process orgs with id > startAfterId. Lets
+  // the caller break a large tenant across multiple invocations without
+  // re-validating already-processed records on every run.
+  const startAfterIdRaw = options.startAfterId;
+  let cursorId = null;
+  if (startAfterIdRaw !== undefined && startAfterIdRaw !== null && startAfterIdRaw !== '') {
+    const n = Number(startAfterIdRaw);
+    if (!Number.isInteger(n)) {
+      throw new Error(`startAfterId must be an integer id (got ${JSON.stringify(startAfterIdRaw)})`);
+    }
+    cursorId = n;
+  }
   const SAMPLE_CAP = 25;
   const summary = {
     tenant_id: tenantId,
@@ -1135,22 +1147,29 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
 
   // Paginate over the organization table — PostgREST caps a single .select()
   // at ~1000 rows, so an unpaged query would silently skip large tenants.
+  // Use a monotonic id cursor (not OFFSET) so that successive invocations
+  // from the admin UI can resume after the last org processed by the
+  // previous run instead of re-validating the earlier ones.
   const PAGE = 500;
-  let offset = 0;
   // Vercel serverless functions get cut off at 60s; leave 10s headroom so we
   // can return a partial result instead of an HTML gateway error page.
   const startedAt = Date.now();
   const TIME_BUDGET_MS = 50_000;
   let truncated = false;
   let budgetExceeded = false;
+  let lastProcessedId = null;
   // eslint-disable-next-line no-constant-condition
   outer: while (true) {
-    const { data: orgs, error: orgErr } = await supabase
+    let pageQuery = supabase
       .from('organization')
       .select(`id, name, zoho_crm_id, zoho_crm_module, ${localKey}`)
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1);
+      .limit(PAGE);
+    if (cursorId !== null) {
+      pageQuery = pageQuery.gt('id', cursorId);
+    }
+    const { data: orgs, error: orgErr } = await pageQuery;
     if (orgErr) throw orgErr;
     if (!orgs || orgs.length === 0) break;
 
@@ -1287,6 +1306,10 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
         });
       }
       } finally {
+        // Record this org as the last one we touched before enforcing
+        // the budget, so the caller can resume strictly after it on
+        // the next invocation — regardless of which branch handled it.
+        lastProcessedId = org.id;
         // Enforce the time budget after every org regardless of which
         // branch (already_linked / no_match / ambiguous / etc.) handled
         // it. The inner try/catch above uses `continue` for those paths,
@@ -1307,18 +1330,26 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
     // page before noticing.
     if (budgetExceeded) break;
     if (orgs.length < PAGE) break;
-    offset += PAGE;
+    // Advance the cursor to the last id we saw in this page so the next
+    // .gt('id', cursorId) query starts strictly after it.
+    cursorId = orgs[orgs.length - 1].id;
   }
 
+  const completed = !truncated;
   if (truncated) {
     summary.truncated = true;
     summary.budget_exceeded = budgetExceeded;
+    summary.last_processed_id = lastProcessedId;
+  } else {
+    summary.completed = true;
   }
 
   return {
     summary,
     truncated,
+    completed,
     budget_exceeded: budgetExceeded,
+    last_processed_id: lastProcessedId,
     config: {
       zoho_module: zohoModule,
       unique_key_field: uniqueKey,
