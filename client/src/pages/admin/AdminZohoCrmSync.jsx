@@ -1248,8 +1248,8 @@ export default function AdminZohoCrmSync() {
       </Dialog>
 
       <Dialog open={!!translationModal} onOpenChange={(o) => !o && setTranslationModal(null)}>
-        <DialogContent className="max-w-2xl" data-testid="dialog-value-translation">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl flex flex-col max-h-[90vh] p-0" data-testid="dialog-value-translation">
+          <DialogHeader className="px-6 pt-6">
             <DialogTitle>Value translation</DialogTitle>
             <DialogDescription>
               Map each Zoho value to its iConnect counterpart (and vice versa). Either side may be left
@@ -1257,7 +1257,7 @@ export default function AdminZohoCrmSync() {
             </DialogDescription>
           </DialogHeader>
           {translationModal && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm overflow-y-auto px-6 flex-1 min-h-0">
               <div className="space-y-2">
                 <div className="font-medium">Zoho → iConnect</div>
                 <div className="text-xs text-muted-foreground">
@@ -1322,7 +1322,7 @@ export default function AdminZohoCrmSync() {
               </div>
             </div>
           )}
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-2 border-t">
             <Button variant="outline" onClick={() => setTranslationModal(null)} data-testid="button-value-map-cancel">Cancel</Button>
             <Button onClick={saveTranslationModal} data-testid="button-value-map-save">Save</Button>
           </div>
