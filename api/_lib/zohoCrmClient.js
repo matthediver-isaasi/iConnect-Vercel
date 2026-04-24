@@ -651,19 +651,129 @@ export async function listZohoCrmSyncModules(tenantId) {
   }
 }
 
-export async function getZohoCrmModuleFields(tenantId, module) {
-  if (!module) throw new Error('Module is required');
-  const data = await zohoCrmApiCall(tenantId, `/settings/fields?module=${encodeURIComponent(module)}`);
-  const fields = (data?.fields || []).map(f => ({
+function mapZohoField(f) {
+  if (!f || !f.api_name) return null;
+  return {
     api_name: f.api_name,
-    field_label: f.field_label,
+    field_label: f.field_label || f.api_name,
     data_type: f.data_type,
     required: !!(f.system_mandatory || f.required),
     read_only: !!f.read_only,
     custom_field: !!f.custom_field,
     length: f.length || null,
     pick_list_values: (f.pick_list_values || []).map(p => ({ display_value: p.display_value, actual_value: p.actual_value }))
-  }));
+  };
+}
+
+// Short-lived cache so a single page-load that opens many dropdowns doesn't
+// hit Zoho twice per render. Layout aggregation costs an extra HTTP call,
+// so the cache also matters for tenants with many fields/layouts.
+const moduleFieldsCache = new Map();
+const MODULE_FIELDS_TTL_MS = 5 * 60 * 1000;
+
+function moduleFieldsCacheKey(tenantId, module) {
+  return `${tenantId}:${module}`;
+}
+
+export function clearZohoCrmModuleFieldsCache(tenantId, module) {
+  if (!tenantId) {
+    moduleFieldsCache.clear();
+    return;
+  }
+  if (!module) {
+    for (const k of moduleFieldsCache.keys()) {
+      if (k.startsWith(`${tenantId}:`)) moduleFieldsCache.delete(k);
+    }
+    return;
+  }
+  moduleFieldsCache.delete(moduleFieldsCacheKey(tenantId, module));
+}
+
+/**
+ * Fetch the writable + read-only fields for a Zoho CRM module.
+ *
+ * Zoho's `/settings/fields` endpoint silently omits certain field types in
+ * some tenants (rich-text fields are the most commonly reported case, plus
+ * some image-upload / file-upload fields and fields restricted by layout).
+ * To make the dropdown reflect what's actually on the module, we also walk
+ * `/settings/layouts` and merge in any fields not already returned by
+ * `/settings/fields`. Both endpoints surface the same per-field schema, so
+ * the same mapper handles both.
+ *
+ * Pass `{ debug: true }` to also receive the raw upstream payloads for
+ * diagnostics (admin-only consumers).
+ */
+export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
+  if (!module) throw new Error('Module is required');
+  const debug = !!options.debug;
+
+  if (!debug) {
+    const cached = moduleFieldsCache.get(moduleFieldsCacheKey(tenantId, module));
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.fields;
+    }
+  }
+
+  const fieldsRes = await zohoCrmApiCall(tenantId, `/settings/fields?module=${encodeURIComponent(module)}`);
+  const byApiName = new Map();
+  const fromFields = [];
+  const fromLayouts = [];
+  for (const raw of (fieldsRes?.fields || [])) {
+    const mapped = mapZohoField(raw);
+    if (!mapped) continue;
+    if (!byApiName.has(mapped.api_name)) {
+      byApiName.set(mapped.api_name, mapped);
+      fromFields.push(mapped.api_name);
+    }
+  }
+
+  // Layouts pass — best-effort. If it fails (permission, not enabled, etc.),
+  // we still return whatever `/settings/fields` gave us so the dropdown is
+  // never worse off than before.
+  let layoutsRes = null;
+  let layoutsError = null;
+  try {
+    layoutsRes = await zohoCrmApiCall(tenantId, `/settings/layouts?module=${encodeURIComponent(module)}`);
+    for (const layout of (layoutsRes?.layouts || [])) {
+      for (const section of (layout?.sections || [])) {
+        for (const raw of (section?.fields || [])) {
+          const mapped = mapZohoField(raw);
+          if (!mapped) continue;
+          if (!byApiName.has(mapped.api_name)) {
+            byApiName.set(mapped.api_name, mapped);
+            fromLayouts.push(mapped.api_name);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    layoutsError = err?.message || String(err);
+    console.warn('[ZohoCRM] Layout-merge failed for module', module, '-', layoutsError);
+  }
+
+  const fields = Array.from(byApiName.values());
+
+  if (!debug) {
+    moduleFieldsCache.set(moduleFieldsCacheKey(tenantId, module), {
+      fields,
+      expiresAt: Date.now() + MODULE_FIELDS_TTL_MS
+    });
+  }
+
+  if (debug) {
+    return {
+      fields,
+      debug: {
+        from_fields_count: fromFields.length,
+        from_layouts_count: fromLayouts.length,
+        added_from_layouts: fromLayouts,
+        layouts_error: layoutsError,
+        raw_fields_response: fieldsRes,
+        raw_layouts_response: layoutsRes
+      }
+    };
+  }
+
   return fields;
 }
 

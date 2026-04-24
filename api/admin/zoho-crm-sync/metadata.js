@@ -144,8 +144,14 @@ export default async function handler(req, res) {
     if (resource === 'fields') {
       if (!module) return res.status(400).json({ error: 'module query param is required' });
       try {
-        const fields = await getZohoCrmModuleFields(tenantId, module);
-        return res.status(200).json({ fields });
+        // `?debug=1` returns the raw upstream payloads so admins can verify
+        // why a particular Zoho field is or isn't appearing in the dropdown.
+        const debug = req.query.debug === '1' || req.query.debug === 'true';
+        const result = await getZohoCrmModuleFields(tenantId, module, { debug });
+        if (debug) {
+          return res.status(200).json(result);
+        }
+        return res.status(200).json({ fields: result });
       } catch (err) {
         return res.status(500).json({ error: err.message });
       }
