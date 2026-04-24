@@ -445,15 +445,21 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
     // quirk in #419 is fresh proof that 2xx + status:'success' from
     // this gateway is not a guarantee of persistence). We re-read every
     // rich-text field we just wrote via the v8 `fetch_full_data`
-    // endpoint and compare. The comparator is intentionally lenient:
-    // it only flags the "we sent non-empty, server returned empty"
-    // silent-drop case, so HTML-normalisation differences from Zoho's
-    // rich-text editor don't produce false positives. Verification
-    // failures are reported but non-fatal — other fields landed
-    // cleanly per Zoho's response and the log message highlights the
-    // mismatch so operators can spot patterns. A verification miss
-    // also suppresses the outbound payload-hash stamp so the same
-    // payload will be retried on the next sync trigger.
+    // endpoint and compare strictly. ANY inequality between the
+    // expected (sent) value and the actual (fetched) value is
+    // considered a mismatch — this catches both failure modes:
+    //   1. silent drop: sent non-empty HTML, server returned empty
+    //   2. silent retain: sent new HTML, server kept the old value
+    // Strict equality may produce false positives if Zoho's rich-text
+    // editor normalises HTML server-side (whitespace, attribute order,
+    // `&nbsp;` vs space, auto-inserted `<p>` wrappers). When that
+    // surfaces operationally we'll add a normaliser; for now we want
+    // the noise so we can SEE every drift. Verification failures are
+    // reported but non-fatal — other fields landed cleanly per Zoho's
+    // response and the log message highlights the mismatch so
+    // operators can spot patterns. A verification miss also suppresses
+    // the outbound payload-hash stamp so the same payload will be
+    // retried on the next sync trigger.
     let richTextVerification = null;
     if (result.success && richTextFieldsInPayload.length > 0) {
       const writtenRecordId = result.id || zohoRecordId;
@@ -464,15 +470,19 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
           );
           const mismatches = [];
           for (const apiName of richTextFieldsInPayload) {
-            const sent = payload[apiName];
-            const got = fetched ? fetched[apiName] : undefined;
-            const sentEmpty = sent == null || sent === '';
-            const gotEmpty = got == null || got === '';
-            if (!sentEmpty && gotEmpty) {
+            const expected = payload[apiName];
+            const actual = fetched ? fetched[apiName] : undefined;
+            // Normalise null/undefined to empty string for comparison so
+            // an "explicit clear" (sent '') matches a server-returned
+            // null and vice versa — Zoho is inconsistent about which it
+            // returns for empty rich-text values.
+            const expectedNorm = expected == null ? '' : String(expected);
+            const actualNorm = actual == null ? '' : String(actual);
+            if (expectedNorm !== actualNorm) {
               mismatches.push({
                 api_name: apiName,
-                sent_length: typeof sent === 'string' ? sent.length : 0,
-                fetched_length: typeof got === 'string' ? got.length : 0
+                expected_length: expectedNorm.length,
+                actual_length: actualNorm.length
               });
             }
           }
@@ -485,8 +495,9 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
             for (const m of mismatches) {
               console.warn(
                 '[ZohoCrmSync] Rich-text verification mismatch on', mapping.zoho_module, writtenRecordId,
-                '- field', m.api_name, 'sent length', m.sent_length, 'fetched length', m.fetched_length,
-                '(silent drop by Zoho)'
+                '- field', m.api_name,
+                'expected length', m.expected_length, 'actual length', m.actual_length,
+                '(Zoho did not persist the value as sent)'
               );
             }
           }
