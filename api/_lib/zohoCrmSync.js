@@ -1364,10 +1364,19 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
 
 // ===========================================================================
 // One-time bulk import: Zoho CRM → iConnect.
-// Treats Zoho as the source of truth for an initial backfill. Honours the
-// configured field_mappings, but applies a "non-empty Zoho wins, empty Zoho
-// preserves iConnect" merge so existing iConnect data is never blanked out.
-// Idempotent: safe to re-run.
+// Honours the configured field_mappings and is idempotent (safe to re-run).
+//
+// Merge rules differ by entity type for the UPDATE path:
+//   - member:       "non-empty Zoho wins, empty Zoho preserves iConnect" —
+//                   a non-empty Zoho value overrides a differing iConnect
+//                   value; empty Zoho values never blank out iConnect.
+//   - organization: "iConnect wins, Zoho fills blanks only" — a non-empty
+//                   Zoho value is only written when the current iConnect
+//                   value is empty/missing. iConnect is treated as the
+//                   source of truth for organisations.
+//
+// CREATE behaviour is the same for both: a brand-new iConnect record is
+// populated from every non-empty mapped Zoho value.
 // ===========================================================================
 
 const NATURAL_KEY_FIELD = {
@@ -1376,6 +1385,15 @@ const NATURAL_KEY_FIELD = {
 };
 
 function isEmptyZohoValue(v) {
+  if (v === undefined || v === null) return true;
+  if (typeof v === 'string' && v.trim() === '') return true;
+  return false;
+}
+
+// Used by the organisations one-time import to decide whether an iConnect
+// field is "empty" and therefore eligible to be filled from a Zoho value.
+// Mirrors isEmptyZohoValue so the two sides are judged consistently.
+function isEmptyIconnectValue(v) {
   if (v === undefined || v === null) return true;
   if (typeof v === 'string' && v.trim() === '') return true;
   return false;
@@ -1485,20 +1503,34 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     return 'created';
   }
 
-  // UPDATE: merge — only override iConnect when the Zoho value is non-empty
-  // AND differs from the current iConnect value. Empty Zoho values preserve
-  // whatever iConnect currently has.
+  // UPDATE: merge rules differ by entity type.
+  //   - organization: iConnect is the source of truth. Only fill iConnect
+  //     fields that are currently empty from a non-empty Zoho value.
+  //     Existing iConnect values are never overwritten, even when Zoho
+  //     disagrees.
+  //   - member (and any other type): preserve today's behaviour — a
+  //     non-empty Zoho value overrides a differing iConnect value; empty
+  //     Zoho values preserve whatever iConnect currently has.
   const currentCustom = await loadCustomFieldValues(tenantId, entityType, entity.id);
+  const iconnectWins = entityType === 'organization';
   const coreToWrite = {};
   for (const [k, v] of Object.entries(coreUpdates)) {
     if (isEmptyZohoValue(v)) continue;
-    if (entity[k] === v) continue;
+    if (iconnectWins) {
+      if (!isEmptyIconnectValue(entity[k])) continue;
+    } else {
+      if (entity[k] === v) continue;
+    }
     coreToWrite[k] = v;
   }
   const customToWrite = {};
   for (const [k, v] of Object.entries(customUpdates)) {
     if (isEmptyZohoValue(v)) continue;
-    if (currentCustom[k] === v) continue;
+    if (iconnectWins) {
+      if (!isEmptyIconnectValue(currentCustom[k])) continue;
+    } else {
+      if (currentCustom[k] === v) continue;
+    }
     customToWrite[k] = v;
   }
 
@@ -1515,7 +1547,9 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
       zoho_module: zohoModule, zoho_record_id: zohoId,
       status: 'skipped', direction: 'inbound', source, action: 'one_time_import',
-      error_message: 'No-op: every non-empty Zoho value already matches iConnect',
+      error_message: iconnectWins
+        ? 'No-op: every iConnect field already populated; no Zoho values to fill in'
+        : 'No-op: every non-empty Zoho value already matches iConnect',
       request_payload: zohoRecord
     });
     return 'skipped';
@@ -1537,7 +1571,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   }
   const payloadHash = computeHash({
     ...coreToWrite,
-    ...Object.fromEntries(Object.entries(customToWrite).map(([k, v]) => [`custom:${k}`, v]))
+    ...Object.fromEntries(Object.entries(customToWrite).map(([k, v]) => [`custom:${k}`, v])),
+    ...(linkPatch || {})
   });
   await recordSyncState(tenantId, entityType, entity.id, 'inbound', payloadHash);
   await writeLog({
@@ -1556,11 +1591,19 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
  * ('member' or 'organization'). Paginates through every record in the
  * configured Zoho module for this tenant. Idempotent and safe to re-run.
  *
- * Honours the existing field_mappings (including custom: preference fields)
- * and applies a "non-empty Zoho wins, empty Zoho preserves iConnect" merge
- * to existing records. New iConnect records are inserted from Zoho data
+ * Honours the existing field_mappings (including custom: preference fields).
+ * Update-merge rules differ by entity type:
+ *   - organization: iConnect is the source of truth. Only iConnect fields
+ *     that are currently empty are filled from a non-empty Zoho value;
+ *     existing iConnect values are never overwritten.
+ *   - member: a non-empty Zoho value overrides a differing iConnect value;
+ *     empty Zoho values preserve whatever iConnect currently has.
+ *
+ * New iConnect records are inserted from every non-empty mapped Zoho value
  * when no match is found by zoho_crm_id or natural key (email for members,
- * name for organisations).
+ * name for organisations). The zoho_crm_id / zoho_crm_module link is
+ * always backfilled on previously unlinked iConnect records, even when no
+ * other field needs to be written.
  *
  * Inbound origin is marked on every write so triggered outbound syncs are
  * suppressed during the import. Each record produces one zoho_crm_sync_log
