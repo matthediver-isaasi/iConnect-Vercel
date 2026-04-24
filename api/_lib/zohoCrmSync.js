@@ -6,8 +6,7 @@ import {
   isZohoCrmConnected,
   zohoCrmApiCall,
   searchZohoCrmRecords,
-  fetchZohoCrmRecordRichText,
-  getZohoCrmModuleFields
+  fetchZohoCrmRecordRichText
 } from './zohoCrmClient.js';
 
 /**
@@ -17,36 +16,25 @@ import {
  * mapping that targets a rich-text field arrives with `null` and overwrites
  * good iConnect data with empty.
  *
- * Best-effort & gated: returns the record unchanged when (a) the mapping
- * has no rich-text fields, (b) module-fields metadata can't be loaded, or
- * (c) the dedicated rich-text fetch errors. Already-populated values on
- * the inbound record short-circuit too (handles the case where a future
- * Zoho behaviour starts inlining rich-text in the regular payload).
+ * Gating is read-only: the mapping save endpoint (`api/admin/zoho-crm-sync/
+ * mappings.js`) stamps `is_rich_text: true` on each field-mapping row whose
+ * Zoho field is rich-text. Here we only check that flag — no live metadata
+ * call — so mappings without any rich-text fields incur ZERO extra Zoho API
+ * calls per inbound record. Already-populated values short-circuit the per-
+ * field fetch (handles the case where a future Zoho behaviour starts
+ * inlining rich-text in the regular payload). Per-record rich-text fetch
+ * failures are non-fatal: warn + continue, leave the field null.
  */
 async function enrichRecordWithRichText(tenantId, mapping, zohoModule, zohoRecord) {
   if (!zohoRecord || typeof zohoRecord !== 'object') return zohoRecord;
-  const recordId = zohoRecord.id || zohoRecord.Id;
-  if (!recordId) return zohoRecord;
   const fieldMappings = Array.isArray(mapping?.field_mappings) ? mapping.field_mappings : [];
   if (fieldMappings.length === 0) return zohoRecord;
-  let moduleFields;
-  try {
-    moduleFields = await getZohoCrmModuleFields(tenantId, zohoModule);
-  } catch (err) {
-    console.warn('[ZohoCrmSync] Could not load module fields for rich-text gating on', zohoModule, '-', err?.message || err);
-    return zohoRecord;
-  }
-  const richTextApiNames = new Set(
-    (moduleFields || [])
-      .filter(f => /rich/i.test(String(f?.data_type || '')))
-      .map(f => f.api_name)
-      .filter(Boolean)
-  );
-  if (richTextApiNames.size === 0) return zohoRecord;
   const wanted = fieldMappings
-    .map(m => m?.zoho_field)
-    .filter(name => name && richTextApiNames.has(name));
+    .filter(m => m?.is_rich_text === true && m.zoho_field)
+    .map(m => m.zoho_field);
   if (wanted.length === 0) return zohoRecord;
+  const recordId = zohoRecord.id || zohoRecord.Id;
+  if (!recordId) return zohoRecord;
   const missing = wanted.filter(name => zohoRecord[name] == null || zohoRecord[name] === '');
   if (missing.length === 0) return zohoRecord;
   try {

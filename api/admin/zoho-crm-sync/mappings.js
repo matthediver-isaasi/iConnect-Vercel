@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { getZohoCrmModuleFields } from '../../_lib/zohoCrmClient.js';
 
 const VALID_ENTITY_TYPES = ['member', 'organization'];
 const ALLOWED_MODULES_BY_ENTITY = {
@@ -45,6 +46,24 @@ export default async function handler(req, res) {
         });
       }
       if (!unique_key_field) return res.status(400).json({ error: 'unique_key_field is required' });
+      // Resolve which mapped Zoho fields are rich-text ONCE per save so we can
+      // persist `is_rich_text` per row. The inbound sync path then reads only
+      // the persisted flag — no live `getZohoCrmModuleFields` lookup, so
+      // mappings without rich-text fields incur zero extra Zoho calls per
+      // record. Best-effort: if metadata can't load, every row defaults to
+      // `is_rich_text: false` and the existing non-rich-text behaviour stands.
+      const richTextZohoFieldNames = new Set();
+      try {
+        const moduleFields = await getZohoCrmModuleFields(tenantId, zoho_module);
+        for (const f of moduleFields || []) {
+          if (f?.api_name && /rich/i.test(String(f?.data_type || ''))) {
+            richTextZohoFieldNames.add(f.api_name);
+          }
+        }
+      } catch (err) {
+        console.warn('[ZohoCrmSync mappings] Could not resolve rich-text fields at save:', err?.message || err);
+      }
+
       const sanitizedMappings = Array.isArray(field_mappings)
         ? field_mappings
             .filter(m => m && m.iconnect_field && m.zoho_field)
@@ -53,7 +72,8 @@ export default async function handler(req, res) {
                 iconnect_field: m.iconnect_field,
                 zoho_field: m.zoho_field,
                 ...(m.iconnect_field_type ? { iconnect_field_type: m.iconnect_field_type } : {}),
-                ...(m.zoho_field_label ? { zoho_field_label: m.zoho_field_label } : {})
+                ...(m.zoho_field_label ? { zoho_field_label: m.zoho_field_label } : {}),
+                ...(richTextZohoFieldNames.has(m.zoho_field) ? { is_rich_text: true } : {})
               };
               // Persist per-row value translation map. Shape:
               //   value_map: {
