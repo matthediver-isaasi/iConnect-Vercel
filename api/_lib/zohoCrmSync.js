@@ -6,8 +6,68 @@ import {
   isZohoCrmConnected,
   zohoCrmApiCall,
   searchZohoCrmRecords,
-  fetchZohoCrmRecordRichText
+  fetchZohoCrmRecordRichText,
+  getZohoCrmModuleFields
 } from './zohoCrmClient.js';
+
+/**
+ * Self-heal `is_multi_pick` and `is_rich_text` flags on legacy mapping
+ * rows that were saved before the field-type stamping landed (#424).
+ *
+ * The mapping save endpoint stamps these flags per row from cached Zoho
+ * metadata, but rows that haven't been re-saved since the new code
+ * shipped are missing both flags entirely. Without `is_multi_pick` the
+ * outbound translation falls through to scalar handling, the
+ * stringified JSON value `'["A","B"]'` is forwarded unchanged, and
+ * Zoho rejects with HTTP 400 INVALID_DATA `expected_data_type:
+ * jsonarray` — the exact failure mode #424 was meant to fix.
+ *
+ * Self-heal: re-resolve the same Sets at sync time from the same
+ * already-cached `getZohoCrmModuleFields` source the save endpoint
+ * uses, then mutate `mapping.field_mappings[i]` in-place to set the
+ * missing flags. Persisted-flag rows still take the fast path; this
+ * only adds work for rows where the flag is absent.
+ *
+ * Best-effort: any failure logs a warning and returns silently —
+ * downstream code falls back to today's persisted-flag-only behaviour
+ * (no regression for working tenants). The metadata fetch is cached
+ * for 5 minutes per tenant+module so the cost in steady state is a
+ * memory map lookup, not an HTTP round-trip.
+ */
+async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
+  if (!mapping || !mapping.zoho_module || !Array.isArray(mapping.field_mappings)) return;
+  // Skip the work entirely if every mapping row already has both flags
+  // resolved — common steady-state for tenants who've re-saved.
+  const anyMissing = mapping.field_mappings.some(m =>
+    m && m.zoho_field && (m.is_multi_pick === undefined || m.is_rich_text === undefined)
+  );
+  if (!anyMissing) return;
+  let moduleFields;
+  try {
+    moduleFields = await getZohoCrmModuleFields(tenantId, mapping.zoho_module);
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Could not resolve field-type flags from Zoho metadata at sync time — falling back to persisted flags only:', err?.message || err);
+    return;
+  }
+  if (!Array.isArray(moduleFields)) return;
+  const multiPickSet = new Set();
+  const richTextSet = new Set();
+  for (const f of moduleFields) {
+    if (!f?.api_name) continue;
+    const dt = String(f?.data_type || '').toLowerCase();
+    if (/rich/i.test(dt)) richTextSet.add(f.api_name);
+    if (dt.includes('multi')) multiPickSet.add(f.api_name);
+  }
+  for (const m of mapping.field_mappings) {
+    if (!m?.zoho_field) continue;
+    if (m.is_multi_pick !== true && multiPickSet.has(m.zoho_field)) {
+      m.is_multi_pick = true;
+    }
+    if (m.is_rich_text !== true && richTextSet.has(m.zoho_field)) {
+      m.is_rich_text = true;
+    }
+  }
+}
 
 /**
  * Merge a record's rich-text field values into the record JSON before the
@@ -435,6 +495,12 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       .maybeSingle();
     if (mappingErr) throw mappingErr;
     if (!mapping || !mapping.is_enabled) return null;
+
+    // Self-heal `is_multi_pick` / `is_rich_text` flags on legacy mapping
+    // rows that pre-date the per-row stamping introduced in #424. Without
+    // this, multi-pick fields fall through to scalar handling and Zoho
+    // 400s with `expected_data_type: jsonarray` on the whole record.
+    await enrichMappingFlagsFromMetadata(tenantId, mapping);
 
     // Honour sync_direction: only push if outbound or bidirectional.
     const direction = mapping.sync_direction || 'outbound';
@@ -957,6 +1023,11 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       error_message: `No enabled mapping configured for tenant/entity/module (${entityType}/${zohoModule})`
     });
   }
+  // Self-heal `is_multi_pick` / `is_rich_text` flags on legacy mapping
+  // rows that pre-date #424. Inbound symmetry: both directions must
+  // agree on what counts as multi-pick or the canonical hash diverges
+  // and we ping-pong.
+  await enrichMappingFlagsFromMetadata(tenantId, mapping);
 
   const direction = mapping.sync_direction || 'outbound';
   if (direction === 'outbound') {
@@ -1304,6 +1375,10 @@ export async function pollZohoCrmReconciliation(tenantId, options = {}) {
   for (const mapping of mappings || []) {
     const dir = mapping.sync_direction || 'outbound';
     if (dir === 'outbound') continue;
+
+    // Self-heal `is_multi_pick` / `is_rich_text` flags on legacy
+    // mapping rows that pre-date #424 — see helper for context.
+    await enrichMappingFlagsFromMetadata(tenantId, mapping);
 
     const sinceIso = mapping.last_inbound_cursor
       ? new Date(mapping.last_inbound_cursor).toISOString()
@@ -2194,6 +2269,10 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     throw new Error('Mapping has no field mappings configured — nothing to import');
   }
 
+  // Self-heal `is_multi_pick` / `is_rich_text` flags on legacy mapping
+  // rows that pre-date #424 — see helper for context.
+  await enrichMappingFlagsFromMetadata(tenantId, mapping);
+
   const zohoModule = mapping.zoho_module;
   summary.zoho_module = zohoModule;
 
@@ -2297,6 +2376,10 @@ export async function importSingleZohoRecord(tenantId, entityType, zohoRecordId,
   if (!Array.isArray(mapping.field_mappings) || mapping.field_mappings.length === 0) {
     throw new Error('Mapping has no field mappings configured — nothing to import');
   }
+
+  // Self-heal `is_multi_pick` / `is_rich_text` flags on legacy mapping
+  // rows that pre-date #424 — see helper for context.
+  await enrichMappingFlagsFromMetadata(tenantId, mapping);
 
   const zohoModule = mapping.zoho_module;
   const fields = new Set(['id', 'Modified_Time']);
