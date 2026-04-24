@@ -1191,7 +1191,7 @@ export default function AdminZohoCrmSync() {
                       </Badge>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''}) · records: {findFieldResult.counts?.records_probed ?? 0} sampled ({findFieldResult.counts?.record_sample_keys ?? 0} keys)
+                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''}) · records: {findFieldResult.counts?.records_probed ?? 0} sampled ({findFieldResult.counts?.record_sample_keys ?? 0} keys) · rich-text: {findFieldResult.counts?.rich_text_probed ?? 0} sampled ({findFieldResult.counts?.rich_text_keys ?? 0} keys)
                     </span>
                   </div>
 

@@ -5,8 +5,58 @@ import {
   updateZohoCrmRecordById,
   isZohoCrmConnected,
   zohoCrmApiCall,
-  searchZohoCrmRecords
+  searchZohoCrmRecords,
+  fetchZohoCrmRecordRichText,
+  getZohoCrmModuleFields
 } from './zohoCrmClient.js';
+
+/**
+ * Merge a record's rich-text field values into the record JSON before the
+ * normal field-mapping pipeline runs. Zoho excludes rich-text fields from
+ * the regular `GET /{module}/{id}` payload — without this enrichment any
+ * mapping that targets a rich-text field arrives with `null` and overwrites
+ * good iConnect data with empty.
+ *
+ * Best-effort & gated: returns the record unchanged when (a) the mapping
+ * has no rich-text fields, (b) module-fields metadata can't be loaded, or
+ * (c) the dedicated rich-text fetch errors. Already-populated values on
+ * the inbound record short-circuit too (handles the case where a future
+ * Zoho behaviour starts inlining rich-text in the regular payload).
+ */
+async function enrichRecordWithRichText(tenantId, mapping, zohoModule, zohoRecord) {
+  if (!zohoRecord || typeof zohoRecord !== 'object') return zohoRecord;
+  const recordId = zohoRecord.id || zohoRecord.Id;
+  if (!recordId) return zohoRecord;
+  const fieldMappings = Array.isArray(mapping?.field_mappings) ? mapping.field_mappings : [];
+  if (fieldMappings.length === 0) return zohoRecord;
+  let moduleFields;
+  try {
+    moduleFields = await getZohoCrmModuleFields(tenantId, zohoModule);
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Could not load module fields for rich-text gating on', zohoModule, '-', err?.message || err);
+    return zohoRecord;
+  }
+  const richTextApiNames = new Set(
+    (moduleFields || [])
+      .filter(f => /rich/i.test(String(f?.data_type || '')))
+      .map(f => f.api_name)
+      .filter(Boolean)
+  );
+  if (richTextApiNames.size === 0) return zohoRecord;
+  const wanted = fieldMappings
+    .map(m => m?.zoho_field)
+    .filter(name => name && richTextApiNames.has(name));
+  if (wanted.length === 0) return zohoRecord;
+  const missing = wanted.filter(name => zohoRecord[name] == null || zohoRecord[name] === '');
+  if (missing.length === 0) return zohoRecord;
+  try {
+    const rt = await fetchZohoCrmRecordRichText(tenantId, zohoModule, recordId, missing);
+    return { ...zohoRecord, ...rt };
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Rich-text fetch failed for', zohoModule, recordId, '-', err?.message || err);
+    return zohoRecord;
+  }
+}
 
 const ENTITY_TABLE = {
   member: 'member',
@@ -622,6 +672,10 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       error_message: 'Mapping is outbound-only — inbound dropped'
     });
   }
+
+  // Merge rich-text values that Zoho hides from the regular GET payload.
+  // No-op for mappings without rich-text fields.
+  zohoRecord = await enrichRecordWithRichText(tenantId, mapping, zohoModule, zohoRecord);
 
   const zohoId = zohoRecord?.id || zohoRecord?.Id || null;
   let entity = null;
@@ -1474,6 +1528,9 @@ function summariseEntity(entity, entityType) {
 async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRecord, source, options = {}) {
   const dryRun = options.dryRun === true;
   const action = options.action || 'one_time_import';
+  // Merge rich-text values that Zoho hides from the regular GET payload.
+  // No-op for mappings without rich-text fields.
+  zohoRecord = await enrichRecordWithRichText(tenantId, mapping, zohoModule, zohoRecord);
   const zohoId = zohoRecord?.id || zohoRecord?.Id || null;
 
   // 1. Resolve existing iConnect record: zoho id first, then natural key.
