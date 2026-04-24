@@ -73,6 +73,7 @@ import {
   Tag
 } from "lucide-react";
 import { toast } from "sonner";
+import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
@@ -644,6 +645,7 @@ export default function OrganisationDetailView({
     onSuccess: (createdOrg) => {
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
       toast.success('Organisation created successfully');
+      if (createdOrg?._zohoCrmSync) showZohoCrmSyncToast(createdOrg._zohoCrmSync);
       if (onCreated) {
         onCreated(createdOrg);
       }
@@ -660,6 +662,7 @@ export default function OrganisationDetailView({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
       toast.success('Organisation updated successfully');
+      if (data?._zohoCrmSync) showZohoCrmSyncToast(data._zohoCrmSync);
       setIsEditing(false);
       checkForPendingWorkflows(data);
     },

@@ -1,6 +1,6 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
-import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
+import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
@@ -1027,6 +1027,10 @@ export default async function handler(req, res) {
       }));
 
       // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
+      // Holds the in-flight Zoho CRM sync Promise (if any) so we can
+      // await its outcome at the end and surface the result in the
+      // response — same toast-debugging pattern as the PATCH handler.
+      let zohoCrmSyncPromise = null;
       if ((entityNorm === 'organization' || entityNorm === 'member' || entityNorm === 'jobposting') && data) {
         const entityType = entityNorm === 'jobposting' ? 'job_posting' : entityNorm;
         console.log(`[Entity POST] Triggering workflows for ${entityType}:${data.id}, tenant_id=${data.tenant_id}, data keys:`, Object.keys(data));
@@ -1034,7 +1038,7 @@ export default async function handler(req, res) {
           console.error('[Entity POST] Workflow error:', err);
         });
         if ((entityType === 'member' || entityType === 'organization') && data.tenant_id) {
-          triggerZohoCrmSync(data.tenant_id, entityType, data.id, { action: 'create' });
+          zohoCrmSyncPromise = triggerZohoCrmSync(data.tenant_id, entityType, data.id, { action: 'create' });
         }
       }
       
@@ -1107,11 +1111,24 @@ export default async function handler(req, res) {
         });
       }
 
-      // If there are pending workflow confirmations, include them in the response
-      if (pendingWorkflowConfirmations.length > 0) {
+      // Await the in-flight Zoho CRM sync (with a short timeout) so we
+      // can return its outcome — see PATCH handler for the full
+      // toast-debugging rationale.
+      let zohoCrmSyncResult = null;
+      if (zohoCrmSyncPromise) {
+        try {
+          zohoCrmSyncResult = await awaitZohoCrmSyncForResponse(zohoCrmSyncPromise);
+        } catch (err) {
+          console.error('[Entity POST] Zoho sync await threw:', err);
+        }
+      }
+
+      // If there are pending workflow confirmations or a sync result, include them in the response
+      if (pendingWorkflowConfirmations.length > 0 || zohoCrmSyncResult) {
         return res.status(201).json({
           ...data,
-          _pendingWorkflowConfirmations: pendingWorkflowConfirmations
+          ...(pendingWorkflowConfirmations.length > 0 && { _pendingWorkflowConfirmations: pendingWorkflowConfirmations }),
+          ...(zohoCrmSyncResult && { _zohoCrmSync: zohoCrmSyncResult })
         });
       }
 

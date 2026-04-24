@@ -1,5 +1,5 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
-import { triggerZohoCrmSync } from '../../_lib/zohoCrmSync.js';
+import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
@@ -519,11 +519,15 @@ export default async function handler(req, res) {
       // Trigger workflow evaluation and check for pending confirmations
       let pendingWorkflowConfirmations = [];
       let workflowReverts = [];
+      // Holds the in-flight Zoho CRM sync Promise (if any) so we can
+      // await its outcome AFTER workflows finish, then surface the result
+      // back in the PATCH response for the toast layer.
+      let zohoCrmSyncPromise = null;
       if (isWorkflowEntity && data) {
         const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
         try {
           if ((entityType === 'member' || entityType === 'organization') && (data.tenant_id || beforeData?.tenant_id)) {
-            triggerZohoCrmSync(data.tenant_id || beforeData.tenant_id, entityType, id, { action: 'update' });
+            zohoCrmSyncPromise = triggerZohoCrmSync(data.tenant_id || beforeData.tenant_id, entityType, id, { action: 'update' });
           }
           const workflowResult = await triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl);
           if (workflowResult?.pendingConfirmations?.length > 0) {
@@ -695,11 +699,25 @@ export default async function handler(req, res) {
         }
       }
 
-      if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0) {
+      // Await the in-flight Zoho CRM sync (with a short timeout) so we
+      // can return its outcome in the response. Lets the toast layer
+      // surface success/failure/timeout immediately to the user — useful
+      // for debugging without round-tripping through the sync log page.
+      let zohoCrmSyncResult = null;
+      if (zohoCrmSyncPromise) {
+        try {
+          zohoCrmSyncResult = await awaitZohoCrmSyncForResponse(zohoCrmSyncPromise);
+        } catch (err) {
+          console.error('[Entity PATCH] Zoho sync await threw:', err);
+        }
+      }
+
+      if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0 || zohoCrmSyncResult) {
         return res.json({
           ...responseData,
           ...(pendingWorkflowConfirmations.length > 0 && { _pendingWorkflowConfirmations: pendingWorkflowConfirmations }),
-          ...(workflowReverts.length > 0 && { _workflowReverts: workflowReverts })
+          ...(workflowReverts.length > 0 && { _workflowReverts: workflowReverts }),
+          ...(zohoCrmSyncResult && { _zohoCrmSync: zohoCrmSyncResult })
         });
       }
 

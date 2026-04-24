@@ -809,14 +809,74 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
 }
 
 /**
- * Fire-and-forget wrapper. Pass `fromInbound: true` to suppress outbound echo.
+ * Triggers an outbound Zoho CRM sync and returns a Promise resolving to
+ * the resulting `zoho_crm_sync_log` row (or `null` if nothing was
+ * dispatched / the sync threw fatally).
+ *
+ * Existing callers can keep ignoring the return value — the dispatch
+ * still happens immediately and any errors are logged. New callers that
+ * want to surface the result (e.g. the entity PATCH/POST handlers, so
+ * the UI can render the sync outcome in the save toast) can `await` it.
+ *
+ * Pass `fromInbound: true` to suppress outbound echo.
  */
 export function triggerZohoCrmSync(tenantId, entityType, entityId, options = {}) {
-  if (!tenantId || !entityType || !entityId) return;
-  if (entityType !== 'member' && entityType !== 'organization') return;
-  Promise.resolve()
+  if (!tenantId || !entityType || !entityId) return Promise.resolve(null);
+  if (entityType !== 'member' && entityType !== 'organization') return Promise.resolve(null);
+  return Promise.resolve()
     .then(() => syncEntityToZohoCrm(tenantId, entityType, entityId, options))
-    .catch(err => console.error('[ZohoCrmSync] Background sync error:', err));
+    .catch(err => {
+      console.error('[ZohoCrmSync] Background sync error:', err);
+      return null;
+    });
+}
+
+/**
+ * Awaits a `triggerZohoCrmSync` Promise up to `timeoutMs` and returns a
+ * compact summary suitable for inclusion in an HTTP response. If the
+ * sync hasn't completed by the timeout, the returned summary marks
+ * `status: 'pending'` and `timed_out: true` — the underlying sync
+ * Promise keeps running in the background but the caller doesn't wait
+ * any longer (Vercel may then reap it; same fail-open semantics as the
+ * pre-#430 fire-and-forget pattern).
+ *
+ * Returns `null` if no sync was dispatched (no mapping, wrong entity
+ * type, or fatal error inside the sync) — the toast layer should treat
+ * `null` as "nothing to show".
+ */
+export async function awaitZohoCrmSyncForResponse(syncPromise, timeoutMs = 8000) {
+  if (!syncPromise || typeof syncPromise.then !== 'function') return null;
+  let timer;
+  const TIMEOUT_MARKER = Symbol('zoho_sync_timeout');
+  const timeoutPromise = new Promise(resolve => {
+    timer = setTimeout(() => resolve(TIMEOUT_MARKER), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([syncPromise, timeoutPromise]);
+    if (result === TIMEOUT_MARKER) {
+      return {
+        status: 'pending',
+        timed_out: true,
+        timeout_ms: timeoutMs,
+        message: `Zoho CRM sync did not complete within ${Math.round(timeoutMs / 1000)}s. The sync is continuing in the background but may be terminated by the serverless host before it finishes — check the sync log to confirm the outcome.`
+      };
+    }
+    if (!result || typeof result !== 'object') return null;
+    const mechanisms = Array.isArray(result.response_payload?.mechanisms)
+      ? result.response_payload.mechanisms
+      : null;
+    return {
+      log_id: result.id || null,
+      status: result.status || null,
+      zoho_module: result.zoho_module || null,
+      zoho_record_id: result.zoho_record_id || null,
+      action: result.action || null,
+      error_message: result.error_message || null,
+      mechanisms
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function retryZohoCrmSyncLog(tenantId, logId) {

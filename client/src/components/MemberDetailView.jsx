@@ -75,6 +75,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 // DISABLED: import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useDateFormat } from "@/hooks/useDateFormat";
@@ -616,6 +617,7 @@ export default function MemberDetailView({
     },
     onSuccess: (createdMember) => {
       toast.success("Member created successfully");
+      if (createdMember?._zohoCrmSync) showZohoCrmSyncToast(createdMember._zohoCrmSync);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       if (onCreated) {
         onCreated(createdMember);
@@ -800,7 +802,7 @@ export default function MemberDetailView({
       });
 
       try {
-        await updateMutation.mutateAsync({
+        const updateResult = await updateMutation.mutateAsync({
           ...formData,
           role_id: selectedRoleId
         });
@@ -811,8 +813,14 @@ export default function MemberDetailView({
           results.push(result);
         }
 
-        const allPending = results.flatMap(r => r?._pendingWorkflowConfirmations || []);
-        const allReverts = results.flatMap(r => r?._workflowReverts || []);
+        const allPending = [
+          ...(updateResult?._pendingWorkflowConfirmations || []),
+          ...results.flatMap(r => r?._pendingWorkflowConfirmations || [])
+        ];
+        const allReverts = [
+          ...(updateResult?._workflowReverts || []),
+          ...results.flatMap(r => r?._workflowReverts || [])
+        ];
         if (allPending.length > 0 || allReverts.length > 0) {
           checkForPendingWorkflows({
             _pendingWorkflowConfirmations: allPending,
@@ -821,6 +829,7 @@ export default function MemberDetailView({
         }
 
         toast.success("Member updated successfully");
+        if (updateResult?._zohoCrmSync) showZohoCrmSyncToast(updateResult._zohoCrmSync);
         setIsEditing(false);
         queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
         queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
