@@ -534,8 +534,21 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
         .map(m => m.zoho_field)
     );
     const richTextFieldsInPayload = Object.keys(payload).filter(k => richTextZohoFields.has(k));
+    // Track multi-pick fields in this payload so the operational
+    // `mechanisms` log line surfaces them — useful when diagnosing future
+    // jsonarray/picklist failures (the original bug behind #424 was hidden
+    // because no log line called out which fields were multi-pick).
+    const multiPickZohoFields = new Set(
+      (mapping.field_mappings || [])
+        .filter(m => m?.is_multi_pick === true && m?.zoho_field)
+        .map(m => m.zoho_field)
+    );
+    const multiPickFieldsInPayload = Object.keys(payload).filter(k => multiPickZohoFields.has(k));
 
     const mechanismsUsed = [];
+    if (multiPickFieldsInPayload.length > 0) {
+      mechanismsUsed.push(`multi_pick_fields:${multiPickFieldsInPayload.length}`);
+    }
     let result;
     let zohoRecordId = entity.zoho_crm_id;
 
