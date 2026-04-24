@@ -1112,7 +1112,13 @@ export default function AdminZohoCrmSync() {
                   </Button>
                 </div>
                 {singleError && (
-                  <p className="text-sm text-destructive" data-testid="text-single-error">{singleError}</p>
+                  <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3" data-testid="panel-single-error">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs uppercase text-muted-foreground">Result</span>
+                      <Badge variant="destructive">error</Badge>
+                    </div>
+                    <p className="text-sm text-destructive" data-testid="text-single-error">{singleError}</p>
+                  </div>
                 )}
                 {singleResult && (
                   <SingleRecordResult result={singleResult} entityType={singleEntityType} />
