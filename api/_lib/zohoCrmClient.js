@@ -942,7 +942,7 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
   if (!query || !query.trim()) throw new Error('Search query is required');
   const qLower = query.trim().toLowerCase();
   const matches = [];
-  const sourceCounts = { fields: 0, layouts_list: 0, layouts_detail: 0 };
+  const sourceCounts = { fields: 0, layouts_list: 0, layouts_detail: 0, records: 0 };
   const errors = [];
 
   // 1) Primary fields fetch — we hit BOTH `/settings/fields?type=all` and
@@ -1032,13 +1032,64 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
     errors.push({ stage: 'layouts', error: err?.message || String(err) });
   }
 
+  // 3) Records probe — Zoho's metadata APIs hide "Public" fields, but those
+  //    same fields ARE returned in actual record JSON. Fetch one record and
+  //    search its keys + string values for the query so we can recover the
+  //    api_name even when /settings/* came up empty.
+  let recordsProbed = 0;
+  let recordSampleKeys = 0;
+  try {
+    const recRes = await zohoCrmApiCall(tenantId, `/${enc}?per_page=1`);
+    const sample = Array.isArray(recRes?.data) && recRes.data.length > 0 ? recRes.data[0] : null;
+    if (sample && typeof sample === 'object') {
+      recordsProbed = 1;
+      const keys = Object.keys(sample);
+      recordSampleKeys = keys.length;
+      for (const key of keys) {
+        const val = sample[key];
+        const valStr = (val == null || typeof val === 'object') ? '' : String(val);
+        const keyHit = key.toLowerCase().includes(qLower);
+        const valHit = valStr.toLowerCase().includes(qLower);
+        if (keyHit || valHit) {
+          matches.push({
+            source: 'records',
+            fields_qualifier: null,
+            layout_id: null,
+            layout_name: null,
+            section_name: null,
+            field: {
+              api_name: key,
+              field_label: null,
+              display_label: null,
+              data_type: typeof val,
+              custom_field: null,
+              read_only: null,
+              required: null,
+              max_length: null,
+              json_type: null,
+              visible: null,
+              sample_value_preview: valStr ? valStr.slice(0, 200) : null,
+              matched_on: keyHit ? 'key' : 'value'
+            }
+          });
+          sourceCounts.records++;
+        }
+      }
+    }
+  } catch (err) {
+    errors.push({ stage: 'records', error: err?.message || String(err) });
+  }
+
   // Conclusion: a one-line operator-friendly summary.
+  const recordsOnly = sourceCounts.records > 0 && sourceCounts.fields === 0 && sourceCounts.layouts_list === 0 && sourceCounts.layouts_detail === 0;
   let conclusion;
-  if (matches.length > 0) {
+  if (recordsOnly) {
+    conclusion = `Found ${sourceCounts.records} match(es) in real ${module} record JSON, but Zoho's metadata APIs (/settings/fields, /settings/layouts) returned nothing. This is the classic signature of a Zoho "Public field" — Zoho excludes them from metadata enumeration even though the field is fully readable/writable via the records API. Use the api_name shown below in the field-mapping table's "Type api_name manually…" option to map it.`;
+  } else if (matches.length > 0) {
     const sources = Array.from(new Set(matches.map(m => m.source)));
     conclusion = `Found ${matches.length} match(es) in module "${module}" via ${sources.join(', ')}. If the field appears here but not in the mapping dropdown, check this module's data_type (rich-text/long-text are kept; subform/file/image are excluded).`;
   } else {
-    conclusion = `No field on module "${module}" matched "${query}". Zoho is not returning this field to the connected OAuth user via /settings/fields (type=all OR default) or /settings/layouts (list OR per-layout detail). Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; OR (2) the field actually lives on a different Zoho module (e.g. a custom Organisations module rather than stock Accounts) — re-run the search against another module to confirm.`;
+    conclusion = `No field on module "${module}" matched "${query}" via /settings/fields (type=all OR default), /settings/layouts (list OR per-layout detail), OR a sample record fetch. Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; (2) the field lives on a different Zoho module — re-run against another module; OR (3) the module has zero records so the records probe couldn't see it (create one and retry).`;
   }
 
   return {
@@ -1051,6 +1102,8 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
       layouts_total: layoutsCount,
       layout_detail_calls: layoutDetailCalls,
       layouts_skipped_cap: layoutsCappedCount,
+      records_probed: recordsProbed,
+      record_sample_keys: recordSampleKeys,
       matches_total: matches.length,
       by_source: sourceCounts
     },

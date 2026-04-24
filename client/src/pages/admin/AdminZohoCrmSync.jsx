@@ -194,6 +194,9 @@ export default function AdminZohoCrmSync() {
   const [mapping, setMapping] = useState(null);
   const [loadingMapping, setLoadingMapping] = useState(true);
   const [savingMapping, setSavingMapping] = useState(false);
+  // Per-row override that forces the Zoho-field cell into manual-input mode
+  // (used for Zoho "Public" fields that are hidden from the metadata API).
+  const [manualEntryRows, setManualEntryRows] = useState(() => new Set());
 
   // Sync log state
   const [logs, setLogs] = useState([]);
@@ -572,6 +575,8 @@ export default function AdminZohoCrmSync() {
 
   const loadMapping = async (et) => {
     setLoadingMapping(true);
+    // Reset per-row UI state — index-based and not meaningful across reloads.
+    setManualEntryRows(new Set());
     try {
       const r = await fetch(`/api/admin/zoho-crm-sync/mappings?entity_type=${et}`, { credentials: "include" });
       const d = await r.json();
@@ -627,6 +632,16 @@ export default function AdminZohoCrmSync() {
 
   const removeRow = (idx) => {
     setMapping(prev => ({ ...prev, field_mappings: prev.field_mappings.filter((_, i) => i !== idx) }));
+    // Shift down any forced-manual indices above the removed row so the set
+    // keeps pointing at the same logical rows after the splice.
+    setManualEntryRows(prev => {
+      const next = new Set();
+      for (const i of prev) {
+        if (i === idx) continue;
+        next.add(i > idx ? i - 1 : i);
+      }
+      return next;
+    });
   };
 
   const saveMapping = async () => {
@@ -1006,30 +1021,78 @@ export default function AdminZohoCrmSync() {
                                 ) : null}
                               </TableCell>
                               <TableCell>
-                                <Select
-                                  value={row.zoho_field || ""}
-                                  onValueChange={(v) => {
-                                    const f = writableZohoFields.find(z => z.api_name === v);
-                                    const patch = { zoho_field: v, zoho_field_label: f?.field_label };
-                                    if (v !== row.zoho_field && rowHasValueMap(row)) patch.value_map = undefined;
-                                    updateRow(idx, patch);
-                                  }}
-                                >
-                                  <SelectTrigger data-testid={`select-zoho-field-${idx}`}>
-                                    <SelectValue placeholder="Select Zoho field" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {sortedZohoFields.map(f => (
-                                      <SelectItem
-                                        key={f.api_name}
-                                        value={f.api_name}
-                                        disabled={!!f.read_only}
-                                      >
-                                        {f.field_label} ({f.api_name}){f.required ? " *" : ""}{f.read_only ? " (read-only)" : ""}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                {(() => {
+                                  const isManual = manualEntryRows.has(idx) || (!!row.zoho_field && !sortedZohoFields.some(f => f.api_name === row.zoho_field));
+                                  if (isManual) {
+                                    return (
+                                      <div className="flex items-center gap-2">
+                                        <Input
+                                          value={row.zoho_field || ""}
+                                          placeholder="Type Zoho api_name (e.g. Organisation_overview)"
+                                          onChange={(e) => {
+                                            const v = e.target.value;
+                                            const patch = { zoho_field: v, zoho_field_label: row.zoho_field_label || v };
+                                            if (v !== row.zoho_field && rowHasValueMap(row)) patch.value_map = undefined;
+                                            updateRow(idx, patch);
+                                          }}
+                                          data-testid={`input-zoho-field-manual-${idx}`}
+                                        />
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            setManualEntryRows(prev => {
+                                              const next = new Set(prev);
+                                              next.delete(idx);
+                                              return next;
+                                            });
+                                            updateRow(idx, { zoho_field: "", zoho_field_label: "" });
+                                          }}
+                                          data-testid={`button-zoho-field-use-dropdown-${idx}`}
+                                        >
+                                          Use dropdown
+                                        </Button>
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <Select
+                                      value={row.zoho_field || ""}
+                                      onValueChange={(v) => {
+                                        if (v === "__manual__") {
+                                          setManualEntryRows(prev => {
+                                            const next = new Set(prev);
+                                            next.add(idx);
+                                            return next;
+                                          });
+                                          return;
+                                        }
+                                        const f = writableZohoFields.find(z => z.api_name === v);
+                                        const patch = { zoho_field: v, zoho_field_label: f?.field_label };
+                                        if (v !== row.zoho_field && rowHasValueMap(row)) patch.value_map = undefined;
+                                        updateRow(idx, patch);
+                                      }}
+                                    >
+                                      <SelectTrigger data-testid={`select-zoho-field-${idx}`}>
+                                        <SelectValue placeholder="Select Zoho field" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {sortedZohoFields.map(f => (
+                                          <SelectItem
+                                            key={f.api_name}
+                                            value={f.api_name}
+                                            disabled={!!f.read_only}
+                                          >
+                                            {f.field_label} ({f.api_name}){f.required ? " *" : ""}{f.read_only ? " (read-only)" : ""}
+                                          </SelectItem>
+                                        ))}
+                                        <SelectItem value="__manual__" data-testid={`select-zoho-field-manual-option-${idx}`}>
+                                          Type api_name manually… (for hidden / Public fields)
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  );
+                                })()}
                               </TableCell>
                               <TableCell>
                                 <Button
