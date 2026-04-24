@@ -688,7 +688,7 @@ export default function AdminZohoCrmSync() {
   };
 
   const allIconnectOptions = useMemo(() => {
-    return [
+    const opts = [
       ...iconnectFields.core.map(f => ({
         value: f.key, label: `${f.label}`, type: f.type,
         allowed_values: f.allowed_values
@@ -698,6 +698,7 @@ export default function AdminZohoCrmSync() {
         allowed_values: f.allowed_values
       }))
     ];
+    return opts.sort((a, b) => (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }));
   }, [iconnectFields]);
 
   const openTranslationModal = (idx) => {
@@ -748,7 +749,10 @@ export default function AdminZohoCrmSync() {
   };
 
   const writableZohoFields = useMemo(() => {
-    return zohoFields.filter(f => !f.read_only);
+    return zohoFields
+      .filter(f => !f.read_only)
+      .slice()
+      .sort((a, b) => (a.field_label || "").localeCompare(b.field_label || "", undefined, { sensitivity: "base" }));
   }, [zohoFields]);
 
   return (
