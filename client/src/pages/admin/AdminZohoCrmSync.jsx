@@ -104,7 +104,8 @@ const OUTCOME_BADGE_VARIANT = {
   updated: 'default',
   no_change: 'secondary',
   ambiguous: 'destructive',
-  no_mapped_values: 'secondary'
+  no_mapped_values: 'secondary',
+  failed: 'destructive'
 };
 
 function SingleRecordResult({ result, entityType }) {

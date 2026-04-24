@@ -537,23 +537,42 @@ function resolveLocalKeyForZohoUnique(mapping) {
   return m.iconnect_field;
 }
 
+function formatStoredCustomValue(value) {
+  if (value === undefined || value === null) return '';
+  if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 async function applyCustomFieldUpdates(tenantId, entityType, entityId, customUpdates) {
   const fk = PREF_VALUE_FK[entityType];
   const table = PREF_VALUE_TABLE[entityType];
   if (!fk || !table) return;
   for (const [fieldId, value] of Object.entries(customUpdates)) {
-    const stored = value === undefined || value === null ? '' : String(value);
-    try {
-      await supabase
+    const stored = formatStoredCustomValue(value);
+    const { data: existing, error: selectError } = await supabase
+      .from(table)
+      .select('id')
+      .eq(fk, entityId)
+      .eq('field_id', fieldId)
+      .maybeSingle();
+    if (selectError) {
+      throw new Error(`Failed to read custom value (field_id=${fieldId}): ${selectError.message}`);
+    }
+    if (existing) {
+      const { error: updateError } = await supabase
         .from(table)
-        .upsert({
-          tenant_id: tenantId,
-          [fk]: entityId,
-          field_id: fieldId,
-          value: stored
-        }, { onConflict: `${fk},field_id` });
-    } catch (err) {
-      console.error('[ZohoCrmSync] Failed to upsert custom value:', fieldId, err);
+        .update({ value: stored, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (updateError) {
+        throw new Error(`Failed to update custom value (field_id=${fieldId}): ${updateError.message}`);
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from(table)
+        .insert({ [fk]: entityId, field_id: fieldId, value: stored });
+      if (insertError) {
+        throw new Error(`Failed to insert custom value (field_id=${fieldId}): ${insertError.message}`);
+      }
     }
   }
 }
@@ -1571,7 +1590,30 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     if (error) throw error;
     markInboundOrigin(tenantId, entityType, created.id);
     if (Object.keys(customToWrite).length > 0) {
-      await applyCustomFieldUpdates(tenantId, entityType, created.id, customToWrite);
+      try {
+        await applyCustomFieldUpdates(tenantId, entityType, created.id, customToWrite);
+      } catch (writeErr) {
+        const errorMessage = `Custom field write failed after entity create: ${writeErr?.message || String(writeErr)}`;
+        const logRow = await writeLog({
+          tenant_id: tenantId, entity_type: entityType, entity_id: created.id,
+          zoho_module: zohoModule, zoho_record_id: zohoId,
+          status: 'failed', direction: 'inbound', source, action,
+          error_message: errorMessage,
+          request_payload: zohoRecord,
+          response_payload: { created: true, core: insertRow, custom: customToWrite }
+        });
+        return {
+          outcome: 'failed',
+          matched: summariseEntity(created, entityType),
+          matchedBy: 'created',
+          coreToWrite,
+          customToWrite,
+          linkPatch,
+          diffs,
+          message: errorMessage,
+          logId: logRow?.id || null
+        };
+      }
     }
     const payloadHash = computeHash({
       ...coreUpdates,
@@ -1686,7 +1728,30 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     if (error) throw error;
   }
   if (Object.keys(customToWrite).length > 0) {
-    await applyCustomFieldUpdates(tenantId, entityType, entity.id, customToWrite);
+    try {
+      await applyCustomFieldUpdates(tenantId, entityType, entity.id, customToWrite);
+    } catch (writeErr) {
+      const errorMessage = `Custom field write failed after entity update: ${writeErr?.message || String(writeErr)}`;
+      const logRow = await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'failed', direction: 'inbound', source, action,
+        error_message: errorMessage,
+        request_payload: zohoRecord,
+        response_payload: { core: coreToWrite, custom: customToWrite, link: linkPatch }
+      });
+      return {
+        outcome: 'failed',
+        matched,
+        matchedBy,
+        coreToWrite,
+        customToWrite,
+        linkPatch,
+        diffs,
+        message: errorMessage,
+        logId: logRow?.id || null
+      };
+    }
   }
   const payloadHash = computeHash({
     ...coreToWrite,
@@ -1806,7 +1871,12 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
         const result = await importOneRecord(tenantId, entityType, mapping, zohoModule, rec, source);
         if (result.outcome === 'created') summary.created += 1;
         else if (result.outcome === 'updated') summary.updated += 1;
-        else summary.skipped += 1;
+        else if (result.outcome === 'failed') {
+          summary.failed += 1;
+          if (summary.errors.length < 50) {
+            summary.errors.push({ id: rec.id || rec.Id || null, error: result.message || 'failed' });
+          }
+        } else summary.skipped += 1;
       } catch (err) {
         summary.failed += 1;
         if (summary.errors.length < 50) {
