@@ -3,6 +3,7 @@ import { supabase } from '../../_lib/database.js';
 import {
   listZohoCrmSyncModules,
   getZohoCrmModuleFields,
+  findZohoCrmFieldByLabel,
   isZohoCrmConnected
 } from '../../_lib/zohoCrmClient.js';
 
@@ -152,6 +153,18 @@ export default async function handler(req, res) {
           return res.status(200).json(result);
         }
         return res.status(200).json({ fields: result });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
+
+    if (resource === 'find-field') {
+      const q = (req.query.q || '').toString();
+      const mod = (module || 'Accounts').toString();
+      if (!q.trim()) return res.status(400).json({ error: 'q query param is required' });
+      try {
+        const result = await findZohoCrmFieldByLabel(tenantId, mod, q);
+        return res.status(200).json(result);
       } catch (err) {
         return res.status(500).json({ error: err.message });
       }

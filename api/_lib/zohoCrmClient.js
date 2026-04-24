@@ -900,6 +900,168 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
   return fields;
 }
 
+// --- Diagnostic: hunt for a specific field across every Zoho metadata
+// surface for a module. Used by the admin "Find a missing field" tool
+// when a custom field (e.g. rich-text "Organisation overview") doesn't
+// surface in `getZohoCrmModuleFields` and we need to know whether Zoho
+// returns it at all, and if so where. Bypasses the in-memory cache.
+function fieldMatchesQuery(raw, qLower) {
+  if (!raw) return false;
+  const candidates = [
+    raw.api_name, raw.name, raw.field_label, raw.display_label, raw.column_name
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.toLowerCase().includes(qLower)) return true;
+  }
+  return false;
+}
+
+function summariseRawField(raw) {
+  if (!raw) return null;
+  return {
+    api_name: raw.api_name || null,
+    name: raw.name || null,
+    field_label: raw.field_label || null,
+    display_label: raw.display_label || null,
+    column_name: raw.column_name || null,
+    data_type: raw.data_type || null,
+    custom_field: !!raw.custom_field,
+    view_type: raw.view_type || null,
+    json_type: raw.json_type || null,
+    visible: raw.visible
+  };
+}
+
+export async function findZohoCrmFieldByLabel(tenantId, module, query) {
+  if (!module) throw new Error('Module is required');
+  if (!query || !query.trim()) throw new Error('Search query is required');
+  const qLower = query.trim().toLowerCase();
+  const matches = [];
+  const sourceCounts = { fields: 0, layouts_list: 0, layouts_detail: 0 };
+  const errors = [];
+
+  // 1) Primary fields fetch — we hit BOTH `/settings/fields?type=all` and
+  //    plain `/settings/fields` independently so the diagnostic exhausts
+  //    every fields-endpoint surface. (The cached `getZohoCrmModuleFields`
+  //    short-circuits on the first non-empty response — fine for the
+  //    dropdown, not enough for this diagnostic.)
+  const enc = encodeURIComponent(module);
+  const fieldsCountByEndpoint = {};
+  for (const variant of [
+    { qualifier: 'type=all', path: `/settings/fields?module=${enc}&type=all` },
+    { qualifier: 'default',  path: `/settings/fields?module=${enc}` }
+  ]) {
+    try {
+      const res = await zohoCrmApiCall(tenantId, variant.path);
+      const fields = Array.isArray(res?.fields) ? res.fields : [];
+      fieldsCountByEndpoint[variant.qualifier] = fields.length;
+      for (const raw of fields) {
+        if (fieldMatchesQuery(raw, qLower)) {
+          matches.push({
+            source: 'fields',
+            fields_qualifier: variant.qualifier,
+            layout_id: null,
+            layout_name: null,
+            section_name: null,
+            field: summariseRawField(raw)
+          });
+          sourceCounts.fields++;
+        }
+      }
+    } catch (err) {
+      errors.push({ stage: `fields:${variant.qualifier}`, error: err?.message || String(err) });
+      fieldsCountByEndpoint[variant.qualifier] = null;
+    }
+  }
+  const fieldsCount = Object.values(fieldsCountByEndpoint).reduce((a, b) => (typeof b === 'number' ? a + b : a), 0);
+
+  // 2) Layouts: walk list inline so we keep section names; per-layout detail
+  //    fetch for any layout returning a summary without embedded fields.
+  let layoutsCount = 0;
+  let layoutDetailCalls = 0;
+  let layoutsCappedCount = 0;
+  try {
+    const layoutsRes = await zohoCrmApiCall(tenantId, `/settings/layouts?module=${enc}`);
+    const layouts = Array.isArray(layoutsRes?.layouts) ? layoutsRes.layouts : [];
+    layoutsCount = layouts.length;
+
+    const walkLayout = (layout, layoutSource) => {
+      const layoutId = layout?.id || null;
+      const layoutName = layout?.name || null;
+      let matched = 0;
+      for (const section of (layout?.sections || [])) {
+        const sectionName = section?.name || section?.display_label || null;
+        for (const raw of (section?.fields || [])) {
+          if (!raw) continue;
+          if (fieldMatchesQuery(raw, qLower)) {
+            matches.push({
+              source: layoutSource,
+              fields_qualifier: null,
+              layout_id: layoutId,
+              layout_name: layoutName,
+              section_name: sectionName,
+              field: summariseRawField(raw)
+            });
+            sourceCounts[layoutSource]++;
+            matched++;
+          }
+        }
+      }
+      return matched;
+    };
+
+    for (const layout of layouts) {
+      const layoutId = layout?.id;
+      const hasEmbedded = Array.isArray(layout?.sections) && layout.sections.some(s => Array.isArray(s?.fields) && s.fields.length > 0);
+      if (hasEmbedded) {
+        walkLayout(layout, 'layouts_list');
+        continue;
+      }
+      if (!layoutId) continue;
+      if (layoutDetailCalls >= MAX_LAYOUT_DETAIL_CALLS) {
+        layoutsCappedCount++;
+        continue;
+      }
+      layoutDetailCalls++;
+      try {
+        const detailRes = await zohoCrmApiCall(tenantId, `/settings/layouts/${encodeURIComponent(layoutId)}?module=${enc}`);
+        const detailLayout = Array.isArray(detailRes?.layouts) ? detailRes.layouts[0] : (detailRes?.layout || detailRes);
+        walkLayout(detailLayout, 'layouts_detail');
+      } catch (err) {
+        errors.push({ stage: 'layouts_detail', layout_id: layoutId, error: err?.message || String(err) });
+      }
+    }
+  } catch (err) {
+    errors.push({ stage: 'layouts', error: err?.message || String(err) });
+  }
+
+  // Conclusion: a one-line operator-friendly summary.
+  let conclusion;
+  if (matches.length > 0) {
+    const sources = Array.from(new Set(matches.map(m => m.source)));
+    conclusion = `Found ${matches.length} match(es) in module "${module}" via ${sources.join(', ')}. If the field appears here but not in the mapping dropdown, check this module's data_type (rich-text/long-text are kept; subform/file/image are excluded).`;
+  } else {
+    conclusion = `No field on module "${module}" matched "${query}". Zoho is not returning this field to the connected OAuth user via /settings/fields (type=all OR default) or /settings/layouts (list OR per-layout detail). Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; OR (2) the field actually lives on a different Zoho module (e.g. a custom Organisations module rather than stock Accounts) — re-run the search against another module to confirm.`;
+  }
+
+  return {
+    query,
+    module,
+    matches,
+    counts: {
+      fields_total: fieldsCount,
+      fields_count_by_endpoint: fieldsCountByEndpoint,
+      layouts_total: layoutsCount,
+      layout_detail_calls: layoutDetailCalls,
+      layouts_skipped_cap: layoutsCappedCount,
+      matches_total: matches.length,
+      by_source: sourceCounts
+    },
+    errors,
+    conclusion
+  };
+}
+
 export async function upsertZohoCrmRecord(tenantId, module, recordData, uniqueKeyField) {
   const payload = {
     data: [recordData],

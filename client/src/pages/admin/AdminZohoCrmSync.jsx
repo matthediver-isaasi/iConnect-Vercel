@@ -205,6 +205,12 @@ export default function AdminZohoCrmSync() {
   const [activeTab, setActiveTab] = useState("mapping");
   const [viewLog, setViewLog] = useState(null);
 
+  // "Find a missing field" diagnostic
+  const [findFieldQuery, setFindFieldQuery] = useState("");
+  const [findFieldModule, setFindFieldModule] = useState("Accounts");
+  const [findFieldSearching, setFindFieldSearching] = useState(false);
+  const [findFieldResult, setFindFieldResult] = useState(null);
+
   // Webhook config
   const [webhookInfo, setWebhookInfo] = useState(null);
   const [loadingWebhook, setLoadingWebhook] = useState(false);
@@ -539,6 +545,27 @@ export default function AdminZohoCrmSync() {
       else toast({ variant: "destructive", title: "Failed to load Zoho fields", description: d.error });
     } catch (err) {
       console.error("Zoho fields load error:", err);
+    }
+  };
+
+  const runFindField = async () => {
+    const q = findFieldQuery.trim();
+    if (!q) return;
+    setFindFieldSearching(true);
+    setFindFieldResult(null);
+    try {
+      const url = `/api/admin/zoho-crm-sync/metadata?resource=find-field&module=${encodeURIComponent(findFieldModule || "Accounts")}&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) {
+        setFindFieldResult(d);
+      } else {
+        toast({ variant: "destructive", title: "Search failed", description: d.error || "Unknown error" });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Search failed", description: String(err?.message || err) });
+    } finally {
+      setFindFieldSearching(false);
     }
   };
 
@@ -1037,6 +1064,94 @@ export default function AdminZohoCrmSync() {
                     </Button>
                   </div>
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Find a missing field</CardTitle>
+              <CardDescription>
+                If a Zoho field isn't appearing in the mapping dropdown above, search for it by label or api name. This calls Zoho live (no cache) and looks across <code>/settings/fields?type=all</code>, <code>/settings/fields</code>, <code>/settings/layouts</code> and every per-layout detail. The result tells you whether Zoho is returning the field at all and, if so, where it lives.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1 flex-1 min-w-[200px]">
+                  <Label htmlFor="find-field-query">Field name or label</Label>
+                  <Input
+                    id="find-field-query"
+                    placeholder="e.g. Organisation overview"
+                    value={findFieldQuery}
+                    onChange={(e) => setFindFieldQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') runFindField(); }}
+                    data-testid="input-find-field-query"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="find-field-module">Module</Label>
+                  <Select value={findFieldModule} onValueChange={setFindFieldModule}>
+                    <SelectTrigger id="find-field-module" className="w-[200px]" data-testid="select-find-field-module">
+                      <SelectValue placeholder="Select module" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(modules.length > 0 ? modules : [{ api_name: 'Accounts', plural_label: 'Accounts' }, { api_name: 'Contacts', plural_label: 'Contacts' }, { api_name: 'Leads', plural_label: 'Leads' }]).map(m => (
+                        <SelectItem key={m.api_name} value={m.api_name}>{m.plural_label || m.api_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={runFindField}
+                  disabled={!findFieldQuery.trim() || findFieldSearching}
+                  data-testid="button-find-field-search"
+                >
+                  {findFieldSearching ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Search Zoho
+                </Button>
+              </div>
+
+              {findFieldResult && (
+                <div className="space-y-3 rounded-md border bg-muted/30 p-4" data-testid="panel-find-field-result">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={findFieldResult.matches.length > 0 ? "default" : "destructive"} data-testid="badge-find-field-match-count">
+                      {findFieldResult.matches.length} match{findFieldResult.matches.length === 1 ? '' : 'es'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''})
+                    </span>
+                  </div>
+
+                  <p className="text-sm" data-testid="text-find-field-conclusion">{findFieldResult.conclusion}</p>
+
+                  {findFieldResult.matches.length > 0 && (
+                    <div className="space-y-2">
+                      {findFieldResult.matches.map((m, i) => (
+                        <details key={i} className="rounded-md border bg-background p-3" data-testid={`row-find-field-match-${i}`}>
+                          <summary className="cursor-pointer text-sm">
+                            <span className="font-medium">{m.field?.field_label || m.field?.display_label || m.field?.api_name || m.field?.name || '(unnamed)'}</span>
+                            <span className="text-muted-foreground"> — </span>
+                            <code className="text-xs">{m.field?.api_name || m.field?.name || ''}</code>
+                            <span className="text-muted-foreground"> · </span>
+                            <Badge variant="secondary" className="ml-1">{m.source}</Badge>
+                            {m.field?.data_type && <Badge variant="outline" className="ml-1">{m.field.data_type}</Badge>}
+                            {m.field?.custom_field && <Badge variant="outline" className="ml-1">custom</Badge>}
+                            {m.layout_name && <span className="text-xs text-muted-foreground ml-2">layout: {m.layout_name}</span>}
+                            {m.section_name && <span className="text-xs text-muted-foreground ml-2">section: {m.section_name}</span>}
+                          </summary>
+                          <pre className="mt-2 text-xs whitespace-pre-wrap break-all bg-muted p-2 rounded">{JSON.stringify(m, null, 2)}</pre>
+                        </details>
+                      ))}
+                    </div>
+                  )}
+
+                  {findFieldResult.errors && findFieldResult.errors.length > 0 && (
+                    <details className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                      <summary className="cursor-pointer text-sm text-destructive">{findFieldResult.errors.length} upstream error(s)</summary>
+                      <pre className="mt-2 text-xs whitespace-pre-wrap break-all">{JSON.stringify(findFieldResult.errors, null, 2)}</pre>
+                    </details>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
