@@ -1033,51 +1033,68 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
   }
 
   // 3) Records probe — Zoho's metadata APIs hide "Public" fields, but those
-  //    same fields ARE returned in actual record JSON. Fetch one record and
-  //    search its keys + string values for the query so we can recover the
-  //    api_name even when /settings/* came up empty.
+  //    same fields ARE returned in actual record JSON. Two calls are required:
+  //    Zoho's `GET /{module}` list endpoint mandates a `fields` query param
+  //    (we'd be discovering, so we ask only for `id`), then `GET /{module}/{id}`
+  //    returns the FULL record with every field — Public ones included — and
+  //    needs no `fields` list. Errors from each call are tagged separately so
+  //    the operator can tell which step failed.
   let recordsProbed = 0;
   let recordSampleKeys = 0;
+  let sampleRecordId = null;
   try {
-    const recRes = await zohoCrmApiCall(tenantId, `/${enc}?per_page=1`);
-    const sample = Array.isArray(recRes?.data) && recRes.data.length > 0 ? recRes.data[0] : null;
-    if (sample && typeof sample === 'object') {
-      recordsProbed = 1;
-      const keys = Object.keys(sample);
-      recordSampleKeys = keys.length;
-      for (const key of keys) {
-        const val = sample[key];
-        const valStr = (val == null || typeof val === 'object') ? '' : String(val);
-        const keyHit = key.toLowerCase().includes(qLower);
-        const valHit = valStr.toLowerCase().includes(qLower);
-        if (keyHit || valHit) {
-          matches.push({
-            source: 'records',
-            fields_qualifier: null,
-            layout_id: null,
-            layout_name: null,
-            section_name: null,
-            field: {
-              api_name: key,
-              field_label: null,
-              display_label: null,
-              data_type: typeof val,
-              custom_field: null,
-              read_only: null,
-              required: null,
-              max_length: null,
-              json_type: null,
-              visible: null,
-              sample_value_preview: valStr ? valStr.slice(0, 200) : null,
-              matched_on: keyHit ? 'key' : 'value'
-            }
-          });
-          sourceCounts.records++;
+    const listRes = await zohoCrmApiCall(tenantId, `/${enc}?fields=id&per_page=1`);
+    const listRow = Array.isArray(listRes?.data) && listRes.data.length > 0 ? listRes.data[0] : null;
+    if (listRow && listRow.id) {
+      sampleRecordId = String(listRow.id);
+    }
+    // No records in module = clean no-op (no error pushed, recordsProbed stays 0).
+  } catch (err) {
+    errors.push({ stage: 'records:list', error: err?.message || String(err) });
+  }
+
+  if (sampleRecordId) {
+    try {
+      const detailRes = await zohoCrmApiCall(tenantId, `/${enc}/${encodeURIComponent(sampleRecordId)}`);
+      const sample = Array.isArray(detailRes?.data) && detailRes.data.length > 0 ? detailRes.data[0] : null;
+      if (sample && typeof sample === 'object') {
+        recordsProbed = 1;
+        const keys = Object.keys(sample);
+        recordSampleKeys = keys.length;
+        for (const key of keys) {
+          const val = sample[key];
+          const valStr = (val == null || typeof val === 'object') ? '' : String(val);
+          const keyHit = key.toLowerCase().includes(qLower);
+          const valHit = valStr.toLowerCase().includes(qLower);
+          if (keyHit || valHit) {
+            matches.push({
+              source: 'records',
+              fields_qualifier: null,
+              layout_id: null,
+              layout_name: null,
+              section_name: null,
+              field: {
+                api_name: key,
+                field_label: null,
+                display_label: null,
+                data_type: typeof val,
+                custom_field: null,
+                read_only: null,
+                required: null,
+                max_length: null,
+                json_type: null,
+                visible: null,
+                sample_value_preview: valStr ? valStr.slice(0, 200) : null,
+                matched_on: keyHit ? 'key' : 'value'
+              }
+            });
+            sourceCounts.records++;
+          }
         }
       }
+    } catch (err) {
+      errors.push({ stage: 'records:detail', record_id: sampleRecordId, error: err?.message || String(err) });
     }
-  } catch (err) {
-    errors.push({ stage: 'records', error: err?.message || String(err) });
   }
 
   // Conclusion: a one-line operator-friendly summary.
