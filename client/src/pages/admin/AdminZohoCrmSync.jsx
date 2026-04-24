@@ -755,6 +755,12 @@ export default function AdminZohoCrmSync() {
       .sort((a, b) => (a.field_label || "").localeCompare(b.field_label || "", undefined, { sensitivity: "base" }));
   }, [zohoFields]);
 
+  const sortedZohoFields = useMemo(() => {
+    return zohoFields
+      .slice()
+      .sort((a, b) => (a.field_label || "").localeCompare(b.field_label || "", undefined, { sensitivity: "base" }));
+  }, [zohoFields]);
+
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-6xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -985,9 +991,13 @@ export default function AdminZohoCrmSync() {
                                     <SelectValue placeholder="Select Zoho field" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {writableZohoFields.map(f => (
-                                      <SelectItem key={f.api_name} value={f.api_name}>
-                                        {f.field_label} ({f.api_name}){f.required ? " *" : ""}
+                                    {sortedZohoFields.map(f => (
+                                      <SelectItem
+                                        key={f.api_name}
+                                        value={f.api_name}
+                                        disabled={!!f.read_only}
+                                      >
+                                        {f.field_label} ({f.api_name}){f.required ? " *" : ""}{f.read_only ? " (read-only)" : ""}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
