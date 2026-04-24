@@ -34,22 +34,19 @@ import {
  * for 5 minutes per tenant+module so the cost in steady state is a
  * memory map lookup, not an HTTP round-trip.
  */
-async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
-  if (!mapping || !mapping.zoho_module || !Array.isArray(mapping.field_mappings)) return;
-  // Skip the work entirely if every mapping row already has both flags
-  // resolved — common steady-state for tenants who've re-saved.
-  const anyMissing = mapping.field_mappings.some(m =>
-    m && m.zoho_field && (m.is_multi_pick === undefined || m.is_rich_text === undefined)
-  );
-  if (!anyMissing) return;
-  let moduleFields;
-  try {
-    moduleFields = await getZohoCrmModuleFields(tenantId, mapping.zoho_module);
-  } catch (err) {
-    console.warn('[ZohoCrmSync] Could not resolve field-type flags from Zoho metadata at sync time — falling back to persisted flags only:', err?.message || err);
-    return;
-  }
-  if (!Array.isArray(moduleFields)) return;
+// Derived-flag memo: caches the (multiPickSet, richTextSet) tuple per
+// tenant+module for the same 5-minute TTL as moduleFieldsCache so the
+// per-record reconciliation path doesn't re-scan the field list on every
+// inbound apply.
+const derivedFlagSetsCache = new Map();
+const DERIVED_FLAG_SETS_TTL_MS = 5 * 60 * 1000;
+
+async function getDerivedFlagSets(tenantId, zohoModule) {
+  const key = `${tenantId}::${zohoModule}`;
+  const cached = derivedFlagSetsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.sets;
+  const moduleFields = await getZohoCrmModuleFields(tenantId, zohoModule);
+  if (!Array.isArray(moduleFields)) return null;
   const multiPickSet = new Set();
   const richTextSet = new Set();
   for (const f of moduleFields) {
@@ -58,6 +55,28 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
     if (/rich/i.test(dt)) richTextSet.add(f.api_name);
     if (dt.includes('multi')) multiPickSet.add(f.api_name);
   }
+  const sets = { multiPickSet, richTextSet };
+  derivedFlagSetsCache.set(key, { sets, expiresAt: Date.now() + DERIVED_FLAG_SETS_TTL_MS });
+  return sets;
+}
+
+async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
+  if (!mapping || !mapping.zoho_module || !Array.isArray(mapping.field_mappings)) return;
+  // Skip the work entirely if every mapping row already has both flags
+  // resolved — common steady-state for tenants who've re-saved.
+  const anyMissing = mapping.field_mappings.some(m =>
+    m && m.zoho_field && (m.is_multi_pick === undefined || m.is_rich_text === undefined)
+  );
+  if (!anyMissing) return;
+  let sets;
+  try {
+    sets = await getDerivedFlagSets(tenantId, mapping.zoho_module);
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Could not resolve field-type flags from Zoho metadata at sync time — falling back to persisted flags only:', err?.message || err);
+    return;
+  }
+  if (!sets) return;
+  const { multiPickSet, richTextSet } = sets;
   for (const m of mapping.field_mappings) {
     if (!m?.zoho_field) continue;
     if (m.is_multi_pick !== true && multiPickSet.has(m.zoho_field)) {
