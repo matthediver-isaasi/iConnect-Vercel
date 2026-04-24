@@ -671,15 +671,20 @@ function mapZohoField(f) {
   };
 }
 
-// Walk a single layout payload and return all the raw section-fields
-// regardless of how deeply Zoho nested them.
-function collectRawFieldsFromLayout(layout) {
-  const out = [];
+// Walk a single layout payload, calling `cb(field, section)` for each
+// section-field. Shared by both the cached fields aggregator (which
+// ignores `section`) and the diagnostic (which uses it for context).
+function walkLayoutSections(layout, cb) {
   for (const section of (layout?.sections || [])) {
     for (const f of (section?.fields || [])) {
-      if (f) out.push(f);
+      if (f) cb(f, section);
     }
   }
+}
+
+function collectRawFieldsFromLayout(layout) {
+  const out = [];
+  walkLayoutSections(layout, (f) => out.push(f));
   return out;
 }
 
@@ -988,26 +993,18 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
     const walkLayout = (layout, layoutSource) => {
       const layoutId = layout?.id || null;
       const layoutName = layout?.name || null;
-      let matched = 0;
-      for (const section of (layout?.sections || [])) {
-        const sectionName = section?.name || section?.display_label || null;
-        for (const raw of (section?.fields || [])) {
-          if (!raw) continue;
-          if (fieldMatchesQuery(raw, qLower)) {
-            matches.push({
-              source: layoutSource,
-              fields_qualifier: null,
-              layout_id: layoutId,
-              layout_name: layoutName,
-              section_name: sectionName,
-              field: summariseRawField(raw)
-            });
-            sourceCounts[layoutSource]++;
-            matched++;
-          }
-        }
-      }
-      return matched;
+      walkLayoutSections(layout, (raw, section) => {
+        if (!fieldMatchesQuery(raw, qLower)) return;
+        matches.push({
+          source: layoutSource,
+          fields_qualifier: null,
+          layout_id: layoutId,
+          layout_name: layoutName,
+          section_name: section?.name || section?.display_label || null,
+          field: summariseRawField(raw)
+        });
+        sourceCounts[layoutSource]++;
+      });
     };
 
     for (const layout of layouts) {

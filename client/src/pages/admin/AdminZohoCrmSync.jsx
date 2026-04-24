@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
@@ -1069,12 +1070,16 @@ export default function AdminZohoCrmSync() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Find a missing field</CardTitle>
-              <CardDescription>
-                If a Zoho field isn't appearing in the mapping dropdown above, search for it by label or api name. This calls Zoho live (no cache) and looks across <code>/settings/fields?type=all</code>, <code>/settings/fields</code>, <code>/settings/layouts</code> and every per-layout detail. The result tells you whether Zoho is returning the field at all and, if so, where it lives.
-              </CardDescription>
-            </CardHeader>
+            <Collapsible defaultOpen={false}>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="cursor-pointer hover-elevate" data-testid="trigger-find-field-card">
+                  <CardTitle className="text-base">Find a missing field (diagnostic)</CardTitle>
+                  <CardDescription>
+                    Click to expand. Search Zoho live (no cache) across <code>/settings/fields?type=all</code>, <code>/settings/fields</code>, <code>/settings/layouts</code> and every per-layout detail to see whether Zoho is returning a particular field at all.
+                  </CardDescription>
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="space-y-1 flex-1 min-w-[200px]">
@@ -1122,7 +1127,21 @@ export default function AdminZohoCrmSync() {
                     </span>
                   </div>
 
-                  <p className="text-sm" data-testid="text-find-field-conclusion">{findFieldResult.conclusion}</p>
+                  <div className="flex items-start gap-2">
+                    <p className="text-sm flex-1" data-testid="text-find-field-conclusion">{findFieldResult.conclusion}</p>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        navigator.clipboard.writeText(findFieldResult.conclusion || '');
+                        toast({ title: "Copied", description: "Troubleshooting hint copied to clipboard." });
+                      }}
+                      data-testid="button-find-field-copy-conclusion"
+                      title="Copy troubleshooting hint"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
 
                   {findFieldResult.matches.length > 0 && (
                     <div className="space-y-2">
@@ -1154,6 +1173,8 @@ export default function AdminZohoCrmSync() {
                 </div>
               )}
             </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
           </Card>
 
           <Card>
