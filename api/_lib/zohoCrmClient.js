@@ -652,10 +652,16 @@ export async function listZohoCrmSyncModules(tenantId) {
 }
 
 function mapZohoField(f) {
-  if (!f || !f.api_name) return null;
+  if (!f) return null;
+  // Layouts sometimes carry the api name under `name` instead of `api_name`,
+  // and the human label under `display_label` instead of `field_label`.
+  // Accept either so we don't silently drop fields that came in via the
+  // layouts merge path.
+  const apiName = f.api_name || f.name;
+  if (!apiName) return null;
   return {
-    api_name: f.api_name,
-    field_label: f.field_label || f.api_name,
+    api_name: apiName,
+    field_label: f.field_label || f.display_label || apiName,
     data_type: f.data_type,
     required: !!(f.system_mandatory || f.required),
     read_only: !!f.read_only,
@@ -663,6 +669,18 @@ function mapZohoField(f) {
     length: f.length || null,
     pick_list_values: (f.pick_list_values || []).map(p => ({ display_value: p.display_value, actual_value: p.actual_value }))
   };
+}
+
+// Walk a single layout payload and return all the raw section-fields
+// regardless of how deeply Zoho nested them.
+function collectRawFieldsFromLayout(layout) {
+  const out = [];
+  for (const section of (layout?.sections || [])) {
+    for (const f of (section?.fields || [])) {
+      if (f) out.push(f);
+    }
+  }
+  return out;
 }
 
 // Short-lived cache so a single page-load that opens many dropdowns doesn't
@@ -689,19 +707,103 @@ export function clearZohoCrmModuleFieldsCache(tenantId, module) {
   moduleFieldsCache.delete(moduleFieldsCacheKey(tenantId, module));
 }
 
+// Field types we explicitly never want in the mapping dropdown — they
+// surface from layouts but aren't writable text-style fields. The
+// rich-text type ("textarea" with rich-text view, or `richtextarea`) is
+// NOT in this list — that's the whole point of the layouts merge.
+const LAYOUT_DATA_TYPE_DENY = new Set([
+  'subform',
+  'imageupload', 'image_upload',
+  'fileupload', 'file_upload',
+  'profileimage', 'profile_image'
+]);
+
+// Cap the number of per-layout detail calls per request so a tenant with
+// many custom layouts can't blow the function timeout budget.
+const MAX_LAYOUT_DETAIL_CALLS = 10;
+
+// Try `/settings/fields?module=X&type=all` first — Zoho documents this as
+// the qualifier that returns every field type including rich-text. If the
+// qualified call fails or returns nothing, fall back to the bare call so
+// we never end up with fewer fields than before.
+async function fetchPrimaryZohoFields(tenantId, module) {
+  const enc = encodeURIComponent(module);
+  try {
+    const r = await zohoCrmApiCall(tenantId, `/settings/fields?module=${enc}&type=all`);
+    if (Array.isArray(r?.fields) && r.fields.length > 0) {
+      return { res: r, qualifier: 'type=all' };
+    }
+  } catch (err) {
+    console.warn('[ZohoCRM] /settings/fields?type=all failed for', module, '-', err?.message || err);
+  }
+  const r = await zohoCrmApiCall(tenantId, `/settings/fields?module=${enc}`);
+  return { res: r, qualifier: 'default' };
+}
+
+// Walk `/settings/layouts` and, for any layout that came back as a summary
+// without embedded section fields, fetch its detail individually. Returns
+// the raw fields harvested from layouts plus per-layout debug breadcrumbs.
+async function fetchZohoLayoutFields(tenantId, module) {
+  const enc = encodeURIComponent(module);
+  const layoutsRes = await zohoCrmApiCall(tenantId, `/settings/layouts?module=${enc}`);
+  const layouts = Array.isArray(layoutsRes?.layouts) ? layoutsRes.layouts : [];
+  const rawFields = [];
+  const layoutsDebug = [];
+  let detailCalls = 0;
+
+  for (const layout of layouts) {
+    const layoutId = layout?.id;
+    const layoutName = layout?.name || null;
+    const embedded = collectRawFieldsFromLayout(layout);
+    if (embedded.length > 0) {
+      layoutsDebug.push({ id: layoutId, name: layoutName, source: 'list_embedded', field_count: embedded.length });
+      rawFields.push(...embedded);
+      continue;
+    }
+    if (!layoutId) {
+      layoutsDebug.push({ id: null, name: layoutName, source: 'list_no_id', field_count: 0 });
+      continue;
+    }
+    if (detailCalls >= MAX_LAYOUT_DETAIL_CALLS) {
+      layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_skipped_cap', field_count: 0 });
+      continue;
+    }
+    detailCalls++;
+    try {
+      const detailRes = await zohoCrmApiCall(tenantId, `/settings/layouts/${encodeURIComponent(layoutId)}?module=${enc}`);
+      // Detail endpoint can return either `{ layouts: [layout] }` or the
+      // bare layout object — accept both shapes.
+      const detailLayout = Array.isArray(detailRes?.layouts) ? detailRes.layouts[0] : (detailRes?.layout || detailRes);
+      const detailFields = collectRawFieldsFromLayout(detailLayout);
+      layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_fetch', field_count: detailFields.length });
+      rawFields.push(...detailFields);
+    } catch (err) {
+      layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_fetch_error', error: err?.message || String(err), field_count: 0 });
+    }
+  }
+
+  return { layoutsRes, rawFields, layoutsDebug };
+}
+
 /**
  * Fetch the writable + read-only fields for a Zoho CRM module.
  *
  * Zoho's `/settings/fields` endpoint silently omits certain field types in
  * some tenants (rich-text fields are the most commonly reported case, plus
  * some image-upload / file-upload fields and fields restricted by layout).
- * To make the dropdown reflect what's actually on the module, we also walk
- * `/settings/layouts` and merge in any fields not already returned by
- * `/settings/fields`. Both endpoints surface the same per-field schema, so
- * the same mapper handles both.
+ * To make the dropdown reflect what's actually on the module we:
+ *   1. Call `/settings/fields?type=all` (Zoho's "include every type"
+ *      qualifier), falling back to the bare call if that errors.
+ *   2. Walk `/settings/layouts`. For each layout that returns embedded
+ *      section fields, merge those in. For layouts that come back as
+ *      summaries (id+name only), fetch `/settings/layouts/{id}` and merge
+ *      the detail. This is the path that surfaces fields like rich-text
+ *      "Organisation overview" that `/settings/fields` drops.
+ * Both endpoints surface the same per-field schema (with some key-name
+ * variation handled by `mapZohoField`).
  *
- * Pass `{ debug: true }` to also receive the raw upstream payloads for
- * diagnostics (admin-only consumers).
+ * Pass `{ debug: true }` to also receive the raw upstream payloads and a
+ * per-layout/per-field source breakdown for diagnostics (admin-only).
  */
 export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
   if (!module) throw new Error('Module is required');
@@ -714,49 +816,40 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
     }
   }
 
-  const fieldsRes = await zohoCrmApiCall(tenantId, `/settings/fields?module=${encodeURIComponent(module)}`);
+  // Primary fetch — must succeed (throws on failure).
+  const { res: fieldsRes, qualifier: fieldsQualifier } = await fetchPrimaryZohoFields(tenantId, module);
   const byApiName = new Map();
+  const fieldSource = new Map(); // api_name -> 'fields' | 'layouts'
   const fromFields = [];
-  const fromLayouts = [];
   for (const raw of (fieldsRes?.fields || [])) {
     const mapped = mapZohoField(raw);
     if (!mapped) continue;
     if (!byApiName.has(mapped.api_name)) {
       byApiName.set(mapped.api_name, mapped);
+      fieldSource.set(mapped.api_name, 'fields');
       fromFields.push(mapped.api_name);
     }
   }
 
-  // Layouts pass — best-effort. If it fails (permission, not enabled, etc.),
-  // we still return whatever `/settings/fields` gave us so the dropdown is
-  // never worse off than before.
-  //
-  // Layouts also surface field types we explicitly don't want in the
-  // mapping dropdown (subforms, file/image uploads, lookup display fields).
-  // Filter those out here so the layouts merge only fills gaps for "real"
-  // mappable fields like rich-text and standard textarea/picklist/etc.
-  const LAYOUT_DATA_TYPE_DENY = new Set([
-    'subform',
-    'imageupload', 'image_upload',
-    'fileupload', 'file_upload',
-    'profileimage', 'profile_image'
-  ]);
+  // Layouts pass — best-effort. A failure here just means the dropdown
+  // shows whatever the primary fetch returned (i.e. the pre-#406 behaviour).
   let layoutsRes = null;
+  let layoutsDebug = [];
   let layoutsError = null;
+  const fromLayouts = [];
   try {
-    layoutsRes = await zohoCrmApiCall(tenantId, `/settings/layouts?module=${encodeURIComponent(module)}`);
-    for (const layout of (layoutsRes?.layouts || [])) {
-      for (const section of (layout?.sections || [])) {
-        for (const raw of (section?.fields || [])) {
-          const mapped = mapZohoField(raw);
-          if (!mapped) continue;
-          const dt = String(mapped.data_type || '').toLowerCase();
-          if (LAYOUT_DATA_TYPE_DENY.has(dt)) continue;
-          if (!byApiName.has(mapped.api_name)) {
-            byApiName.set(mapped.api_name, mapped);
-            fromLayouts.push(mapped.api_name);
-          }
-        }
+    const layoutsResult = await fetchZohoLayoutFields(tenantId, module);
+    layoutsRes = layoutsResult.layoutsRes;
+    layoutsDebug = layoutsResult.layoutsDebug;
+    for (const raw of layoutsResult.rawFields) {
+      const mapped = mapZohoField(raw);
+      if (!mapped) continue;
+      const dt = String(mapped.data_type || '').toLowerCase();
+      if (LAYOUT_DATA_TYPE_DENY.has(dt)) continue;
+      if (!byApiName.has(mapped.api_name)) {
+        byApiName.set(mapped.api_name, mapped);
+        fieldSource.set(mapped.api_name, 'layouts');
+        fromLayouts.push(mapped.api_name);
       }
     }
   } catch (err) {
@@ -777,9 +870,12 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
     return {
       fields,
       debug: {
+        fields_qualifier: fieldsQualifier,
         from_fields_count: fromFields.length,
         from_layouts_count: fromLayouts.length,
         added_from_layouts: fromLayouts,
+        field_sources: Object.fromEntries(fieldSource),
+        layouts_breakdown: layoutsDebug,
         layouts_error: layoutsError,
         raw_fields_response: fieldsRes,
         raw_layouts_response: layoutsRes
