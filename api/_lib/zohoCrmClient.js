@@ -1356,3 +1356,40 @@ export async function updateZohoCrmRecordById(tenantId, module, recordId, record
   return { success: false, error: 'No data in Zoho CRM response', raw: response };
 }
 
+/**
+ * PUT a record's rich-text field values via Zoho's dedicated
+ * `PUT /{module}/{record_id}/Rich_Text__s` endpoint. This is the symmetric
+ * write counterpart to `fetchZohoCrmRecordRichText` and is the documented
+ * reliable path for writing rich-text content. Some tenants report that the
+ * standard `PUT /{module}` update silently drops rich-text values; routing
+ * those fields through this endpoint avoids that drift.
+ *
+ * `fieldValues` is a flat `{ api_name: html_value }` map. The record `id`
+ * is added automatically. An empty/missing map short-circuits with a
+ * `skipped: true` result so callers can chain unconditionally.
+ */
+export async function updateZohoCrmRecordRichText(tenantId, module, recordId, fieldValues) {
+  if (!module) throw new Error('Module is required');
+  if (!recordId) throw new Error('Record id is required');
+  if (!fieldValues || typeof fieldValues !== 'object' || Object.keys(fieldValues).length === 0) {
+    return { success: true, skipped: true, reason: 'no rich-text fields to write' };
+  }
+  const enc = encodeURIComponent(module);
+  const encId = encodeURIComponent(recordId);
+  const payload = {
+    data: [{ id: recordId, ...fieldValues }]
+  };
+  const response = await zohoCrmApiCall(tenantId, `/${enc}/${encId}/Rich_Text__s`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  if (response?.data?.[0]) {
+    const result = response.data[0];
+    if (result.status === 'success') {
+      return { success: true, id: result.details?.id || recordId, action: 'update', details: result.details, raw: response };
+    }
+    return { success: false, error: result.message || 'Unknown error', code: result.code, raw: response };
+  }
+  return { success: false, error: 'No data in Zoho CRM response', raw: response };
+}
+
