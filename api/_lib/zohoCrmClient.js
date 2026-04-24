@@ -719,8 +719,11 @@ const LAYOUT_DATA_TYPE_DENY = new Set([
 ]);
 
 // Cap the number of per-layout detail calls per request so a tenant with
-// many custom layouts can't blow the function timeout budget.
-const MAX_LAYOUT_DETAIL_CALLS = 10;
+// many custom layouts can't blow the function timeout budget. Set
+// generously — a single module rarely has more than a handful of
+// layouts, and Accounts/Contacts/Leads are well under this in practice.
+// If we ever hit the cap we warn so it's easy to spot in logs and revisit.
+const MAX_LAYOUT_DETAIL_CALLS = 25;
 
 // Try `/settings/fields?module=X&type=all` first — Zoho documents this as
 // the qualifier that returns every field type including rich-text. If the
@@ -747,9 +750,12 @@ async function fetchZohoLayoutFields(tenantId, module) {
   const enc = encodeURIComponent(module);
   const layoutsRes = await zohoCrmApiCall(tenantId, `/settings/layouts?module=${enc}`);
   const layouts = Array.isArray(layoutsRes?.layouts) ? layoutsRes.layouts : [];
+  // rawFields is an array of `{ field, source }` so the caller can record
+  // exact endpoint attribution per field ('layouts_list' vs 'layouts_detail').
   const rawFields = [];
   const layoutsDebug = [];
   let detailCalls = 0;
+  let cappedCount = 0;
 
   for (const layout of layouts) {
     const layoutId = layout?.id;
@@ -757,7 +763,7 @@ async function fetchZohoLayoutFields(tenantId, module) {
     const embedded = collectRawFieldsFromLayout(layout);
     if (embedded.length > 0) {
       layoutsDebug.push({ id: layoutId, name: layoutName, source: 'list_embedded', field_count: embedded.length });
-      rawFields.push(...embedded);
+      for (const f of embedded) rawFields.push({ field: f, source: 'layouts_list' });
       continue;
     }
     if (!layoutId) {
@@ -766,6 +772,7 @@ async function fetchZohoLayoutFields(tenantId, module) {
     }
     if (detailCalls >= MAX_LAYOUT_DETAIL_CALLS) {
       layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_skipped_cap', field_count: 0 });
+      cappedCount++;
       continue;
     }
     detailCalls++;
@@ -776,10 +783,14 @@ async function fetchZohoLayoutFields(tenantId, module) {
       const detailLayout = Array.isArray(detailRes?.layouts) ? detailRes.layouts[0] : (detailRes?.layout || detailRes);
       const detailFields = collectRawFieldsFromLayout(detailLayout);
       layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_fetch', field_count: detailFields.length });
-      rawFields.push(...detailFields);
+      for (const f of detailFields) rawFields.push({ field: f, source: 'layouts_detail' });
     } catch (err) {
       layoutsDebug.push({ id: layoutId, name: layoutName, source: 'detail_fetch_error', error: err?.message || String(err), field_count: 0 });
     }
+  }
+
+  if (cappedCount > 0) {
+    console.warn('[ZohoCRM] Layout detail-fetch cap hit for module', module, '-', cappedCount, 'layout(s) skipped (cap=', MAX_LAYOUT_DETAIL_CALLS, '). Some fields may be missing.');
   }
 
   return { layoutsRes, rawFields, layoutsDebug };
@@ -841,14 +852,17 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
     const layoutsResult = await fetchZohoLayoutFields(tenantId, module);
     layoutsRes = layoutsResult.layoutsRes;
     layoutsDebug = layoutsResult.layoutsDebug;
-    for (const raw of layoutsResult.rawFields) {
+    for (const { field: raw, source } of layoutsResult.rawFields) {
       const mapped = mapZohoField(raw);
       if (!mapped) continue;
       const dt = String(mapped.data_type || '').toLowerCase();
       if (LAYOUT_DATA_TYPE_DENY.has(dt)) continue;
       if (!byApiName.has(mapped.api_name)) {
         byApiName.set(mapped.api_name, mapped);
-        fieldSource.set(mapped.api_name, 'layouts');
+        // Record exact endpoint attribution so debug output can show
+        // 'layouts_list' (embedded in the list response) vs
+        // 'layouts_detail' (required a per-layout detail fetch).
+        fieldSource.set(mapped.api_name, source);
         fromLayouts.push(mapped.api_name);
       }
     }
