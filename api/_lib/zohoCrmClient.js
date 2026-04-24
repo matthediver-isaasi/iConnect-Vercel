@@ -714,17 +714,18 @@ export function clearZohoCrmModuleFieldsCache(tenantId, module) {
 
 /**
  * Fetch a single record's rich-text field values via Zoho's dedicated
- * `GET /{module}/{record_id}/Rich_Text__s` endpoint. Zoho excludes rich-text
- * fields from `/settings/fields` (even with `type=all`), `/settings/layouts`,
- * the Search API, AND the regular `GET /{module}/{record_id}` payload —
- * this dedicated endpoint is the only way to read them.
+ * `GET /{module}/{record_id}/actions/rich_text` endpoint. Zoho excludes
+ * rich-text fields from `/settings/fields` (even with `type=all`),
+ * `/settings/layouts`, the Search API, AND the regular
+ * `GET /{module}/{record_id}` payload — this dedicated endpoint is the
+ * only way to read them.
  *
  * Returns a flat `{ api_name: html_value }` map. `id` is stripped. Values
- * that aren't strings or null are dropped (Rich_Text__s should only return
- * those two shapes). Pass an explicit `fieldApiNames` array to scope the
- * call (becomes a `?fields=` query); pass null/omit to fetch every
- * rich-text field on the record. An empty array short-circuits and skips
- * the HTTP call entirely.
+ * that aren't strings or null are dropped (the rich-text endpoint only
+ * returns those two shapes). Pass an explicit `fieldApiNames` array to
+ * scope the call (becomes a `?fields=` query); pass null/omit to fetch
+ * every rich-text field on the record. An empty array short-circuits and
+ * skips the HTTP call entirely.
  */
 export async function fetchZohoCrmRecordRichText(tenantId, module, recordId, fieldApiNames) {
   if (!module) throw new Error('Module is required');
@@ -732,7 +733,7 @@ export async function fetchZohoCrmRecordRichText(tenantId, module, recordId, fie
   if (Array.isArray(fieldApiNames) && fieldApiNames.length === 0) return {};
   const enc = encodeURIComponent(module);
   const encId = encodeURIComponent(recordId);
-  let path = `/${enc}/${encId}/Rich_Text__s`;
+  let path = `/${enc}/${encId}/actions/rich_text`;
   if (Array.isArray(fieldApiNames) && fieldApiNames.length > 0) {
     path += `?fields=${encodeURIComponent(fieldApiNames.join(','))}`;
   }
@@ -915,7 +916,7 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
   // Rich-text probe — Zoho excludes rich-text fields from BOTH
   // /settings/fields (incl. `type=all`) AND /settings/layouts. The only
   // way to discover their api_names is to fetch one record's dedicated
-  // `Rich_Text__s` payload and inspect the returned keys. Best-effort:
+  // `actions/rich_text` payload and inspect the returned keys. Best-effort:
   // a missing/empty/erroring probe leaves the dropdown at its post-layouts
   // shape. Costs one list call + one rich-text call per cache miss per
   // module (5-min cache), so the steady-state overhead is negligible.
@@ -1203,9 +1204,9 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
 
   // 4) Rich-text probe — Zoho excludes rich-text fields from /settings/fields
   //    (incl. type=all), /settings/layouts, AND the regular GET /{record}
-  //    payload. The dedicated `Rich_Text__s` endpoint is the only way to
-  //    surface them. Reuses `sampleRecordId` from the records probe so this
-  //    costs at most one extra HTTP call.
+  //    payload. The dedicated `actions/rich_text` endpoint is the only way
+  //    to surface them. Reuses `sampleRecordId` from the records probe so
+  //    this costs at most one extra HTTP call.
   let richTextProbed = 0;
   let richTextKeys = 0;
   if (sampleRecordId) {
@@ -1270,14 +1271,14 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
     && sourceCounts.rich_text === 0;
   let conclusion;
   if (richTextOnly) {
-    conclusion = `Found ${sourceCounts.rich_text} match(es) only in the dedicated Rich_Text__s endpoint for module "${module}". This is the classic signature of a Zoho rich-text field — Zoho excludes them from /settings/fields (incl. type=all), /settings/layouts, AND the regular GET /{record} payload. The mapping dropdown will list this api_name automatically once the 5-minute metadata cache refreshes; inbound sync fetches values via the dedicated endpoint when the field is mapped.`;
+    conclusion = `Found ${sourceCounts.rich_text} match(es) only in the dedicated /{module}/{record_id}/actions/rich_text endpoint for module "${module}". This is the classic signature of a Zoho rich-text field — Zoho excludes them from /settings/fields (incl. type=all), /settings/layouts, AND the regular GET /{record} payload. The mapping dropdown will list this api_name automatically once the 5-minute metadata cache refreshes; inbound sync fetches values via the dedicated endpoint when the field is mapped.`;
   } else if (recordsOnly) {
     conclusion = `Found ${sourceCounts.records} match(es) in real ${module} record JSON, but Zoho's metadata APIs (/settings/fields, /settings/layouts) returned nothing. This is the classic signature of a Zoho "Public field" — Zoho excludes them from metadata enumeration even though the field is fully readable/writable via the records API. Use the api_name shown below in the field-mapping table's "Type api_name manually…" option to map it.`;
   } else if (matches.length > 0) {
     const sources = Array.from(new Set(matches.map(m => m.source)));
     conclusion = `Found ${matches.length} match(es) in module "${module}" via ${sources.join(', ')}. If the field appears here but not in the mapping dropdown, check this module's data_type (rich-text/long-text are kept; subform/file/image are excluded).`;
   } else {
-    conclusion = `No field on module "${module}" matched "${query}" via /settings/fields (type=all OR default), /settings/layouts (list OR per-layout detail), a sample record fetch, OR the dedicated Rich_Text__s endpoint. Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; (2) the field lives on a different Zoho module — re-run against another module; OR (3) the module has zero records so the records and rich-text probes couldn't see it (create one and retry).`;
+    conclusion = `No field on module "${module}" matched "${query}" via /settings/fields (type=all OR default), /settings/layouts (list OR per-layout detail), a sample record fetch, OR the dedicated /{module}/{record_id}/actions/rich_text endpoint. Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; (2) the field lives on a different Zoho module — re-run against another module; OR (3) the module has zero records so the records and rich-text probes couldn't see it (create one and retry).`;
   }
 
   return {
@@ -1358,11 +1359,12 @@ export async function updateZohoCrmRecordById(tenantId, module, recordId, record
 
 /**
  * PUT a record's rich-text field values via Zoho's dedicated
- * `PUT /{module}/{record_id}/Rich_Text__s` endpoint. This is the symmetric
- * write counterpart to `fetchZohoCrmRecordRichText` and is the documented
- * reliable path for writing rich-text content. Some tenants report that the
- * standard `PUT /{module}` update silently drops rich-text values; routing
- * those fields through this endpoint avoids that drift.
+ * `PUT /{module}/{record_id}/actions/rich_text` endpoint. This is the
+ * symmetric write counterpart to `fetchZohoCrmRecordRichText` and is the
+ * documented reliable path for writing rich-text content. Some tenants
+ * report that the standard `PUT /{module}` update silently drops
+ * rich-text values; routing those fields through this endpoint avoids
+ * that drift.
  *
  * `fieldValues` is a flat `{ api_name: html_value }` map. The record `id`
  * is added automatically. An empty/missing map short-circuits with a
@@ -1379,7 +1381,7 @@ export async function updateZohoCrmRecordRichText(tenantId, module, recordId, fi
   const payload = {
     data: [{ id: recordId, ...fieldValues }]
   };
-  const response = await zohoCrmApiCall(tenantId, `/${enc}/${encId}/Rich_Text__s`, {
+  const response = await zohoCrmApiCall(tenantId, `/${enc}/${encId}/actions/rich_text`, {
     method: 'PUT',
     body: JSON.stringify(payload)
   });

@@ -385,8 +385,8 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
     }
 
     // Rich-text fields must be written via Zoho's dedicated
-    // `PUT /{module}/{record_id}/Rich_Text__s` endpoint. Inlining them in
-    // the standard /{module} update is documented as supported but is
+    // `PUT /{module}/{record_id}/actions/rich_text` endpoint. Inlining them
+    // in the standard /{module} update is documented as supported but is
     // reported to silently drop the value on some tenants — driving iConnect
     // and Zoho out of sync. We split the payload here so the regular fields
     // continue to ride the normal endpoint and rich-text fields use the
