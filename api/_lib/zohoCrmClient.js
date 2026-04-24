@@ -1147,7 +1147,6 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query, options =
   let recordSampleKeys = 0;
   let richTextProbed = 0;
   const richTextKeysSeen = new Set();
-  let firstSampleRecordId = null;
 
   let sampleIds = [];
   if (pinnedRecordId) {
@@ -1163,6 +1162,11 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query, options =
     }
   }
 
+  // Pin the first sampled ID up-front so the api_name probe still runs even
+  // if record-detail/rich-text on that ID errors mid-loop. Falls back through
+  // any other sampled ID via the probe loop's last-resort assignment below.
+  let firstSampleRecordId = sampleIds.length > 0 ? sampleIds[0] : null;
+
   for (let idx = 0; idx < sampleIds.length; idx++) {
     const sampleId = sampleIds[idx];
     // Records probe per ID
@@ -1171,9 +1175,11 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query, options =
       const sample = Array.isArray(detailRes?.data) && detailRes.data.length > 0 ? detailRes.data[0] : null;
       if (sample && typeof sample === 'object') {
         recordsProbed++;
-        if (firstSampleRecordId == null) firstSampleRecordId = sampleId;
         const keys = Object.keys(sample);
-        if (idx === 0) recordSampleKeys = keys.length;
+        // Snapshot record_sample_keys from the FIRST successfully-probed
+        // record (not strict idx===0) so a mid-list success populates the
+        // count when sample[0] errored.
+        if (recordSampleKeys === 0) recordSampleKeys = keys.length;
         for (const key of keys) {
           const val = sample[key];
           const valStr = (val == null || typeof val === 'object') ? '' : String(val);
