@@ -384,16 +384,20 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       });
     }
 
-    // Rich-text fields must be written via Zoho's dedicated
-    // `PUT /{module}/{record_id}/actions/rich_text` endpoint. Inlining them
-    // in the standard /{module} update is documented as supported but is
-    // reported to silently drop the value on some tenants — driving iConnect
-    // and Zoho out of sync. We split the payload here so the regular fields
-    // continue to ride the normal endpoint and rich-text fields use the
-    // documented symmetric counterpart of `fetchZohoCrmRecordRichText`. The
-    // `is_rich_text` flag is stamped at mapping save (see
-    // `api/admin/zoho-crm-sync/mappings.js`) so this needs zero extra Zoho
-    // metadata calls per outbound sync.
+    // Rich-text fields are routed through `updateZohoCrmRecordRichText`,
+    // which (since #419) writes them via the standard
+    // `PUT /{module}/{record_id}` record-update endpoint with HTML inline
+    // in the body — the same shape the v8 API directory documents for all
+    // field updates. The previous code targeted an undocumented
+    // `actions/rich_text` PUT path which Zoho's gateway accepted but did
+    // not reliably persist; the standard endpoint matches Zoho's
+    // documented surface and avoids that drift. We still split the
+    // payload here (regular vs rich-text) so a rich-text-write failure
+    // can be reported separately and not mask a successful update of
+    // every other mapped field — see the "rich_text_dedicated_failed"
+    // log marker below. The `is_rich_text` flag is stamped at mapping
+    // save (see `api/admin/zoho-crm-sync/mappings.js`) so this needs
+    // zero extra Zoho metadata calls per outbound sync.
     const richTextZohoFields = new Set(
       (mapping.field_mappings || [])
         .filter(m => m?.is_rich_text === true && m?.zoho_field)

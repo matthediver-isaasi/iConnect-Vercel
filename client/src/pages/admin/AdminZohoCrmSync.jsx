@@ -1243,6 +1243,37 @@ export default function AdminZohoCrmSync() {
                     </div>
                   )}
 
+                  {findFieldResult.matches.length === 0 && Array.isArray(findFieldResult.counts?.record_sample_keys_list) && findFieldResult.counts.record_sample_keys_list.length > 0 && (
+                    <details className="rounded-md border bg-background p-3" data-testid="block-record-sample-keys">
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                        All record keys from{" "}
+                        {findFieldResult.counts.record_sample_keys_source_id ? (
+                          <>record <code>{findFieldResult.counts.record_sample_keys_source_id}</code></>
+                        ) : (
+                          <>sampled record</>
+                        )}{" "}
+                        ({findFieldResult.counts.record_sample_keys_list.length} keys, sorted) — scan for renamed/suffixed api_names
+                      </summary>
+                      <div className="mt-2 max-h-64 overflow-y-auto pr-1 flex flex-wrap gap-1.5">
+                        {findFieldResult.counts.record_sample_keys_list.map((apiName) => (
+                          <Badge
+                            key={apiName}
+                            variant="outline"
+                            className="cursor-pointer"
+                            onClick={() => {
+                              navigator.clipboard.writeText(apiName);
+                              toast({ title: "Copied", description: `api_name "${apiName}" copied to clipboard.` });
+                            }}
+                            data-testid={`badge-record-key-${apiName}`}
+                            title="Click to copy api_name"
+                          >
+                            <code className="text-xs">{apiName}</code>
+                          </Badge>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
                   {findFieldResult.matches.length > 0 && (
                     <div className="space-y-2">
                       {findFieldResult.matches.map((m, i) => (
