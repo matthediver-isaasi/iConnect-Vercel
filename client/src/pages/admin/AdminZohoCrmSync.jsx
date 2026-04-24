@@ -1185,8 +1185,13 @@ export default function AdminZohoCrmSync() {
                     <Badge variant={findFieldResult.matches.length > 0 ? "default" : "destructive"} data-testid="badge-find-field-match-count">
                       {findFieldResult.matches.length} match{findFieldResult.matches.length === 1 ? '' : 'es'}
                     </Badge>
+                    {findFieldResult.errors && findFieldResult.errors.length > 0 && (
+                      <Badge variant="destructive" data-testid="badge-find-field-error-count">
+                        {findFieldResult.errors.length} error{findFieldResult.errors.length === 1 ? '' : 's'}
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground">
-                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''})
+                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''}) · records: {findFieldResult.counts?.records_probed ?? 0} sampled ({findFieldResult.counts?.record_sample_keys ?? 0} keys)
                     </span>
                   </div>
 

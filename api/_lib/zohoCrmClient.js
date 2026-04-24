@@ -910,13 +910,28 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
 // when a custom field (e.g. rich-text "Organisation overview") doesn't
 // surface in `getZohoCrmModuleFields` and we need to know whether Zoho
 // returns it at all, and if so where. Bypasses the in-memory cache.
-function fieldMatchesQuery(raw, qLower) {
+// Collapse whitespace, underscores, and hyphens into a single space and
+// lower-case so that a label-style query like "Organisation overview"
+// matches an api_name like "Organisation_Overview" or a column_name like
+// "organisation-overview".
+function normalizeForMatch(s) {
+  if (typeof s !== 'string') return '';
+  return s.toLowerCase().replace(/[\s_\-]+/g, ' ').trim();
+}
+
+function fieldMatchesQuery(raw, qLower, qNorm) {
   if (!raw) return false;
-  const candidates = [
-    raw.api_name, raw.name, raw.field_label, raw.display_label, raw.column_name
-  ];
-  for (const c of candidates) {
+  // Label-style fields keep raw substring matching (multi-word labels are
+  // already space-separated, so the original behaviour is what we want).
+  const labelCandidates = [raw.field_label, raw.display_label];
+  for (const c of labelCandidates) {
     if (typeof c === 'string' && c.toLowerCase().includes(qLower)) return true;
+  }
+  // Identifier-style fields use normalised matching so spaces in the query
+  // collapse against underscores/hyphens in the api_name.
+  const idCandidates = [raw.api_name, raw.name, raw.column_name];
+  for (const c of idCandidates) {
+    if (typeof c === 'string' && normalizeForMatch(c).includes(qNorm)) return true;
   }
   return false;
 }
@@ -941,6 +956,7 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
   if (!module) throw new Error('Module is required');
   if (!query || !query.trim()) throw new Error('Search query is required');
   const qLower = query.trim().toLowerCase();
+  const qNorm = normalizeForMatch(query);
   const matches = [];
   const sourceCounts = { fields: 0, layouts_list: 0, layouts_detail: 0, records: 0 };
   const errors = [];
@@ -961,7 +977,7 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
       const fields = Array.isArray(res?.fields) ? res.fields : [];
       fieldsCountByEndpoint[variant.qualifier] = fields.length;
       for (const raw of fields) {
-        if (fieldMatchesQuery(raw, qLower)) {
+        if (fieldMatchesQuery(raw, qLower, qNorm)) {
           matches.push({
             source: 'fields',
             fields_qualifier: variant.qualifier,
@@ -994,7 +1010,7 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
       const layoutId = layout?.id || null;
       const layoutName = layout?.name || null;
       walkLayoutSections(layout, (raw, section) => {
-        if (!fieldMatchesQuery(raw, qLower)) return;
+        if (!fieldMatchesQuery(raw, qLower, qNorm)) return;
         matches.push({
           source: layoutSource,
           fields_qualifier: null,
@@ -1064,7 +1080,10 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
         for (const key of keys) {
           const val = sample[key];
           const valStr = (val == null || typeof val === 'object') ? '' : String(val);
-          const keyHit = key.toLowerCase().includes(qLower);
+          // Keys are identifier-style (Organisation_Overview) so normalise
+          // both sides so a space-separated query matches underscore keys.
+          // Values are free-form text so plain lower-case substring is right.
+          const keyHit = normalizeForMatch(key).includes(qNorm);
           const valHit = valStr.toLowerCase().includes(qLower);
           if (keyHit || valHit) {
             matches.push({
