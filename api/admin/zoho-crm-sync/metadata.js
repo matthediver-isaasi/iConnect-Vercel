@@ -161,9 +161,10 @@ export default async function handler(req, res) {
     if (resource === 'find-field') {
       const q = (req.query.q || '').toString();
       const mod = (module || 'Accounts').toString();
+      const recordId = (req.query.record_id || '').toString().trim();
       if (!q.trim()) return res.status(400).json({ error: 'q query param is required' });
       try {
-        const result = await findZohoCrmFieldByLabel(tenantId, mod, q);
+        const result = await findZohoCrmFieldByLabel(tenantId, mod, q, recordId ? { recordId } : {});
         return res.status(200).json(result);
       } catch (err) {
         return res.status(500).json({ error: err.message });

@@ -212,6 +212,7 @@ export default function AdminZohoCrmSync() {
   // "Find a missing field" diagnostic
   const [findFieldQuery, setFindFieldQuery] = useState("");
   const [findFieldModule, setFindFieldModule] = useState("Accounts");
+  const [findFieldRecordId, setFindFieldRecordId] = useState("");
   const [findFieldSearching, setFindFieldSearching] = useState(false);
   const [findFieldResult, setFindFieldResult] = useState(null);
 
@@ -558,7 +559,9 @@ export default function AdminZohoCrmSync() {
     setFindFieldSearching(true);
     setFindFieldResult(null);
     try {
-      const url = `/api/admin/zoho-crm-sync/metadata?resource=find-field&module=${encodeURIComponent(findFieldModule || "Accounts")}&q=${encodeURIComponent(q)}`;
+      const recId = (findFieldRecordId || "").trim();
+      let url = `/api/admin/zoho-crm-sync/metadata?resource=find-field&module=${encodeURIComponent(findFieldModule || "Accounts")}&q=${encodeURIComponent(q)}`;
+      if (recId) url += `&record_id=${encodeURIComponent(recId)}`;
       const r = await fetch(url, { credentials: "include" });
       const d = await r.json();
       if (r.ok) {
@@ -1169,6 +1172,18 @@ export default function AdminZohoCrmSync() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-1 min-w-[260px]">
+                  <Label htmlFor="find-field-record-id">Record ID (optional)</Label>
+                  <Input
+                    id="find-field-record-id"
+                    placeholder="e.g. 4567890000001234567 — overrides auto-sample"
+                    value={findFieldRecordId}
+                    onChange={(e) => setFindFieldRecordId(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') runFindField(); }}
+                    data-testid="input-find-field-record-id"
+                  />
+                  <p className="text-xs text-muted-foreground">Use when the field only appears on records using a specific layout.</p>
+                </div>
                 <Button
                   onClick={runFindField}
                   disabled={!findFieldQuery.trim() || findFieldSearching}
@@ -1191,7 +1206,11 @@ export default function AdminZohoCrmSync() {
                       </Badge>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''}) · records: {findFieldResult.counts?.records_probed ?? 0} sampled ({findFieldResult.counts?.record_sample_keys ?? 0} keys) · rich-text: {findFieldResult.counts?.rich_text_probed ?? 0} sampled ({findFieldResult.counts?.rich_text_keys ?? 0} keys)
+                      module <code>{findFieldResult.module}</code> · query <code>{findFieldResult.query}</code> · fields[type=all]: {findFieldResult.counts?.fields_count_by_endpoint?.['type=all'] ?? '—'} · fields[default]: {findFieldResult.counts?.fields_count_by_endpoint?.default ?? '—'} · {findFieldResult.counts?.layouts_total ?? 0} layouts ({findFieldResult.counts?.layout_detail_calls ?? 0} detail calls{findFieldResult.counts?.layouts_skipped_cap ? `, ${findFieldResult.counts.layouts_skipped_cap} skipped` : ''}) · {findFieldResult.counts?.pinned_record_id ? (
+                        <>record: pinned <code>{findFieldResult.counts.pinned_record_id}</code> ({findFieldResult.counts?.record_sample_keys ?? 0} keys) · rich-text: pinned record ({findFieldResult.counts?.rich_text_keys ?? 0} keys)</>
+                      ) : (
+                        <>records: {findFieldResult.counts?.records_probed ?? 0}/{findFieldResult.counts?.max_record_samples ?? 1} sampled ({findFieldResult.counts?.record_sample_keys ?? 0} keys on first) · rich-text: {findFieldResult.counts?.rich_text_probed ?? 0}/{findFieldResult.counts?.max_record_samples ?? 1} sampled ({findFieldResult.counts?.rich_text_keys ?? 0} keys)</>
+                      )}
                     </span>
                   </div>
 
@@ -1210,6 +1229,19 @@ export default function AdminZohoCrmSync() {
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
+
+                  {findFieldResult.matches.length === 0 && Array.isArray(findFieldResult.counts?.rich_text_keys_seen) && findFieldResult.counts.rich_text_keys_seen.length > 0 && (
+                    <div className="space-y-1.5" data-testid="block-rich-text-keys-seen">
+                      <p className="text-xs font-medium text-muted-foreground">Rich-text fields visible on this module ({findFieldResult.counts.rich_text_keys_seen.length}):</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {findFieldResult.counts.rich_text_keys_seen.map((apiName) => (
+                          <Badge key={apiName} variant="outline" data-testid={`badge-rich-text-key-${apiName}`}>
+                            <code className="text-xs">{apiName}</code>
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {findFieldResult.matches.length > 0 && (
                     <div className="space-y-2">

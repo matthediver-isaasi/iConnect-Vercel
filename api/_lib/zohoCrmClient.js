@@ -1038,7 +1038,9 @@ function summariseRawField(raw) {
   };
 }
 
-export async function findZohoCrmFieldByLabel(tenantId, module, query) {
+const MAX_RECORD_SAMPLES = 5;
+
+export async function findZohoCrmFieldByLabel(tenantId, module, query, options = {}) {
   if (!module) throw new Error('Module is required');
   if (!query || !query.trim()) throw new Error('Search query is required');
   const qLower = query.trim().toLowerCase();
@@ -1046,6 +1048,7 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
   const matches = [];
   const sourceCounts = { fields: 0, layouts_list: 0, layouts_detail: 0, records: 0, rich_text: 0 };
   const errors = [];
+  const pinnedRecordId = (options && options.recordId && String(options.recordId).trim()) || null;
 
   // 1) Primary fields fetch — we hit BOTH `/settings/fields?type=all` and
   //    plain `/settings/fields` independently so the diagnostic exhausts
@@ -1134,41 +1137,46 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
     errors.push({ stage: 'layouts', error: err?.message || String(err) });
   }
 
-  // 3) Records probe — Zoho's metadata APIs hide "Public" fields, but those
-  //    same fields ARE returned in actual record JSON. Two calls are required:
-  //    Zoho's `GET /{module}` list endpoint mandates a `fields` query param
-  //    (we'd be discovering, so we ask only for `id`), then `GET /{module}/{id}`
-  //    returns the FULL record with every field — Public ones included — and
-  //    needs no `fields` list. Errors from each call are tagged separately so
-  //    the operator can tell which step failed.
+  // 3+4) Records + rich-text probes — auto mode samples up to MAX_RECORD_SAMPLES
+  //      most-recently-modified records to maximise layout coverage (rich-text
+  //      fields are layout-scoped in Zoho); pinned mode probes only the
+  //      operator-supplied ID so the operator can pin a known good record.
+  //      Both probes run against each sample in lock-step. Errors per probe
+  //      are tagged with the originating record_id.
   let recordsProbed = 0;
   let recordSampleKeys = 0;
-  let sampleRecordId = null;
-  try {
-    const listRes = await zohoCrmApiCall(tenantId, `/${enc}?fields=id&per_page=1`);
-    const listRow = Array.isArray(listRes?.data) && listRes.data.length > 0 ? listRes.data[0] : null;
-    if (listRow && listRow.id) {
-      sampleRecordId = String(listRow.id);
+  let richTextProbed = 0;
+  const richTextKeysSeen = new Set();
+  let firstSampleRecordId = null;
+
+  let sampleIds = [];
+  if (pinnedRecordId) {
+    sampleIds = [pinnedRecordId];
+  } else {
+    try {
+      const listRes = await zohoCrmApiCall(tenantId, `/${enc}?fields=id&per_page=${MAX_RECORD_SAMPLES}&sort_by=Modified_Time&sort_order=desc`);
+      const rows = Array.isArray(listRes?.data) ? listRes.data : [];
+      sampleIds = rows.map(r => (r && r.id) ? String(r.id) : null).filter(Boolean);
+      // No records in module = clean no-op (no error pushed, sampleIds stays []).
+    } catch (err) {
+      errors.push({ stage: 'records:list', error: err?.message || String(err) });
     }
-    // No records in module = clean no-op (no error pushed, recordsProbed stays 0).
-  } catch (err) {
-    errors.push({ stage: 'records:list', error: err?.message || String(err) });
   }
 
-  if (sampleRecordId) {
+  for (let idx = 0; idx < sampleIds.length; idx++) {
+    const sampleId = sampleIds[idx];
+    // Records probe per ID
     try {
-      const detailRes = await zohoCrmApiCall(tenantId, `/${enc}/${encodeURIComponent(sampleRecordId)}`);
+      const detailRes = await zohoCrmApiCall(tenantId, `/${enc}/${encodeURIComponent(sampleId)}`);
       const sample = Array.isArray(detailRes?.data) && detailRes.data.length > 0 ? detailRes.data[0] : null;
       if (sample && typeof sample === 'object') {
-        recordsProbed = 1;
+        recordsProbed++;
+        if (firstSampleRecordId == null) firstSampleRecordId = sampleId;
         const keys = Object.keys(sample);
-        recordSampleKeys = keys.length;
+        if (idx === 0) recordSampleKeys = keys.length;
         for (const key of keys) {
           const val = sample[key];
           const valStr = (val == null || typeof val === 'object') ? '' : String(val);
-          // Keys are identifier-style (Organisation_Overview) so normalise
-          // both sides so a space-separated query matches underscore keys.
-          // Values are free-form text so plain lower-case substring is right.
           const keyHit = normalizeForMatch(key).includes(qNorm);
           const valHit = valStr.toLowerCase().includes(qLower);
           if (keyHit || valHit) {
@@ -1190,7 +1198,8 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
                 json_type: null,
                 visible: null,
                 sample_value_preview: valStr ? valStr.slice(0, 200) : null,
-                matched_on: keyHit ? 'key' : 'value'
+                matched_on: keyHit ? 'key' : 'value',
+                source_record_id: sampleId
               }
             });
             sourceCounts.records++;
@@ -1198,23 +1207,19 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
         }
       }
     } catch (err) {
-      errors.push({ stage: 'records:detail', record_id: sampleRecordId, error: err?.message || String(err) });
+      errors.push({
+        stage: pinnedRecordId ? 'records:detail:pinned' : 'records:detail',
+        record_id: sampleId,
+        error: err?.message || String(err)
+      });
     }
-  }
 
-  // 4) Rich-text probe — Zoho excludes rich-text fields from /settings/fields
-  //    (incl. type=all), /settings/layouts, AND the regular GET /{record}
-  //    payload. The dedicated `actions/rich_text` endpoint is the only way
-  //    to surface them. Reuses `sampleRecordId` from the records probe so
-  //    this costs at most one extra HTTP call.
-  let richTextProbed = 0;
-  let richTextKeys = 0;
-  if (sampleRecordId) {
+    // Rich-text probe per ID
     try {
-      const rt = await fetchZohoCrmRecordRichText(tenantId, module, sampleRecordId);
+      const rt = await fetchZohoCrmRecordRichText(tenantId, module, sampleId);
+      richTextProbed++;
       const keys = Object.keys(rt);
-      richTextProbed = 1;
-      richTextKeys = keys.length;
+      for (const key of keys) richTextKeysSeen.add(key);
       for (const key of keys) {
         const val = rt[key];
         const valStr = typeof val === 'string' ? val : '';
@@ -1247,18 +1252,96 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
               json_type: null,
               visible: null,
               sample_value_preview: stripped ? stripped.slice(0, 200) : null,
-              matched_on: keyHit ? 'key' : 'value'
+              matched_on: keyHit ? 'key' : 'value',
+              source_record_id: sampleId
             }
           });
           sourceCounts.rich_text++;
         }
       }
     } catch (err) {
-      errors.push({ stage: 'rich_text', record_id: sampleRecordId, error: err?.message || String(err) });
+      errors.push({ stage: 'rich_text', record_id: sampleId, error: err?.message || String(err) });
     }
   }
 
-  // Conclusion: a one-line operator-friendly summary.
+  // 5) Direct api_name probe — derive 1-3 candidate api_names from the query
+  //    and ask Zoho's rich-text endpoint for them explicitly. If Zoho returns
+  //    a key (even with an empty value), the field exists; if Zoho 4xxs with
+  //    INVALID_DATA, the spelling doesn't exist on the module. Confirms the
+  //    "empty-value omission" hypothesis without needing a populated record.
+  let apiNameProbeRan = false;
+  let apiNameProbeCandidates = [];
+  const apiNameProbeFound = [];
+  if (firstSampleRecordId && matches.length === 0) {
+    const trimmed = query.trim();
+    const tokens = trimmed.split(/[\s_]+/).filter(Boolean);
+    const titleCanonical = tokens
+      .map(t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase())
+      .join('_');
+    const lowerTail = tokens.length > 0
+      ? tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1).toLowerCase()
+        + (tokens.length > 1 ? '_' + tokens.slice(1).map(t => t.toLowerCase()).join('_') : '')
+      : '';
+    const exactAsTyped = trimmed.replace(/\s+/g, '_');
+    const candidateSet = new Set([titleCanonical, lowerTail, exactAsTyped].filter(Boolean));
+    // Skip candidates Zoho already returned — no point re-asking.
+    for (const c of Array.from(candidateSet)) {
+      if (richTextKeysSeen.has(c)) candidateSet.delete(c);
+    }
+    if (candidateSet.size > 0) {
+      apiNameProbeCandidates = Array.from(candidateSet);
+      apiNameProbeRan = true;
+      try {
+        const rt = await fetchZohoCrmRecordRichText(tenantId, module, firstSampleRecordId, apiNameProbeCandidates);
+        for (const [key, val] of Object.entries(rt)) {
+          apiNameProbeFound.push(key);
+          richTextKeysSeen.add(key);
+          const valStr = typeof val === 'string' ? val : '';
+          const stripped = valStr
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&[a-z#0-9]+;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          matches.push({
+            source: 'rich_text',
+            fields_qualifier: null,
+            layout_id: null,
+            layout_name: null,
+            section_name: null,
+            field: {
+              api_name: key,
+              field_label: null,
+              display_label: null,
+              data_type: 'richtextarea',
+              custom_field: true,
+              read_only: null,
+              required: null,
+              max_length: null,
+              json_type: null,
+              visible: null,
+              sample_value_preview: stripped ? stripped.slice(0, 200) : null,
+              matched_on: 'api_name_probe',
+              source_record_id: firstSampleRecordId
+            }
+          });
+          sourceCounts.rich_text++;
+        }
+      } catch (err) {
+        errors.push({
+          stage: 'rich_text:api_name_probe',
+          record_id: firstSampleRecordId,
+          candidates: apiNameProbeCandidates,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
+
+  const richTextKeysSeenSorted = Array.from(richTextKeysSeen).sort();
+  const richTextKeys = richTextKeysSeenSorted.length;
+
+  // Conclusion: a one-line operator-friendly summary, branched on the new
+  // signals so each failure mode gets a tailored explanation.
   const richTextOnly = sourceCounts.rich_text > 0
     && sourceCounts.fields === 0
     && sourceCounts.layouts_list === 0
@@ -1269,16 +1352,38 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
     && sourceCounts.layouts_list === 0
     && sourceCounts.layouts_detail === 0
     && sourceCounts.rich_text === 0;
+
   let conclusion;
-  if (richTextOnly) {
+  if (pinnedRecordId && recordsProbed === 0 && richTextProbed === 0) {
+    const pinnedErr = errors.find(e => e.stage === 'records:detail:pinned' || (e.stage === 'rich_text' && e.record_id === pinnedRecordId));
+    conclusion = `Pinned record id "${pinnedRecordId}" was not found on module "${module}"${pinnedErr ? ` (${pinnedErr.error})` : ''}. Verify the ID exists and the module name is correct.`;
+  } else if (richTextOnly) {
     conclusion = `Found ${sourceCounts.rich_text} match(es) only in the dedicated /{module}/{record_id}/actions/rich_text endpoint for module "${module}". This is the classic signature of a Zoho rich-text field — Zoho excludes them from /settings/fields (incl. type=all), /settings/layouts, AND the regular GET /{record} payload. The mapping dropdown will list this api_name automatically once the 5-minute metadata cache refreshes; inbound sync fetches values via the dedicated endpoint when the field is mapped.`;
   } else if (recordsOnly) {
     conclusion = `Found ${sourceCounts.records} match(es) in real ${module} record JSON, but Zoho's metadata APIs (/settings/fields, /settings/layouts) returned nothing. This is the classic signature of a Zoho "Public field" — Zoho excludes them from metadata enumeration even though the field is fully readable/writable via the records API. Use the api_name shown below in the field-mapping table's "Type api_name manually…" option to map it.`;
   } else if (matches.length > 0) {
     const sources = Array.from(new Set(matches.map(m => m.source)));
-    conclusion = `Found ${matches.length} match(es) in module "${module}" via ${sources.join(', ')}. If the field appears here but not in the mapping dropdown, check this module's data_type (rich-text/long-text are kept; subform/file/image are excluded).`;
+    const probedVia = apiNameProbeFound.length > 0 ? ` (api_name probe confirmed: ${apiNameProbeFound.join(', ')})` : '';
+    conclusion = `Found ${matches.length} match(es) in module "${module}" via ${sources.join(', ')}${probedVia}. If the field appears here but not in the mapping dropdown, check this module's data_type (rich-text/long-text are kept; subform/file/image are excluded).`;
   } else {
-    conclusion = `No field on module "${module}" matched "${query}" via /settings/fields (type=all OR default), /settings/layouts (list OR per-layout detail), a sample record fetch, OR the dedicated /{module}/{record_id}/actions/rich_text endpoint. Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; (2) the field lives on a different Zoho module — re-run against another module; OR (3) the module has zero records so the records and rich-text probes couldn't see it (create one and retry).`;
+    const rtErrors = errors.filter(e => typeof e.stage === 'string' && e.stage.startsWith('rich_text'));
+    if (rtErrors.length > 0) {
+      const summary = rtErrors.map(e => `${e.stage}: ${e.error}`).join('; ');
+      conclusion = `No match for "${query}" on module "${module}". The dedicated rich-text endpoint returned errors during probing: ${summary}. Fix the upstream call before drawing conclusions about whether the field exists.`;
+    } else if (richTextKeys === 0 && recordsProbed > 0 && pinnedRecordId) {
+      conclusion = `Pinned record returned no rich-text keys. Either the field isn't on this record's layout, the field is empty (Zoho omits empty rich-text values from this endpoint), or the API user's profile lacks Read on rich-text fields for this module. Check Zoho admin → Setup → Users and Control → Profiles for field-level read access, or pin a record you know has the field populated.`;
+    } else if (richTextKeys === 0 && recordsProbed > 0) {
+      conclusion = `Sampled ${recordsProbed} record(s); the rich-text endpoint returned no keys on any of them. Either (a) every sampled record uses a layout without rich-text fields — try pinning a specific record ID using the field above, (b) Zoho's endpoint only surfaces populated rich-text values and every sampled record has all rich-text fields blank — populate the field on at least one record and retry, or (c) the API user's profile lacks Read on rich-text fields for this module.`;
+    } else if (richTextKeys > 0) {
+      const list = richTextKeysSeenSorted.slice(0, 20).join(', ');
+      const tail = richTextKeysSeenSorted.length > 20 ? `, +${richTextKeysSeenSorted.length - 20} more` : '';
+      const probeNote = apiNameProbeRan
+        ? ` Tried derived api_name candidates [${apiNameProbeCandidates.join(', ')}] but Zoho ${apiNameProbeFound.length > 0 ? `recognised ${apiNameProbeFound.join(', ')}` : 'returned none of them'}.`
+        : '';
+      conclusion = `Rich-text fields ARE visible on this module (${list}${tail}) but none matched "${query}".${probeNote} The api_name likely differs from the label — pick the right one from the list above.`;
+    } else {
+      conclusion = `No field on module "${module}" matched "${query}" via /settings/fields (type=all OR default), /settings/layouts (list OR per-layout detail), a sample record fetch, OR the dedicated /{module}/{record_id}/actions/rich_text endpoint. Most likely causes: (1) the user's Zoho profile lacks read permission on the custom field — fix in Zoho admin under Setup → Users and Control → Profiles by granting Read access on this module's field; (2) the field lives on a different Zoho module — re-run against another module; OR (3) the module has zero records so the records and rich-text probes couldn't see it (create one and retry).`;
+    }
   }
 
   return {
@@ -1295,6 +1400,12 @@ export async function findZohoCrmFieldByLabel(tenantId, module, query) {
       record_sample_keys: recordSampleKeys,
       rich_text_probed: richTextProbed,
       rich_text_keys: richTextKeys,
+      rich_text_keys_seen: richTextKeysSeenSorted,
+      max_record_samples: MAX_RECORD_SAMPLES,
+      pinned_record_id: pinnedRecordId,
+      api_name_probe_ran: apiNameProbeRan,
+      api_name_probe_candidates: apiNameProbeCandidates,
+      api_name_probe_found: apiNameProbeFound,
       matches_total: matches.length,
       by_source: sourceCounts
     },
