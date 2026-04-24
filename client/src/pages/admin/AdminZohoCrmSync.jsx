@@ -1806,8 +1806,21 @@ export default function AdminZohoCrmSync() {
                           {l.status === "pending" && <Badge variant="outline">pending</Badge>}
                         </TableCell>
                         <TableCell className="text-xs">{l.action || "—"}</TableCell>
-                        <TableCell className="text-xs max-w-xs truncate" title={l.error_message || l.zoho_record_id || ""}>
-                          {l.error_message || l.zoho_record_id || "—"}
+                        <TableCell className="text-xs max-w-xs">
+                          <div className="truncate" title={l.error_message || l.zoho_record_id || ""}>
+                            {l.error_message || l.zoho_record_id || "—"}
+                          </div>
+                          {Array.isArray(l.response_payload?.translation_warnings) && l.response_payload.translation_warnings.length > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="mt-1 text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-400"
+                              data-testid={`badge-unmapped-${l.id}`}
+                              title="Unmapped picklist values were forwarded as-is — open the log to see which fields"
+                            >
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              {l.response_payload.translation_warnings.length} unmapped value{l.response_payload.translation_warnings.length > 1 ? 's' : ''}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
@@ -1853,6 +1866,47 @@ export default function AdminZohoCrmSync() {
                 <div>
                   <div className="font-medium">Error</div>
                   <pre className="bg-muted rounded p-2 text-xs whitespace-pre-wrap">{viewLog.error_message}</pre>
+                </div>
+              )}
+              {Array.isArray(viewLog.response_payload?.translation_warnings) && viewLog.response_payload.translation_warnings.length > 0 && (
+                <div data-testid="panel-translation-warnings">
+                  <div className="font-medium flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    Unmapped picklist values
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    These values were sent through unchanged because the field's value translation map didn't have an entry for them.
+                    Open the field mapping and click <span className="font-medium">Translate values</span> to add a translation,
+                    or update the picklist option in Zoho / iConnect to match.
+                  </p>
+                  <div className="border rounded-md mt-2 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-24">Direction</TableHead>
+                          <TableHead>iConnect field</TableHead>
+                          <TableHead>Zoho field</TableHead>
+                          <TableHead>Unmapped value</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewLog.response_payload.translation_warnings.map((w, i) => (
+                          <TableRow key={`tw-${i}-${w.iconnect_field}-${w.unmapped_value}`} data-testid={`row-translation-warning-${i}`}>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {w.direction === 'iconnect_to_zoho'
+                                  ? <><ArrowUp className="h-3 w-3 mr-1" />out</>
+                                  : <><ArrowDown className="h-3 w-3 mr-1" />in</>}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs"><code>{w.iconnect_field}</code></TableCell>
+                            <TableCell className="text-xs"><code>{w.zoho_field}</code></TableCell>
+                            <TableCell className="text-xs"><code>{w.unmapped_value}</code></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
               {viewLog.request_payload && (

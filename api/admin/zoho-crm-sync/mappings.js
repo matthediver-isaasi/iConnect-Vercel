@@ -46,22 +46,36 @@ export default async function handler(req, res) {
         });
       }
       if (!unique_key_field) return res.status(400).json({ error: 'unique_key_field is required' });
-      // Resolve which mapped Zoho fields are rich-text ONCE per save so we can
-      // persist `is_rich_text` per row. The inbound sync path then reads only
-      // the persisted flag — no live `getZohoCrmModuleFields` lookup, so
-      // mappings without rich-text fields incur zero extra Zoho calls per
-      // record. Best-effort: if metadata can't load, every row defaults to
-      // `is_rich_text: false` and the existing non-rich-text behaviour stands.
+      // Resolve which mapped Zoho fields are rich-text and which are multi-pick
+      // ONCE per save so we can persist `is_rich_text` and `is_multi_pick` per
+      // row. The sync paths then read only the persisted flags — no live
+      // `getZohoCrmModuleFields` lookup, so mappings without these field types
+      // incur zero extra Zoho calls per record. Best-effort: if metadata can't
+      // load, every row defaults to `is_rich_text: false` / `is_multi_pick:
+      // false` and the existing non-special-field behaviour stands.
+      //
+      // Zoho's data_type for multi-select fields is `multiselectpicklist`
+      // (sometimes `multiselectlookup` for module references). We match
+      // anything containing "multi" defensively to also cover Zoho's variant
+      // labels and any future relabelling. Multi-pick fields require array
+      // payloads on the wire — if we send a JSON-encoded string Zoho rejects
+      // with HTTP 400 INVALID_DATA `expected_data_type: jsonarray`.
       const richTextZohoFieldNames = new Set();
+      const multiPickZohoFieldNames = new Set();
       try {
         const moduleFields = await getZohoCrmModuleFields(tenantId, zoho_module);
         for (const f of moduleFields || []) {
-          if (f?.api_name && /rich/i.test(String(f?.data_type || ''))) {
+          if (!f?.api_name) continue;
+          const dt = String(f?.data_type || '').toLowerCase();
+          if (/rich/i.test(dt)) {
             richTextZohoFieldNames.add(f.api_name);
+          }
+          if (dt.includes('multi')) {
+            multiPickZohoFieldNames.add(f.api_name);
           }
         }
       } catch (err) {
-        console.warn('[ZohoCrmSync mappings] Could not resolve rich-text fields at save:', err?.message || err);
+        console.warn('[ZohoCrmSync mappings] Could not resolve rich-text / multi-pick fields at save:', err?.message || err);
       }
 
       const sanitizedMappings = Array.isArray(field_mappings)
@@ -73,7 +87,8 @@ export default async function handler(req, res) {
                 zoho_field: m.zoho_field,
                 ...(m.iconnect_field_type ? { iconnect_field_type: m.iconnect_field_type } : {}),
                 ...(m.zoho_field_label ? { zoho_field_label: m.zoho_field_label } : {}),
-                ...(richTextZohoFieldNames.has(m.zoho_field) ? { is_rich_text: true } : {})
+                ...(richTextZohoFieldNames.has(m.zoho_field) ? { is_rich_text: true } : {}),
+                ...(multiPickZohoFieldNames.has(m.zoho_field) ? { is_multi_pick: true } : {})
               };
               // Persist per-row value translation map. Shape:
               //   value_map: {

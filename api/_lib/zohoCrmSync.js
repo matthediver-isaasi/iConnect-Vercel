@@ -166,6 +166,10 @@ function resolveMappedValue(mapping, entity, customValues) {
  * translated value when a mapping exists, otherwise the original value. When
  * the row has a value_map but the value is not in it, push a warning entry
  * onto `warnings` so the caller can surface unmapped values to the sync log.
+ *
+ * Operates on a single scalar — `applyMappingValue` (below) handles the
+ * multi-pick case by parsing into an array first and calling this per
+ * element so each unmapped element generates its own warning row.
  */
 function applyValueMap(mapping, value, direction, warnings) {
   if (value === undefined || value === null || value === '') return value;
@@ -188,13 +192,128 @@ function applyValueMap(mapping, value, direction, warnings) {
   return value;
 }
 
+/**
+ * Coerce any stored representation of a multi-pick value into an actual JS
+ * array of scalar elements. Accepts:
+ *   - A real array → returned as-is (with empty/null elements stripped).
+ *   - A JSON-encoded array string (e.g. `'["A","B"]'`) → parsed and returned.
+ *   - A comma-separated string (e.g. `'A,B'`) → split and trimmed (this is
+ *     Zoho's older serialisation for Multi-Select Lookup Fields and the
+ *     fallback when iConnect's preference_value column predates JSON
+ *     storage). Empty pieces are dropped.
+ *   - Any single scalar (string/number) → wrapped as a one-element array.
+ *   - null/undefined/empty-string → `null` (caller should drop the field).
+ *
+ * Always returns either `null` or an array of strings. The array is never
+ * empty: an empty array round-trips through Zoho as a clear, which we want
+ * — empty arrays are passed through, not silently dropped, so the caller
+ * can decide whether the iConnect intent was "clear all values".
+ */
+function parseMultiPickValue(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (Array.isArray(raw)) {
+    const cleaned = raw
+      .filter(v => v !== undefined && v !== null && v !== '')
+      .map(v => String(v));
+    return cleaned;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter(v => v !== undefined && v !== null && v !== '')
+            .map(v => String(v));
+        }
+      } catch {
+        // fall through to comma-split fallback
+      }
+    }
+    if (trimmed.includes(',')) {
+      return trimmed
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+    return [trimmed];
+  }
+  return [String(raw)];
+}
+
+/**
+ * Outbound translation for a single mapping row. Routes through
+ * `parseMultiPickValue` + per-element `applyValueMap` for multi-pick
+ * mapping rows (so each unmapped element generates its own warning),
+ * otherwise behaves identically to the scalar `applyValueMap` so plain
+ * picklist / text / number fields are unchanged.
+ *
+ * Returns the value to write to Zoho (`undefined` to drop the field). For
+ * multi-pick this is always an actual JS array — the wire layer must
+ * NOT JSON-encode it back to a string or Zoho rejects with HTTP 400
+ * INVALID_DATA `expected_data_type: jsonarray`.
+ */
+function applyMappingValueOutbound(mapping, raw, warnings) {
+  if (mapping?.is_multi_pick) {
+    const arr = parseMultiPickValue(raw);
+    if (arr === null) return undefined;
+    // Empty array means "clear all values" — preserve so admins can
+    // intentionally clear a multi-pick field.
+    return arr.map(v => applyValueMap(mapping, v, 'iconnect_to_zoho', warnings));
+  }
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  return applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings);
+}
+
+/**
+ * Inbound translation for a single mapping row. Mirror of the outbound
+ * helper. For multi-pick fields the inbound value coming from Zoho's GET
+ * response is already a real array — we map each element through the
+ * Zoho→iConnect side of value_map and return a real JS array so the
+ * canonical hash (computed before storage) matches symmetrically with the
+ * outbound canonical (which parses the stored JSON string back to an
+ * array). The actual storage layer (`formatStoredCustomValue`) JSON-
+ * encodes arrays back to strings on its own.
+ */
+function applyMappingValueInbound(mapping, raw, warnings) {
+  if (mapping?.is_multi_pick) {
+    const arr = parseMultiPickValue(raw);
+    if (arr === null) return null;
+    return arr.map(v => applyValueMap(mapping, v, 'zoho_to_iconnect', warnings));
+  }
+  return applyValueMap(mapping, raw, 'zoho_to_iconnect', warnings);
+}
+
+/**
+ * Stable canonical form for hash comparison. Multi-pick arrays are sorted
+ * so an inbound `["A","B"]` and an outbound `["B","A"]` (semantically
+ * identical for set-valued fields) hash to the same value and don't
+ * trigger an infinite ping-pong of "different payload" syncs. Sorting is
+ * for the hash ONLY — the original (user-authored) order is preserved on
+ * the wire.
+ */
+function canonicalizeForHash(mapping, value) {
+  if (value === undefined || value === null) return value;
+  if (mapping?.is_multi_pick) {
+    const arr = parseMultiPickValue(value);
+    if (arr === null) return null;
+    return [...arr].sort();
+  }
+  return value;
+}
+
 function buildPayload(mappings, entity, customValues, warnings) {
   const payload = {};
   for (const m of mappings || []) {
     if (!m?.zoho_field) continue;
     const raw = resolveMappedValue(m, entity, customValues);
-    if (raw === undefined || raw === null || raw === '') continue;
-    const translated = applyValueMap(m, raw, 'iconnect_to_zoho', warnings);
+    // For multi-pick fields we let the helper decide whether to drop the
+    // field — `parseMultiPickValue` returning `null` means truly empty,
+    // but an empty-string element list is still a valid "clear" intent.
+    if (!m?.is_multi_pick && (raw === undefined || raw === null || raw === '')) continue;
+    const translated = applyMappingValueOutbound(m, raw, warnings);
+    if (translated === undefined) continue;
     payload[m.zoho_field] = translated;
   }
   return payload;
@@ -204,7 +323,9 @@ function buildPayload(mappings, entity, customValues, warnings) {
  * Build a canonical payload — keyed by iConnect field name (or `custom:<id>`
  * for preference fields) — for hash-based echo/loop detection. The same
  * shape is produced from either direction so outbound and inbound hashes
- * are directly comparable.
+ * are directly comparable. Multi-pick fields are normalised (parsed +
+ * sorted) so order-only differences in the array don't cause false-
+ * positive hash mismatches.
  */
 function buildCanonicalPayload(mappings, entity, customValues) {
   const canonical = {};
@@ -212,7 +333,7 @@ function buildCanonicalPayload(mappings, entity, customValues) {
     if (!m?.iconnect_field || !m?.zoho_field) continue;
     const v = resolveMappedValue(m, entity, customValues);
     if (v === undefined || v === null || v === '') continue;
-    canonical[m.iconnect_field] = v;
+    canonical[m.iconnect_field] = canonicalizeForHash(m, v);
   }
   return canonical;
 }
@@ -634,6 +755,29 @@ const MODULE_TO_ENTITY_TYPE = {
  * configured field_mappings. Returns { coreUpdates, customUpdates } where
  * `customUpdates` is a map of preference_field id → value to upsert.
  */
+/**
+ * Canonical-form view of an inbound payload for hash comparison. Mirrors
+ * `buildCanonicalPayload` (outbound) so the two hashes are directly
+ * comparable: multi-pick arrays are sorted; everything else is passed
+ * through unchanged. Empty values are dropped (matches outbound).
+ */
+function canonicalizeInboundForHash(mapping, coreUpdates, customUpdates) {
+  const canonical = {};
+  for (const m of mapping?.field_mappings || []) {
+    if (!m?.iconnect_field) continue;
+    let v;
+    if (m.iconnect_field.startsWith('custom:')) {
+      const fieldId = m.iconnect_field.slice('custom:'.length);
+      v = customUpdates?.[fieldId];
+    } else {
+      v = coreUpdates?.[m.iconnect_field];
+    }
+    if (v === undefined || v === null || v === '') continue;
+    canonical[m.iconnect_field] = canonicalizeForHash(m, v);
+  }
+  return canonical;
+}
+
 function buildReversePayload(mapping, zohoRecord, warnings) {
   const coreUpdates = {};
   const customUpdates = {};
@@ -643,7 +787,10 @@ function buildReversePayload(mapping, zohoRecord, warnings) {
     if (!zohoField || !iconnectField) continue;
     if (!Object.prototype.hasOwnProperty.call(zohoRecord, zohoField)) continue;
     const raw = zohoRecord[zohoField];
-    const value = applyValueMap(m, raw, 'zoho_to_iconnect', warnings);
+    // For multi-pick the resolved value is a real JS array (or null when
+    // Zoho returned an empty list). `applyCustomFieldUpdates` /
+    // `formatStoredCustomValue` will JSON-encode it for storage.
+    const value = applyMappingValueInbound(m, raw, warnings);
     if (iconnectField.startsWith('custom:')) {
       const fieldId = iconnectField.slice('custom:'.length);
       customUpdates[fieldId] = value;
@@ -901,7 +1048,11 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
     });
   }
 
-  const payloadHash = computeHash(combinedPayload);
+  // Compute the hash from a canonical view (multi-pick arrays sorted) so
+  // it lines up with the outbound canonical hash and we don't ping-pong
+  // when Zoho returns the same set of multi-pick values in a different
+  // order than we sent.
+  const payloadHash = computeHash(canonicalizeInboundForHash(mapping, coreUpdates, customUpdates));
 
   // Echo: this exact payload was just pushed outbound — drop.
   const lastOutbound = await getSyncState(tenantId, entityType, entity.id, 'outbound');
@@ -1088,10 +1239,9 @@ async function createEntityFromZoho(tenantId, entityType, mapping, zohoModule, z
     if (Object.keys(customUpdates).length > 0) {
       await applyCustomFieldUpdates(tenantId, entityType, created.id, customUpdates);
     }
-    const payloadHash = computeHash({
-      ...coreUpdates,
-      ...Object.fromEntries(Object.entries(customUpdates).map(([k, v]) => [`custom:${k}`, v]))
-    });
+    // Canonicalize so multi-pick array order doesn't ping-pong between
+    // outbound and inbound hashes (matches `applyInboundFromZoho`).
+    const payloadHash = computeHash(canonicalizeInboundForHash(mapping, coreUpdates, customUpdates));
     await recordSyncState(tenantId, entityType, created.id, 'inbound', payloadHash);
     return await writeLog({
       tenant_id: tenantId, entity_type: entityType, entity_id: created.id,
@@ -1807,10 +1957,9 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
         };
       }
     }
-    const payloadHash = computeHash({
-      ...coreUpdates,
-      ...Object.fromEntries(Object.entries(customUpdates).map(([k, v]) => [`custom:${k}`, v]))
-    });
+    // Canonicalize so multi-pick array order doesn't ping-pong between
+    // outbound and inbound hashes (matches `applyInboundFromZoho`).
+    const payloadHash = computeHash(canonicalizeInboundForHash(mapping, coreUpdates, customUpdates));
     await recordSyncState(tenantId, entityType, created.id, 'inbound', payloadHash);
     const logRow = await writeLog({
       tenant_id: tenantId, entity_type: entityType, entity_id: created.id,
@@ -1945,9 +2094,12 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       };
     }
   }
+  // Canonicalize so multi-pick array order doesn't ping-pong between
+  // outbound and inbound hashes (matches `applyInboundFromZoho`). The
+  // `linkPatch` is folded in afterwards — it's never multi-pick (just
+  // Zoho_CRM_link_id housekeeping) so no canonicalisation is needed.
   const payloadHash = computeHash({
-    ...coreToWrite,
-    ...Object.fromEntries(Object.entries(customToWrite).map(([k, v]) => [`custom:${k}`, v])),
+    ...canonicalizeInboundForHash(mapping, coreToWrite, customToWrite),
     ...(linkPatch || {})
   });
   await recordSyncState(tenantId, entityType, entity.id, 'inbound', payloadHash);
