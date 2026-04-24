@@ -1399,13 +1399,70 @@ function isEmptyIconnectValue(v) {
   return false;
 }
 
-async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRecord, source) {
+// Build a flat list of {scope, field, zohoValue, beforeValue, afterValue}
+// describing the fields that would actually be written. Used by the dry-run
+// preview path so the admin can review the per-field diff before going live.
+function buildDiffs({ coreUpdates, customUpdates, coreToWrite, customToWrite, linkPatch, entity, currentCustom, isCreate }) {
+  const diffs = [];
+  for (const [field, afterValue] of Object.entries(coreToWrite)) {
+    diffs.push({
+      scope: 'core',
+      field,
+      zohoValue: coreUpdates[field],
+      beforeValue: isCreate ? null : (entity ? entity[field] ?? null : null),
+      afterValue
+    });
+  }
+  for (const [field, afterValue] of Object.entries(customToWrite)) {
+    diffs.push({
+      scope: 'custom',
+      field,
+      zohoValue: customUpdates[field],
+      beforeValue: isCreate ? null : ((currentCustom && currentCustom[field]) ?? null),
+      afterValue
+    });
+  }
+  if (linkPatch) {
+    diffs.push({
+      scope: 'link',
+      field: 'zoho_crm_id',
+      zohoValue: linkPatch.zoho_crm_id,
+      beforeValue: isCreate ? null : (entity ? entity.zoho_crm_id ?? null : null),
+      afterValue: linkPatch.zoho_crm_id
+    });
+    diffs.push({
+      scope: 'link',
+      field: 'zoho_crm_module',
+      zohoValue: linkPatch.zoho_crm_module,
+      beforeValue: isCreate ? null : (entity ? entity.zoho_crm_module ?? null : null),
+      afterValue: linkPatch.zoho_crm_module
+    });
+  }
+  return diffs;
+}
+
+function summariseEntity(entity, entityType) {
+  if (!entity) return null;
+  const naturalKey = NATURAL_KEY_FIELD[entityType];
+  return {
+    id: entity.id,
+    naturalKey: naturalKey ? { field: naturalKey, value: entity[naturalKey] ?? null } : null,
+    zoho_crm_id: entity.zoho_crm_id ?? null,
+    zoho_crm_module: entity.zoho_crm_module ?? null
+  };
+}
+
+async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRecord, source, options = {}) {
+  const dryRun = options.dryRun === true;
+  const action = options.action || 'one_time_import';
   const zohoId = zohoRecord?.id || zohoRecord?.Id || null;
 
   // 1. Resolve existing iConnect record: zoho id first, then natural key.
   let entity = null;
+  let matchedBy = null;
   if (zohoId) {
     entity = await findEntityByZohoId(tenantId, entityType, zohoModule, zohoId);
+    if (entity) matchedBy = 'zoho_id';
   }
   if (!entity) {
     const naturalKey = NATURAL_KEY_FIELD[entityType];
@@ -1426,16 +1483,20 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       const result = await findEntityByUniqueField(tenantId, entityType, naturalKey, matchValue);
       if (result.entity) {
         entity = result.entity;
-        if (zohoId) await persistZohoIdOnEntity(tenantId, entityType, entity.id, zohoId, zohoModule);
+        matchedBy = 'natural_key';
+        if (zohoId && !dryRun) await persistZohoIdOnEntity(tenantId, entityType, entity.id, zohoId, zohoModule);
       } else if (result.reason === 'ambiguous') {
-        await writeLog({
-          tenant_id: tenantId, entity_type: entityType, entity_id: null,
-          zoho_module: zohoModule, zoho_record_id: zohoId,
-          status: 'skipped', direction: 'inbound', source, action: 'one_time_import',
-          error_message: `Ambiguous: ${result.count}+ iConnect ${entityType}s match ${naturalKey}="${matchValue}" — resolve manually`,
-          request_payload: zohoRecord
-        });
-        return 'skipped';
+        const errorMessage = `Ambiguous: ${result.count}+ iConnect ${entityType}s match ${naturalKey}="${matchValue}" — resolve manually`;
+        if (!dryRun) {
+          await writeLog({
+            tenant_id: tenantId, entity_type: entityType, entity_id: null,
+            zoho_module: zohoModule, zoho_record_id: zohoId,
+            status: 'skipped', direction: 'inbound', source, action,
+            error_message: errorMessage,
+            request_payload: zohoRecord
+          });
+        }
+        return { outcome: 'ambiguous', matched: null, matchedBy: null, message: errorMessage, diffs: [] };
       } else if (result.reason === 'error') {
         throw new Error(`Natural-key lookup failed: ${result.error}`);
       }
@@ -1454,27 +1515,48 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       insertRow.zoho_crm_id = zohoId;
       insertRow.zoho_crm_module = zohoModule;
     }
-    const filteredCustom = {};
+    const coreToWrite = {};
+    const customToWrite = {};
     let mappedCount = 0;
     for (const [k, v] of Object.entries(coreUpdates)) {
       if (isEmptyZohoValue(v)) continue;
       insertRow[k] = v;
+      coreToWrite[k] = v;
       mappedCount += 1;
     }
     for (const [k, v] of Object.entries(customUpdates)) {
       if (isEmptyZohoValue(v)) continue;
-      filteredCustom[k] = v;
+      customToWrite[k] = v;
       mappedCount += 1;
     }
     if (mappedCount === 0) {
-      await writeLog({
-        tenant_id: tenantId, entity_type: entityType, entity_id: null,
-        zoho_module: zohoModule, zoho_record_id: zohoId,
-        status: 'skipped', direction: 'inbound', source, action: 'one_time_import',
-        error_message: 'Skipped create: Zoho record has no non-empty mapped values',
-        request_payload: zohoRecord
-      });
-      return 'skipped';
+      const errorMessage = 'Skipped create: Zoho record has no non-empty mapped values';
+      if (!dryRun) {
+        await writeLog({
+          tenant_id: tenantId, entity_type: entityType, entity_id: null,
+          zoho_module: zohoModule, zoho_record_id: zohoId,
+          status: 'skipped', direction: 'inbound', source, action,
+          error_message: errorMessage,
+          request_payload: zohoRecord
+        });
+      }
+      return { outcome: 'no_mapped_values', matched: null, matchedBy: null, message: errorMessage, diffs: [] };
+    }
+    const linkPatch = zohoId ? { zoho_crm_id: zohoId, zoho_crm_module: zohoModule } : null;
+    const diffs = buildDiffs({
+      coreUpdates, customUpdates, coreToWrite, customToWrite, linkPatch,
+      entity: null, currentCustom: null, isCreate: true
+    });
+    if (dryRun) {
+      return {
+        outcome: 'created',
+        matched: null,
+        matchedBy: null,
+        coreToWrite,
+        customToWrite,
+        linkPatch,
+        diffs
+      };
     }
     const table = ENTITY_TABLE[entityType];
     const { data: created, error } = await supabase
@@ -1484,23 +1566,32 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       .single();
     if (error) throw error;
     markInboundOrigin(tenantId, entityType, created.id);
-    if (Object.keys(filteredCustom).length > 0) {
-      await applyCustomFieldUpdates(tenantId, entityType, created.id, filteredCustom);
+    if (Object.keys(customToWrite).length > 0) {
+      await applyCustomFieldUpdates(tenantId, entityType, created.id, customToWrite);
     }
     const payloadHash = computeHash({
       ...coreUpdates,
       ...Object.fromEntries(Object.entries(customUpdates).map(([k, v]) => [`custom:${k}`, v]))
     });
     await recordSyncState(tenantId, entityType, created.id, 'inbound', payloadHash);
-    await writeLog({
+    const logRow = await writeLog({
       tenant_id: tenantId, entity_type: entityType, entity_id: created.id,
       zoho_module: zohoModule, zoho_record_id: zohoId,
-      status: 'success', direction: 'inbound', source, action: 'one_time_import',
+      status: 'success', direction: 'inbound', source, action,
       payload_hash: payloadHash,
       request_payload: zohoRecord,
-      response_payload: { created: true, core: insertRow, custom: filteredCustom }
+      response_payload: { created: true, core: insertRow, custom: customToWrite }
     });
-    return 'created';
+    return {
+      outcome: 'created',
+      matched: summariseEntity(created, entityType),
+      matchedBy: 'created',
+      coreToWrite,
+      customToWrite,
+      linkPatch,
+      diffs,
+      logId: logRow?.id || null
+    };
   }
 
   // UPDATE: merge rules differ by entity type.
@@ -1542,17 +1633,39 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     linkPatch = { zoho_crm_id: zohoId, zoho_crm_module: zohoModule };
   }
 
+  const matched = summariseEntity(entity, entityType);
+
   if (Object.keys(coreToWrite).length === 0 && Object.keys(customToWrite).length === 0 && !linkPatch) {
-    await writeLog({
-      tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
-      zoho_module: zohoModule, zoho_record_id: zohoId,
-      status: 'skipped', direction: 'inbound', source, action: 'one_time_import',
-      error_message: iconnectWins
-        ? 'No-op: every iConnect field already populated; no Zoho values to fill in'
-        : 'No-op: every non-empty Zoho value already matches iConnect',
-      request_payload: zohoRecord
-    });
-    return 'skipped';
+    const errorMessage = iconnectWins
+      ? 'No-op: every iConnect field already populated; no Zoho values to fill in'
+      : 'No-op: every non-empty Zoho value already matches iConnect';
+    if (!dryRun) {
+      await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'skipped', direction: 'inbound', source, action,
+        error_message: errorMessage,
+        request_payload: zohoRecord
+      });
+    }
+    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [] };
+  }
+
+  const diffs = buildDiffs({
+    coreUpdates, customUpdates, coreToWrite, customToWrite, linkPatch,
+    entity, currentCustom, isCreate: false
+  });
+
+  if (dryRun) {
+    return {
+      outcome: 'updated',
+      matched,
+      matchedBy,
+      coreToWrite,
+      customToWrite,
+      linkPatch,
+      diffs
+    };
   }
 
   markInboundOrigin(tenantId, entityType, entity.id);
@@ -1575,15 +1688,24 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     ...(linkPatch || {})
   });
   await recordSyncState(tenantId, entityType, entity.id, 'inbound', payloadHash);
-  await writeLog({
+  const logRow = await writeLog({
     tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
     zoho_module: zohoModule, zoho_record_id: zohoId,
-    status: 'success', direction: 'inbound', source, action: 'one_time_import',
+    status: 'success', direction: 'inbound', source, action,
     payload_hash: payloadHash,
     request_payload: zohoRecord,
     response_payload: { core: coreToWrite, custom: customToWrite, link: linkPatch }
   });
-  return 'updated';
+  return {
+    outcome: 'updated',
+    matched,
+    matchedBy,
+    coreToWrite,
+    customToWrite,
+    linkPatch,
+    diffs,
+    logId: logRow?.id || null
+  };
 }
 
 /**
@@ -1675,9 +1797,9 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     for (const rec of records) {
       summary.processed += 1;
       try {
-        const outcome = await importOneRecord(tenantId, entityType, mapping, zohoModule, rec, source);
-        if (outcome === 'created') summary.created += 1;
-        else if (outcome === 'updated') summary.updated += 1;
+        const result = await importOneRecord(tenantId, entityType, mapping, zohoModule, rec, source);
+        if (result.outcome === 'created') summary.created += 1;
+        else if (result.outcome === 'updated') summary.updated += 1;
         else summary.skipped += 1;
       } catch (err) {
         summary.failed += 1;
@@ -1703,4 +1825,74 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   }
 
   return summary;
+}
+
+/**
+ * Run a single Zoho record through the same one-time import pipeline used by
+ * `importEntityFromZoho`. Used by the admin "Sync a single record" UI so a
+ * specific record can be previewed (dry-run) or synced live before kicking
+ * off a full bulk import.
+ *
+ * Returns the structured result from `importOneRecord` plus the resolved
+ * `zoho_module`. Throws on configuration errors (no mapping configured,
+ * mapping missing fields), or on a "record not found" / Zoho API failure.
+ */
+export async function importSingleZohoRecord(tenantId, entityType, zohoRecordId, options = {}) {
+  if (!ENTITY_TABLE[entityType]) {
+    throw new Error(`Unsupported entity type: ${entityType}`);
+  }
+  if (!zohoRecordId || typeof zohoRecordId !== 'string') {
+    throw new Error('zohoRecordId is required');
+  }
+  const dryRun = options.dryRun === true;
+  const source = dryRun ? 'one_time_import_single_preview' : 'one_time_import_single';
+  const action = 'one_time_import_single';
+
+  const { data: mapping, error: mapErr } = await supabase
+    .from('zoho_crm_sync_mapping')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_type', entityType)
+    .maybeSingle();
+  if (mapErr) throw mapErr;
+  if (!mapping) {
+    throw new Error(`No Zoho CRM sync mapping is configured for ${entityType} on this tenant`);
+  }
+  if (!mapping.zoho_module) {
+    throw new Error('Mapping has no Zoho module configured');
+  }
+  if (!Array.isArray(mapping.field_mappings) || mapping.field_mappings.length === 0) {
+    throw new Error('Mapping has no field mappings configured — nothing to import');
+  }
+
+  const zohoModule = mapping.zoho_module;
+  const fields = new Set(['id', 'Modified_Time']);
+  for (const m of mapping.field_mappings) {
+    if (m?.zoho_field) fields.add(m.zoho_field);
+  }
+  if (mapping.unique_key_field) fields.add(mapping.unique_key_field);
+  const fieldsParam = encodeURIComponent([...fields].join(','));
+
+  const endpoint = `/${zohoModule}/${encodeURIComponent(zohoRecordId)}?fields=${fieldsParam}`;
+  let resp;
+  try {
+    resp = await zohoCrmApiCall(tenantId, endpoint);
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (/\b204\b/.test(msg) || /\b404\b/.test(msg)) {
+      throw new Error(`Record ${zohoRecordId} not found in Zoho CRM module ${zohoModule}`);
+    }
+    throw new Error(`Failed to fetch Zoho record ${zohoRecordId}: ${msg}`);
+  }
+  const records = Array.isArray(resp?.data) ? resp.data : [];
+  if (records.length === 0) {
+    throw new Error(`Record ${zohoRecordId} not found in Zoho CRM module ${zohoModule}`);
+  }
+  const zohoRecord = records[0];
+
+  const result = await importOneRecord(
+    tenantId, entityType, mapping, zohoModule, zohoRecord, source,
+    { dryRun, action }
+  );
+  return { ...result, zoho_module: zohoModule, dryRun };
 }

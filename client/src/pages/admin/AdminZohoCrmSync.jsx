@@ -92,6 +92,84 @@ function getZohoAllowedValues(field) {
   return null;
 }
 
+function formatDiffValue(v) {
+  if (v === null || v === undefined) return <span className="text-muted-foreground italic">empty</span>;
+  if (typeof v === 'object') return <code className="text-xs">{JSON.stringify(v)}</code>;
+  if (v === '') return <span className="text-muted-foreground italic">empty</span>;
+  return <span>{String(v)}</span>;
+}
+
+const OUTCOME_BADGE_VARIANT = {
+  created: 'default',
+  updated: 'default',
+  no_change: 'secondary',
+  ambiguous: 'destructive',
+  no_mapped_values: 'secondary'
+};
+
+function SingleRecordResult({ result, entityType }) {
+  const { outcome, matched, matchedBy, diffs = [], message, dryRun, zoho_module } = result || {};
+  const outcomeLabel = outcome.replace(/_/g, ' ');
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/30 p-3" data-testid="panel-single-result">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase text-muted-foreground">{dryRun ? 'Preview' : 'Sync result'}</span>
+        <Badge variant={OUTCOME_BADGE_VARIANT[outcome] || 'secondary'} data-testid="badge-single-outcome">{outcomeLabel}</Badge>
+        {zoho_module && <span className="text-xs text-muted-foreground">module: <code>{zoho_module}</code></span>}
+      </div>
+      {matched ? (
+        <div className="text-sm" data-testid="text-single-matched">
+          <span className="text-muted-foreground">Matched iConnect {entityType}:</span>{' '}
+          <code className="text-xs">{matched.id}</code>
+          {matched.naturalKey?.value && (
+            <span className="text-muted-foreground"> · {matched.naturalKey.field}: <span className="text-foreground">{String(matched.naturalKey.value)}</span></span>
+          )}
+          {matchedBy && (
+            <span className="text-muted-foreground"> · matched by: {matchedBy.replace(/_/g, ' ')}</span>
+          )}
+        </div>
+      ) : outcome === 'created' ? (
+        <div className="text-sm text-muted-foreground" data-testid="text-single-matched">
+          No existing iConnect {entityType} matched — a new record {dryRun ? 'would be' : 'was'} created.
+        </div>
+      ) : null}
+      {message && (
+        <p className="text-xs text-muted-foreground" data-testid="text-single-message">{message}</p>
+      )}
+      {diffs.length > 0 ? (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-20">Scope</TableHead>
+                <TableHead>Field</TableHead>
+                <TableHead>Zoho value</TableHead>
+                <TableHead>Current iConnect value</TableHead>
+                <TableHead>{dryRun ? 'Would write' : 'Wrote'}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {diffs.map((d, i) => (
+                <TableRow key={`${d.scope}-${d.field}-${i}`} data-testid={`row-diff-${d.field}`}>
+                  <TableCell><Badge variant="outline" className="text-xs">{d.scope}</Badge></TableCell>
+                  <TableCell><code className="text-xs">{d.field}</code></TableCell>
+                  <TableCell>{formatDiffValue(d.zohoValue)}</TableCell>
+                  <TableCell>{formatDiffValue(d.beforeValue)}</TableCell>
+                  <TableCell>{formatDiffValue(d.afterValue)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        outcome !== 'ambiguous' && outcome !== 'no_mapped_values' && (
+          <p className="text-xs text-muted-foreground">No field changes.</p>
+        )
+      )}
+    </div>
+  );
+}
+
 function rowHasValueMap(row) {
   const vm = row?.value_map;
   if (!vm || typeof vm !== "object") return false;
@@ -155,6 +233,16 @@ export default function AdminZohoCrmSync() {
   const [importingMembers, setImportingMembers] = useState(false);
   const [importOrgsSummary, setImportOrgsSummary] = useState(null);
   const [importMembersSummary, setImportMembersSummary] = useState(null);
+
+  // Single-record manual sync (preview / live), nested inside the One-time
+  // import card. Lets admins dry-run a specific Zoho record before kicking
+  // off a full bulk import.
+  const [singleEntityType, setSingleEntityType] = useState("organization");
+  const [singleRecordId, setSingleRecordId] = useState("");
+  const [singlePreviewing, setSinglePreviewing] = useState(false);
+  const [singleSyncing, setSingleSyncing] = useState(false);
+  const [singleResult, setSingleResult] = useState(null);
+  const [singleError, setSingleError] = useState(null);
 
   useEffect(() => {
     checkConnection();
@@ -304,6 +392,7 @@ export default function AdminZohoCrmSync() {
   };
 
   const runImport = async (kind) => {
+    if (importingOrgs || importingMembers || singlePreviewing || singleSyncing) return;
     const label = kind === 'organisations' ? 'organisations' : 'members';
     if (!confirm(
       `This will paginate through every ${label[0].toUpperCase() + label.slice(1).replace(/s$/, '')} record in Zoho CRM and create or update the matching iConnect record. ` +
@@ -332,6 +421,52 @@ export default function AdminZohoCrmSync() {
       }
     } catch (err) {
       toast({ variant: "destructive", title: "Import failed", description: err.message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const runSingleRecordImport = async (dryRun) => {
+    if (singlePreviewing || singleSyncing || importingOrgs || importingMembers) return;
+    const trimmed = singleRecordId.trim();
+    if (!trimmed) {
+      toast({ variant: "destructive", title: "Zoho record id required" });
+      return;
+    }
+    if (!dryRun && !confirm(
+      `Sync Zoho ${singleEntityType === 'organization' ? 'Account/Lead' : 'Contact/Lead'} ${trimmed} into iConnect now? ` +
+      `This will create or update the matching iConnect record using the configured field mappings.`
+    )) return;
+    const setRunning = dryRun ? setSinglePreviewing : setSingleSyncing;
+    setRunning(true);
+    setSingleResult(null);
+    setSingleError(null);
+    try {
+      const r = await fetch('/api/admin/zoho-crm-sync/import-single-record', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entityType: singleEntityType,
+          zohoRecordId: trimmed,
+          dryRun
+        })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSingleResult({ ...d.result, dryRun });
+        toast({
+          title: dryRun ? 'Preview ready' : `Sync ${d.result.outcome}`,
+          description: `Outcome: ${d.result.outcome}${d.result.matched ? ` — matched iConnect ${singleEntityType} ${d.result.matched.id}` : ''}`
+        });
+        if (!dryRun) loadLogs();
+      } else {
+        setSingleError(d.error || 'Request failed');
+        toast({ variant: 'destructive', title: 'Failed', description: d.error });
+      }
+    } catch (err) {
+      setSingleError(err.message);
+      toast({ variant: 'destructive', title: 'Failed', description: err.message });
     } finally {
       setRunning(false);
     }
@@ -905,7 +1040,7 @@ export default function AdminZohoCrmSync() {
                     variant="outline"
                     size="sm"
                     onClick={() => runImport('organisations')}
-                    disabled={importingOrgs || importingMembers}
+                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
                     data-testid="button-import-organisations"
                   >
                     {importingOrgs ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -915,7 +1050,7 @@ export default function AdminZohoCrmSync() {
                     variant="outline"
                     size="sm"
                     onClick={() => runImport('members')}
-                    disabled={importingOrgs || importingMembers}
+                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
                     data-testid="button-import-members"
                   >
                     {importingMembers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -924,14 +1059,73 @@ export default function AdminZohoCrmSync() {
                 </div>
               </div>
             </CardHeader>
-            {(importOrgsSummary || importMembersSummary || importingOrgs || importingMembers) && (
-              <CardContent className="space-y-4">
-                {(importingOrgs || importingMembers) && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — this can take several minutes for large tenants. Please keep this tab open.
+            <CardContent className="space-y-6">
+              <div className="space-y-3 rounded-md border p-4">
+                <div>
+                  <h4 className="text-sm font-medium">Sync a single record</h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Pull one specific Zoho record through the same import pipeline. Use <span className="font-medium">Preview</span> to see exactly which fields would change without writing anything; use <span className="font-medium">Sync this record</span> to apply the changes. Useful for spot-checking before kicking off a full import.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="single-entity-type">Entity</Label>
+                    <Select value={singleEntityType} onValueChange={setSingleEntityType}>
+                      <SelectTrigger id="single-entity-type" className="w-[180px]" data-testid="select-single-entity-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="organization">Organisation</SelectItem>
+                        <SelectItem value="member">Member</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+                  <div className="space-y-1 flex-1 min-w-[240px]">
+                    <Label htmlFor="single-record-id">Zoho record id</Label>
+                    <Input
+                      id="single-record-id"
+                      value={singleRecordId}
+                      onChange={(e) => setSingleRecordId(e.target.value)}
+                      placeholder="e.g. 5736850000001234567"
+                      data-testid="input-single-record-id"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={() => runSingleRecordImport(true)}
+                    disabled={singlePreviewing || singleSyncing || importingOrgs || importingMembers || !singleRecordId.trim()}
+                    data-testid="button-single-preview"
+                  >
+                    {singlePreviewing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
+                    Preview
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="default"
+                    onClick={() => runSingleRecordImport(false)}
+                    disabled={singlePreviewing || singleSyncing || importingOrgs || importingMembers || !singleRecordId.trim()}
+                    data-testid="button-single-sync"
+                  >
+                    {singleSyncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                    Sync this record
+                  </Button>
+                </div>
+                {singleError && (
+                  <p className="text-sm text-destructive" data-testid="text-single-error">{singleError}</p>
                 )}
+                {singleResult && (
+                  <SingleRecordResult result={singleResult} entityType={singleEntityType} />
+                )}
+              </div>
+              {(importingOrgs || importingMembers) && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — this can take several minutes for large tenants. Please keep this tab open.
+                </div>
+              )}
+              {(importOrgsSummary || importMembersSummary) && (
+                <div className="space-y-4">
                 {importOrgsSummary && (
                   <div data-testid="text-import-orgs-summary">
                     <div className="text-xs uppercase text-muted-foreground mb-2">Organisations ({importOrgsSummary.zoho_module})</div>
@@ -971,8 +1165,9 @@ export default function AdminZohoCrmSync() {
                 <p className="text-xs text-muted-foreground">
                   See the Sync Log tab (filter by action <code>one_time_import</code>) for per-record details.
                 </p>
-              </CardContent>
-            )}
+                </div>
+              )}
+            </CardContent>
           </Card>
 
           <Card>
