@@ -80,6 +80,7 @@ import { useOrgFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/use
 import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgMembershipTab from "@/components/OrgMembershipTab";
+import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -1470,6 +1471,12 @@ export default function OrganisationDetailView({
                           </p>
                         )}
                       </div>
+                      {organization?.id && (
+                        <>
+                          <Separator />
+                          <MemberJoinLinkSection organizationId={organization.id} />
+                        </>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
