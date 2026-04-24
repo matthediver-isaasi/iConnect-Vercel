@@ -1487,16 +1487,18 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
         if (zohoId && !dryRun) await persistZohoIdOnEntity(tenantId, entityType, entity.id, zohoId, zohoModule);
       } else if (result.reason === 'ambiguous') {
         const errorMessage = `Ambiguous: ${result.count}+ iConnect ${entityType}s match ${naturalKey}="${matchValue}" — resolve manually`;
+        let logId = null;
         if (!dryRun) {
-          await writeLog({
+          const logRow = await writeLog({
             tenant_id: tenantId, entity_type: entityType, entity_id: null,
             zoho_module: zohoModule, zoho_record_id: zohoId,
             status: 'skipped', direction: 'inbound', source, action,
             error_message: errorMessage,
             request_payload: zohoRecord
           });
+          logId = logRow?.id || null;
         }
-        return { outcome: 'ambiguous', matched: null, matchedBy: null, message: errorMessage, diffs: [] };
+        return { outcome: 'ambiguous', matched: null, matchedBy: null, message: errorMessage, diffs: [], logId };
       } else if (result.reason === 'error') {
         throw new Error(`Natural-key lookup failed: ${result.error}`);
       }
@@ -1531,16 +1533,18 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     }
     if (mappedCount === 0) {
       const errorMessage = 'Skipped create: Zoho record has no non-empty mapped values';
+      let logId = null;
       if (!dryRun) {
-        await writeLog({
+        const logRow = await writeLog({
           tenant_id: tenantId, entity_type: entityType, entity_id: null,
           zoho_module: zohoModule, zoho_record_id: zohoId,
           status: 'skipped', direction: 'inbound', source, action,
           error_message: errorMessage,
           request_payload: zohoRecord
         });
+        logId = logRow?.id || null;
       }
-      return { outcome: 'no_mapped_values', matched: null, matchedBy: null, message: errorMessage, diffs: [] };
+      return { outcome: 'no_mapped_values', matched: null, matchedBy: null, message: errorMessage, diffs: [], logId };
     }
     const linkPatch = zohoId ? { zoho_crm_id: zohoId, zoho_crm_module: zohoModule } : null;
     const diffs = buildDiffs({
@@ -1639,16 +1643,18 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     const errorMessage = iconnectWins
       ? 'No-op: every iConnect field already populated; no Zoho values to fill in'
       : 'No-op: every non-empty Zoho value already matches iConnect';
+    let logId = null;
     if (!dryRun) {
-      await writeLog({
+      const logRow = await writeLog({
         tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
         zoho_module: zohoModule, zoho_record_id: zohoId,
         status: 'skipped', direction: 'inbound', source, action,
         error_message: errorMessage,
         request_payload: zohoRecord
       });
+      logId = logRow?.id || null;
     }
-    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [] };
+    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [], logId };
   }
 
   const diffs = buildDiffs({

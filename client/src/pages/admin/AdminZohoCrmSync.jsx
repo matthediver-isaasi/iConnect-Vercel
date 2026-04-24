@@ -1472,6 +1472,8 @@ export default function AdminZohoCrmSync() {
                       <SelectItem value="manual">Manual</SelectItem>
                       <SelectItem value="relink">Relink</SelectItem>
                       <SelectItem value="import">Import</SelectItem>
+                      <SelectItem value="one_time_import">One-time import (bulk)</SelectItem>
+                      <SelectItem value="one_time_import_single">One-time import (single record)</SelectItem>
                       <SelectItem value="webhook">Webhook</SelectItem>
                     </SelectContent>
                   </Select>
