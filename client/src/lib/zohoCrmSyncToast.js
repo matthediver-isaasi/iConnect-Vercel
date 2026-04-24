@@ -5,13 +5,35 @@ function formatMechanisms(mechanisms) {
   return mechanisms.join(' + ');
 }
 
+function formatRichTextMismatchLines(rtVerification) {
+  if (!rtVerification || rtVerification.success || !Array.isArray(rtVerification.mismatches)) return '';
+  const lines = rtVerification.mismatches.map(m => {
+    const expected = m.expected_preview != null ? `"${m.expected_preview}"` : `(${m.expected_length}ch)`;
+    const actual = m.actual_preview != null ? `"${m.actual_preview}"` : `(${m.actual_length}ch)`;
+    return `• ${m.api_name}: sent ${m.expected_length}ch ${expected} → got ${m.actual_length}ch ${actual}`;
+  });
+  return lines.join('\n');
+}
+
 function describeSyncResult(syncResult) {
   if (!syncResult || typeof syncResult !== 'object') return null;
   const status = syncResult.status || 'unknown';
   const moduleName = syncResult.zoho_module || 'Zoho';
   const recordId = syncResult.zoho_record_id ? ` (id ${syncResult.zoho_record_id})` : '';
   const mechanismsLine = formatMechanisms(syncResult.mechanisms);
-  const errorLine = syncResult.error_message ? `\n${syncResult.error_message}` : '';
+  const rtMismatchLines = formatRichTextMismatchLines(syncResult.rich_text_verification);
+  // When we have structured rich-text mismatch data, prefer rendering
+  // it as a clean per-field bullet list instead of the inline suffix
+  // baked into error_message. The backend deliberately keeps that
+  // suffix free of user content (only field names + length numbers,
+  // see #432), so this strip pattern is safe — no embedded `]` from
+  // user data can break it. Whitespace-tolerant on both sides.
+  const errorWithoutRtSuffix = syncResult.error_message
+    ? syncResult.error_message.replace(/\s*\[rich-text verification mismatch:[^\]]*\]\s*/g, ' ').trim()
+    : '';
+  const errorLine = rtMismatchLines
+    ? errorWithoutRtSuffix
+    : (syncResult.error_message || '');
 
   if (syncResult.timed_out) {
     return {
@@ -22,10 +44,17 @@ function describeSyncResult(syncResult) {
   }
 
   if (status === 'success') {
+    const isMismatch = !!rtMismatchLines;
     return {
-      level: 'success',
-      title: `Zoho CRM sync: success → ${moduleName}${recordId}`,
-      description: [mechanismsLine, errorLine.replace(/^\n/, '')].filter(Boolean).join('\n') || undefined
+      level: isMismatch ? 'warning' : 'success',
+      title: isMismatch
+        ? `Zoho CRM sync: partial → ${moduleName}${recordId}`
+        : `Zoho CRM sync: success → ${moduleName}${recordId}`,
+      description: [
+        mechanismsLine,
+        rtMismatchLines ? `Rich-text fields Zoho altered:\n${rtMismatchLines}` : '',
+        errorLine
+      ].filter(Boolean).join('\n') || undefined
     };
   }
 

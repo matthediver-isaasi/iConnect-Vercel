@@ -113,6 +113,71 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
  * inlining rich-text in the regular payload). Per-record rich-text fetch
  * failures are non-fatal: warn + continue, leave the field null.
  */
+/**
+ * Wrap a plain-text value as a single `<div>` so Zoho's rich-text
+ * gateway treats it as well-formed HTML and skips its lossy auto-format
+ * pass. HTML-escapes `&`, `<`, `>`, `"`, `'` in the original text and
+ * converts `\r\n`/`\n` to `<br>` so multi-line plain-text input still
+ * renders correctly in Zoho's WYSIWYG. See #432 for the silent-drop bug
+ * this prevents (Zoho stripped trailing `!BC` from a 36-char value).
+ */
+function wrapPlainTextAsRichTextHtml(text) {
+  const escaped = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\r\n|\r|\n/g, '<br>');
+  return `<div>${escaped}</div>`;
+}
+
+/**
+ * Normalise an HTML-ish rich-text value for the post-write verification
+ * comparator. Strips a single outer `<div>`/`<p>` wrapper (Zoho often
+ * adds or strips one of its own), collapses runs of whitespace to a
+ * single space, normalises `&nbsp;` ↔ space, decodes the basic HTML
+ * entities our outbound wrapper emits (so the wrapper round-trip is
+ * neutral when Zoho returns the same text decoded), and trims. This
+ * filters out cosmetic diffs (Zoho's WYSIWYG re-wraps, attribute
+ * reordering, whitespace) so the strict-equality check downstream only
+ * fires on real content drift.
+ */
+function verificationNormaliseRichText(value) {
+  if (value == null) return '';
+  let s = String(value);
+  // Strip exactly one outer <div>...</div> or <p>...</p> wrapper if the
+  // entire value is wrapped (handles both Zoho's auto-wrap and our own).
+  const wrapped = s.match(/^\s*<(div|p)\b[^>]*>([\s\S]*)<\/\1>\s*$/i);
+  if (wrapped) s = wrapped[2];
+  // Decode the entities our outbound wrapper emits. Order matters:
+  // decode `&amp;` last so we don't double-decode pre-encoded `&amp;lt;`.
+  s = s
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+  // Collapse <br>/<br/> to newline-equivalent space, then collapse all
+  // whitespace runs (including the converted br) to a single space.
+  s = s.replace(/<br\s*\/?>/gi, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+/**
+ * Truncate a string for inclusion in mismatch payloads / toast suffixes.
+ * Returns the string itself when short enough, otherwise the first
+ * `maxLen` chars followed by an ellipsis. JSON.stringify-safe.
+ */
+function previewForMismatch(value, maxLen = 120) {
+  if (value == null) return '';
+  const s = String(value);
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen) + '…';
+}
+
 async function enrichRecordWithRichText(tenantId, mapping, zohoModule, zohoRecord) {
   if (!zohoRecord || typeof zohoRecord !== 'object') return zohoRecord;
   const fieldMappings = Array.isArray(mapping?.field_mappings) ? mapping.field_mappings : [];
@@ -628,6 +693,25 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
         .map(m => m.zoho_field)
     );
     const richTextFieldsInPayload = Object.keys(payload).filter(k => richTextZohoFields.has(k));
+    // Wrap plain-text rich-text values in a single `<div>` before send.
+    // Zoho's rich-text fields are HTML-typed; sending bare plain text
+    // makes the gateway run an auto-wrap/sanitise pass that has been
+    // observed to silently drop trailing characters under conditions we
+    // don't control (most recently: a 36-char value ending in `!BC`
+    // came back at 33 chars with `!BC` stripped — see #432). Sending
+    // well-formed HTML bypasses that auto-format step. Values that
+    // already start with `<` are treated as pre-formatted HTML and pass
+    // through unchanged. The wrapping is idempotent at verification
+    // time because `verificationNormaliseRichText` strips a single
+    // outer `<div>`/`<p>` wrapper before comparing (see below).
+    for (const apiName of richTextFieldsInPayload) {
+      const original = payload[apiName];
+      if (original == null || original === '') continue;
+      const str = String(original);
+      const trimmed = str.trimStart();
+      if (trimmed.startsWith('<')) continue;
+      payload[apiName] = wrapPlainTextAsRichTextHtml(str);
+    }
     // Track multi-pick fields in this payload so the operational
     // `mechanisms` log line surfaces them — useful when diagnosing future
     // jsonarray/picklist failures (the original bug behind #424 was hidden
@@ -700,17 +784,25 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
           for (const apiName of richTextFieldsInPayload) {
             const expected = payload[apiName];
             const actual = fetched ? fetched[apiName] : undefined;
-            // Normalise null/undefined to empty string for comparison so
-            // an "explicit clear" (sent '') matches a server-returned
-            // null and vice versa — Zoho is inconsistent about which it
-            // returns for empty rich-text values.
-            const expectedNorm = expected == null ? '' : String(expected);
-            const actualNorm = actual == null ? '' : String(actual);
+            // First pass: HTML-aware normalisation that strips a single
+            // outer wrapper, decodes basic entities, normalises &nbsp;
+            // and collapses whitespace. This filters out cosmetic diffs
+            // from Zoho's WYSIWYG round-trip (it often re-wraps in
+            // <p>...</p>, sometimes adds trailing whitespace) so the
+            // strict-equality check below only fires on real content
+            // drift. Second pass: bare-string fallback (null → '') so
+            // an explicit clear still matches a server-returned null.
+            const expectedNorm = verificationNormaliseRichText(expected);
+            const actualNorm = verificationNormaliseRichText(actual);
             if (expectedNorm !== actualNorm) {
+              const expectedStr = expected == null ? '' : String(expected);
+              const actualStr = actual == null ? '' : String(actual);
               mismatches.push({
                 api_name: apiName,
-                expected_length: expectedNorm.length,
-                actual_length: actualNorm.length
+                expected_length: expectedStr.length,
+                actual_length: actualStr.length,
+                expected_preview: previewForMismatch(expectedStr),
+                actual_preview: previewForMismatch(actualStr)
               });
             }
           }
@@ -748,10 +840,19 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       ? ` [translation warnings: ${translationWarnings
           .map(w => `${w.iconnect_field}→${w.zoho_field}="${w.unmapped_value}"`).join('; ')}]`
       : '';
+    // Keep the inline suffix tight — just field names + lengths, no
+    // user content. Previews and full diagnostic detail live in the
+    // structured `rich_text_verification` object on `response_payload`
+    // (rendered cleanly by the save-toast). Embedding user-supplied
+    // text here would make the suffix unsafe to strip on the client.
     const richTextSuffix = (richTextVerification && !richTextVerification.success)
       ? (richTextVerification.verification_error
           ? ` [rich-text verification threw: ${richTextVerification.error || 'unknown'} — write itself reported success]`
-          : ` [rich-text verification mismatch: Zoho silently dropped ${richTextVerification.mismatches.map(m => m.api_name).join(', ')} — other fields synced OK]`)
+          : ` [rich-text verification mismatch: Zoho silently altered ${
+              richTextVerification.mismatches.map(m =>
+                `${m.api_name} (sent ${m.expected_length}ch → got ${m.actual_length}ch)`
+              ).join('; ')
+            } — other fields synced OK; see rich_text_verification.mismatches for previews]`)
       : '';
 
     if (result.success) {
@@ -865,6 +966,7 @@ export async function awaitZohoCrmSyncForResponse(syncPromise, timeoutMs = 8000)
     const mechanisms = Array.isArray(result.response_payload?.mechanisms)
       ? result.response_payload.mechanisms
       : null;
+    const richTextVerification = result.response_payload?.rich_text_verification || null;
     return {
       log_id: result.id || null,
       status: result.status || null,
@@ -872,7 +974,8 @@ export async function awaitZohoCrmSyncForResponse(syncPromise, timeoutMs = 8000)
       zoho_record_id: result.zoho_record_id || null,
       action: result.action || null,
       error_message: result.error_message || null,
-      mechanisms
+      mechanisms,
+      rich_text_verification: richTextVerification
     };
   } finally {
     if (timer) clearTimeout(timer);
