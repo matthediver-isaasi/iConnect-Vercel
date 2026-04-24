@@ -803,6 +803,52 @@ async function fetchPrimaryZohoFields(tenantId, module) {
   return { res: r, qualifier: 'default' };
 }
 
+// Lightweight field-type lookup used by the runtime self-heal in
+// `zohoCrmSync.js` (#430). Returns a Map of `api_name -> data_type` for
+// the requested module, populated from a SINGLE Zoho HTTP call:
+// `/settings/fields?type=all` (with the bare-call fallback that
+// `fetchPrimaryZohoFields` already implements).
+//
+// Why a separate cache + function instead of reusing
+// `getZohoCrmModuleFields`:
+//   - `getZohoCrmModuleFields` makes 5–9 HTTP calls per cache miss
+//     (primary fields + per-layout walks + rich-text probe). That's
+//     fine when the admin opens the mapping dropdown but catastrophic
+//     when it sits at the front of every fire-and-forget outbound sync
+//     on Vercel (#430 fix). The layouts walk alone has been seen to hit
+//     a 10-second timeout for the Contacts module.
+//   - Self-heal only needs `data_type` per `api_name` to decide whether
+//     a mapped field is multi-pick. `/settings/fields` reliably reports
+//     `multiselectpicklist` for every multi-select field — the only
+//     types Zoho omits are rich-text, which is acceptable to miss here
+//     (rich-text self-heal degrades to "only catches fields Zoho
+//     enumerates" — same as pre-#427 behaviour).
+//
+// Cached per (tenant, module) for 5 minutes — same TTL as
+// `moduleFieldsCache` but kept independent so the heavier path stays
+// untouched and has no shared invalidation surface.
+const fieldTypesCache = new Map();
+const FIELD_TYPES_TTL_MS = 5 * 60 * 1000;
+const fieldTypesCacheKey = (tenantId, module) => `${tenantId}::${module}`;
+
+export async function getZohoCrmModuleFieldTypes(tenantId, module) {
+  if (!module) throw new Error('Module is required');
+  const key = fieldTypesCacheKey(tenantId, module);
+  const cached = fieldTypesCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.types;
+  const { res } = await fetchPrimaryZohoFields(tenantId, module);
+  const types = new Map();
+  for (const raw of (res?.fields || [])) {
+    const apiName = raw?.api_name;
+    if (!apiName) continue;
+    const dt = raw?.data_type;
+    if (dt == null) continue;
+    types.set(apiName, String(dt));
+  }
+  fieldTypesCache.set(key, { types, expiresAt: Date.now() + FIELD_TYPES_TTL_MS });
+  return types;
+}
+
 // Walk `/settings/layouts` and, for any layout that came back as a summary
 // without embedded section fields, fetch its detail individually. Returns
 // the raw fields harvested from layouts plus per-layout debug breadcrumbs.

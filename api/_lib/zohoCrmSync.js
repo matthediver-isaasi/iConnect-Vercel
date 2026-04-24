@@ -7,7 +7,7 @@ import {
   zohoCrmApiCall,
   searchZohoCrmRecords,
   fetchZohoCrmRecordRichText,
-  getZohoCrmModuleFields
+  getZohoCrmModuleFieldTypes
 } from './zohoCrmClient.js';
 
 /**
@@ -22,11 +22,15 @@ import {
  * Zoho rejects with HTTP 400 INVALID_DATA `expected_data_type:
  * jsonarray` — the exact failure mode #424 was meant to fix.
  *
- * Self-heal: re-resolve the same Sets at sync time from the same
- * already-cached `getZohoCrmModuleFields` source the save endpoint
- * uses, then mutate `mapping.field_mappings[i]` in-place to set the
- * missing flags. Persisted-flag rows still take the fast path; this
- * only adds work for rows where the flag is absent.
+ * Self-heal: re-resolve the same Sets at sync time from a lightweight
+ * single-call `/settings/fields?type=all` lookup (#430), then mutate
+ * `mapping.field_mappings[i]` in-place to set the missing flags. The
+ * save endpoint still uses the heavier `getZohoCrmModuleFields` source
+ * to populate the admin dropdown, but the runtime path here only needs
+ * `data_type` per `api_name` — and multi-pick (the bug we have to fix)
+ * is always present in `/settings/fields`. Persisted-flag rows still
+ * take the fast path; this only adds work for rows where the flag is
+ * absent.
  *
  * Best-effort: any failure logs a warning and returns silently —
  * downstream code falls back to today's persisted-flag-only behaviour
@@ -35,9 +39,9 @@ import {
  * memory map lookup, not an HTTP round-trip.
  */
 // Derived-flag memo: caches the (multiPickSet, richTextSet) tuple per
-// tenant+module for the same 5-minute TTL as moduleFieldsCache so the
-// per-record reconciliation path doesn't re-scan the field list on every
-// inbound apply.
+// tenant+module for the same 5-minute TTL as the upstream
+// `fieldTypesCache` so the per-record reconciliation path doesn't
+// re-scan the field list on every inbound apply.
 const derivedFlagSetsCache = new Map();
 const DERIVED_FLAG_SETS_TTL_MS = 5 * 60 * 1000;
 
@@ -45,15 +49,20 @@ async function getDerivedFlagSets(tenantId, zohoModule) {
   const key = `${tenantId}::${zohoModule}`;
   const cached = derivedFlagSetsCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.sets;
-  const moduleFields = await getZohoCrmModuleFields(tenantId, zohoModule);
-  if (!Array.isArray(moduleFields)) return null;
+  // #430: use the lightweight single-call lookup instead of the heavy
+  // `getZohoCrmModuleFields` (which adds 5–9 HTTP round-trips and was
+  // starving the fire-and-forget Vercel sync before the actual record
+  // write could run). Multi-pick — the bug we have to fix here — is
+  // always present in `/settings/fields`, so the lightweight path is
+  // sufficient for self-heal.
+  const moduleFieldTypes = await getZohoCrmModuleFieldTypes(tenantId, zohoModule);
+  if (!moduleFieldTypes || moduleFieldTypes.size === 0) return null;
   const multiPickSet = new Set();
   const richTextSet = new Set();
-  for (const f of moduleFields) {
-    if (!f?.api_name) continue;
-    const dt = String(f?.data_type || '').toLowerCase();
-    if (/rich/i.test(dt)) richTextSet.add(f.api_name);
-    if (dt.includes('multi')) multiPickSet.add(f.api_name);
+  for (const [apiName, dataType] of moduleFieldTypes) {
+    const dt = String(dataType || '').toLowerCase();
+    if (/rich/i.test(dt)) richTextSet.add(apiName);
+    if (dt.includes('multi')) multiPickSet.add(apiName);
   }
   const sets = { multiPickSet, richTextSet };
   derivedFlagSetsCache.set(key, { sets, expiresAt: Date.now() + DERIVED_FLAG_SETS_TTL_MS });
