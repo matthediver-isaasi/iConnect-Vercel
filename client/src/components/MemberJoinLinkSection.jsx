@@ -2,13 +2,13 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Link2, Copy, Loader2 } from "lucide-react";
+import { Link2, Copy, Loader2, AlertCircle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 
 export default function MemberJoinLinkSection({ organizationId, showHeading = true }) {
-  const { data: joinFormSetting, isLoading } = useQuery({
+  const { data: joinFormSetting, isLoading, isError } = useQuery({
     queryKey: ['member-join-form-setting'],
     queryFn: async () => {
       const settings = await base44.entities.SystemSettings.list({
@@ -23,6 +23,7 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
       }
       return null;
     },
+    enabled: !!organizationId,
   });
 
   const hasConfiguredForm = !!joinFormSetting?.value?.id;
@@ -55,6 +56,18 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
         <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-join-link-loading">
           <Loader2 className="w-3 h-3 animate-spin" />
           Loading join link…
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-2">
+        {heading}
+        <div className="flex items-start gap-2 text-xs text-muted-foreground" data-testid="text-join-link-error">
+          <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>Couldn't load the join form setting. Refresh to try again.</span>
         </div>
       </div>
     );
