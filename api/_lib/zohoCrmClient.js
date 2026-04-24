@@ -730,6 +730,17 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
   // Layouts pass — best-effort. If it fails (permission, not enabled, etc.),
   // we still return whatever `/settings/fields` gave us so the dropdown is
   // never worse off than before.
+  //
+  // Layouts also surface field types we explicitly don't want in the
+  // mapping dropdown (subforms, file/image uploads, lookup display fields).
+  // Filter those out here so the layouts merge only fills gaps for "real"
+  // mappable fields like rich-text and standard textarea/picklist/etc.
+  const LAYOUT_DATA_TYPE_DENY = new Set([
+    'subform',
+    'imageupload', 'image_upload',
+    'fileupload', 'file_upload',
+    'profileimage', 'profile_image'
+  ]);
   let layoutsRes = null;
   let layoutsError = null;
   try {
@@ -739,6 +750,8 @@ export async function getZohoCrmModuleFields(tenantId, module, options = {}) {
         for (const raw of (section?.fields || [])) {
           const mapped = mapZohoField(raw);
           if (!mapped) continue;
+          const dt = String(mapped.data_type || '').toLowerCase();
+          if (LAYOUT_DATA_TYPE_DENY.has(dt)) continue;
           if (!byApiName.has(mapped.api_name)) {
             byApiName.set(mapped.api_name, mapped);
             fromLayouts.push(mapped.api_name);
