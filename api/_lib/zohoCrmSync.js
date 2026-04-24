@@ -3,7 +3,6 @@ import { supabase } from './database.js';
 import {
   upsertZohoCrmRecord,
   updateZohoCrmRecordById,
-  updateZohoCrmRecordRichText,
   isZohoCrmConnected,
   zohoCrmApiCall,
   searchZohoCrmRecords,
@@ -384,91 +383,123 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       });
     }
 
-    // Rich-text fields are routed through `updateZohoCrmRecordRichText`,
-    // which (since #419) writes them via the standard
-    // `PUT /{module}/{record_id}` record-update endpoint with HTML inline
-    // in the body — the same shape the v8 API directory documents for all
-    // field updates. The previous code targeted an undocumented
-    // `actions/rich_text` PUT path which Zoho's gateway accepted but did
-    // not reliably persist; the standard endpoint matches Zoho's
-    // documented surface and avoids that drift. We still split the
-    // payload here (regular vs rich-text) so a rich-text-write failure
-    // can be reported separately and not mask a successful update of
-    // every other mapped field — see the "rich_text_dedicated_failed"
-    // log marker below. The `is_rich_text` flag is stamped at mapping
-    // save (see `api/admin/zoho-crm-sync/mappings.js`) so this needs
-    // zero extra Zoho metadata calls per outbound sync.
+    // Build the combined payload for Zoho's standard record-update path.
+    // Since #422 we no longer split rich-text fields off into a dedicated
+    // PUT — that split was originally introduced (see #413) to target an
+    // undocumented `actions/rich_text` endpoint which #419 retired in
+    // favour of the documented v8 `actions/fetch_full_data` for reads.
+    // The interim writer (#419) kept the split but pointed at a
+    // mixed-pattern URL (`PUT /{module}/{record_id}` with id ALSO in the
+    // body) which Zoho's gateway accepted but silently dropped rich-text
+    // values from. Merging the rich-text and regular fields into one
+    // standard `updateZohoCrmRecordById` call removes the malformed
+    // mixed-URL request, removes an extra HTTP round-trip per outbound
+    // sync, and matches the documented Zoho update shape (`PUT /{module}`
+    // with `data:[{id, ...fields}], trigger:['workflow']`).
+    //
+    // The `is_rich_text` flag (stamped at mapping save by
+    // `api/admin/zoho-crm-sync/mappings.js`) is still tracked here — not
+    // for routing, but for the post-write verification step further
+    // down. After the combined PUT lands successfully we re-read every
+    // rich-text field that was part of this write via the v8
+    // `fetchZohoCrmRecordRichText` endpoint and confirm the value
+    // actually persisted on Zoho's side. This catches Zoho's
+    // historical silent-drop failure mode loudly instead of letting it
+    // sit invisibly behind a 2xx response (the same lesson #419
+    // hardened on the read side).
     const richTextZohoFields = new Set(
       (mapping.field_mappings || [])
         .filter(m => m?.is_rich_text === true && m?.zoho_field)
         .map(m => m.zoho_field)
     );
-    const regularPayload = {};
-    const richTextPayload = {};
-    for (const [k, v] of Object.entries(payload)) {
-      if (richTextZohoFields.has(k)) {
-        richTextPayload[k] = v;
-      } else {
-        regularPayload[k] = v;
-      }
-    }
+    const richTextFieldsInPayload = Object.keys(payload).filter(k => richTextZohoFields.has(k));
 
     const mechanismsUsed = [];
     let result;
     let zohoRecordId = entity.zoho_crm_id;
 
     if (zohoRecordId && entity.zoho_crm_module === mapping.zoho_module) {
-      if (Object.keys(regularPayload).length > 0) {
-        result = await updateZohoCrmRecordById(tenantId, mapping.zoho_module, zohoRecordId, regularPayload);
-        mechanismsUsed.push(`update_by_id:${Object.keys(regularPayload).length}`);
-      } else {
-        // All mapped values were rich-text — no work for the standard
-        // endpoint. Synthesize a success so the rich-text write below can
-        // still run against the known record id.
-        result = { success: true, id: zohoRecordId, action: 'update', details: { id: zohoRecordId } };
-        mechanismsUsed.push('update_by_id:skipped_no_regular_fields');
-      }
+      result = await updateZohoCrmRecordById(tenantId, mapping.zoho_module, zohoRecordId, payload);
+      mechanismsUsed.push(`update_by_id:${Object.keys(payload).length}`);
     } else {
-      // Upsert path. Without a non-rich-text payload Zoho's upsert has
-      // nothing to dedupe on, so fail loud rather than create a blank
-      // record. In practice unique_key_field (Email/Account_Name/etc.) is
-      // never rich-text so this branch is defensive.
-      if (Object.keys(regularPayload).length === 0) {
+      // Upsert path. Without any payload Zoho's upsert has nothing to
+      // dedupe on, so fail loud rather than create a blank record. The
+      // unique_key_field (Email/Account_Name/etc.) is never rich-text in
+      // practice so the merged payload is always safe to upsert.
+      if (Object.keys(payload).length === 0) {
         result = {
           success: false,
-          error: 'Cannot upsert a new Zoho record using only rich-text fields — at least one non-rich-text mapped field (including the unique key) must have a value'
+          error: 'Cannot upsert a new Zoho record with an empty payload — at least one mapped field (including the unique key) must have a value'
         };
-        mechanismsUsed.push('upsert:skipped_no_regular_fields');
+        mechanismsUsed.push('upsert:skipped_empty_payload');
       } else {
-        result = await upsertZohoCrmRecord(tenantId, mapping.zoho_module, regularPayload, mapping.unique_key_field);
-        mechanismsUsed.push(`upsert:${Object.keys(regularPayload).length}`);
+        result = await upsertZohoCrmRecord(tenantId, mapping.zoho_module, payload, mapping.unique_key_field);
+        mechanismsUsed.push(`upsert:${Object.keys(payload).length}`);
       }
     }
 
-    // Rich-text write: independent of and non-fatal to the regular update.
-    // Per task #413, a rich-text-specific failure must NOT mask the success
-    // of other field updates — we surface it via the log instead.
-    let richTextResult = null;
-    if (result.success && Object.keys(richTextPayload).length > 0) {
-      zohoRecordId = result.id || zohoRecordId;
-      if (zohoRecordId) {
+    // Post-write verification for rich-text fields. The standard Zoho
+    // update endpoint *should* persist rich-text values inline, but the
+    // gateway has been historically reported to silently drop them
+    // under certain conditions (and the recently-fixed `actions/rich_text`
+    // quirk in #419 is fresh proof that 2xx + status:'success' from
+    // this gateway is not a guarantee of persistence). We re-read every
+    // rich-text field we just wrote via the v8 `fetch_full_data`
+    // endpoint and compare. The comparator is intentionally lenient:
+    // it only flags the "we sent non-empty, server returned empty"
+    // silent-drop case, so HTML-normalisation differences from Zoho's
+    // rich-text editor don't produce false positives. Verification
+    // failures are reported but non-fatal — other fields landed
+    // cleanly per Zoho's response and the log message highlights the
+    // mismatch so operators can spot patterns. A verification miss
+    // also suppresses the outbound payload-hash stamp so the same
+    // payload will be retried on the next sync trigger.
+    let richTextVerification = null;
+    if (result.success && richTextFieldsInPayload.length > 0) {
+      const writtenRecordId = result.id || zohoRecordId;
+      if (writtenRecordId) {
         try {
-          richTextResult = await updateZohoCrmRecordRichText(
-            tenantId, mapping.zoho_module, zohoRecordId, richTextPayload
+          const fetched = await fetchZohoCrmRecordRichText(
+            tenantId, mapping.zoho_module, writtenRecordId, richTextFieldsInPayload
           );
-          if (richTextResult.success) {
-            mechanismsUsed.push(`rich_text_dedicated:${Object.keys(richTextPayload).length}`);
-          } else {
-            mechanismsUsed.push(`rich_text_dedicated_failed:${richTextResult.error || 'unknown'}`);
-            console.warn('[ZohoCrmSync] Rich-text write failed for', entityType, entityId, '-', richTextResult.error);
+          const mismatches = [];
+          for (const apiName of richTextFieldsInPayload) {
+            const sent = payload[apiName];
+            const got = fetched ? fetched[apiName] : undefined;
+            const sentEmpty = sent == null || sent === '';
+            const gotEmpty = got == null || got === '';
+            if (!sentEmpty && gotEmpty) {
+              mismatches.push({
+                api_name: apiName,
+                sent_length: typeof sent === 'string' ? sent.length : 0,
+                fetched_length: typeof got === 'string' ? got.length : 0
+              });
+            }
           }
-        } catch (rtErr) {
-          richTextResult = { success: false, error: rtErr?.message || String(rtErr) };
-          mechanismsUsed.push(`rich_text_dedicated_threw:${richTextResult.error}`);
-          console.warn('[ZohoCrmSync] Rich-text write threw for', entityType, entityId, '-', rtErr?.message || rtErr);
+          if (mismatches.length === 0) {
+            richTextVerification = { success: true, fields: richTextFieldsInPayload };
+            mechanismsUsed.push(`rich_text_verified:${richTextFieldsInPayload.length}`);
+          } else {
+            richTextVerification = { success: false, mismatches };
+            mechanismsUsed.push(`rich_text_verification_mismatch:${mismatches.map(m => m.api_name).join(',')}`);
+            for (const m of mismatches) {
+              console.warn(
+                '[ZohoCrmSync] Rich-text verification mismatch on', mapping.zoho_module, writtenRecordId,
+                '- field', m.api_name, 'sent length', m.sent_length, 'fetched length', m.fetched_length,
+                '(silent drop by Zoho)'
+              );
+            }
+          }
+        } catch (vErr) {
+          // Verification call itself failed — surface in log so operators
+          // can spot patterns but do NOT roll back the write (Zoho
+          // reported it succeeded and other fields landed cleanly).
+          richTextVerification = { success: false, error: vErr?.message || String(vErr), verification_error: true };
+          mechanismsUsed.push(`rich_text_verification_threw:${vErr?.message || vErr}`);
+          console.warn('[ZohoCrmSync] Rich-text verification threw for', entityType, entityId, '-', vErr?.message || vErr);
         }
       } else {
-        mechanismsUsed.push('rich_text_dedicated_skipped:no_record_id');
+        mechanismsUsed.push('rich_text_verification_skipped:no_record_id');
       }
     }
 
@@ -478,21 +509,23 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       ? ` [translation warnings: ${translationWarnings
           .map(w => `${w.iconnect_field}→${w.zoho_field}="${w.unmapped_value}"`).join('; ')}]`
       : '';
-    const richTextSuffix = (richTextResult && !richTextResult.success)
-      ? ` [rich-text write failed: ${richTextResult.error || 'unknown'} — other fields synced OK]`
+    const richTextSuffix = (richTextVerification && !richTextVerification.success)
+      ? (richTextVerification.verification_error
+          ? ` [rich-text verification threw: ${richTextVerification.error || 'unknown'} — write itself reported success]`
+          : ` [rich-text verification mismatch: Zoho silently dropped ${richTextVerification.mismatches.map(m => m.api_name).join(', ')} — other fields synced OK]`)
       : '';
 
     if (result.success) {
       await persistZohoIdOnEntity(tenantId, entityType, entityId, result.id, mapping.zoho_module);
-      // Only stamp the outbound payload hash if the *full* sync (regular
-      // + rich-text legs) landed cleanly. If the rich-text leg failed, a
-      // future sync of the identical payload should still run so the
-      // dedicated rich-text endpoint can be retried — recording the hash
-      // here would no-op that retry (see lastOutbound short-circuit
-      // above) and let the rich-text drift sit until an unrelated field
-      // change forces a new payload.
-      const richTextLegFailed = !!(richTextResult && !richTextResult.success);
-      if (!richTextLegFailed) {
+      // Only stamp the outbound payload hash if the write *and* the
+      // rich-text verification both landed cleanly. If verification
+      // flagged a silent drop (or threw), a future sync of the identical
+      // payload should still run so the write can be retried — recording
+      // the hash here would no-op that retry (see lastOutbound short-
+      // circuit above) and let the rich-text drift sit until an
+      // unrelated field change forces a new payload.
+      const verificationFailed = !!(richTextVerification && !richTextVerification.success);
+      if (!verificationFailed) {
         await recordSyncState(tenantId, entityType, entityId, 'outbound', payloadHash);
       }
       const okMessage = (warningSuffix || richTextSuffix)
@@ -508,9 +541,7 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
         response_payload: {
           ...(result.details || {}),
           mechanisms: mechanismsUsed,
-          ...(richTextResult ? { rich_text_result: richTextResult.success
-              ? { success: true, fields: Object.keys(richTextPayload) }
-              : { success: false, error: richTextResult.error, fields: Object.keys(richTextPayload) } } : {}),
+          ...(richTextVerification ? { rich_text_verification: richTextVerification } : {}),
           ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {})
         }
       });

@@ -1511,43 +1511,14 @@ export async function updateZohoCrmRecordById(tenantId, module, recordId, record
   return { success: false, error: 'No data in Zoho CRM response', raw: response };
 }
 
-/**
- * PUT a record's rich-text field values via Zoho's standard record-update
- * endpoint `PUT /{module}/{record_id}`. The Zoho v8 API directory does NOT
- * publish a dedicated rich-text write endpoint — the previous code wrote
- * to `actions/rich_text`, an undocumented and likely-deprecated path that
- * was the symmetric mistake to the read-side bug fixed in
- * `fetchZohoCrmRecordRichText`. Rich-text fields write reliably through
- * the standard update path with HTML strings included in the record body,
- * matching the shape used by every other field type elsewhere in this
- * client (see `upsertZohoCrmRecord`).
- *
- * `fieldValues` is a flat `{ api_name: html_value }` map. The record `id`
- * is added automatically. An empty/missing map short-circuits with a
- * `skipped: true` result so callers can chain unconditionally.
- */
-export async function updateZohoCrmRecordRichText(tenantId, module, recordId, fieldValues) {
-  if (!module) throw new Error('Module is required');
-  if (!recordId) throw new Error('Record id is required');
-  if (!fieldValues || typeof fieldValues !== 'object' || Object.keys(fieldValues).length === 0) {
-    return { success: true, skipped: true, reason: 'no rich-text fields to write' };
-  }
-  const enc = encodeURIComponent(module);
-  const encId = encodeURIComponent(recordId);
-  const payload = {
-    data: [{ id: recordId, ...fieldValues }]
-  };
-  const response = await zohoCrmApiCall(tenantId, `/${enc}/${encId}`, {
-    method: 'PUT',
-    body: JSON.stringify(payload)
-  });
-  if (response?.data?.[0]) {
-    const result = response.data[0];
-    if (result.status === 'success') {
-      return { success: true, id: result.details?.id || recordId, action: 'update', details: result.details, raw: response };
-    }
-    return { success: false, error: result.message || 'Unknown error', code: result.code, raw: response };
-  }
-  return { success: false, error: 'No data in Zoho CRM response', raw: response };
-}
+// NOTE: A previous `updateZohoCrmRecordRichText` helper was removed in
+// task #422. It mixed two Zoho update patterns (id in URL AND id in body),
+// which the Zoho gateway accepted but silently dropped rich-text values
+// from. Outbound sync now sends rich-text fields inline through the
+// standard `updateZohoCrmRecordById` path (`PUT /{module}` with
+// id-in-body + `trigger:['workflow']`), and verifies persistence by
+// re-fetching the rich-text values via `fetchZohoCrmRecordRichText`.
+// See `api/_lib/zohoCrmSync.js` for the merged write + verification
+// flow and the original investigation notes in
+// `.local/tasks/task-422-fix-zoho-richtext-write.md`.
 
