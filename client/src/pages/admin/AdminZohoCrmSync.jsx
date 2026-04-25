@@ -627,10 +627,10 @@ export default function AdminZohoCrmSync() {
     setActiveTab("logs");
   };
 
-  // Cap on the number of automatic chunk continuations per session to
-  // prevent a runaway loop (e.g. if the server's `truncated` flag ever
-  // got stuck). After this many auto-continues the operator must click
-  // the manual Continue button.
+  // Hard cap on the *total* number of chunks (manual + automatic) the UI
+  // will run in a single session before forcing the operator to click
+  // Continue manually. Guards against runaway loops if the server's
+  // `truncated` flag ever got stuck.
   const IMPORT_AUTO_CHUNK_CAP = 50;
 
   // Track the pending auto-continue timer so we can cancel it on unmount,
@@ -755,9 +755,14 @@ export default function AdminZohoCrmSync() {
         // toast reflects what *this* chunk actually did.
         toast({
           title: `Chunk ${accumulator.runs} complete — ${isOrgs ? 'organisations' : 'members'}`,
-          description: `Processed ${s.processed || 0} this chunk (${accumulator.processed} total). Paused after page ${s.last_page ?? '?'}. ${autoChunkIndex < IMPORT_AUTO_CHUNK_CAP ? `Auto-continuing at page ${nextPage}…` : `Click Continue to resume at page ${nextPage}.`}`
+          description: `Processed ${s.processed || 0} this chunk (${accumulator.processed} total). Paused after page ${s.last_page ?? '?'}. ${(autoChunkIndex + 1 < IMPORT_AUTO_CHUNK_CAP) ? `Auto-continuing at page ${nextPage}…` : `Click Continue to resume at page ${nextPage}.`}`
         });
-        if (autoChunkIndex < IMPORT_AUTO_CHUNK_CAP) {
+        // `autoChunkIndex` is 0 for the first chunk, so the next chunk
+        // would have index `autoChunkIndex + 1` and be the
+        // (autoChunkIndex + 2)-th chunk overall. Stop auto-continuing
+        // once that would exceed the cap, giving an exact total cap of
+        // IMPORT_AUTO_CHUNK_CAP chunks per session.
+        if (autoChunkIndex + 1 < IMPORT_AUTO_CHUNK_CAP) {
           const warnMsg = `Import paused after page ${s.last_page ?? '?'} (Vercel time budget reached). Auto-continuing at page ${nextPage} — ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) processed so far.`;
           setWarning(warnMsg);
           // Hand off to the next chunk. Don't clear the running flag —
