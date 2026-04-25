@@ -45,6 +45,34 @@ import {
 const derivedFlagSetsCache = new Map();
 const DERIVED_FLAG_SETS_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Invalidate the derived-flag memo. Mirrors the
+ * `clearZohoCrmModuleFieldsCache` shape exposed by `zohoCrmClient.js`:
+ *  - call with `(tenantId, module)` to drop one entry,
+ *  - call with `(tenantId)` to drop every entry for one tenant,
+ *  - call with no args to clear the whole cache.
+ *
+ * Used by the mapping save endpoint and the one-off mapping-migration
+ * tooling (`scripts/migrate-zoho-overview.mjs` via the
+ * `/api/admin/zoho-crm-sync/invalidate-mapping-cache` endpoint) so a
+ * mapping flip takes effect on the very next sync without waiting for
+ * the 5-minute TTL or restarting the running app.
+ */
+export function clearZohoCrmDerivedFlagSetsCache(tenantId, zohoModule) {
+  if (!tenantId) {
+    derivedFlagSetsCache.clear();
+    return;
+  }
+  if (!zohoModule) {
+    const prefix = `${tenantId}::`;
+    for (const k of derivedFlagSetsCache.keys()) {
+      if (k.startsWith(prefix)) derivedFlagSetsCache.delete(k);
+    }
+    return;
+  }
+  derivedFlagSetsCache.delete(`${tenantId}::${zohoModule}`);
+}
+
 async function getDerivedFlagSets(tenantId, zohoModule) {
   const key = `${tenantId}::${zohoModule}`;
   const cached = derivedFlagSetsCache.get(key);

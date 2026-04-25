@@ -316,14 +316,57 @@ async function updateMapping(args) {
     console.log(`  [ok] mapping ${row.id} updated`);
   }
 
-  // Cache-bust note: the in-memory caches that read this mapping
-  // (`derivedFlagSetsCache` and `moduleFieldsCache` in the API process)
-  // live in the running Express/Vercel function process — NOT in this
-  // out-of-process Node script — so there is nothing to invalidate from
-  // here. Restart the running app workflow after `--update-mapping
-  // --apply` to drop those caches and pick up the re-pointed mapping.
-  console.log('  Restart the app workflow now to bust in-memory mapping/field-type caches.');
+  if (args.apply) {
+    await invalidateMappingCacheOnRunningApp(tenantId);
+  }
   console.log('');
+}
+
+/**
+ * After a mapping flip, ask the running app process to drop the
+ * in-memory derived-flag + module-fields caches for this tenant so the
+ * change takes effect on the very next sync (no waiting for the 5-min
+ * TTL, no workflow restart).
+ *
+ * Talks to `POST /api/admin/zoho-crm-sync/invalidate-mapping-cache`,
+ * which accepts either an admin session OR a `Bearer ${CRON_SECRET}`
+ * header (matching the existing cron-auth pattern in `api/cron/*.js`).
+ *
+ * Configurable via env:
+ *   APP_BASE_URL — default `http://localhost:5000` (the dev workflow).
+ *                  Set to the Vercel deployment URL when running this
+ *                  script against production.
+ *   CRON_SECRET  — optional. If set in this shell, sent as the bearer
+ *                  token. Required when targeting production.
+ *
+ * Failure is non-fatal: the mapping write itself already succeeded;
+ * the operator can fall back to restarting the workflow.
+ */
+async function invalidateMappingCacheOnRunningApp(tenantId) {
+  const baseUrl = (process.env.APP_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
+  const url = `${baseUrl}/api/admin/zoho-crm-sync/invalidate-mapping-cache`;
+  const cronSecret = process.env.CRON_SECRET;
+  console.log(`\n  Invalidating mapping caches on running app at ${baseUrl} ...`);
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(cronSecret ? { authorization: `Bearer ${cronSecret}` } : {})
+      },
+      body: JSON.stringify({ tenantId, zohoModule: MODULE })
+    });
+    const text = await resp.text();
+    if (resp.ok) {
+      console.log(`  [ok] cache invalidated — ${text}`);
+    } else {
+      console.warn(`  [WARN] cache invalidation returned HTTP ${resp.status}: ${text}`);
+      console.warn('         Restart the app workflow manually to drop the caches.');
+    }
+  } catch (err) {
+    console.warn(`  [WARN] could not reach ${url}: ${err?.message || err}`);
+    console.warn('         Restart the app workflow manually to drop the caches.');
+  }
 }
 
 async function main() {
