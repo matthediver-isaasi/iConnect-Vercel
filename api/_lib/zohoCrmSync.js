@@ -3,6 +3,7 @@ import { supabase } from './database.js';
 import {
   upsertZohoCrmRecord,
   updateZohoCrmRecordById,
+  deleteZohoCrmRecord,
   isZohoCrmConnected,
   zohoCrmApiCall,
   searchZohoCrmRecords,
@@ -2682,4 +2683,324 @@ export async function importSingleZohoRecord(tenantId, entityType, zohoRecordId,
     { dryRun, action }
   );
   return { ...result, zoho_module: zohoModule, dryRun };
+}
+
+// ===========================================================================
+// Outbound reconcile (#442) — see docs/zoho-sync-reconcile-design.md.
+//
+// `pollLocalOutboundDrift` is the cron-side counterpart to the existing
+// `pollZohoCrmReconciliation` inbound poller. For each enabled outbound (or
+// bidirectional) mapping it scans the parent entity table for rows whose
+// `updated_at` is newer than the most recent successful outbound sync, and
+// re-runs them through `syncEntityToZohoCrm` with `action: 'reconcile'`.
+//
+// The engine's existing payload-hash + ECHO_DEBOUNCE guards make a no-op
+// pass effectively free — if nothing changed since the last sync, the
+// engine short-circuits without an HTTP call to Zoho. After the entity
+// pass, pending tombstones for the same tenant are drained: each one is
+// pushed to Zoho's DELETE endpoint and either marked processed or
+// retried on the next tick.
+// ===========================================================================
+
+const OUTBOUND_DRIFT_BATCH_LIMIT = 200;
+const OUTBOUND_TOMBSTONE_BATCH_LIMIT = 100;
+// Bail out of a tenant's loop if Zoho fails this many times in a row —
+// protects the API budget during a Zoho outage and avoids burning the
+// whole batch retrying every drifted row.
+const OUTBOUND_CONSECUTIVE_FAILURE_LIMIT = 5;
+
+function jitterDelayMs() {
+  // Small 50–150 ms jitter between Zoho calls so a backlog drain does
+  // not burst the API. Sequential within a tenant to match the existing
+  // inbound poller's behaviour.
+  return 50 + Math.floor(Math.random() * 100);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isSkippedLog(log) {
+  return !!(log && log.status === 'skipped');
+}
+
+function isSuccessLog(log) {
+  return !!(log && log.status === 'success');
+}
+
+/**
+ * Delete a single Zoho CRM record by its stored `zoho_crm_id` and
+ * `zoho_crm_module`. Logs the outcome to `zoho_crm_sync_log` so
+ * deletes appear in the same audit stream as updates. A 404 from
+ * Zoho (or `RECORD_NOT_FOUND` / `INVALID_DATA` codes) is treated as
+ * success because the goal — the record no longer exists in Zoho —
+ * has been met.
+ */
+export async function deleteEntityFromZohoCrm(tenantId, entityType, entityId, zohoCrmId, zohoCrmModule, options = {}) {
+  if (!tenantId || !entityType || !zohoCrmId || !zohoCrmModule) {
+    return { success: false, error: 'Missing tenantId, entityType, zohoCrmId or zohoCrmModule' };
+  }
+  const source = options.source || 'reconcile-outbound';
+  const action = options.action || 'delete';
+
+  const result = await deleteZohoCrmRecord(tenantId, zohoCrmModule, zohoCrmId);
+  if (result.success) {
+    await writeLog({
+      tenant_id: tenantId,
+      entity_type: entityType,
+      entity_id: entityId || null,
+      zoho_module: zohoCrmModule,
+      zoho_record_id: zohoCrmId,
+      status: 'success',
+      action,
+      source,
+      error_message: result.alreadyGone ? 'Zoho record already gone (treated as success)' : null
+    });
+  } else {
+    await writeLog({
+      tenant_id: tenantId,
+      entity_type: entityType,
+      entity_id: entityId || null,
+      zoho_module: zohoCrmModule,
+      zoho_record_id: zohoCrmId,
+      status: 'failed',
+      action,
+      source,
+      error_message: result.error || 'Unknown delete failure'
+    });
+  }
+  return result;
+}
+
+/**
+ * Scan local entity tables for rows whose `updated_at` watermark is
+ * newer than the last successful outbound sync, and replay them
+ * through `syncEntityToZohoCrm`. Then drain pending tombstones for
+ * the same tenant.
+ *
+ * Sequential per-entity, sequential per-row, with a small jitter
+ * between Zoho calls. Bails out of the current tenant's loop after
+ * `OUTBOUND_CONSECUTIVE_FAILURE_LIMIT` consecutive failures so a Zoho
+ * outage does not burn through the API budget. Returns a per-entity
+ * summary suitable for inclusion in the cron's aggregate response.
+ */
+export async function pollLocalOutboundDrift(tenantId, options = {}) {
+  const source = options.source || 'reconcile-outbound';
+  const batchLimit = Math.max(1, Math.min(options.batchLimit || OUTBOUND_DRIFT_BATCH_LIMIT, OUTBOUND_DRIFT_BATCH_LIMIT));
+  const tombstoneLimit = Math.max(1, Math.min(options.tombstoneLimit || OUTBOUND_TOMBSTONE_BATCH_LIMIT, OUTBOUND_TOMBSTONE_BATCH_LIMIT));
+  const summary = { tenant_id: tenantId, entities: [], tombstones: null };
+
+  const { data: mappings, error: mapErr } = await supabase
+    .from('zoho_crm_sync_mapping')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('is_enabled', true)
+    .in('sync_direction', ['outbound', 'bidirectional']);
+  if (mapErr) throw mapErr;
+
+  if (!mappings || mappings.length === 0) {
+    summary.skipped = 'no_outbound_mappings';
+    return summary;
+  }
+
+  let bailReason = null;
+
+  for (const mapping of mappings) {
+    if (bailReason) break;
+    const entityType = mapping.entity_type;
+    const table = ENTITY_TABLE[entityType];
+    if (!table) continue;
+
+    const entityStart = Date.now();
+    const counters = {
+      tenant_id: tenantId,
+      entity_type: entityType,
+      candidates: 0,
+      synced: 0,
+      noop: 0,
+      failed: 0,
+      duration_ms: 0
+    };
+
+    try {
+      // Pull the drift set via the SECURITY-INVOKER RPC defined in
+      // 20260425_zoho_outbound_drift_rpc.sql — a LEFT JOIN against
+      // zoho_crm_sync_state is needed to handle never-synced rows
+      // (no state row at all) without overfetching client-side.
+      // Ordered oldest-first so a long Zoho outage cannot starve old
+      // rows.
+      const { data: drifted, error: candErr } = await supabase.rpc(
+        'zoho_crm_outbound_drift_candidates',
+        { p_tenant_id: tenantId, p_entity_type: entityType, p_limit: batchLimit }
+      );
+      if (candErr) throw candErr;
+
+      counters.candidates = (drifted || []).length;
+
+      let consecutiveFailures = 0;
+      for (const row of drifted || []) {
+        try {
+          const log = await syncEntityToZohoCrm(tenantId, entityType, row.id, {
+            action: 'reconcile',
+            source
+          });
+          if (isSuccessLog(log)) {
+            counters.synced += 1;
+            consecutiveFailures = 0;
+          } else if (isSkippedLog(log)) {
+            counters.noop += 1;
+            consecutiveFailures = 0;
+          } else if (log && log.status === 'failed') {
+            counters.failed += 1;
+            consecutiveFailures += 1;
+          } else {
+            // null log => engine short-circuited (e.g. mapping vanished
+            // mid-loop, or origin-loop guard). Treat as no-op.
+            counters.noop += 1;
+            consecutiveFailures = 0;
+          }
+        } catch (err) {
+          counters.failed += 1;
+          consecutiveFailures += 1;
+          console.error('[cron/zoho-crm-reconcile-outbound] Sync threw:', tenantId, entityType, row.id, err?.message || err);
+        }
+
+        if (consecutiveFailures >= OUTBOUND_CONSECUTIVE_FAILURE_LIMIT) {
+          bailReason = `consecutive_failures:${consecutiveFailures}`;
+          break;
+        }
+        await sleep(jitterDelayMs());
+      }
+    } catch (err) {
+      console.error('[cron/zoho-crm-reconcile-outbound] Entity pass error:', tenantId, entityType, err);
+      counters.error = err?.message || String(err);
+    }
+
+    counters.duration_ms = Date.now() - entityStart;
+    summary.entities.push(counters);
+    console.log(
+      `[cron/zoho-crm-reconcile-outbound] tenant=${tenantId} entity=${entityType} ` +
+      `candidates=${counters.candidates} synced=${counters.synced} ` +
+      `noop=${counters.noop} failed=${counters.failed} ` +
+      `duration_ms=${counters.duration_ms}` +
+      (counters.error ? ` error=${counters.error}` : '')
+    );
+  }
+
+  // Tombstone drain — only if we did not bail out of the entity passes.
+  if (!bailReason) {
+    const tStart = Date.now();
+    const tCounters = {
+      tenant_id: tenantId,
+      candidates: 0,
+      processed: 0,
+      already_gone: 0,
+      no_zoho_id: 0,
+      failed: 0,
+      duration_ms: 0
+    };
+    try {
+      const { data: tombstones, error: tErr } = await supabase
+        .from('zoho_crm_sync_tombstone')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .is('processed_at', null)
+        .order('deleted_at', { ascending: true })
+        .limit(tombstoneLimit);
+      if (tErr) throw tErr;
+
+      tCounters.candidates = (tombstones || []).length;
+      let consecutiveFailures = 0;
+
+      for (const ts of tombstones || []) {
+        // Nothing to delete in Zoho for rows that were never synced.
+        if (!ts.zoho_crm_id || !ts.zoho_crm_module) {
+          const { error: updErr } = await supabase
+            .from('zoho_crm_sync_tombstone')
+            .update({ processed_at: new Date().toISOString() })
+            .eq('id', ts.id);
+          if (updErr) {
+            // Treat as a failure — don't claim "processed" if the row
+            // is still pending in the DB, otherwise the next tick will
+            // re-delete and we'll over-count.
+            console.error('[cron/zoho-crm-reconcile-outbound] Tombstone mark-processed failed:', tenantId, ts.id, updErr);
+            tCounters.failed += 1;
+            consecutiveFailures += 1;
+          } else {
+            tCounters.no_zoho_id += 1;
+            tCounters.processed += 1;
+            consecutiveFailures = 0;
+          }
+          if (consecutiveFailures >= OUTBOUND_CONSECUTIVE_FAILURE_LIMIT) {
+            bailReason = `tombstone_consecutive_failures:${consecutiveFailures}`;
+            break;
+          }
+          continue;
+        }
+
+        const result = await deleteEntityFromZohoCrm(
+          tenantId, ts.entity_type, ts.entity_id, ts.zoho_crm_id, ts.zoho_crm_module,
+          { source }
+        );
+        if (result.success) {
+          const { error: updErr } = await supabase
+            .from('zoho_crm_sync_tombstone')
+            .update({
+              processed_at: new Date().toISOString(),
+              attempts: (ts.attempts || 0) + 1,
+              last_error: null
+            })
+            .eq('id', ts.id);
+          if (updErr) {
+            // Zoho delete succeeded but we couldn't persist the
+            // processed flag — surface as a failure so retry semantics
+            // stay accurate. The next tick will hit Zoho's "already
+            // gone" path and converge.
+            console.error('[cron/zoho-crm-reconcile-outbound] Tombstone mark-processed failed after Zoho delete:', tenantId, ts.id, updErr);
+            tCounters.failed += 1;
+            consecutiveFailures += 1;
+          } else {
+            tCounters.processed += 1;
+            if (result.alreadyGone) tCounters.already_gone += 1;
+            consecutiveFailures = 0;
+          }
+        } else {
+          const { error: updErr } = await supabase
+            .from('zoho_crm_sync_tombstone')
+            .update({
+              attempts: (ts.attempts || 0) + 1,
+              last_error: (result.error || 'Unknown error').slice(0, 1000)
+            })
+            .eq('id', ts.id);
+          if (updErr) {
+            // Best-effort — log but don't double-count the failure.
+            console.error('[cron/zoho-crm-reconcile-outbound] Tombstone increment-attempts failed:', tenantId, ts.id, updErr);
+          }
+          tCounters.failed += 1;
+          consecutiveFailures += 1;
+        }
+
+        if (consecutiveFailures >= OUTBOUND_CONSECUTIVE_FAILURE_LIMIT) {
+          bailReason = `tombstone_consecutive_failures:${consecutiveFailures}`;
+          break;
+        }
+        await sleep(jitterDelayMs());
+      }
+    } catch (err) {
+      console.error('[cron/zoho-crm-reconcile-outbound] Tombstone drain error:', tenantId, err);
+      tCounters.error = err?.message || String(err);
+    }
+    tCounters.duration_ms = Date.now() - tStart;
+    summary.tombstones = tCounters;
+    console.log(
+      `[cron/zoho-crm-reconcile-outbound] tenant=${tenantId} entity=tombstone ` +
+      `candidates=${tCounters.candidates} processed=${tCounters.processed} ` +
+      `already_gone=${tCounters.already_gone} no_zoho_id=${tCounters.no_zoho_id} ` +
+      `failed=${tCounters.failed} duration_ms=${tCounters.duration_ms}` +
+      (tCounters.error ? ` error=${tCounters.error}` : '')
+    );
+  }
+
+  if (bailReason) summary.bailed_out = bailReason;
+  return summary;
 }

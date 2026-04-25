@@ -1568,3 +1568,68 @@ export async function updateZohoCrmRecordById(tenantId, module, recordId, record
 // flow and the original investigation notes in
 // `.local/tasks/task-422-fix-zoho-richtext-write.md`.
 
+/**
+ * Delete a single record from a Zoho CRM module by its Zoho id.
+ *
+ * Used by the outbound reconcile cron's tombstone drain (#442). A Zoho
+ * 404 is treated as success — the record is already gone, which is
+ * what we want. Other failures bubble up to the caller as `{ success:
+ * false, error }` so the tombstone row can be retried on the next
+ * tick. This helper deliberately does NOT throw on a per-row failure
+ * because the cron processes a batch and one bad row should not abort
+ * the whole drain.
+ */
+export async function deleteZohoCrmRecord(tenantId, module, recordId) {
+  if (!tenantId || !module || !recordId) {
+    return { success: false, error: 'Missing tenantId, module or recordId' };
+  }
+  try {
+    const response = await zohoCrmApiCall(tenantId, `/${module}/${encodeURIComponent(recordId)}`, {
+      method: 'DELETE'
+    });
+    if (response?.data?.[0]) {
+      const result = response.data[0];
+      if (result.status === 'success') {
+        return { success: true, id: result.details?.id || recordId, raw: response };
+      }
+      // Zoho returns status='error' with code 'RECORD_NOT_FOUND' once
+      // the record is gone — that's the "already gone" success path.
+      // It can also return INVALID_DATA, but that code covers many
+      // unrelated failures (bad payloads, permission issues, malformed
+      // ids); only treat it as success when the message clearly
+      // signals "no such id" so we don't silently mark tombstones
+      // processed for genuine errors.
+      const code = (result.code || '').toUpperCase();
+      const msg = String(result.message || '');
+      if (code === 'RECORD_NOT_FOUND') {
+        return { success: true, id: recordId, alreadyGone: true, raw: response };
+      }
+      if (code === 'INVALID_DATA' && /\b(no\s+record|record\s+not\s+found|invalid\s+id|id\s+given\s+seems\s+to\s+be\s+invalid)\b/i.test(msg)) {
+        return { success: true, id: recordId, alreadyGone: true, raw: response };
+      }
+      return {
+        success: false,
+        error: result.message || 'Unknown error from Zoho CRM',
+        code: result.code,
+        raw: response
+      };
+    }
+    return { success: true, id: recordId, raw: response };
+  } catch (err) {
+    const msg = err?.message || String(err);
+    // Zoho returns HTTP 404 for an id that no longer exists, which
+    // sometimes surfaces here as a thrown error. Treat 404 and
+    // explicit RECORD_NOT_FOUND as "already gone" success. We do NOT
+    // blanket-treat INVALID_DATA as success here for the same reason
+    // as above — only when the message explicitly mentions a missing
+    // id.
+    if (/\b404\b|RECORD_NOT_FOUND/i.test(msg)) {
+      return { success: true, id: recordId, alreadyGone: true };
+    }
+    if (/INVALID_DATA/i.test(msg) && /\b(no\s+record|record\s+not\s+found|invalid\s+id|id\s+given\s+seems\s+to\s+be\s+invalid)\b/i.test(msg)) {
+      return { success: true, id: recordId, alreadyGone: true };
+    }
+    return { success: false, error: msg };
+  }
+}
+
