@@ -280,7 +280,9 @@ async function updateMapping(args) {
     const fms = Array.isArray(row.field_mappings) ? row.field_mappings : [];
     let changed = false;
     const next = fms.map(m => {
-      if (m && m.zoho_field === SOURCE_FIELD) {
+      if (!m || !m.zoho_field) return m;
+      // Path A: re-point a row still on the old source field.
+      if (m.zoho_field === SOURCE_FIELD) {
         changed = true;
         // The new field is plain-text, not rich-text. Set is_rich_text
         // explicitly to `false` (rather than deleting the key) so the
@@ -293,6 +295,23 @@ async function updateMapping(args) {
           zoho_field_label: TARGET_FIELD,
           is_rich_text: false
         };
+      }
+      // Path B: row is already on the target field but was migrated by an
+      // older version of this script that left stale flags / label
+      // behind. Repair it idempotently: set the canonical label and an
+      // explicit `is_rich_text: false`. No-op if both are already
+      // correct.
+      if (m.zoho_field === TARGET_FIELD) {
+        const labelStale = m.zoho_field_label !== TARGET_FIELD;
+        const flagStale = m.is_rich_text !== false;
+        if (labelStale || flagStale) {
+          changed = true;
+          return {
+            ...m,
+            zoho_field_label: TARGET_FIELD,
+            is_rich_text: false
+          };
+        }
       }
       return m;
     });
