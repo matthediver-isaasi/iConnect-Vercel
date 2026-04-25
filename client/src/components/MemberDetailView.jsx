@@ -78,6 +78,10 @@ import { toast } from "sonner";
 import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 // DISABLED: import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
+// Note: the inbound-Zoho notifier hook is mounted on `pages/MemberDetail.jsx`
+// (the route-backed view), not here — this component is only used for the
+// new-member creation flow (always rendered with `member={{}}`), so a
+// notifier here would never have a real entityId to subscribe with.
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";

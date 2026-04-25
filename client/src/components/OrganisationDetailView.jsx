@@ -76,6 +76,7 @@ import { toast } from "sonner";
 import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
+import { useZohoInboundUpdateNotifier } from "@/hooks/useZohoInboundUpdateNotifier";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { useOrgFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useOrgFieldVisibilityRules";
 import { isDeletedMember } from "@/utils";
@@ -200,6 +201,18 @@ export default function OrganisationDetailView({
   ], { 
     enabled: realtimeEnabled && !!organization?.id,
     filter: organization?.id ? `organization_id=eq.${organization.id}` : null
+  });
+
+  // Toast + refresh when this organisation is updated by an inbound Zoho sync.
+  useZohoInboundUpdateNotifier({
+    entityType: 'organization',
+    entityId: organization?.id,
+    enabled: realtimeEnabled,
+    queryKeysToInvalidate: [
+      ['organizations-crm-list'],
+      ['org-detail-preference-values', organization?.id],
+      ['all-org-preference-values-crm']
+    ]
   });
   const {
     pendingWorkflows,

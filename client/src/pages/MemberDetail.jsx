@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useZohoInboundUpdateNotifier } from "@/hooks/useZohoInboundUpdateNotifier";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
@@ -272,6 +273,18 @@ export default function MemberDetail() {
     queryKey: ['member-detail', id],
     enabled: isAccessReady && !!id,
     queryFn: () => base44.entities.Member.get(id)
+  });
+
+  // Toast + refresh when this member is updated by an inbound Zoho sync.
+  useZohoInboundUpdateNotifier({
+    entityType: 'member',
+    entityId: id,
+    enabled: !!id && isAccessReady,
+    queryKeysToInvalidate: [
+      ['member-detail', id],
+      ['member-pref-values', id],
+      ['members-paginated']
+    ]
   });
 
   const { data: organizations = [] } = useQuery({

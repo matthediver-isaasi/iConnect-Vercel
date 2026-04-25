@@ -81,6 +81,18 @@ function describeSyncResult(syncResult) {
   };
 }
 
+export function showZohoInboundUpdateToast({ entityType } = {}) {
+  const subject = entityType === 'organization'
+    ? 'organisation'
+    : entityType === 'member'
+      ? 'contact'
+      : 'record';
+  toast.message('Updated from Zoho', {
+    description: `This ${subject} was just updated in Zoho — showing the latest data.`,
+    duration: 6000
+  });
+}
+
 export function showZohoCrmSyncToast(syncResult) {
   const desc = describeSyncResult(syncResult);
   if (!desc) return;
