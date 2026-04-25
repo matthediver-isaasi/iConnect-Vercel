@@ -51,7 +51,13 @@ export function useRealtimeSubscription(tableName, queryKeysToInvalidate = [], o
             queryClient.invalidateQueries({ queryKey });
           });
           if (onEventRef.current) {
-            try { onEventRef.current(payload); } catch (e) { /* swallow listener errors */ }
+            try {
+              onEventRef.current(payload);
+            } catch (e) {
+              // Don't let a listener error tear down the channel, but surface
+              // it in the console so callback bugs aren't silently masked.
+              console.warn(`[useRealtimeSubscription:${tableName}] onEvent threw:`, e);
+            }
           }
         }
       )
