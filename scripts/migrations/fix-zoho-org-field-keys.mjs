@@ -48,22 +48,24 @@ const { rows } = await client.query(
 let touched = 0;
 let renamed = 0;
 let dropped = 0;
+let deduped = 0;
 const droppedReport = [];
+const dedupReport = [];
 
 for (const row of rows) {
   const fm = Array.isArray(row.field_mappings) ? row.field_mappings : [];
   if (fm.length === 0) continue;
 
-  const next = [];
+  const interim = [];
   let changed = false;
   for (const m of fm) {
     if (!m || typeof m !== 'object') {
-      next.push(m);
+      interim.push(m);
       continue;
     }
     const key = m.iconnect_field;
     if (typeof key !== 'string' || key.startsWith('custom:')) {
-      next.push(m);
+      interim.push(m);
       continue;
     }
     if (DROPS.has(key)) {
@@ -77,11 +79,46 @@ for (const row of rows) {
       continue;
     }
     if (RENAMES[key]) {
-      next.push({ ...m, iconnect_field: RENAMES[key] });
+      interim.push({ ...m, iconnect_field: RENAMES[key] });
       renamed += 1;
       changed = true;
       continue;
     }
+    interim.push(m);
+  }
+
+  // Dedupe by iconnect_field. Renaming may collide with a pre-existing
+  // mapping for the canonical key (e.g. tenant had separate `website` and
+  // `website_url` rows that both referenced different Zoho fields). Keep
+  // the first non-empty mapping for each iconnect_field and report the
+  // collisions so admins can re-confirm which Zoho field should win. The
+  // first occurrence is preserved deliberately because it usually
+  // reflects the longer-standing, intentional pairing — anything coming
+  // after is most likely an artefact of older bug-state mappings.
+  const seen = new Map();
+  const next = [];
+  for (const m of interim) {
+    if (!m || typeof m !== 'object') {
+      next.push(m);
+      continue;
+    }
+    const key = m.iconnect_field;
+    if (typeof key !== 'string') {
+      next.push(m);
+      continue;
+    }
+    if (seen.has(key)) {
+      deduped += 1;
+      dedupReport.push({
+        tenant_id: row.tenant_id,
+        iconnect_field: key,
+        kept_zoho_field: seen.get(key),
+        dropped_zoho_field: m.zoho_field
+      });
+      changed = true;
+      continue;
+    }
+    seen.set(key, m.zoho_field);
     next.push(m);
   }
 
