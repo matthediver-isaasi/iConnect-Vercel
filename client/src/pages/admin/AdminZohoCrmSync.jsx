@@ -749,13 +749,29 @@ export default function AdminZohoCrmSync() {
       if (isTruncated && nextPage) {
         setCursor(nextPage);
         setCompleted(false);
+        // Backend signals "resume the same page" (mid-page truncation)
+        // by returning `next_page === last_page`; the normal page-
+        // boundary case returns `next_page === last_page + 1`. The
+        // cursor handling above doesn't care which case it is — only
+        // the user-visible wording does.
+        const resumedSamePage =
+          s.last_page != null && Number(nextPage) === Number(s.last_page);
+        const pausedPhrase = resumedSamePage
+          ? `Paused inside page ${s.last_page}`
+          : `Paused after page ${s.last_page ?? '?'}`;
+        const continuePhrase = resumedSamePage
+          ? `Auto-continuing on page ${nextPage}…`
+          : `Auto-continuing at page ${nextPage}…`;
+        const manualContinuePhrase = resumedSamePage
+          ? `Click Continue to resume on page ${nextPage}.`
+          : `Click Continue to resume at page ${nextPage}.`;
         // Surface partial-completion toast for every truncated chunk so the
         // operator sees progress even when the run auto-continues. Show
         // the per-chunk processed count (not the running total) so each
         // toast reflects what *this* chunk actually did.
         toast({
           title: `Chunk ${accumulator.runs} complete — ${isOrgs ? 'organisations' : 'members'}`,
-          description: `Processed ${s.processed || 0} this chunk (${accumulator.processed} total). Paused after page ${s.last_page ?? '?'}. ${(autoChunkIndex + 1 < IMPORT_AUTO_CHUNK_CAP) ? `Auto-continuing at page ${nextPage}…` : `Click Continue to resume at page ${nextPage}.`}`
+          description: `Processed ${s.processed || 0} this chunk (${accumulator.processed} total). ${pausedPhrase}. ${(autoChunkIndex + 1 < IMPORT_AUTO_CHUNK_CAP) ? continuePhrase : manualContinuePhrase}`
         });
         // `autoChunkIndex` is 0 for the first chunk, so the next chunk
         // would have index `autoChunkIndex + 1` and be the
@@ -763,7 +779,7 @@ export default function AdminZohoCrmSync() {
         // once that would exceed the cap, giving an exact total cap of
         // IMPORT_AUTO_CHUNK_CAP chunks per session.
         if (autoChunkIndex + 1 < IMPORT_AUTO_CHUNK_CAP) {
-          const warnMsg = `Import paused after page ${s.last_page ?? '?'} (Vercel time budget reached). Auto-continuing at page ${nextPage} — ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) processed so far.`;
+          const warnMsg = `${pausedPhrase} (Vercel time budget reached). ${continuePhrase.replace('…', '')} — ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) processed so far.`;
           setWarning(warnMsg);
           // Hand off to the next chunk. Don't clear the running flag —
           // we want the UI to keep showing the spinner across the
