@@ -2160,16 +2160,37 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     }
     const coreToWrite = {};
     const customToWrite = {};
+    // Per-mapping diagnostic mirroring the UPDATE path. On CREATE the only
+    // possible skip reason is `zoho_empty` because the iConnect entity
+    // doesn't exist yet, so there's no iconnect-side value to defer to.
+    const skippedFields = [];
     let mappedCount = 0;
-    for (const [k, v] of Object.entries(coreUpdates)) {
-      if (isEmptyZohoValue(v)) continue;
-      insertRow[k] = v;
-      coreToWrite[k] = v;
-      mappedCount += 1;
-    }
-    for (const [k, v] of Object.entries(customUpdates)) {
-      if (isEmptyZohoValue(v)) continue;
-      customToWrite[k] = v;
+    for (const m of mapping.field_mappings || []) {
+      const iconnectField = m?.iconnect_field;
+      const zohoField = m?.zoho_field;
+      if (!iconnectField || !zohoField) continue;
+      const isCustom = iconnectField.startsWith('custom:');
+      const customId = isCustom ? iconnectField.slice('custom:'.length) : null;
+      const zohoHas = isCustom
+        ? Object.prototype.hasOwnProperty.call(customUpdates, customId)
+        : Object.prototype.hasOwnProperty.call(coreUpdates, iconnectField);
+      const zohoValue = isCustom ? customUpdates[customId] : coreUpdates[iconnectField];
+      if (!zohoHas || isEmptyZohoValue(zohoValue)) {
+        skippedFields.push({
+          iconnect_field: iconnectField,
+          zoho_field: zohoField,
+          zoho_value: zohoHas ? (zohoValue ?? null) : null,
+          iconnect_value: null,
+          reason: 'zoho_empty'
+        });
+        continue;
+      }
+      if (isCustom) {
+        customToWrite[customId] = zohoValue;
+      } else {
+        insertRow[iconnectField] = zohoValue;
+        coreToWrite[iconnectField] = zohoValue;
+      }
       mappedCount += 1;
     }
     if (mappedCount === 0) {
@@ -2185,7 +2206,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
         });
         logId = logRow?.id || null;
       }
-      return { outcome: 'no_mapped_values', matched: null, matchedBy: null, message: errorMessage, diffs: [], logId };
+      return { outcome: 'no_mapped_values', matched: null, matchedBy: null, message: errorMessage, diffs: [], skipped_fields: skippedFields, logId };
     }
     const linkPatch = zohoId ? { zoho_crm_id: zohoId, zoho_crm_module: zohoModule } : null;
     const diffs = buildDiffs({
@@ -2200,7 +2221,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
         coreToWrite,
         customToWrite,
         linkPatch,
-        diffs
+        diffs,
+        skipped_fields: skippedFields
       };
     }
     const table = ENTITY_TABLE[entityType];
@@ -2272,24 +2294,66 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   const currentCustom = await loadCustomFieldValues(tenantId, entityType, entity.id);
   const iconnectWins = entityType === 'organization';
   const coreToWrite = {};
-  for (const [k, v] of Object.entries(coreUpdates)) {
-    if (isEmptyZohoValue(v)) continue;
-    if (iconnectWins) {
-      if (!isEmptyIconnectValue(entity[k])) continue;
-    } else {
-      if (entity[k] === v) continue;
-    }
-    coreToWrite[k] = v;
-  }
   const customToWrite = {};
-  for (const [k, v] of Object.entries(customUpdates)) {
-    if (isEmptyZohoValue(v)) continue;
-    if (iconnectWins) {
-      if (!isEmptyIconnectValue(currentCustom[k])) continue;
-    } else {
-      if (currentCustom[k] === v) continue;
+  // Per-mapping diagnostic for fields that did not make it into
+  // coreToWrite/customToWrite. Surfaced on the dry-run preview so admins can
+  // see at a glance whether the no-op is because Zoho returned nothing, the
+  // iConnect side already had a value, or (for non-org entities) the values
+  // already matched. Iterate `mapping.field_mappings` directly so we have
+  // both the iConnect-side and Zoho-side field identifiers for each entry.
+  const skippedFields = [];
+  for (const m of mapping.field_mappings || []) {
+    const iconnectField = m?.iconnect_field;
+    const zohoField = m?.zoho_field;
+    if (!iconnectField || !zohoField) continue;
+    const isCustom = iconnectField.startsWith('custom:');
+    const customId = isCustom ? iconnectField.slice('custom:'.length) : null;
+    const zohoHas = isCustom
+      ? Object.prototype.hasOwnProperty.call(customUpdates, customId)
+      : Object.prototype.hasOwnProperty.call(coreUpdates, iconnectField);
+    const zohoValue = isCustom ? customUpdates[customId] : coreUpdates[iconnectField];
+    const iconnectValue = isCustom
+      ? (currentCustom ? currentCustom[customId] : undefined)
+      : entity[iconnectField];
+
+    if (!zohoHas || isEmptyZohoValue(zohoValue)) {
+      skippedFields.push({
+        iconnect_field: iconnectField,
+        zoho_field: zohoField,
+        zoho_value: zohoHas ? (zohoValue ?? null) : null,
+        iconnect_value: iconnectValue ?? null,
+        reason: 'zoho_empty'
+      });
+      continue;
     }
-    customToWrite[k] = v;
+    if (iconnectWins) {
+      if (!isEmptyIconnectValue(iconnectValue)) {
+        skippedFields.push({
+          iconnect_field: iconnectField,
+          zoho_field: zohoField,
+          zoho_value: zohoValue,
+          iconnect_value: iconnectValue ?? null,
+          reason: 'iconnect_populated'
+        });
+        continue;
+      }
+    } else {
+      if (iconnectValue === zohoValue) {
+        skippedFields.push({
+          iconnect_field: iconnectField,
+          zoho_field: zohoField,
+          zoho_value: zohoValue,
+          iconnect_value: iconnectValue ?? null,
+          reason: 'match'
+        });
+        continue;
+      }
+    }
+    if (isCustom) {
+      customToWrite[customId] = zohoValue;
+    } else {
+      coreToWrite[iconnectField] = zohoValue;
+    }
   }
 
   // Always backfill the zoho link if we found this row by natural key earlier
@@ -2303,9 +2367,23 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   const matched = summariseEntity(entity, entityType);
 
   if (Object.keys(coreToWrite).length === 0 && Object.keys(customToWrite).length === 0 && !linkPatch) {
-    const errorMessage = iconnectWins
-      ? 'No-op: every iConnect field already populated; no Zoho values to fill in'
-      : 'No-op: every non-empty Zoho value already matches iConnect';
+    let errorMessage;
+    if (iconnectWins) {
+      const hasIconnectPopulated = skippedFields.some(s => s.reason === 'iconnect_populated');
+      if (!hasIconnectPopulated) {
+        // Either every mapping was skipped at the Zoho-empty gate, or the
+        // mapping is empty altogether — surface the Zoho-side cause so the
+        // admin doesn't assume iConnect is the blocker.
+        errorMessage = 'No-op: Zoho returned no non-empty values for any mapped field';
+      } else {
+        // Covers both the all-iconnect-populated case and the mixed case
+        // where some fields were Zoho-empty and others had iConnect values.
+        // The skippedFields breakdown disambiguates per-field.
+        errorMessage = 'No-op: every mapped iConnect field is already populated; no Zoho values to fill in';
+      }
+    } else {
+      errorMessage = 'No-op: every non-empty Zoho value already matches iConnect';
+    }
     let logId = null;
     if (!dryRun) {
       const logRow = await writeLog({
@@ -2317,7 +2395,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       });
       logId = logRow?.id || null;
     }
-    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [], logId };
+    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [], skipped_fields: skippedFields, logId };
   }
 
   const diffs = buildDiffs({
@@ -2333,7 +2411,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       coreToWrite,
       customToWrite,
       linkPatch,
-      diffs
+      diffs,
+      skipped_fields: skippedFields
     };
   }
 

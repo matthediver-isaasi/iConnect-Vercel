@@ -109,9 +109,16 @@ const OUTCOME_BADGE_VARIANT = {
   failed: 'destructive'
 };
 
+const SKIPPED_REASON_LABEL = {
+  zoho_empty: 'Zoho value empty',
+  iconnect_populated: 'iConnect already populated',
+  match: 'Already matches'
+};
+
 function SingleRecordResult({ result, entityType }) {
-  const { outcome, matched, matchedBy, diffs = [], message, dryRun, zoho_module } = result || {};
+  const { outcome, matched, matchedBy, diffs = [], message, dryRun, zoho_module, skipped_fields = [] } = result || {};
   const outcomeLabel = outcome.replace(/_/g, ' ');
+  const [showSkipped, setShowSkipped] = useState(false);
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3" data-testid="panel-single-result">
       <div className="flex flex-wrap items-center gap-2">
@@ -167,6 +174,51 @@ function SingleRecordResult({ result, entityType }) {
         outcome !== 'ambiguous' && outcome !== 'no_mapped_values' && (
           <p className="text-xs text-muted-foreground">No field changes.</p>
         )
+      )}
+      {Array.isArray(skipped_fields) && skipped_fields.length > 0 && (
+        <Collapsible open={showSkipped} onOpenChange={setShowSkipped}>
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-2 text-xs"
+              data-testid="button-toggle-skipped-fields"
+            >
+              {showSkipped ? 'Hide' : 'Why no changes?'} ({skipped_fields.length} skipped field{skipped_fields.length === 1 ? '' : 's'})
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="overflow-x-auto pt-2">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>iConnect field</TableHead>
+                    <TableHead>Zoho field</TableHead>
+                    <TableHead>Zoho value</TableHead>
+                    <TableHead>Current iConnect value</TableHead>
+                    <TableHead className="w-44">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {skipped_fields.map((s, i) => (
+                    <TableRow key={`skip-${s.iconnect_field}-${i}`} data-testid={`row-skipped-${s.iconnect_field}`}>
+                      <TableCell><code className="text-xs">{s.iconnect_field}</code></TableCell>
+                      <TableCell><code className="text-xs">{s.zoho_field}</code></TableCell>
+                      <TableCell>{formatDiffValue(s.zoho_value)}</TableCell>
+                      <TableCell>{formatDiffValue(s.iconnect_value)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-skip-reason-${s.iconnect_field}`}>
+                          {SKIPPED_REASON_LABEL[s.reason] || s.reason}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </div>
   );
