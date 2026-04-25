@@ -750,10 +750,12 @@ export default function AdminZohoCrmSync() {
         setCursor(nextPage);
         setCompleted(false);
         // Surface partial-completion toast for every truncated chunk so the
-        // operator sees progress even when the run auto-continues.
+        // operator sees progress even when the run auto-continues. Show
+        // the per-chunk processed count (not the running total) so each
+        // toast reflects what *this* chunk actually did.
         toast({
-          title: `Chunk complete — ${isOrgs ? 'organisations' : 'members'}`,
-          description: `Paused after page ${s.last_page ?? '?'}; ${accumulator.processed} processed so far. ${autoChunkIndex < IMPORT_AUTO_CHUNK_CAP ? `Auto-continuing at page ${nextPage}…` : `Click Continue to resume at page ${nextPage}.`}`
+          title: `Chunk ${accumulator.runs} complete — ${isOrgs ? 'organisations' : 'members'}`,
+          description: `Processed ${s.processed || 0} this chunk (${accumulator.processed} total). Paused after page ${s.last_page ?? '?'}. ${autoChunkIndex < IMPORT_AUTO_CHUNK_CAP ? `Auto-continuing at page ${nextPage}…` : `Click Continue to resume at page ${nextPage}.`}`
         });
         if (autoChunkIndex < IMPORT_AUTO_CHUNK_CAP) {
           const warnMsg = `Import paused after page ${s.last_page ?? '?'} (Vercel time budget reached). Auto-continuing at page ${nextPage} — ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) processed so far.`;
