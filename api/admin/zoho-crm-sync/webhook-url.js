@@ -25,6 +25,7 @@ export default async function handler(req, res) {
     const proto = (req.headers['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https'));
     const baseUrl = host ? `${proto}://${host}` : (process.env.APP_URL || '');
     const baseWebhookUrl = `${baseUrl}/api/zoho-crm/webhook?tenantId=${tenantId}`;
+    const baseDeleteWebhookUrl = `${baseUrl}/api/zoho-crm/webhook/delete?tenantId=${tenantId}`;
 
     return res.status(200).json({
       tenant_id: tenantId,
@@ -34,6 +35,15 @@ export default async function handler(req, res) {
         Contacts: `${baseWebhookUrl}&module=Contacts`,
         Leads: `${baseWebhookUrl}&module=Leads`,
         Accounts: `${baseWebhookUrl}&module=Accounts`
+      },
+      // Delete webhook (task #450) is a separate endpoint so the upsert
+      // path stays focused on full-record payloads. Reuses the same
+      // per-tenant secret + tenantId scoping.
+      delete_url: baseDeleteWebhookUrl,
+      delete_example_urls: {
+        Contacts: `${baseDeleteWebhookUrl}&module=Contacts`,
+        Leads: `${baseDeleteWebhookUrl}&module=Leads`,
+        Accounts: `${baseDeleteWebhookUrl}&module=Accounts`
       },
       header_name: 'X-Zoho-Webhook-Secret'
     });

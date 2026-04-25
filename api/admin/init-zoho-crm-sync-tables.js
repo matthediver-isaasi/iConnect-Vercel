@@ -61,6 +61,9 @@ ALTER TABLE zoho_crm_sync_mapping
 ALTER TABLE zoho_crm_sync_mapping
   ADD COLUMN IF NOT EXISTS unmatched_policy TEXT NOT NULL DEFAULT 'ignore'
     CHECK (unmatched_policy IN ('ignore', 'create', 'queue'));
+ALTER TABLE zoho_crm_sync_mapping
+  ADD COLUMN IF NOT EXISTS deletion_policy TEXT NOT NULL DEFAULT 'ignore'
+    CHECK (deletion_policy IN ('ignore', 'unlink', 'delete'));
 
 -- Allow 'pending' status for queued unmatched inbound records.
 DO $$

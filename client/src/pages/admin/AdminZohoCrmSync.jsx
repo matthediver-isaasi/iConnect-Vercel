@@ -51,6 +51,12 @@ const UNMATCHED_POLICIES = [
   { value: "queue", label: "Queue for admin review" }
 ];
 
+const DELETION_POLICIES = [
+  { value: "ignore", label: "Ignore (log only)" },
+  { value: "unlink", label: "Unlink (clear zoho_crm_id, keep iConnect record)" },
+  { value: "delete", label: "Delete (hard-delete the iConnect record)" }
+];
+
 function directionBadge(d) {
   if (d === "inbound") return <Badge variant="secondary"><ArrowDown className="h-3 w-3 mr-1" />inbound</Badge>;
   if (d === "outbound") return <Badge variant="secondary"><ArrowUp className="h-3 w-3 mr-1" />outbound</Badge>;
@@ -752,7 +758,8 @@ export default function AdminZohoCrmSync() {
             field_mappings: [],
             sync_direction: "outbound",
             conflict_policy: "last_write_wins",
-            unmatched_policy: "ignore"
+            unmatched_policy: "ignore",
+            deletion_policy: "ignore"
           });
         }
       }
@@ -821,7 +828,8 @@ export default function AdminZohoCrmSync() {
           field_mappings: mapping.field_mappings || [],
           sync_direction: mapping.sync_direction || "outbound",
           conflict_policy: mapping.conflict_policy || "last_write_wins",
-          unmatched_policy: mapping.unmatched_policy || "ignore"
+          unmatched_policy: mapping.unmatched_policy || "ignore",
+          deletion_policy: mapping.deletion_policy || "ignore"
         })
       });
       const d = await r.json();
@@ -865,6 +873,7 @@ export default function AdminZohoCrmSync() {
     lines.push(csvRow(["Sync direction", mapping?.sync_direction || ""]));
     lines.push(csvRow(["Conflict policy", mapping?.conflict_policy || ""]));
     lines.push(csvRow(["Unmatched policy", mapping?.unmatched_policy || ""]));
+    lines.push(csvRow(["Deletion policy", mapping?.deletion_policy || "ignore"]));
     lines.push(csvRow(["Enabled", mapping?.is_enabled ? "yes" : "no"]));
     lines.push(csvRow(["Exported on", todayIsoDate()]));
     lines.push("");
@@ -1181,6 +1190,26 @@ export default function AdminZohoCrmSync() {
                       </Select>
                       <p className="text-xs text-muted-foreground">
                         "Create" inserts a new member/organization populated from the mapped fields. "Queue" logs the record as pending so an admin can resolve it manually.
+                      </p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>When Zoho notifies iConnect that a record was deleted</Label>
+                      <Select
+                        value={mapping?.deletion_policy || "ignore"}
+                        onValueChange={(v) => updateMapping({ deletion_policy: v })}
+                        disabled={(mapping?.sync_direction || "outbound") === "outbound"}
+                      >
+                        <SelectTrigger data-testid="select-deletion-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DELETION_POLICIES.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Applies when Zoho calls the inbound delete webhook (see "Handle deletes from Zoho" below). "Unlink" leaves the iConnect record but clears its Zoho id so it can be re-linked later. "Delete" hard-deletes the iConnect record.
                       </p>
                     </div>
                   </div>
@@ -1909,6 +1938,24 @@ export default function AdminZohoCrmSync() {
                   <p className="text-xs text-muted-foreground">
                     Tip: as a fallback, you can append <code>&amp;secret=…</code> to the URL when Zoho cannot send custom headers. A reconciliation poller also runs every 15 minutes to catch missed events.
                   </p>
+
+                  {webhookInfo.delete_example_urls ? (
+                    <div className="space-y-2 pt-3 border-t">
+                      <Label className="text-xs uppercase text-muted-foreground">Handle deletes from Zoho</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Wire a Zoho CRM Workflow Rule (trigger: <em>Record Action → Delete</em>) or a Zoho Flow (<em>Record deleted</em> trigger) to POST <code>{`{ "module": "Contacts", "id": "<zoho id>" }`}</code> (or <code>{`{ "ids": [...] }`}</code>) to the URL below. The same per-tenant secret header authenticates the call. The action taken on the matching iConnect record is governed by the per-mapping <strong>deletion policy</strong> field above (defaults to <em>ignore</em>).
+                      </p>
+                      {Object.entries(webhookInfo.delete_example_urls).map(([mod, url]) => (
+                        <div key={mod} className="flex items-center gap-2">
+                          <Badge variant="outline" className="w-24 justify-center">{mod}</Badge>
+                          <Input readOnly value={url} className="font-mono text-xs" data-testid={`input-webhook-delete-url-${mod}`} />
+                          <Button variant="ghost" size="icon" onClick={() => copyText(url)} data-testid={`button-copy-delete-url-${mod}`}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">Webhook configuration unavailable.</p>
@@ -1985,6 +2032,7 @@ export default function AdminZohoCrmSync() {
                       <SelectItem value="create">Create</SelectItem>
                       <SelectItem value="update">Update</SelectItem>
                       <SelectItem value="delete">Delete</SelectItem>
+                      <SelectItem value="delete_inbound">Delete (inbound from Zoho)</SelectItem>
                       <SelectItem value="manual">Manual</SelectItem>
                       <SelectItem value="relink">Relink</SelectItem>
                       <SelectItem value="import">Import</SelectItem>

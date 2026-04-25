@@ -1551,6 +1551,239 @@ async function createEntityFromZoho(tenantId, entityType, mapping, zohoModule, z
 }
 
 /**
+ * Apply an inbound DELETE notification from Zoho CRM. Looks up the matching
+ * iConnect entity by `zoho_crm_id` (+ module), reads the mapping's
+ * `deletion_policy`, and performs one of:
+ *
+ *   - `ignore`  → log only, take no destructive action (default).
+ *   - `unlink`  → clear `zoho_crm_id` / `zoho_crm_module` so the iConnect
+ *                 record stays but is no longer linked to Zoho.
+ *   - `delete`  → hard-delete the iConnect entity. The DB tombstone trigger
+ *                 fires AFTER DELETE; we immediately mark the just-created
+ *                 tombstone row processed so the outbound reconcile cron
+ *                 does NOT echo a delete back to Zoho (the delete originated
+ *                 from Zoho — Zoho already knows).
+ *
+ * In all cases an `inboundOriginTracker` mark is left so any other listener
+ * that observes the change (the unlink path's UPDATE, in particular) does
+ * not push the change back outbound within the TTL window.
+ *
+ * Always idempotent — calling for a record we have no link to, or that was
+ * already unlinked / deleted on a previous call, returns a `skipped` log
+ * with a `reason` so the webhook can return 200 without re-running the
+ * destructive path.
+ *
+ * Returns the inserted `zoho_crm_sync_log` row (or null on log-write
+ * failure) so the caller can echo `{ status, reason, log_id }` to Zoho.
+ */
+export async function applyInboundDeleteFromZoho(tenantId, zohoModule, zohoId, options = {}) {
+  const source = options.source || 'webhook';
+  const action = 'delete_inbound';
+
+  const entityType = MODULE_TO_ENTITY_TYPE[zohoModule];
+  if (!entityType) {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: 'unknown',
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'failed', direction: 'inbound', source, action,
+      error_message: `Unsupported Zoho module: ${zohoModule}`
+    });
+  }
+  if (!zohoId) {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: entityType,
+      zoho_module: zohoModule, zoho_record_id: null,
+      status: 'failed', direction: 'inbound', source, action,
+      error_message: 'Missing Zoho record id on delete payload'
+    });
+  }
+
+  const { data: mapping } = await supabase
+    .from('zoho_crm_sync_mapping')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_type', entityType)
+    .eq('zoho_module', zohoModule)
+    .maybeSingle();
+
+  // No mapping (or disabled) → nothing to act on, but still 200 so Zoho's
+  // workflow rule does not retry forever. Log so admins can see why.
+  if (!mapping || !mapping.is_enabled) {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: entityType,
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'skipped', direction: 'inbound', source, action,
+      error_message: `No enabled mapping configured for ${entityType}/${zohoModule} — delete ignored`
+    });
+  }
+
+  // Outbound-only mappings deliberately don't react to inbound events
+  // (matches `applyInboundFromZoho`'s behaviour for upserts).
+  const direction = mapping.sync_direction || 'outbound';
+  if (direction === 'outbound') {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: entityType,
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'skipped', direction: 'inbound', source, action,
+      error_message: 'Mapping is outbound-only — inbound delete dropped'
+    });
+  }
+
+  const policy = mapping.deletion_policy || 'ignore';
+
+  // Locate the iConnect entity by Zoho id. If none, there is no link to
+  // act on — that's a clean idempotent no-op (Zoho deleted a record we
+  // never knew about, or one already unlinked on a previous call).
+  const entity = await findEntityByZohoId(tenantId, entityType, zohoModule, zohoId);
+  if (!entity) {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: entityType, entity_id: null,
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'skipped', direction: 'inbound', source, action,
+      error_message: `No-op: no iConnect ${entityType} linked to ${zohoModule} id ${zohoId} (policy=${policy})`,
+      response_payload: { reason: 'no_match', policy }
+    });
+  }
+
+  // Mark the entity as "inbound origin" BEFORE any write so the in-process
+  // outbound debounce treats any update/delete here as Zoho-originated and
+  // does not echo back. Belt-and-braces — the explicit tombstone-suppression
+  // for the delete path below covers the cross-process case.
+  markInboundOrigin(tenantId, entityType, entity.id);
+
+  if (policy === 'ignore') {
+    return await writeLog({
+      tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'skipped', direction: 'inbound', source, action,
+      error_message: `Matched ${entityType} ${entity.id} but deletion_policy=ignore — left untouched`,
+      response_payload: { reason: 'ignored_by_policy', policy, entity_id: entity.id }
+    });
+  }
+
+  if (policy === 'unlink') {
+    // Idempotent: if zoho_crm_id is already null, nothing to do.
+    if (!entity.zoho_crm_id) {
+      return await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'skipped', direction: 'inbound', source, action,
+        error_message: `No-op: ${entityType} ${entity.id} is already unlinked`,
+        response_payload: { reason: 'already_unlinked', policy, entity_id: entity.id }
+      });
+    }
+    const table = ENTITY_TABLE[entityType];
+    try {
+      const { error } = await supabase
+        .from(table)
+        .update({
+          zoho_crm_id: null,
+          zoho_crm_module: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', entity.id)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+      // Drop any saved sync_state rows so a future relink starts clean and
+      // does not see a stale hash from before the unlink.
+      try {
+        await supabase
+          .from('zoho_crm_sync_state')
+          .delete()
+          .eq('tenant_id', tenantId)
+          .eq('entity_type', entityType)
+          .eq('entity_id', entity.id);
+      } catch (stateErr) {
+        console.warn('[ZohoCrmSync] Inbound unlink: failed to clear sync_state', stateErr?.message || stateErr);
+      }
+      return await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'success', direction: 'inbound', source, action,
+        error_message: `Unlinked ${entityType} ${entity.id} from ${zohoModule} ${zohoId} (deletion_policy=unlink)`,
+        response_payload: { reason: 'unlinked', policy, entity_id: entity.id }
+      });
+    } catch (err) {
+      console.error('[ZohoCrmSync] Inbound unlink failed:', err);
+      return await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'failed', direction: 'inbound', source, action,
+        error_message: `Unlink failed: ${err?.message || String(err)}`,
+        response_payload: { reason: 'unlink_failed', policy, entity_id: entity.id }
+      });
+    }
+  }
+
+  if (policy === 'delete') {
+    const table = ENTITY_TABLE[entityType];
+    const entityId = entity.id;
+    try {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('id', entityId)
+        .eq('tenant_id', tenantId);
+      if (error) throw error;
+
+      // Tombstone suppression: the AFTER DELETE trigger from
+      // 20260425_zoho_sync_tombstone.sql fires unconditionally inside the
+      // same transaction, queuing an outbound delete. We just learned about
+      // the deletion FROM Zoho — echoing a delete back would be wasted
+      // calls (and a 404 from Zoho). Mark any pending tombstone for this
+      // entity processed immediately. Best-effort: a failure here is
+      // logged but does not roll back the inbound-delete success.
+      try {
+        const { error: tsErr } = await supabase
+          .from('zoho_crm_sync_tombstone')
+          .update({
+            processed_at: new Date().toISOString(),
+            last_error: 'Suppressed: delete originated from inbound Zoho webhook'
+          })
+          .eq('tenant_id', tenantId)
+          .eq('entity_type', entityType)
+          .eq('entity_id', entityId)
+          .is('processed_at', null);
+        if (tsErr) {
+          console.warn('[ZohoCrmSync] Inbound delete: failed to suppress tombstone',
+            tenantId, entityType, entityId, tsErr.message);
+        }
+      } catch (tsErr) {
+        console.warn('[ZohoCrmSync] Inbound delete: tombstone suppression threw',
+          tenantId, entityType, entityId, tsErr?.message || tsErr);
+      }
+
+      return await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entityId,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'success', direction: 'inbound', source, action,
+        error_message: `Hard-deleted ${entityType} ${entityId} (deletion_policy=delete)`,
+        response_payload: { reason: 'deleted', policy, entity_id: entityId }
+      });
+    } catch (err) {
+      console.error('[ZohoCrmSync] Inbound delete failed:', err);
+      return await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entityId,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'failed', direction: 'inbound', source, action,
+        error_message: `Delete failed: ${err?.message || String(err)}`,
+        response_payload: { reason: 'delete_failed', policy, entity_id: entityId }
+      });
+    }
+  }
+
+  // Unknown policy — should never happen given the CHECK constraint, but
+  // log and bail rather than silently doing nothing.
+  return await writeLog({
+    tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+    zoho_module: zohoModule, zoho_record_id: zohoId,
+    status: 'failed', direction: 'inbound', source, action,
+    error_message: `Unknown deletion_policy="${policy}" — delete ignored`,
+    response_payload: { reason: 'unknown_policy', policy, entity_id: entity.id }
+  });
+}
+
+/**
  * Reconciliation poller: for every enabled inbound/bidirectional mapping,
  * pull records from Zoho whose Modified_Time is greater than the saved cursor
  * and run them through the inbound pipeline. Updates the cursor on success.
