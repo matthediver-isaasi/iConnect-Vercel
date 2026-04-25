@@ -10,8 +10,11 @@
  *     Print Zoho Accounts metadata for the source + target fields and exit.
  *
  *   node scripts/migrate-zoho-overview.mjs                 (DRY RUN — default)
+ *   node scripts/migrate-zoho-overview.mjs --dry-run       (DRY RUN — explicit)
  *     Walk every gsf Zoho Account, fetch Organisation_overview rich-text,
- *     print what would be written into Overview. No writes.
+ *     print what would be written into Overview. No writes. Dry-run is
+ *     the default whenever --apply is absent — the explicit `--dry-run`
+ *     flag is purely for operator clarity / runbook readability.
  *
  *   node scripts/migrate-zoho-overview.mjs --apply
  *     Same walk, but PUT each Overview value back to Zoho.
@@ -66,14 +69,35 @@ const RISKY_PATTERN = /![A-Z]/;
 
 function parseArgs(argv) {
   const args = { apply: false, force: false, probe: false, updateMapping: false, tenant: GSF_TENANT_ID };
+  let explicitDryRun = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--apply') args.apply = true;
     else if (a === '--force') args.force = true;
     else if (a === '--probe') args.probe = true;
     else if (a === '--update-mapping') args.updateMapping = true;
-    else if (a === '--tenant') args.tenant = argv[++i];
+    else if (a === '--dry-run') {
+      // Explicit dry-run flag for operator clarity / runbook
+      // readability. Dry-run is already the default; we just track
+      // that the operator asked for it explicitly so we can reject
+      // contradictory `--dry-run --apply` invocations after the loop.
+      explicitDryRun = true;
+    } else if (a === '--help' || a === '-h') {
+      console.log('Usage: see header comment in scripts/migrate-zoho-overview.mjs');
+      console.log('Flags: --probe | --dry-run (default) | --apply | --force | --update-mapping | --tenant <uuid>');
+      process.exit(0);
+    } else if (a === '--tenant') args.tenant = argv[++i];
     else if (a.startsWith('--tenant=')) args.tenant = a.split('=')[1];
+    else {
+      console.error(`Error: unknown flag "${a}". Use --help to see supported flags.`);
+      process.exit(2);
+    }
+  }
+  // Order-independent guard: --dry-run and --apply contradict each
+  // other regardless of which appears first on the command line.
+  if (explicitDryRun && args.apply) {
+    console.error('Error: --dry-run and --apply are mutually exclusive.');
+    process.exit(2);
   }
   return args;
 }
