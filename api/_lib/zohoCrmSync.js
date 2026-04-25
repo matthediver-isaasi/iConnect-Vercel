@@ -3105,8 +3105,11 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   // 60s function ceiling so a slow record near the budget still has
   // time to finish before the function is killed.
   const startPage = Math.max(1, Math.floor(Number(options.startPage) || 1));
+  // Clamp the override to <= 50_000 to defend the architectural
+  // invariant: never sit closer than ~10s to Vercel's 60s ceiling, no
+  // matter what an ops/test caller passes in.
   const timeBudgetMs = Number.isFinite(Number(options.timeBudgetMs))
-    ? Number(options.timeBudgetMs)
+    ? Math.min(50_000, Math.max(1_000, Number(options.timeBudgetMs)))
     : 40_000;
   const startedAt = Date.now();
   summary.start_page = startPage;
