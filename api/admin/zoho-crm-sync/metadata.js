@@ -29,13 +29,10 @@ const ENTITY_CORE_FIELDS = {
   ],
   organization: [
     { key: 'name', label: 'Name', type: 'text' },
-    { key: 'website', label: 'Website', type: 'url' },
+    { key: 'website_url', label: 'Website', type: 'url' },
     { key: 'phone', label: 'Phone', type: 'phone' },
-    { key: 'email', label: 'Email', type: 'email' },
-    { key: 'address_line_1', label: 'Address Line 1', type: 'text' },
-    { key: 'address_line_2', label: 'Address Line 2', type: 'text' },
-    { key: 'city', label: 'City', type: 'text' },
-    { key: 'country', label: 'Country', type: 'text' },
+    { key: 'invoicing_email', label: 'Invoicing Email', type: 'email' },
+    { key: 'invoicing_address', label: 'Invoicing Address', type: 'longtext' },
     { key: 'description', label: 'Description', type: 'longtext' },
     {
       key: 'status',

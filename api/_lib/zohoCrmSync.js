@@ -1646,9 +1646,8 @@ export async function pollZohoCrmReconciliation(tenantId, options = {}) {
 // api/admin/zoho-crm-sync/metadata.js and prevents PostgREST select-string
 // injection via a tampered field_mappings JSON.
 const ALLOWED_ORG_LOCAL_KEYS = new Set([
-  'name', 'website', 'phone', 'email',
-  'address_line_1', 'address_line_2', 'city', 'country',
-  'description', 'status'
+  'name', 'website_url', 'phone', 'invoicing_email',
+  'invoicing_address', 'description', 'status'
 ]);
 
 // Returns one of:
