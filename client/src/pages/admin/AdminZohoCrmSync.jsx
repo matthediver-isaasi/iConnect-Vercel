@@ -182,6 +182,52 @@ function rowHasValueMap(row) {
   return false;
 }
 
+// RFC 4180 escape: wrap in double quotes if the value contains a comma,
+// double quote, or newline; double up any embedded quotes.
+function escapeCsvCell(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (s === "") return "";
+  if (/[",\r\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function csvRow(cells) {
+  return cells.map(escapeCsvCell).join(",");
+}
+
+// Serialise a row's value_map into a single human-readable cell, e.g.
+// `iconnect_to_zoho: a=>x; b=>y | zoho_to_iconnect: x=>a`.
+function serializeValueMap(vm) {
+  if (!vm || typeof vm !== "object") return "";
+  const parts = [];
+  const i2z = vm.iconnect_to_zoho;
+  if (i2z && typeof i2z === "object") {
+    const entries = Object.entries(i2z).filter(([k]) => k !== "");
+    if (entries.length > 0) {
+      parts.push(`iconnect_to_zoho: ${entries.map(([k, v]) => `${k}=>${v ?? ""}`).join("; ")}`);
+    }
+  }
+  const z2i = vm.zoho_to_iconnect;
+  if (z2i && typeof z2i === "object") {
+    const entries = Object.entries(z2i).filter(([k]) => k !== "");
+    if (entries.length > 0) {
+      parts.push(`zoho_to_iconnect: ${entries.map(([k, v]) => `${k}=>${v ?? ""}`).join("; ")}`);
+    }
+  }
+  return parts.join(" | ");
+}
+
+function todayIsoDate() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function AdminZohoCrmSync() {
   const { toast } = useToast();
 
@@ -687,6 +733,66 @@ export default function AdminZohoCrmSync() {
     }
   };
 
+  const exportMappingCsv = () => {
+    const rows = mapping?.field_mappings || [];
+    if (rows.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Nothing to export",
+        description: "Add at least one field mapping before exporting."
+      });
+      return;
+    }
+
+    const entityLabel = mapping?.entity_type === "organization" ? "organisation" : (mapping?.entity_type || entityType);
+    const lines = [];
+
+    // Small header section with the surrounding mapping context so the
+    // client has full context (module, unique key, sync direction, etc.).
+    lines.push(csvRow(["Setting", "Value"]));
+    lines.push(csvRow(["Entity type", mapping?.entity_type || entityType]));
+    lines.push(csvRow(["Zoho module", mapping?.zoho_module || ""]));
+    lines.push(csvRow(["Unique key field", mapping?.unique_key_field || ""]));
+    lines.push(csvRow(["Sync direction", mapping?.sync_direction || ""]));
+    lines.push(csvRow(["Conflict policy", mapping?.conflict_policy || ""]));
+    lines.push(csvRow(["Unmatched policy", mapping?.unmatched_policy || ""]));
+    lines.push(csvRow(["Enabled", mapping?.is_enabled ? "yes" : "no"]));
+    lines.push(csvRow(["Exported on", todayIsoDate()]));
+    lines.push("");
+
+    // Field mappings table.
+    lines.push(csvRow([
+      "iConnect Field",
+      "iConnect Field Type",
+      "Zoho API Name",
+      "Zoho Field Label",
+      "Value Map"
+    ]));
+    for (const row of rows) {
+      const iOpt = allIconnectOptions.find(o => o.value === row.iconnect_field);
+      const zField = zohoFields.find(z => z.api_name === row.zoho_field);
+      lines.push(csvRow([
+        iOpt?.label || row.iconnect_field || "",
+        row.iconnect_field_type || iOpt?.type || "",
+        row.zoho_field || "",
+        row.zoho_field_label || zField?.field_label || "",
+        serializeValueMap(row.value_map)
+      ]));
+    }
+
+    const csv = lines.join("\r\n");
+    // BOM so Excel opens UTF-8 cleanly.
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zoho-crm-mapping-${entityLabel}-${todayIsoDate()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const loadLogs = async () => {
     setLoadingLogs(true);
     try {
@@ -1128,6 +1234,15 @@ export default function AdminZohoCrmSync() {
                     <Button onClick={saveMapping} disabled={savingMapping} data-testid="button-save-mapping">
                       {savingMapping ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                       Save mapping
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={exportMappingCsv}
+                      disabled={!mapping?.field_mappings || mapping.field_mappings.length === 0}
+                      data-testid="button-export-mapping-csv"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export CSV
                     </Button>
                   </div>
                 </>
