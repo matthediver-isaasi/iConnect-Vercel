@@ -2238,14 +2238,24 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
 // One-time bulk import: Zoho CRM → iConnect.
 // Honours the configured field_mappings and is idempotent (safe to re-run).
 //
-// Merge rules differ by entity type for the UPDATE path:
-//   - member:       "non-empty Zoho wins, empty Zoho preserves iConnect" —
-//                   a non-empty Zoho value overrides a differing iConnect
-//                   value; empty Zoho values never blank out iConnect.
-//   - organization: "iConnect wins, Zoho fills blanks only" — a non-empty
-//                   Zoho value is only written when the current iConnect
-//                   value is empty/missing. iConnect is treated as the
-//                   source of truth for organisations.
+// Merge rules for the UPDATE path are unified across entity types — iConnect
+// is treated as the source of truth in the one-time import. For each mapped
+// field:
+//   - iConnect populated, Zoho empty       → push iConnect value to Zoho
+//                                            (#451 backfill behaviour, kept).
+//   - iConnect populated, Zoho populated,
+//     values differ                        → push iConnect value to Zoho
+//                                            (overwrite). iConnect is NOT
+//                                            modified — this deliberately
+//                                            flips away from the previous
+//                                            "non-empty Zoho overrides
+//                                            iConnect" rule for members.
+//   - iConnect populated, Zoho populated,
+//     values match                         → no-op (`match`).
+//   - iConnect empty, Zoho populated       → write Zoho value into iConnect
+//                                            (existing fill-blank inbound
+//                                            behaviour).
+//   - Both empty                           → no-op (`zoho_empty`).
 //
 // CREATE behaviour is the same for both: a brand-new iConnect record is
 // populated from every non-empty mapped Zoho value.
@@ -2262,13 +2272,42 @@ function isEmptyZohoValue(v) {
   return false;
 }
 
-// Used by the organisations one-time import to decide whether an iConnect
-// field is "empty" and therefore eligible to be filled from a Zoho value.
+// Used by the one-time import to decide whether an iConnect field is
+// "empty" and therefore eligible to be filled from a Zoho value.
 // Mirrors isEmptyZohoValue so the two sides are judged consistently.
 function isEmptyIconnectValue(v) {
   if (v === undefined || v === null) return true;
   if (typeof v === 'string' && v.trim() === '') return true;
   return false;
+}
+
+// Compare an iConnect value and a Zoho value using the same canonicalisation
+// the hash plumbing uses (sorted multi-pick arrays, etc.). Used by the
+// one-time import UPDATE path to decide between `match` (no-op) and
+// `iconnect_overwrites_zoho` (push iConnect value to Zoho). The deep-stringify
+// fallback handles arrays/objects while keeping primitive comparison cheap.
+function valuesMatchForMerge(mapping, iconnectValue, zohoValue) {
+  const a = canonicalizeForHash(mapping, iconnectValue);
+  const b = canonicalizeForHash(mapping, zohoValue);
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+  if (typeof a === 'object' || typeof b === 'object') {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  }
+  // Lossless cross-type compare for primitives that may have arrived from
+  // Zoho as strings vs iConnect as numbers (e.g. integer-valued picklists).
+  return String(a) === String(b);
 }
 
 // Build a flat list of {scope, field, zohoValue, beforeValue, afterValue}
@@ -2325,62 +2364,73 @@ function summariseEntity(entity, entityType) {
 }
 
 /**
- * Push a one-time-import backfill payload to Zoho via the standard
- * `updateZohoCrmRecordById` path. Wraps the call in a try/catch so a
- * Zoho-side failure does not roll back the inbound write that has
- * already landed for the same record.
+ * Push a one-time-import "iConnect → Zoho" payload — combining both the
+ * blank-backfill fields (Zoho was empty, iConnect had a value) and the
+ * overwrite fields (both sides populated, values disagreed) — to Zoho via
+ * the standard `updateZohoCrmRecordById` path. A single PUT covers both
+ * groups so picklists / multi-pick / rich-text values are all routed
+ * through the same `applyMappingValueOutbound` translation already used by
+ * the regular outbound sync.
+ *
+ * Wrapped in a try/catch so a Zoho-side failure does not roll back the
+ * inbound write that has already landed for the same record.
  *
  * On success: records the canonical outbound payload hash via
- * `recordSyncState(..., 'outbound', ...)` so the next inbound poll
- * recognises the round-trip via the existing echo guard, and writes a
- * `direction: 'outbound'` success log row.
+ * `recordSyncState(..., 'outbound', ...)` so the next inbound poll (and
+ * the inbound webhook path, when it next sees this record) recognises the
+ * round-trip via the existing echo guard, and writes a
+ * `direction: 'outbound'` success log row tagged with the same `action`
+ * and `source` as the inbound side.
  *
  * On failure: writes a `direction: 'outbound'` failed log row and
  * returns `{ success: false, error }` so the caller can increment the
- * `backfill_failed` counter on the bulk summary without aborting the
+ * matching `*_failed` counters on the bulk summary without aborting the
  * whole import run.
  *
- * The outbound hash is computed from a synthetic inbound view of what
- * the next poll *would* observe after this backfill lands: existing
- * `coreUpdates`/`customUpdates` (everything else Zoho returned this
- * pass) overlaid with the iConnect raw values for backfilled fields
- * (since Zoho will round-trip those values back on the next read).
- * Multi-pick canonicalisation is handled by `canonicalizeInboundForHash`
- * so the hash matches even when Zoho returns array elements in a
- * different order than we sent.
+ * The outbound hash is computed from a synthetic inbound view of what the
+ * next poll *would* observe after this push lands: existing
+ * `coreUpdates`/`customUpdates` (everything else Zoho returned this pass)
+ * overlaid with the iConnect raw values for every field we just sent —
+ * blank-backfilled and overwritten alike. Multi-pick canonicalisation is
+ * handled by `canonicalizeInboundForHash` so the hash matches even when
+ * Zoho returns array elements in a different order than we sent.
  */
-async function pushBackfillToZoho({
+async function pushIconnectChangesToZoho({
   tenantId, entityType, entity, mapping, zohoModule, zohoId,
-  backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+  pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
   currentCustom, source, action, zohoRecord
 }) {
   if (!zohoId) {
-    return { success: false, error: 'Cannot backfill to Zoho: missing zoho_crm_id' };
+    return { success: false, error: 'Cannot push iConnect values to Zoho: missing zoho_crm_id' };
   }
+  const responseSummary = {
+    backfilled_fields: backfilledFields,
+    overwritten_fields: overwrittenFields
+  };
   try {
-    const result = await updateZohoCrmRecordById(tenantId, zohoModule, zohoId, backfillToZoho);
+    const result = await updateZohoCrmRecordById(tenantId, zohoModule, zohoId, pushToZoho);
     if (!result.success) {
-      const errorMessage = `Backfill push to Zoho failed: ${result.error || 'Unknown error'}`;
+      const errorMessage = `Push to Zoho failed: ${result.error || 'Unknown error'}`;
       await writeLog({
         tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
         zoho_module: zohoModule, zoho_record_id: zohoId,
         status: 'failed', direction: 'outbound', source, action,
         error_message: errorMessage,
-        request_payload: backfillToZoho,
-        response_payload: { ...(result.details || result.raw || {}), backfilled_fields: backfilledFields }
+        request_payload: pushToZoho,
+        response_payload: { ...(result.details || result.raw || {}), ...responseSummary }
       });
       return { success: false, error: errorMessage };
     }
 
     // Build a synthetic inbound view to compute the outbound hash. For
-    // backfilled fields the next inbound poll will see Zoho returning
-    // (the round-trip of) the iConnect raw values; for everything else
-    // it will see whatever Zoho currently has (`coreUpdates` /
-    // `customUpdates`).
+    // every field we just pushed (backfill + overwrite) the next inbound
+    // poll will see Zoho returning (the round-trip of) the iConnect raw
+    // values; for everything else it will see whatever Zoho currently has
+    // (`coreUpdates` / `customUpdates`).
     const syntheticCore = { ...(coreUpdates || {}) };
     const syntheticCustom = { ...(customUpdates || {}) };
     for (const m of mapping.field_mappings || []) {
-      if (!m?.zoho_field || !Object.prototype.hasOwnProperty.call(backfillToZoho, m.zoho_field)) continue;
+      if (!m?.zoho_field || !Object.prototype.hasOwnProperty.call(pushToZoho, m.zoho_field)) continue;
       const isCustom = m.iconnect_field?.startsWith('custom:');
       if (isCustom) {
         const customId = m.iconnect_field.slice('custom:'.length);
@@ -2397,23 +2447,23 @@ async function pushBackfillToZoho({
       zoho_module: zohoModule, zoho_record_id: zohoId,
       status: 'success', direction: 'outbound', source, action,
       payload_hash: outboundHash,
-      request_payload: backfillToZoho,
-      response_payload: { ...(result.details || {}), backfilled_fields: backfilledFields }
+      request_payload: pushToZoho,
+      response_payload: { ...(result.details || {}), ...responseSummary }
     });
-    return { success: true, fields_count: Object.keys(backfillToZoho).length };
+    return { success: true, fields_count: Object.keys(pushToZoho).length };
   } catch (err) {
-    const errorMessage = `Backfill push to Zoho threw: ${err?.message || String(err)}`;
+    const errorMessage = `Push to Zoho threw: ${err?.message || String(err)}`;
     try {
       await writeLog({
         tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
         zoho_module: zohoModule, zoho_record_id: zohoId,
         status: 'failed', direction: 'outbound', source, action,
         error_message: errorMessage,
-        request_payload: backfillToZoho,
-        response_payload: { backfilled_fields: backfilledFields }
+        request_payload: pushToZoho,
+        response_payload: responseSummary
       });
     } catch (logErr) {
-      console.error('[ZohoCrmSync] backfill failure log write failed:', logErr);
+      console.error('[ZohoCrmSync] iConnect→Zoho push failure log write failed:', logErr);
     }
     return { success: false, error: errorMessage };
   }
@@ -2612,33 +2662,37 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     };
   }
 
-  // UPDATE: merge rules differ by entity type.
-  //   - organization: iConnect is the source of truth. Only fill iConnect
-  //     fields that are currently empty from a non-empty Zoho value.
-  //     Existing iConnect values are never overwritten, even when Zoho
-  //     disagrees.
-  //   - member (and any other type): preserve today's behaviour — a
-  //     non-empty Zoho value overrides a differing iConnect value; empty
-  //     Zoho values preserve whatever iConnect currently has.
+  // UPDATE: unified merge rule for both `organization` and `member` —
+  // iConnect is the source of truth. Per mapped field:
+  //   - Zoho empty + iConnect populated → schedule a backfill push to Zoho
+  //     (the iConnect value rounds-trips out so Zoho catches up).
+  //   - Both populated, values differ   → schedule an overwrite push to
+  //     Zoho. iConnect is NOT modified — this deliberately flips away
+  //     from the previous "non-empty Zoho overrides iConnect" rule that
+  //     used to apply to members.
+  //   - Both populated, values match    → no-op (`match`).
+  //   - iConnect empty + Zoho populated → write the Zoho value into
+  //     iConnect (existing fill-blank inbound behaviour).
+  //   - Both empty                       → no-op (`zoho_empty`).
   const currentCustom = await loadCustomFieldValues(tenantId, entityType, entity.id);
-  const iconnectWins = entityType === 'organization';
   const coreToWrite = {};
   const customToWrite = {};
   // Per-mapping diagnostic for fields that did not make it into
   // coreToWrite/customToWrite. Surfaced on the dry-run preview so admins can
   // see at a glance whether the no-op is because Zoho returned nothing, the
-  // iConnect side already had a value, or (for non-org entities) the values
-  // already matched. Iterate `mapping.field_mappings` directly so we have
-  // both the iConnect-side and Zoho-side field identifiers for each entry.
+  // values already matched, or a translation gap blocked an iConnect→Zoho
+  // push. Iterate `mapping.field_mappings` directly so we have both the
+  // iConnect-side and Zoho-side field identifiers for each entry.
   const skippedFields = [];
-  // Backfill collector: when Zoho returned nothing for a mapped field but
-  // iConnect has a non-empty value, push the iConnect value back to Zoho as
-  // part of the same import pass. The payload is keyed by Zoho field name
-  // and routed through `applyMappingValueOutbound` so picklists / multi-pick
-  // arrays / rich-text values are shaped the way Zoho expects (same code
-  // path as the regular outbound sync).
-  const backfillToZoho = {};
+  // Combined "iConnect → Zoho" payload, keyed by Zoho field name. Holds
+  // BOTH blank-backfill entries (Zoho was empty, iConnect had a value)
+  // and overwrite entries (both sides populated, values disagreed). Sent
+  // to Zoho in one `updateZohoCrmRecordById` call by `pushIconnectChangesToZoho`
+  // so picklists / multi-pick arrays / rich-text are shaped the way Zoho
+  // expects (same code path as the regular outbound sync).
+  const pushToZoho = {};
   const backfilledFields = [];
+  const overwrittenFields = [];
   for (const m of mapping.field_mappings || []) {
     const iconnectField = m?.iconnect_field;
     const zohoField = m?.zoho_field;
@@ -2652,63 +2706,97 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     const iconnectValue = isCustom
       ? (currentCustom ? currentCustom[customId] : undefined)
       : entity[iconnectField];
+    const zohoEmpty = !zohoHas || isEmptyZohoValue(zohoValue);
+    const iconnectEmpty = isEmptyIconnectValue(iconnectValue);
 
-    if (!zohoHas || isEmptyZohoValue(zohoValue)) {
-      // Zoho-side is empty. If iConnect has a value, schedule a backfill
-      // push to Zoho rather than just recording the skip — see the
-      // outbound translation + push block further down.
-      if (!isEmptyIconnectValue(iconnectValue)) {
-        const translated = applyMappingValueOutbound(m, iconnectValue, []);
-        if (translated !== undefined) {
-          backfillToZoho[zohoField] = translated;
-          backfilledFields.push({
-            iconnect_field: iconnectField,
-            zoho_field: zohoField,
-            zoho_value: null,
-            iconnect_value: iconnectValue ?? null,
-            translated_zoho_value: translated,
-            reason: 'iconnect_to_zoho_backfill'
-          });
-          continue;
-        }
-      }
+    if (zohoEmpty && iconnectEmpty) {
       skippedFields.push({
         iconnect_field: iconnectField,
         zoho_field: zohoField,
         zoho_value: zohoHas ? (zohoValue ?? null) : null,
+        iconnect_value: null,
+        reason: 'zoho_empty'
+      });
+      continue;
+    }
+
+    if (zohoEmpty) {
+      // iConnect populated, Zoho empty → push iConnect → Zoho (backfill).
+      const translated = applyMappingValueOutbound(m, iconnectValue, []);
+      if (translated !== undefined) {
+        pushToZoho[zohoField] = translated;
+        backfilledFields.push({
+          iconnect_field: iconnectField,
+          zoho_field: zohoField,
+          zoho_value: null,
+          iconnect_value: iconnectValue ?? null,
+          translated_zoho_value: translated,
+          reason: 'iconnect_to_zoho_backfill'
+        });
+        continue;
+      }
+      // Translation produced nothing — fall through to a plain skip so
+      // the admin sees why no push was scheduled.
+      skippedFields.push({
+        iconnect_field: iconnectField,
+        zoho_field: zohoField,
+        zoho_value: null,
         iconnect_value: iconnectValue ?? null,
         reason: 'zoho_empty'
       });
       continue;
     }
-    if (iconnectWins) {
-      if (!isEmptyIconnectValue(iconnectValue)) {
-        skippedFields.push({
-          iconnect_field: iconnectField,
-          zoho_field: zohoField,
-          zoho_value: zohoValue,
-          iconnect_value: iconnectValue ?? null,
-          reason: 'iconnect_populated'
-        });
-        continue;
+
+    if (iconnectEmpty) {
+      // iConnect empty, Zoho populated → write Zoho into iConnect (the
+      // existing fill-blank inbound path). No outbound push for this
+      // field.
+      if (isCustom) {
+        customToWrite[customId] = zohoValue;
+      } else {
+        coreToWrite[iconnectField] = zohoValue;
       }
-    } else {
-      if (iconnectValue === zohoValue) {
-        skippedFields.push({
-          iconnect_field: iconnectField,
-          zoho_field: zohoField,
-          zoho_value: zohoValue,
-          iconnect_value: iconnectValue ?? null,
-          reason: 'match'
-        });
-        continue;
-      }
+      continue;
     }
-    if (isCustom) {
-      customToWrite[customId] = zohoValue;
-    } else {
-      coreToWrite[iconnectField] = zohoValue;
+
+    // Both sides populated. Compare to decide between match / overwrite.
+    if (valuesMatchForMerge(m, iconnectValue, zohoValue)) {
+      skippedFields.push({
+        iconnect_field: iconnectField,
+        zoho_field: zohoField,
+        zoho_value: zohoValue,
+        iconnect_value: iconnectValue ?? null,
+        reason: 'match'
+      });
+      continue;
     }
+
+    // Differing values — push iConnect → Zoho (overwrite). iConnect is
+    // not modified. This is the new behaviour from #456 that flips the
+    // member rule too.
+    const translated = applyMappingValueOutbound(m, iconnectValue, []);
+    if (translated !== undefined) {
+      pushToZoho[zohoField] = translated;
+      overwrittenFields.push({
+        iconnect_field: iconnectField,
+        zoho_field: zohoField,
+        zoho_value: zohoValue,
+        iconnect_value: iconnectValue ?? null,
+        translated_zoho_value: translated,
+        reason: 'iconnect_overwrites_zoho'
+      });
+      continue;
+    }
+
+    // Translation gap — surface the skip so the admin can spot the
+    // mapping issue rather than the disagreement silently persisting.
+    skippedFields.push({
+      iconnect_field: iconnectField,
+      zoho_field: zohoField,
+      zoho_value: zohoValue,
+      iconnect_value: iconnectValue ?? null,
+      reason: 'iconnect_populated'
+    });
   }
 
   // Always backfill the zoho link if we found this row by natural key earlier
@@ -2721,25 +2809,22 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
 
   const matched = summariseEntity(entity, entityType);
 
-  const hasBackfill = Object.keys(backfillToZoho).length > 0;
+  const hasPushToZoho = Object.keys(pushToZoho).length > 0;
+  const hasBackfill = backfilledFields.length > 0;
+  const hasOverwrite = overwrittenFields.length > 0;
 
   if (Object.keys(coreToWrite).length === 0 && Object.keys(customToWrite).length === 0 && !linkPatch) {
     let errorMessage;
-    if (iconnectWins) {
-      const hasIconnectPopulated = skippedFields.some(s => s.reason === 'iconnect_populated') || hasBackfill;
-      if (!hasIconnectPopulated) {
-        // Either every mapping was skipped at the Zoho-empty gate, or the
-        // mapping is empty altogether — surface the Zoho-side cause so the
-        // admin doesn't assume iConnect is the blocker.
-        errorMessage = 'No-op: Zoho returned no non-empty values for any mapped field';
-      } else {
-        // Covers both the all-iconnect-populated case and the mixed case
-        // where some fields were Zoho-empty and others had iConnect values.
-        // The skippedFields breakdown disambiguates per-field.
-        errorMessage = 'No-op: every mapped iConnect field is already populated; no Zoho values to fill in';
-      }
+    if (hasOverwrite && hasBackfill) {
+      errorMessage = 'No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data';
+    } else if (hasOverwrite) {
+      errorMessage = 'No-op on iConnect: overwriting differing Zoho values with iConnect data';
+    } else if (hasBackfill) {
+      errorMessage = 'No-op on iConnect: backfilling Zoho-empty fields with iConnect data';
+    } else if (skippedFields.some(s => s.reason === 'match')) {
+      errorMessage = 'No-op: every populated Zoho value already matches iConnect';
     } else {
-      errorMessage = 'No-op: every non-empty Zoho value already matches iConnect';
+      errorMessage = 'No-op: Zoho returned no non-empty values for any mapped field and iConnect has nothing to push back';
     }
     let logId = null;
     if (!dryRun) {
@@ -2753,15 +2838,17 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       logId = logRow?.id || null;
     }
     // Even when there are no inbound changes, we may still need to push
-    // iConnect values back to Zoho where Zoho was empty.
-    let backfillResult = null;
-    if (hasBackfill && !dryRun) {
-      backfillResult = await pushBackfillToZoho({
+    // iConnect values back to Zoho — both blank-backfills (Zoho was
+    // empty) and overwrites of differing Zoho values.
+    let pushResult = null;
+    if (hasPushToZoho && !dryRun) {
+      pushResult = await pushIconnectChangesToZoho({
         tenantId, entityType, entity, mapping, zohoModule, zohoId,
-        backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+        pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
         currentCustom, source, action, zohoRecord
       });
     }
+    const pushFailed = pushResult && !pushResult.success;
     return {
       outcome: 'no_change',
       matched,
@@ -2770,8 +2857,12 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       diffs: [],
       skipped_fields: skippedFields,
       backfilled_fields: backfilledFields,
-      backfill_failed: backfillResult && !backfillResult.success
-        ? { fields: backfilledFields.map(f => f.zoho_field), error: backfillResult.error }
+      overwritten_fields: overwrittenFields,
+      backfill_failed: pushFailed && hasBackfill
+        ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
+        : null,
+      overwrite_failed: pushFailed && hasOverwrite
+        ? { fields: overwrittenFields.map(f => f.zoho_field), error: pushResult.error }
         : null,
       logId
     };
@@ -2792,7 +2883,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       linkPatch,
       diffs,
       skipped_fields: skippedFields,
-      backfilled_fields: backfilledFields
+      backfilled_fields: backfilledFields,
+      overwritten_fields: overwrittenFields
     };
   }
 
@@ -2851,20 +2943,22 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     response_payload: { core: coreToWrite, custom: customToWrite, link: linkPatch }
   });
 
-  // Backfill any iConnect values to Zoho for fields that Zoho returned
-  // empty. Runs after the inbound write has landed (so `zoho_crm_id` is
+  // Push iConnect values back to Zoho — both blank-backfill fields (Zoho
+  // was empty) and overwrite fields (both populated, values disagreed).
+  // Runs after the inbound write has landed (so `zoho_crm_id` is
   // guaranteed persisted from `linkPatch` when applicable) and is wrapped
   // in its own try/catch inside the helper — a Zoho-side failure is
   // logged but does not roll back the inbound update we already
   // committed.
-  let backfillResult = null;
-  if (hasBackfill) {
-    backfillResult = await pushBackfillToZoho({
+  let pushResult = null;
+  if (hasPushToZoho) {
+    pushResult = await pushIconnectChangesToZoho({
       tenantId, entityType, entity, mapping, zohoModule, zohoId,
-      backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+      pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
       currentCustom, source, action, zohoRecord
     });
   }
+  const pushFailed = pushResult && !pushResult.success;
 
   return {
     outcome: 'updated',
@@ -2875,8 +2969,12 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     linkPatch,
     diffs,
     backfilled_fields: backfilledFields,
-    backfill_failed: backfillResult && !backfillResult.success
-      ? { fields: backfilledFields.map(f => f.zoho_field), error: backfillResult.error }
+    overwritten_fields: overwrittenFields,
+    backfill_failed: pushFailed && hasBackfill
+      ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
+      : null,
+    overwrite_failed: pushFailed && hasOverwrite
+      ? { fields: overwrittenFields.map(f => f.zoho_field), error: pushResult.error }
       : null,
     logId: logRow?.id || null
   };
@@ -2888,12 +2986,14 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
  * configured Zoho module for this tenant. Idempotent and safe to re-run.
  *
  * Honours the existing field_mappings (including custom: preference fields).
- * Update-merge rules differ by entity type:
- *   - organization: iConnect is the source of truth. Only iConnect fields
- *     that are currently empty are filled from a non-empty Zoho value;
- *     existing iConnect values are never overwritten.
- *   - member: a non-empty Zoho value overrides a differing iConnect value;
- *     empty Zoho values preserve whatever iConnect currently has.
+ * Update-merge rule is unified across entity types — iConnect is the source
+ * of truth:
+ *   - Zoho empty + iConnect populated → push iConnect → Zoho (backfill).
+ *   - Both populated, values differ   → push iConnect → Zoho (overwrite).
+ *     iConnect is NOT modified.
+ *   - Both populated, values match    → no-op.
+ *   - iConnect empty + Zoho populated → write Zoho into iConnect (existing
+ *     fill-blank inbound behaviour).
  *
  * New iConnect records are inserted from every non-empty mapped Zoho value
  * when no match is found by zoho_crm_id or natural key (email for members,
@@ -2921,6 +3021,8 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     failed: 0,
     backfilled: 0,
     backfill_failed: 0,
+    zoho_overwritten: 0,
+    zoho_overwrite_failed: 0,
     pages: 0,
     errors: []
   };
@@ -2986,9 +3088,12 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
             summary.errors.push({ id: rec.id || rec.Id || null, error: result.message || 'failed' });
           }
         } else summary.skipped += 1;
-        // Aggregate backfill counters: a record can show up here in any
-        // outcome bucket (most commonly `updated` or `no_change`) and
-        // still have triggered a backfill push to Zoho.
+        // Aggregate iConnect→Zoho push counters: a record can show up
+        // here in any outcome bucket (most commonly `updated` or
+        // `no_change`) and still have triggered a backfill push (Zoho
+        // was empty) and/or an overwrite push (Zoho disagreed). Both
+        // groups are bundled into a single Zoho update call so the same
+        // `result.*_failed.error` is surfaced when the call failed.
         if (Array.isArray(result.backfilled_fields) && result.backfilled_fields.length > 0) {
           if (result.backfill_failed) {
             summary.backfill_failed += 1;
@@ -3000,6 +3105,19 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
             }
           } else {
             summary.backfilled += 1;
+          }
+        }
+        if (Array.isArray(result.overwritten_fields) && result.overwritten_fields.length > 0) {
+          if (result.overwrite_failed) {
+            summary.zoho_overwrite_failed += 1;
+            if (summary.errors.length < 50) {
+              summary.errors.push({
+                id: rec.id || rec.Id || null,
+                error: `Zoho overwrite push failed: ${result.overwrite_failed.error}`
+              });
+            }
+          } else {
+            summary.zoho_overwritten += 1;
           }
         }
       } catch (err) {

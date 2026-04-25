@@ -119,7 +119,8 @@ const SKIPPED_REASON_LABEL = {
   zoho_empty: 'Zoho value empty',
   iconnect_populated: 'iConnect already populated',
   match: 'Already matches',
-  iconnect_to_zoho_backfill: 'iConnect → Zoho backfill'
+  iconnect_to_zoho_backfill: 'iConnect → Zoho backfill',
+  iconnect_overwrites_zoho: 'iConnect overwrites Zoho'
 };
 
 function SingleRecordResult({ result, entityType }) {
@@ -133,7 +134,9 @@ function SingleRecordResult({ result, entityType }) {
     zoho_module,
     skipped_fields = [],
     backfilled_fields = [],
-    backfill_failed = null
+    backfill_failed = null,
+    overwritten_fields = [],
+    overwrite_failed = null
   } = result || {};
   const outcomeLabel = outcome.replace(/_/g, ' ');
   const [showSkipped, setShowSkipped] = useState(false);
@@ -231,6 +234,53 @@ function SingleRecordResult({ result, entityType }) {
                     <TableCell><code className="text-xs">{b.iconnect_field}</code></TableCell>
                     <TableCell><code className="text-xs">{b.zoho_field}</code></TableCell>
                     <TableCell>{formatDiffValue(b.iconnect_value)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+      {Array.isArray(overwritten_fields) && overwritten_fields.length > 0 && (
+        <div className="space-y-2 rounded-md border bg-background p-3" data-testid="panel-overwrite-fields">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={overwrite_failed ? 'destructive' : 'default'}
+              className="text-xs"
+              data-testid="badge-overwrite-status"
+            >
+              {dryRun
+                ? `Will overwrite in Zoho (${overwritten_fields.length})`
+                : overwrite_failed
+                  ? `Overwrite in Zoho failed (${overwritten_fields.length})`
+                  : `Overwrote in Zoho (${overwritten_fields.length})`}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              iConnect is the source of truth — differing Zoho values will be replaced with the current iConnect values.
+            </span>
+          </div>
+          {overwrite_failed?.error && (
+            <p className="text-xs text-destructive" data-testid="text-overwrite-error">
+              {overwrite_failed.error}
+            </p>
+          )}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>iConnect field</TableHead>
+                  <TableHead>Zoho field</TableHead>
+                  <TableHead>Current Zoho value</TableHead>
+                  <TableHead>iConnect value (will replace it)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {overwritten_fields.map((o, i) => (
+                  <TableRow key={`overwrite-${o.zoho_field}-${i}`} data-testid={`row-overwrite-${o.zoho_field}`}>
+                    <TableCell><code className="text-xs">{o.iconnect_field}</code></TableCell>
+                    <TableCell><code className="text-xs">{o.zoho_field}</code></TableCell>
+                    <TableCell>{formatDiffValue(o.zoho_value)}</TableCell>
+                    <TableCell>{formatDiffValue(o.iconnect_value)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1567,7 +1617,7 @@ export default function AdminZohoCrmSync() {
                 <div>
                   <CardTitle className="flex items-center gap-2"><Download className="h-4 w-4" /> One-time import from Zoho CRM</CardTitle>
                   <CardDescription>
-                    Bulk-import every organisation or member from Zoho CRM into iConnect using the configured field mappings. Existing iConnect values are preserved when the corresponding Zoho field is empty. The import is idempotent and safe to re-run.
+                    Bulk-import every organisation or member from Zoho CRM into iConnect using the configured field mappings. iConnect is treated as the source of truth: empty iConnect fields are filled from Zoho, but where the two sides disagree the iConnect value is pushed back to Zoho (overwriting the differing Zoho value). Empty Zoho fields are also backfilled from iConnect. The import is idempotent and safe to re-run.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1678,6 +1728,8 @@ export default function AdminZohoCrmSync() {
                       <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-failed">{importOrgsSummary.failed}</div></div>
                       <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-orgs-backfilled">{importOrgsSummary.backfilled ?? 0}</div></div>
                       <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-backfill-failed">{importOrgsSummary.backfill_failed ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-orgs-zoho-overwritten">{importOrgsSummary.zoho_overwritten ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-zoho-overwrite-failed">{importOrgsSummary.zoho_overwrite_failed ?? 0}</div></div>
                       <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsSummary.pages}</div></div>
                     </div>
                     {importOrgsSummary.errors?.length > 0 && (
@@ -1698,6 +1750,8 @@ export default function AdminZohoCrmSync() {
                       <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-members-failed">{importMembersSummary.failed}</div></div>
                       <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-members-backfilled">{importMembersSummary.backfilled ?? 0}</div></div>
                       <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-members-backfill-failed">{importMembersSummary.backfill_failed ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-members-zoho-overwritten">{importMembersSummary.zoho_overwritten ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-members-zoho-overwrite-failed">{importMembersSummary.zoho_overwrite_failed ?? 0}</div></div>
                       <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersSummary.pages}</div></div>
                     </div>
                     {importMembersSummary.errors?.length > 0 && (
