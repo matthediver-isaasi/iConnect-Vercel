@@ -12,8 +12,29 @@ export default async function handler(req, res) {
     const tenantId = ctx.tenantId;
     if (!tenantId) return res.status(400).json({ error: 'Tenant context missing' });
 
-    const summary = await importEntityFromZoho(tenantId, 'organization', { source: 'one_time_import' });
-    return res.status(200).json({ success: true, summary });
+    // Optional `startPage` to resume a previously-truncated chunked run.
+    // The admin UI loops this endpoint, passing the prior response's
+    // `next_page` until `truncated === false`.
+    const rawStartPage = req.body?.startPage;
+    let startPage = 1;
+    if (rawStartPage !== undefined && rawStartPage !== null && rawStartPage !== '') {
+      const parsed = Number(rawStartPage);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
+        return res.status(400).json({ error: 'startPage must be a positive integer' });
+      }
+      startPage = parsed;
+    }
+
+    const summary = await importEntityFromZoho(tenantId, 'organization', {
+      source: 'one_time_import',
+      startPage
+    });
+    return res.status(200).json({
+      success: true,
+      summary,
+      truncated: !!summary.truncated,
+      next_page: summary.next_page ?? null
+    });
   } catch (err) {
     console.error('[ZohoCrmSync import-organisations] Error:', err);
     return res.status(500).json({ error: err.message || String(err) });

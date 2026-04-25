@@ -3004,6 +3004,17 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
  * Inbound origin is marked on every write so triggered outbound syncs are
  * suppressed during the import. Each record produces one zoho_crm_sync_log
  * row tagged with action='one_time_import'.
+ *
+ * Chunked execution (Vercel 60s budget):
+ *   The function paginates Zoho 200 records at a time. Each call processes
+ *   pages until either Zoho reports no more records OR the time budget
+ *   (`timeBudgetMs`, default 50s) is exceeded after a page boundary. When
+ *   truncated, the summary returns `truncated: true` and `next_page: N+1`,
+ *   and the caller is expected to re-invoke with `options.startPage = N+1`.
+ *   Resuming on a Zoho page boundary is safe because `importOneRecord` is
+ *   idempotent: re-processing a record that's already been imported simply
+ *   produces a `no_change` outcome (matching values are not re-written and
+ *   no spurious Zoho PUT is issued).
  */
 export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   if (!ENTITY_TABLE[entityType]) {
@@ -3024,6 +3035,10 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     zoho_overwritten: 0,
     zoho_overwrite_failed: 0,
     pages: 0,
+    truncated: false,
+    next_page: null,
+    start_page: 1,
+    last_page: 0,
     errors: []
   };
 
@@ -3060,7 +3075,17 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
 
   const perPage = 200;
   const MAX_PAGES = Number(options.maxPages) || 500; // safety: 100k records / run
-  let page = 1;
+  // Chunked-execution controls. The admin endpoint loops by passing
+  // `startPage` so each Vercel invocation processes a slice within
+  // `timeBudgetMs`. Defaults give us 10s of headroom under Vercel's 60s
+  // function ceiling.
+  const startPage = Math.max(1, Math.floor(Number(options.startPage) || 1));
+  const timeBudgetMs = Number.isFinite(Number(options.timeBudgetMs))
+    ? Number(options.timeBudgetMs)
+    : 50_000;
+  const startedAt = Date.now();
+  summary.start_page = startPage;
+  let page = startPage;
 
   while (page <= MAX_PAGES) {
     const endpoint = `/${zohoModule}?fields=${fieldsParam}&per_page=${perPage}&page=${page}`;
@@ -3139,7 +3164,19 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
       }
     }
 
+    summary.last_page = page;
     if (!resp?.info?.more_records) break;
+    // Time-budget check happens *after* a page boundary so we never abandon
+    // a partially-processed page (importOneRecord is idempotent across
+    // pages, not within a page mid-iteration in the sense of summary
+    // counting). When the budget is exceeded and Zoho still has more
+    // records, hand control back to the caller with `next_page` so the
+    // admin UI can re-invoke us and resume.
+    if (Date.now() - startedAt > timeBudgetMs) {
+      summary.truncated = true;
+      summary.next_page = page + 1;
+      break;
+    }
     page += 1;
   }
 

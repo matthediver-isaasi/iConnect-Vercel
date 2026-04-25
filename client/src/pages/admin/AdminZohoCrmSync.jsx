@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -451,11 +451,24 @@ export default function AdminZohoCrmSync() {
   // Value translation modal
   const [translationModal, setTranslationModal] = useState(null); // { idx, iconnectAllowed, zohoAllowed, draft: { iconnect_to_zoho, zoho_to_iconnect } }
 
-  // One-time import from Zoho
+  // One-time import from Zoho. Each click drives a chunk loop: the server
+  // processes pages until its 50s budget is hit, returns `{ truncated,
+  // next_page }`, and the UI auto-continues by re-invoking with
+  // `startPage = next_page`. Totals accumulate across chunks.
   const [importingOrgs, setImportingOrgs] = useState(false);
   const [importingMembers, setImportingMembers] = useState(false);
-  const [importOrgsSummary, setImportOrgsSummary] = useState(null);
+  const [importOrgsSummary, setImportOrgsSummary] = useState(null); // last chunk's raw summary
   const [importMembersSummary, setImportMembersSummary] = useState(null);
+  const [importOrgsTotals, setImportOrgsTotals] = useState(null);
+  const [importMembersTotals, setImportMembersTotals] = useState(null);
+  const [importOrgsCursor, setImportOrgsCursor] = useState(null); // next_page or null when done
+  const [importMembersCursor, setImportMembersCursor] = useState(null);
+  const [importOrgsCompleted, setImportOrgsCompleted] = useState(false);
+  const [importMembersCompleted, setImportMembersCompleted] = useState(false);
+  const [importOrgsWarning, setImportOrgsWarning] = useState(null);
+  const [importMembersWarning, setImportMembersWarning] = useState(null);
+  const [importOrgsError, setImportOrgsError] = useState(null);
+  const [importMembersError, setImportMembersError] = useState(null);
 
   // Single-record manual sync (preview / live), nested inside the One-time
   // import card. Lets admins dry-run a specific Zoho record before kicking
@@ -614,40 +627,207 @@ export default function AdminZohoCrmSync() {
     setActiveTab("logs");
   };
 
-  const runImport = async (kind) => {
-    if (importingOrgs || importingMembers || singlePreviewing || singleSyncing) return;
-    const label = kind === 'organisations' ? 'organisations' : 'members';
-    if (!confirm(
-      `This will paginate through every ${label[0].toUpperCase() + label.slice(1).replace(/s$/, '')} record in Zoho CRM and create or update the matching iConnect record. ` +
-      `Existing iConnect values are preserved when the corresponding Zoho field is empty. The import is idempotent and safe to re-run. Continue?`
-    )) return;
+  // Cap on the number of automatic chunk continuations per session to
+  // prevent a runaway loop (e.g. if the server's `truncated` flag ever
+  // got stuck). After this many auto-continues the operator must click
+  // the manual Continue button.
+  const IMPORT_AUTO_CHUNK_CAP = 50;
 
-    const setRunning = kind === 'organisations' ? setImportingOrgs : setImportingMembers;
-    const setSummary = kind === 'organisations' ? setImportOrgsSummary : setImportMembersSummary;
-    setRunning(true);
-    setSummary(null);
-    try {
-      const r = await fetch(`/api/admin/zoho-crm-sync/import-${kind === 'organisations' ? 'organisations' : 'members'}`, {
-        method: "POST",
-        credentials: "include"
-      });
-      const d = await r.json();
-      if (r.ok) {
-        setSummary(d.summary);
-        toast({
-          title: `${kind === 'organisations' ? 'Organisation' : 'Member'} import complete`,
-          description: `Processed ${d.summary.processed}: ${d.summary.created} created, ${d.summary.updated} updated, ${d.summary.skipped} skipped, ${d.summary.failed} failed`
-        });
-        loadLogs();
-      } else {
-        toast({ variant: "destructive", title: "Import failed", description: d.error });
-      }
-    } catch (err) {
-      toast({ variant: "destructive", title: "Import failed", description: err.message });
-    } finally {
-      setRunning(false);
+  // Track the pending auto-continue timer so we can cancel it on unmount,
+  // preventing orphaned chunk requests after the operator navigates away.
+  const importContinueTimerRef = useRef(null);
+  useEffect(() => () => {
+    if (importContinueTimerRef.current) {
+      clearTimeout(importContinueTimerRef.current);
+      importContinueTimerRef.current = null;
+    }
+  }, []);
+
+  const resetImportProgress = (kind) => {
+    if (kind === 'organisations') {
+      setImportOrgsCursor(null);
+      setImportOrgsTotals(null);
+      setImportOrgsCompleted(false);
+      setImportOrgsSummary(null);
+      setImportOrgsWarning(null);
+      setImportOrgsError(null);
+    } else {
+      setImportMembersCursor(null);
+      setImportMembersTotals(null);
+      setImportMembersCompleted(false);
+      setImportMembersSummary(null);
+      setImportMembersWarning(null);
+      setImportMembersError(null);
     }
   };
+
+  // Internal worker for one chunk. `startPage` is passed explicitly (rather
+  // than read from React state) so the recursive auto-continue path
+  // doesn't suffer stale-closure bugs while React flushes state updates.
+  // `accumulator` is the in-memory running totals object that the worker
+  // mutates as it loops; React state is updated alongside it for display.
+  const runImportChunk = async (kind, startPage, autoChunkIndex, accumulator) => {
+    const isOrgs = kind === 'organisations';
+    const setRunning = isOrgs ? setImportingOrgs : setImportingMembers;
+    const setSummary = isOrgs ? setImportOrgsSummary : setImportMembersSummary;
+    const setCursor = isOrgs ? setImportOrgsCursor : setImportMembersCursor;
+    const setCompleted = isOrgs ? setImportOrgsCompleted : setImportMembersCompleted;
+    const setTotals = isOrgs ? setImportOrgsTotals : setImportMembersTotals;
+    const setWarning = isOrgs ? setImportOrgsWarning : setImportMembersWarning;
+    const setError = isOrgs ? setImportOrgsError : setImportMembersError;
+
+    setRunning(true);
+    setError(null);
+    setWarning(null);
+    let handedOff = false;
+    try {
+      const r = await fetch(`/api/admin/zoho-crm-sync/import-${isOrgs ? 'organisations' : 'members'}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startPage })
+      });
+      // Vercel returns an HTML gateway page (not JSON) when a function
+      // hits the 60s ceiling. Parse defensively so the user sees a
+      // useful message instead of `SyntaxError: Unexpected token <`.
+      let d = null;
+      let parseError = null;
+      try {
+        d = await r.json();
+      } catch (parseErr) {
+        parseError = parseErr;
+      }
+      if (parseError) {
+        const msg = r.status === 504 || r.status === 502
+          ? `Request timed out — chunk starting at page ${startPage} took too long. Click Continue to retry from the same page.`
+          : `Server error (${r.status}) — the request may have timed out. Click Continue to retry.`;
+        setError(msg);
+        // Keep the cursor on `startPage` so the manual Continue button
+        // retries the same page rather than skipping it.
+        setCursor(startPage);
+        setCompleted(false);
+        toast({ variant: "destructive", title: "Import chunk failed", description: msg });
+        return;
+      }
+      if (!r.ok) {
+        const msg = d?.error || `Server returned ${r.status}`;
+        setError(msg);
+        setCursor(startPage);
+        setCompleted(false);
+        toast({ variant: "destructive", title: "Import failed", description: msg });
+        return;
+      }
+      const s = d.summary || {};
+      const isTruncated = !!(d.truncated || s.truncated);
+      const nextPage = d.next_page ?? s.next_page ?? null;
+      setSummary(s);
+
+      // Merge into the in-memory accumulator (truth source for the
+      // recursive auto-continue), then push to React state for display.
+      accumulator.processed += s.processed || 0;
+      accumulator.created += s.created || 0;
+      accumulator.updated += s.updated || 0;
+      accumulator.skipped += s.skipped || 0;
+      accumulator.failed += s.failed || 0;
+      accumulator.backfilled += s.backfilled || 0;
+      accumulator.backfill_failed += s.backfill_failed || 0;
+      accumulator.zoho_overwritten += s.zoho_overwritten || 0;
+      accumulator.zoho_overwrite_failed += s.zoho_overwrite_failed || 0;
+      accumulator.pages += s.pages || 0;
+      accumulator.runs += 1;
+      accumulator.last_page = s.last_page || accumulator.last_page;
+      accumulator.zoho_module = s.zoho_module || accumulator.zoho_module;
+      if (Array.isArray(s.errors) && s.errors.length > 0) {
+        for (const e of s.errors) {
+          if (accumulator.errors.length >= 50) break;
+          accumulator.errors.push(e);
+        }
+      }
+      // Snapshot for React display.
+      setTotals({ ...accumulator, errors: [...accumulator.errors] });
+
+      if (isTruncated && nextPage) {
+        setCursor(nextPage);
+        setCompleted(false);
+        if (autoChunkIndex < IMPORT_AUTO_CHUNK_CAP) {
+          const warnMsg = `Imported ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) so far. Resuming at page ${nextPage}…`;
+          setWarning(warnMsg);
+          // Hand off to the next chunk. Don't clear the running flag —
+          // we want the UI to keep showing the spinner across the
+          // continuation. Track the timer in a ref so we can cancel it
+          // on unmount and avoid orphaned chunk requests.
+          handedOff = true;
+          if (importContinueTimerRef.current) {
+            clearTimeout(importContinueTimerRef.current);
+          }
+          importContinueTimerRef.current = setTimeout(() => {
+            importContinueTimerRef.current = null;
+            runImportChunk(kind, nextPage, autoChunkIndex + 1, accumulator);
+          }, 500);
+          return;
+        }
+        const warnMsg = `Auto-continue limit reached after ${IMPORT_AUTO_CHUNK_CAP} chunk(s). ${accumulator.processed} processed so far. Click "Continue import" to resume from page ${nextPage}.`;
+        setWarning(warnMsg);
+        toast({ title: "Import paused", description: warnMsg });
+      } else {
+        setCursor(null);
+        setCompleted(true);
+        setWarning(null);
+        toast({
+          title: `${isOrgs ? 'Organisation' : 'Member'} import complete`,
+          description: `Processed ${accumulator.processed}: ${accumulator.created} created, ${accumulator.updated} updated, ${accumulator.skipped} skipped, ${accumulator.failed} failed${accumulator.runs > 1 ? ` (auto-continued across ${accumulator.runs} chunk${accumulator.runs === 1 ? '' : 's'})` : ''}`
+        });
+        loadLogs();
+      }
+    } catch (err) {
+      const msg = err?.message || String(err);
+      setError(msg);
+      setCursor(startPage);
+      setCompleted(false);
+      toast({ variant: "destructive", title: "Import failed", description: msg });
+    } finally {
+      if (!handedOff) setRunning(false);
+    }
+  };
+
+  const runImport = async (kind) => {
+    if (importingOrgs || importingMembers || singlePreviewing || singleSyncing) return;
+    const isOrgs = kind === 'organisations';
+    const cursor = isOrgs ? importOrgsCursor : importMembersCursor;
+    const completed = isOrgs ? importOrgsCompleted : importMembersCompleted;
+    const isResuming = cursor !== null && !completed;
+
+    let startPage;
+    let accumulator;
+    if (isResuming) {
+      startPage = cursor;
+      // Continue from existing accumulator (kept in React state).
+      const existing = isOrgs ? importOrgsTotals : importMembersTotals;
+      accumulator = existing
+        ? { ...existing, errors: existing.errors ? [...existing.errors] : [] }
+        : freshAccumulator();
+    } else {
+      const label = isOrgs ? 'organisation' : 'member';
+      if (!confirm(
+        `This will paginate through every ${label} record in Zoho CRM and create or update the matching iConnect record. ` +
+        `iConnect is treated as the source of truth: empty iConnect fields are filled from Zoho, but where the two sides disagree the iConnect value is pushed back to Zoho. The import is idempotent and safe to re-run. Continue?`
+      )) return;
+      resetImportProgress(kind);
+      startPage = 1;
+      accumulator = freshAccumulator();
+    }
+    await runImportChunk(kind, startPage, 0, accumulator);
+  };
+
+  const freshAccumulator = () => ({
+    processed: 0, created: 0, updated: 0, skipped: 0, failed: 0,
+    backfilled: 0, backfill_failed: 0,
+    zoho_overwritten: 0, zoho_overwrite_failed: 0,
+    pages: 0, runs: 0,
+    last_page: 0,
+    zoho_module: null,
+    errors: []
+  });
 
   const runSingleRecordImport = async (dryRun) => {
     if (singlePreviewing || singleSyncing || importingOrgs || importingMembers) return;
@@ -1620,22 +1800,68 @@ export default function AdminZohoCrmSync() {
                     Bulk-import every organisation or member from Zoho CRM into iConnect using the configured field mappings. iConnect is treated as the source of truth: empty iConnect fields are filled from Zoho, but where the two sides disagree the iConnect value is pushed back to Zoho (overwriting the differing Zoho value). Empty Zoho fields are also backfilled from iConnect. The import is idempotent and safe to re-run.
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(importOrgsCursor !== null || importOrgsTotals || importOrgsCompleted) && !importingOrgs && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => resetImportProgress('organisations')}
+                      disabled={importingOrgs || importingMembers}
+                      data-testid="button-reset-import-organisations"
+                    >
+                      Reset orgs
+                    </Button>
+                  )}
+                  {importOrgsCursor !== null && !importOrgsCompleted && !importingOrgs && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => runImport('organisations')}
+                      disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
+                      data-testid="button-continue-import-organisations"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Continue org import (page {importOrgsCursor})
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => runImport('organisations')}
-                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
+                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing || (importOrgsCursor !== null && !importOrgsCompleted)}
                     data-testid="button-import-organisations"
                   >
                     {importingOrgs ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                     Import organisations from Zoho
                   </Button>
+                  {(importMembersCursor !== null || importMembersTotals || importMembersCompleted) && !importingMembers && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => resetImportProgress('members')}
+                      disabled={importingOrgs || importingMembers}
+                      data-testid="button-reset-import-members"
+                    >
+                      Reset members
+                    </Button>
+                  )}
+                  {importMembersCursor !== null && !importMembersCompleted && !importingMembers && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => runImport('members')}
+                      disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
+                      data-testid="button-continue-import-members"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Continue member import (page {importMembersCursor})
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => runImport('members')}
-                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing}
+                    disabled={importingOrgs || importingMembers || singlePreviewing || singleSyncing || (importMembersCursor !== null && !importMembersCompleted)}
                     data-testid="button-import-members"
                   >
                     {importingMembers ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -1712,59 +1938,93 @@ export default function AdminZohoCrmSync() {
               {(importingOrgs || importingMembers) && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — this can take several minutes for large tenants. Please keep this tab open.
+                  Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — runs in chunks of ~50s each, auto-continuing until done. Keep this tab open.
                 </div>
               )}
-              {(importOrgsSummary || importMembersSummary) && (
-                <div className="space-y-4">
-                {importOrgsSummary && (
-                  <div data-testid="text-import-orgs-summary">
-                    <div className="text-xs uppercase text-muted-foreground mb-2">Organisations ({importOrgsSummary.zoho_module})</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
-                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-orgs-processed">{importOrgsSummary.processed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-orgs-created">{importOrgsSummary.created}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-orgs-updated">{importOrgsSummary.updated}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-orgs-skipped">{importOrgsSummary.skipped}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-failed">{importOrgsSummary.failed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-orgs-backfilled">{importOrgsSummary.backfilled ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-backfill-failed">{importOrgsSummary.backfill_failed ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-orgs-zoho-overwritten">{importOrgsSummary.zoho_overwritten ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-zoho-overwrite-failed">{importOrgsSummary.zoho_overwrite_failed ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsSummary.pages}</div></div>
+              {(importOrgsWarning || importOrgsError || importOrgsTotals) && (
+                <div className="space-y-2" data-testid="panel-import-orgs-progress">
+                  {importOrgsWarning && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="text-import-orgs-warning">
+                      {importOrgsWarning}
                     </div>
-                    {importOrgsSummary.errors?.length > 0 && (
-                      <p className="text-xs text-destructive mt-2">
-                        First error: {importOrgsSummary.errors[0].error}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {importMembersSummary && (
-                  <div data-testid="text-import-members-summary">
-                    <div className="text-xs uppercase text-muted-foreground mb-2">Members ({importMembersSummary.zoho_module})</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
-                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-members-processed">{importMembersSummary.processed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-members-created">{importMembersSummary.created}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-members-updated">{importMembersSummary.updated}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-members-skipped">{importMembersSummary.skipped}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-members-failed">{importMembersSummary.failed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-members-backfilled">{importMembersSummary.backfilled ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-members-backfill-failed">{importMembersSummary.backfill_failed ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-members-zoho-overwritten">{importMembersSummary.zoho_overwritten ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-members-zoho-overwrite-failed">{importMembersSummary.zoho_overwrite_failed ?? 0}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersSummary.pages}</div></div>
+                  )}
+                  {importOrgsError && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="text-import-orgs-error">
+                      {importOrgsError}
                     </div>
-                    {importMembersSummary.errors?.length > 0 && (
-                      <p className="text-xs text-destructive mt-2">
-                        First error: {importMembersSummary.errors[0].error}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  )}
+                  {importOrgsTotals && (
+                    <div data-testid="text-import-orgs-summary">
+                      <div className="text-xs uppercase text-muted-foreground mb-2">
+                        Organisations{importOrgsTotals.zoho_module ? ` (${importOrgsTotals.zoho_module})` : ''}
+                        {importOrgsCompleted ? ' — complete' : importOrgsCursor !== null ? ` — paused at page ${importOrgsCursor}` : ''}
+                        {importOrgsTotals.runs > 0 ? ` · ${importOrgsTotals.runs} chunk${importOrgsTotals.runs === 1 ? '' : 's'}` : ''}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
+                        <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-orgs-processed">{importOrgsTotals.processed}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-orgs-created">{importOrgsTotals.created}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-orgs-updated">{importOrgsTotals.updated}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-orgs-skipped">{importOrgsTotals.skipped}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-failed">{importOrgsTotals.failed}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-orgs-backfilled">{importOrgsTotals.backfilled ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-backfill-failed">{importOrgsTotals.backfill_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-orgs-zoho-overwritten">{importOrgsTotals.zoho_overwritten ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-zoho-overwrite-failed">{importOrgsTotals.zoho_overwrite_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsTotals.pages}</div></div>
+                      </div>
+                      {importOrgsTotals.errors?.length > 0 && (
+                        <p className="text-xs text-destructive mt-2">
+                          First error: {importOrgsTotals.errors[0].error}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(importMembersWarning || importMembersError || importMembersTotals) && (
+                <div className="space-y-2" data-testid="panel-import-members-progress">
+                  {importMembersWarning && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="text-import-members-warning">
+                      {importMembersWarning}
+                    </div>
+                  )}
+                  {importMembersError && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="text-import-members-error">
+                      {importMembersError}
+                    </div>
+                  )}
+                  {importMembersTotals && (
+                    <div data-testid="text-import-members-summary">
+                      <div className="text-xs uppercase text-muted-foreground mb-2">
+                        Members{importMembersTotals.zoho_module ? ` (${importMembersTotals.zoho_module})` : ''}
+                        {importMembersCompleted ? ' — complete' : importMembersCursor !== null ? ` — paused at page ${importMembersCursor}` : ''}
+                        {importMembersTotals.runs > 0 ? ` · ${importMembersTotals.runs} chunk${importMembersTotals.runs === 1 ? '' : 's'}` : ''}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
+                        <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-members-processed">{importMembersTotals.processed}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-members-created">{importMembersTotals.created}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-members-updated">{importMembersTotals.updated}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-members-skipped">{importMembersTotals.skipped}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-members-failed">{importMembersTotals.failed}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-members-backfilled">{importMembersTotals.backfilled ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-members-backfill-failed">{importMembersTotals.backfill_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-members-zoho-overwritten">{importMembersTotals.zoho_overwritten ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-members-zoho-overwrite-failed">{importMembersTotals.zoho_overwrite_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersTotals.pages}</div></div>
+                      </div>
+                      {importMembersTotals.errors?.length > 0 && (
+                        <p className="text-xs text-destructive mt-2">
+                          First error: {importMembersTotals.errors[0].error}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(importOrgsTotals || importMembersTotals) && (
                 <p className="text-xs text-muted-foreground">
                   See the Sync Log tab (filter by action <code>one_time_import</code>) for per-record details.
                 </p>
-                </div>
               )}
             </CardContent>
           </Card>
