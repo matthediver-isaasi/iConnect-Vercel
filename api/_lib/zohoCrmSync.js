@@ -8,7 +8,8 @@ import {
   zohoCrmApiCall,
   searchZohoCrmRecords,
   fetchZohoCrmRecordRichText,
-  getZohoCrmModuleFieldTypes
+  getZohoCrmModuleFieldTypes,
+  getZohoCrmModuleFields
 } from './zohoCrmClient.js';
 
 /**
@@ -429,6 +430,78 @@ function applyMappingValueOutbound(mapping, raw, warnings) {
   }
   if (raw === undefined || raw === null || raw === '') return undefined;
   return applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings);
+}
+
+// Zoho CRM rejects the entire PUT payload with HTTP 400 INVALID_DATA when
+// any single text field exceeds its `maximum_length` (e.g.
+// `Schools_demographic` is capped at 255 chars in some tenants). One bad
+// field kills every other backfilled / overwritten field on the same
+// record, so the offenders never get persisted and re-appear on the next
+// import run. We clamp string-like values at push time using the cached
+// `getZohoCrmModuleFields` metadata so mapping-row state stays neutral
+// (a length change in Zoho takes effect on the next 5-min cache miss
+// rather than requiring an admin to re-save mappings). Picklist /
+// multi-pick / lookup / date / boolean / numeric fields are skipped —
+// Zoho's `length` for those is the on-the-wire string size, not a
+// truncate-able limit, and clamping a picklist value would silently
+// corrupt the mapped option.
+const CLAMPABLE_DATA_TYPES = new Set([
+  'text',
+  'textarea',
+  'phone',
+  'email',
+  'website',
+  'url'
+]);
+function isClampableDataType(dataType) {
+  if (!dataType) return false;
+  return CLAMPABLE_DATA_TYPES.has(String(dataType).toLowerCase());
+}
+
+/**
+ * Clamp `value` to `field.length` if the field's data_type is a string-
+ * like type with a defined max length. Returns `{ value, truncated }`
+ * where `truncated` is `null` when no clamp happened or
+ * `{ original_length, max_length }` when the value was shortened.
+ *
+ * For multi-pick the elements are clamped independently — Zoho's per-
+ * element length cap applies to each picklist value, not the joined
+ * payload. Picklist-style multi-pick is excluded here because
+ * `is_multi_pick` mappings always go through `applyMappingValueOutbound`
+ * which produces an array of mapped picklist values; if a tenant
+ * happens to have a free-text-multi field configured, the per-element
+ * clamp keeps each entry within the metadata length while preserving
+ * array shape.
+ */
+function clampValueToZohoLength(field, value) {
+  if (!field || value === undefined || value === null) return { value, truncated: null };
+  const maxLength = Number(field.length);
+  if (!Number.isFinite(maxLength) || maxLength <= 0) return { value, truncated: null };
+  if (!isClampableDataType(field.data_type)) return { value, truncated: null };
+  if (Array.isArray(value)) {
+    let anyTruncated = false;
+    let maxOriginal = 0;
+    const next = value.map(v => {
+      if (typeof v !== 'string') return v;
+      if (v.length > maxLength) {
+        anyTruncated = true;
+        if (v.length > maxOriginal) maxOriginal = v.length;
+        return v.slice(0, maxLength);
+      }
+      return v;
+    });
+    if (!anyTruncated) return { value, truncated: null };
+    return {
+      value: next,
+      truncated: { original_length: maxOriginal, max_length: maxLength }
+    };
+  }
+  if (typeof value !== 'string') return { value, truncated: null };
+  if (value.length <= maxLength) return { value, truncated: null };
+  return {
+    value: value.slice(0, maxLength),
+    truncated: { original_length: value.length, max_length: maxLength }
+  };
 }
 
 /**
@@ -2397,7 +2470,8 @@ function summariseEntity(entity, entityType) {
  */
 async function pushIconnectChangesToZoho({
   tenantId, entityType, entity, mapping, zohoModule, zohoId,
-  pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
+  pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+  coreUpdates, customUpdates,
   currentCustom, source, action, zohoRecord
 }) {
   if (!zohoId) {
@@ -2405,7 +2479,10 @@ async function pushIconnectChangesToZoho({
   }
   const responseSummary = {
     backfilled_fields: backfilledFields,
-    overwritten_fields: overwrittenFields
+    overwritten_fields: overwrittenFields,
+    ...(Array.isArray(truncatedFields) && truncatedFields.length > 0
+      ? { truncated_fields: truncatedFields }
+      : {})
   };
   try {
     const result = await updateZohoCrmRecordById(tenantId, zohoModule, zohoId, pushToZoho);
@@ -2693,6 +2770,44 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   const pushToZoho = {};
   const backfilledFields = [];
   const overwrittenFields = [];
+  // Field-level length clamps applied to outbound push values. Populated
+  // lazily from cached `getZohoCrmModuleFields` metadata — one fetch per
+  // module per 5 min cache window, so a 1000-record import incurs a single
+  // metadata round-trip per chunk. A failure here (network blip, expired
+  // token, etc.) is non-fatal: we leave the map empty and the clamp
+  // becomes a no-op, restoring the pre-fix behaviour where the user
+  // sees the original Zoho 400 instead of a silent partial push.
+  let zohoFieldsByApiName = null;
+  try {
+    const zohoFields = await getZohoCrmModuleFields(tenantId, zohoModule);
+    zohoFieldsByApiName = new Map();
+    for (const f of zohoFields || []) {
+      if (f?.api_name) zohoFieldsByApiName.set(f.api_name, f);
+    }
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Could not load module field metadata for length clamp on', zohoModule, '-', err?.message || err);
+    zohoFieldsByApiName = new Map();
+  }
+  // Recorded clamp events so the per-record result can surface them in the
+  // admin UI (and so admins notice when a long field has been silently
+  // shortened). Shape: `{ iconnect_field, zoho_field, max_length,
+  // original_length }`. Never includes the raw value to avoid logging
+  // potentially long PII into response payloads.
+  const truncatedFields = [];
+  function clampPushValue(m, translated) {
+    const meta = zohoFieldsByApiName.get(m.zoho_field);
+    if (!meta) return translated;
+    const { value, truncated } = clampValueToZohoLength(meta, translated);
+    if (truncated) {
+      truncatedFields.push({
+        iconnect_field: m.iconnect_field,
+        zoho_field: m.zoho_field,
+        max_length: truncated.max_length,
+        original_length: truncated.original_length
+      });
+    }
+    return value;
+  }
   for (const m of mapping.field_mappings || []) {
     const iconnectField = m?.iconnect_field;
     const zohoField = m?.zoho_field;
@@ -2722,8 +2837,9 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
 
     if (zohoEmpty) {
       // iConnect populated, Zoho empty → push iConnect → Zoho (backfill).
-      const translated = applyMappingValueOutbound(m, iconnectValue, []);
-      if (translated !== undefined) {
+      const translatedRaw = applyMappingValueOutbound(m, iconnectValue, []);
+      if (translatedRaw !== undefined) {
+        const translated = clampPushValue(m, translatedRaw);
         pushToZoho[zohoField] = translated;
         backfilledFields.push({
           iconnect_field: iconnectField,
@@ -2774,8 +2890,9 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     // Differing values — push iConnect → Zoho (overwrite). iConnect is
     // not modified. This is the new behaviour from #456 that flips the
     // member rule too.
-    const translated = applyMappingValueOutbound(m, iconnectValue, []);
-    if (translated !== undefined) {
+    const translatedRaw = applyMappingValueOutbound(m, iconnectValue, []);
+    if (translatedRaw !== undefined) {
+      const translated = clampPushValue(m, translatedRaw);
       pushToZoho[zohoField] = translated;
       overwrittenFields.push({
         iconnect_field: iconnectField,
@@ -2844,7 +2961,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     if (hasPushToZoho && !dryRun) {
       pushResult = await pushIconnectChangesToZoho({
         tenantId, entityType, entity, mapping, zohoModule, zohoId,
-        pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
+        pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+        coreUpdates, customUpdates,
         currentCustom, source, action, zohoRecord
       });
     }
@@ -2858,6 +2976,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       skipped_fields: skippedFields,
       backfilled_fields: backfilledFields,
       overwritten_fields: overwrittenFields,
+      truncated_fields: truncatedFields,
       backfill_failed: pushFailed && hasBackfill
         ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
         : null,
@@ -2884,7 +3003,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       diffs,
       skipped_fields: skippedFields,
       backfilled_fields: backfilledFields,
-      overwritten_fields: overwrittenFields
+      overwritten_fields: overwrittenFields,
+      truncated_fields: truncatedFields
     };
   }
 
@@ -2954,7 +3074,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   if (hasPushToZoho) {
     pushResult = await pushIconnectChangesToZoho({
       tenantId, entityType, entity, mapping, zohoModule, zohoId,
-      pushToZoho, backfilledFields, overwrittenFields, coreUpdates, customUpdates,
+      pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+      coreUpdates, customUpdates,
       currentCustom, source, action, zohoRecord
     });
   }
@@ -2970,6 +3091,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     diffs,
     backfilled_fields: backfilledFields,
     overwritten_fields: overwrittenFields,
+    truncated_fields: truncatedFields,
     backfill_failed: pushFailed && hasBackfill
       ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
       : null,
@@ -3045,6 +3167,13 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     backfill_failed: 0,
     zoho_overwritten: 0,
     zoho_overwrite_failed: 0,
+    // Records with at least one push field that had to be shortened
+    // to fit Zoho's `maximum_length`. Surfaced separately from
+    // `backfill_failed` because clamping is a *successful* push — the
+    // value lands in Zoho but in a shortened form, and admins still
+    // want to know which fields were affected so they can either
+    // raise the Zoho field cap or shorten their iConnect data.
+    truncated_records: 0,
     pages: 0,
     truncated: false,
     next_page: null,
@@ -3208,6 +3337,9 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
           } else {
             summary.zoho_overwritten += 1;
           }
+        }
+        if (Array.isArray(result.truncated_fields) && result.truncated_fields.length > 0) {
+          summary.truncated_records += 1;
         }
       } catch (err) {
         summary.failed += 1;

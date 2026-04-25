@@ -136,7 +136,8 @@ function SingleRecordResult({ result, entityType }) {
     backfilled_fields = [],
     backfill_failed = null,
     overwritten_fields = [],
-    overwrite_failed = null
+    overwrite_failed = null,
+    truncated_fields = []
   } = result || {};
   const outcomeLabel = outcome.replace(/_/g, ' ');
   const [showSkipped, setShowSkipped] = useState(false);
@@ -281,6 +282,42 @@ function SingleRecordResult({ result, entityType }) {
                     <TableCell><code className="text-xs">{o.zoho_field}</code></TableCell>
                     <TableCell>{formatDiffValue(o.zoho_value)}</TableCell>
                     <TableCell>{formatDiffValue(o.iconnect_value)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+      {Array.isArray(truncated_fields) && truncated_fields.length > 0 && (
+        <div className="space-y-2 rounded-md border bg-background p-3" data-testid="panel-truncated-fields">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="text-xs" data-testid="badge-truncated-status">
+              {dryRun
+                ? `Will be shortened to fit Zoho length (${truncated_fields.length})`
+                : `Shortened to fit Zoho length (${truncated_fields.length})`}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              Values longer than the Zoho field's maximum length are clamped before sending so the whole record is not rejected.
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>iConnect field</TableHead>
+                  <TableHead>Zoho field</TableHead>
+                  <TableHead className="w-32">Original length</TableHead>
+                  <TableHead className="w-32">Zoho max length</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {truncated_fields.map((t, i) => (
+                  <TableRow key={`truncated-${t.zoho_field}-${i}`} data-testid={`row-truncated-${t.zoho_field}`}>
+                    <TableCell><code className="text-xs">{t.iconnect_field}</code></TableCell>
+                    <TableCell><code className="text-xs">{t.zoho_field}</code></TableCell>
+                    <TableCell><span className="text-xs">{t.original_length}</span></TableCell>
+                    <TableCell><span className="text-xs">{t.max_length}</span></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -733,6 +770,7 @@ export default function AdminZohoCrmSync() {
       accumulator.backfill_failed += s.backfill_failed || 0;
       accumulator.zoho_overwritten += s.zoho_overwritten || 0;
       accumulator.zoho_overwrite_failed += s.zoho_overwrite_failed || 0;
+      accumulator.truncated_records += s.truncated_records || 0;
       accumulator.pages += s.pages || 0;
       accumulator.runs += 1;
       accumulator.last_page = s.last_page || accumulator.last_page;
@@ -852,6 +890,7 @@ export default function AdminZohoCrmSync() {
     processed: 0, created: 0, updated: 0, skipped: 0, failed: 0,
     backfilled: 0, backfill_failed: 0,
     zoho_overwritten: 0, zoho_overwrite_failed: 0,
+    truncated_records: 0,
     pages: 0, runs: 0,
     last_page: 0,
     zoho_module: null,
@@ -2006,6 +2045,7 @@ export default function AdminZohoCrmSync() {
                         <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-backfill-failed">{importOrgsTotals.backfill_failed ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-orgs-zoho-overwritten">{importOrgsTotals.zoho_overwritten ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-zoho-overwrite-failed">{importOrgsTotals.zoho_overwrite_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Truncated to fit Zoho</div><div className="font-medium" data-testid="stat-orgs-truncated">{importOrgsTotals.truncated_records ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsTotals.pages}</div></div>
                       </div>
                       {importOrgsTotals.errors?.length > 0 && (
@@ -2046,6 +2086,7 @@ export default function AdminZohoCrmSync() {
                         <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-members-backfill-failed">{importMembersTotals.backfill_failed ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-members-zoho-overwritten">{importMembersTotals.zoho_overwritten ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-members-zoho-overwrite-failed">{importMembersTotals.zoho_overwrite_failed ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">Truncated to fit Zoho</div><div className="font-medium" data-testid="stat-members-truncated">{importMembersTotals.truncated_records ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersTotals.pages}</div></div>
                       </div>
                       {importMembersTotals.errors?.length > 0 && (
