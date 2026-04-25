@@ -504,6 +504,111 @@ function clampValueToZohoLength(field, value) {
   };
 }
 
+// Zoho rejects the entire PUT with HTTP 400 INVALID_DATA
+// `expected_data_type: website` (or `url`) when a single value mapped to
+// a URL-typed field doesn't look like a real URL — e.g. a Twitter handle
+// `@user`, a free-text label, or a bare host without scheme. Same blast
+// radius as the length issue: one bad URL kills every other backfilled
+// or overwritten field in the same record. We coerce at push time:
+//   - If the value already parses as an http(s)/ftp URL → unchanged.
+//   - If it looks like a bare host (e.g. `twitter.com/foo`,
+//     `example.co.uk`) → auto-prefix `https://` and re-validate.
+//   - Otherwise → return `{ ok: false }` so the caller drops the field
+//     from the outbound payload and records it in `invalid_url_fields`.
+const URL_DATA_TYPES = new Set(['website', 'url']);
+function isUrlDataType(dataType) {
+  if (!dataType) return false;
+  return URL_DATA_TYPES.has(String(dataType).toLowerCase());
+}
+
+// Allow `http://`, `https://`, `ftp://`, `ftps://`. Anything else
+// (mailto, javascript, custom scheme) is treated as not-a-URL — Zoho's
+// website validator rejects them with the same 400.
+const ALLOWED_URL_PROTOCOLS = new Set(['http:', 'https:', 'ftp:', 'ftps:']);
+
+// Bare-host detector: at least one dot, no whitespace, doesn't start
+// with `@` or `/`, and the first dot-segment looks like a hostname
+// label. Path / query / fragment after the host is fine. Conservative
+// on purpose: if it's ambiguous we'd rather report `invalid` than push
+// a malformed URL that Zoho will still reject.
+function looksLikeBareHost(s) {
+  if (typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  if (/\s/.test(trimmed)) return false;
+  if (trimmed.startsWith('@') || trimmed.startsWith('/')) return false;
+  // Strip path/query/fragment for the host check.
+  const hostPart = trimmed.split(/[/?#]/)[0];
+  if (!hostPart.includes('.')) return false;
+  // Each label must be 1..63 chars, alphanum + hyphen, no leading/trailing
+  // hyphen. TLD must be at least 2 alphabetic chars.
+  const labelRe = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+  const labels = hostPart.split('.');
+  if (labels.length < 2) return false;
+  for (const label of labels) {
+    if (!labelRe.test(label)) return false;
+  }
+  if (!/^[a-zA-Z]{2,}$/.test(labels[labels.length - 1])) return false;
+  return true;
+}
+
+function tryParseUrl(s) {
+  try {
+    return new URL(s);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Coerce `value` into a URL acceptable to Zoho for `website` / `url`
+ * data_types. Returns one of:
+ *   - `{ ok: true, value, coerced: false }`   — already a valid URL
+ *   - `{ ok: true, value, coerced: true }`    — host without scheme; we
+ *     prefixed `https://`
+ *   - `{ ok: false, reason }`                  — not coercible; caller
+ *     should drop the field from the outbound payload
+ *
+ * Multi-pick / array values are coerced per-element. If even a single
+ * element is invalid, the whole array is reported invalid (Zoho
+ * validates element-wise and rejects the record on the first bad
+ * entry, so partial arrays would still kill the record). Picklist /
+ * lookup / boolean / number / date fields are not URL-typed and never
+ * reach this function.
+ */
+function coerceUrlValueForZoho(field, value) {
+  if (!field || !isUrlDataType(field.data_type)) return { ok: true, value, coerced: false };
+  if (value === undefined || value === null || value === '') return { ok: true, value, coerced: false };
+  if (Array.isArray(value)) {
+    const next = [];
+    let anyCoerced = false;
+    for (const v of value) {
+      const r = coerceUrlValueForZoho(field, v);
+      if (!r.ok) return { ok: false, reason: r.reason };
+      next.push(r.value);
+      if (r.coerced) anyCoerced = true;
+    }
+    return { ok: true, value: next, coerced: anyCoerced };
+  }
+  if (typeof value !== 'string') return { ok: false, reason: 'not_a_string' };
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: true, value, coerced: false };
+  // Already-parseable URL with an allowed scheme.
+  const parsed = tryParseUrl(trimmed);
+  if (parsed && ALLOWED_URL_PROTOCOLS.has(parsed.protocol)) {
+    return { ok: true, value: trimmed, coerced: trimmed !== value };
+  }
+  // Bare host? Try prefixing https:// and re-parsing.
+  if (looksLikeBareHost(trimmed)) {
+    const candidate = `https://${trimmed}`;
+    const reparsed = tryParseUrl(candidate);
+    if (reparsed && ALLOWED_URL_PROTOCOLS.has(reparsed.protocol)) {
+      return { ok: true, value: candidate, coerced: true };
+    }
+  }
+  return { ok: false, reason: 'not_a_url' };
+}
+
 /**
  * Inbound translation for a single mapping row. Mirror of the outbound
  * helper. For multi-pick fields the inbound value coming from Zoho's GET
@@ -2470,7 +2575,7 @@ function summariseEntity(entity, entityType) {
  */
 async function pushIconnectChangesToZoho({
   tenantId, entityType, entity, mapping, zohoModule, zohoId,
-  pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+  pushToZoho, backfilledFields, overwrittenFields, truncatedFields, invalidUrlFields,
   coreUpdates, customUpdates,
   currentCustom, source, action, zohoRecord
 }) {
@@ -2482,6 +2587,9 @@ async function pushIconnectChangesToZoho({
     overwritten_fields: overwrittenFields,
     ...(Array.isArray(truncatedFields) && truncatedFields.length > 0
       ? { truncated_fields: truncatedFields }
+      : {}),
+    ...(Array.isArray(invalidUrlFields) && invalidUrlFields.length > 0
+      ? { invalid_url_fields: invalidUrlFields }
       : {})
   };
   try {
@@ -2808,6 +2916,32 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     }
     return value;
   }
+  // URL-shape coercion for Zoho `website` / `url` data_types. Returns
+  // `{ ok: true, value }` for keep-the-field cases (already valid, or
+  // we auto-prefixed `https://`) and `{ ok: false }` for drop-the-field
+  // cases (free text, `@handle`, etc.). The caller must drop the field
+  // from the outbound payload on `ok: false` so the rest of the
+  // record's changes still push successfully. Tracked in
+  // `invalidUrlFields` for the per-record result and bulk summary —
+  // shape: `{ iconnect_field, zoho_field, reason }`. Never includes the
+  // raw value to avoid logging arbitrary user text into response
+  // payloads.
+  const invalidUrlFields = [];
+  function coercePushUrl(m, translated) {
+    const meta = zohoFieldsByApiName.get(m.zoho_field);
+    // No metadata → can't tell if it's a URL field → leave the value
+    // alone (caller may still 400, identical to pre-fix behaviour).
+    if (!meta) return { ok: true, value: translated };
+    if (!isUrlDataType(meta.data_type)) return { ok: true, value: translated };
+    const r = coerceUrlValueForZoho(meta, translated);
+    if (r.ok) return { ok: true, value: r.value };
+    invalidUrlFields.push({
+      iconnect_field: m.iconnect_field,
+      zoho_field: m.zoho_field,
+      reason: r.reason || 'not_a_url'
+    });
+    return { ok: false };
+  }
   for (const m of mapping.field_mappings || []) {
     const iconnectField = m?.iconnect_field;
     const zohoField = m?.zoho_field;
@@ -2839,7 +2973,15 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       // iConnect populated, Zoho empty → push iConnect → Zoho (backfill).
       const translatedRaw = applyMappingValueOutbound(m, iconnectValue, []);
       if (translatedRaw !== undefined) {
-        const translated = clampPushValue(m, translatedRaw);
+        const clamped = clampPushValue(m, translatedRaw);
+        const urlCoerce = coercePushUrl(m, clamped);
+        if (!urlCoerce.ok) {
+          // Drop the field from the outbound payload so the rest of
+          // the record's changes still push. The skip is recorded in
+          // `invalidUrlFields` (PII-safe — api_name + reason only).
+          continue;
+        }
+        const translated = urlCoerce.value;
         pushToZoho[zohoField] = translated;
         backfilledFields.push({
           iconnect_field: iconnectField,
@@ -2892,7 +3034,15 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     // member rule too.
     const translatedRaw = applyMappingValueOutbound(m, iconnectValue, []);
     if (translatedRaw !== undefined) {
-      const translated = clampPushValue(m, translatedRaw);
+      const clamped = clampPushValue(m, translatedRaw);
+      const urlCoerce = coercePushUrl(m, clamped);
+      if (!urlCoerce.ok) {
+        // Drop the field from the outbound payload so the rest of the
+        // record's changes still push. The skip is recorded in
+        // `invalidUrlFields` (PII-safe — api_name + reason only).
+        continue;
+      }
+      const translated = urlCoerce.value;
       pushToZoho[zohoField] = translated;
       overwrittenFields.push({
         iconnect_field: iconnectField,
@@ -2961,7 +3111,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     if (hasPushToZoho && !dryRun) {
       pushResult = await pushIconnectChangesToZoho({
         tenantId, entityType, entity, mapping, zohoModule, zohoId,
-        pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+        pushToZoho, backfilledFields, overwrittenFields, truncatedFields, invalidUrlFields,
         coreUpdates, customUpdates,
         currentCustom, source, action, zohoRecord
       });
@@ -2977,6 +3127,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       backfilled_fields: backfilledFields,
       overwritten_fields: overwrittenFields,
       truncated_fields: truncatedFields,
+      invalid_url_fields: invalidUrlFields,
       backfill_failed: pushFailed && hasBackfill
         ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
         : null,
@@ -3004,7 +3155,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       skipped_fields: skippedFields,
       backfilled_fields: backfilledFields,
       overwritten_fields: overwrittenFields,
-      truncated_fields: truncatedFields
+      truncated_fields: truncatedFields,
+      invalid_url_fields: invalidUrlFields
     };
   }
 
@@ -3074,7 +3226,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   if (hasPushToZoho) {
     pushResult = await pushIconnectChangesToZoho({
       tenantId, entityType, entity, mapping, zohoModule, zohoId,
-      pushToZoho, backfilledFields, overwrittenFields, truncatedFields,
+      pushToZoho, backfilledFields, overwrittenFields, truncatedFields, invalidUrlFields,
       coreUpdates, customUpdates,
       currentCustom, source, action, zohoRecord
     });
@@ -3092,6 +3244,7 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     backfilled_fields: backfilledFields,
     overwritten_fields: overwrittenFields,
     truncated_fields: truncatedFields,
+    invalid_url_fields: invalidUrlFields,
     backfill_failed: pushFailed && hasBackfill
       ? { fields: backfilledFields.map(f => f.zoho_field), error: pushResult.error }
       : null,
@@ -3174,6 +3327,12 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     // want to know which fields were affected so they can either
     // raise the Zoho field cap or shorten their iConnect data.
     truncated_records: 0,
+    // Records with at least one push field that was *dropped* from the
+    // outbound payload because its value didn't look like a valid URL
+    // (Zoho `website` / `url` data_types reject the whole record on
+    // bad URL shapes — same blast radius as the length issue). Other
+    // field changes on the same record still get pushed.
+    invalid_url_records: 0,
     pages: 0,
     truncated: false,
     next_page: null,
@@ -3340,6 +3499,9 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
         }
         if (Array.isArray(result.truncated_fields) && result.truncated_fields.length > 0) {
           summary.truncated_records += 1;
+        }
+        if (Array.isArray(result.invalid_url_fields) && result.invalid_url_fields.length > 0) {
+          summary.invalid_url_records += 1;
         }
       } catch (err) {
         summary.failed += 1;

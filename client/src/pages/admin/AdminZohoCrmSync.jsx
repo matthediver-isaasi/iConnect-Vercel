@@ -137,7 +137,8 @@ function SingleRecordResult({ result, entityType }) {
     backfill_failed = null,
     overwritten_fields = [],
     overwrite_failed = null,
-    truncated_fields = []
+    truncated_fields = [],
+    invalid_url_fields = []
   } = result || {};
   const outcomeLabel = outcome.replace(/_/g, ' ');
   const [showSkipped, setShowSkipped] = useState(false);
@@ -318,6 +319,40 @@ function SingleRecordResult({ result, entityType }) {
                     <TableCell><code className="text-xs">{t.zoho_field}</code></TableCell>
                     <TableCell><span className="text-xs">{t.original_length}</span></TableCell>
                     <TableCell><span className="text-xs">{t.max_length}</span></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+      {Array.isArray(invalid_url_fields) && invalid_url_fields.length > 0 && (
+        <div className="space-y-2 rounded-md border bg-background p-3" data-testid="panel-invalid-url-fields">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="text-xs" data-testid="badge-invalid-url-status">
+              {dryRun
+                ? `Will be skipped — invalid URL (${invalid_url_fields.length})`
+                : `Skipped — invalid URL (${invalid_url_fields.length})`}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              Values that don't look like a valid URL are dropped from the push to Zoho's <code>website</code>/<code>url</code> fields so the rest of the record still goes through. Bare hosts (e.g. <code>twitter.com/foo</code>) are auto-prefixed with <code>https://</code>.
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>iConnect field</TableHead>
+                  <TableHead>Zoho field</TableHead>
+                  <TableHead className="w-40">Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invalid_url_fields.map((u, i) => (
+                  <TableRow key={`invalid-url-${u.zoho_field}-${i}`} data-testid={`row-invalid-url-${u.zoho_field}`}>
+                    <TableCell><code className="text-xs">{u.iconnect_field}</code></TableCell>
+                    <TableCell><code className="text-xs">{u.zoho_field}</code></TableCell>
+                    <TableCell><span className="text-xs">{u.reason || 'not_a_url'}</span></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -771,6 +806,7 @@ export default function AdminZohoCrmSync() {
       accumulator.zoho_overwritten += s.zoho_overwritten || 0;
       accumulator.zoho_overwrite_failed += s.zoho_overwrite_failed || 0;
       accumulator.truncated_records += s.truncated_records || 0;
+      accumulator.invalid_url_records += s.invalid_url_records || 0;
       accumulator.pages += s.pages || 0;
       accumulator.runs += 1;
       accumulator.last_page = s.last_page || accumulator.last_page;
@@ -891,6 +927,7 @@ export default function AdminZohoCrmSync() {
     backfilled: 0, backfill_failed: 0,
     zoho_overwritten: 0, zoho_overwrite_failed: 0,
     truncated_records: 0,
+    invalid_url_records: 0,
     pages: 0, runs: 0,
     last_page: 0,
     zoho_module: null,
@@ -2046,6 +2083,7 @@ export default function AdminZohoCrmSync() {
                         <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-orgs-zoho-overwritten">{importOrgsTotals.zoho_overwritten ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-zoho-overwrite-failed">{importOrgsTotals.zoho_overwrite_failed ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Truncated to fit Zoho</div><div className="font-medium" data-testid="stat-orgs-truncated">{importOrgsTotals.truncated_records ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">URL skipped (invalid)</div><div className="font-medium" data-testid="stat-orgs-invalid-url">{importOrgsTotals.invalid_url_records ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsTotals.pages}</div></div>
                       </div>
                       {importOrgsTotals.errors?.length > 0 && (
@@ -2087,6 +2125,7 @@ export default function AdminZohoCrmSync() {
                         <div><div className="text-xs text-muted-foreground">Overwritten in Zoho</div><div className="font-medium" data-testid="stat-members-zoho-overwritten">{importMembersTotals.zoho_overwritten ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Overwrite failed</div><div className="font-medium text-destructive" data-testid="stat-members-zoho-overwrite-failed">{importMembersTotals.zoho_overwrite_failed ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Truncated to fit Zoho</div><div className="font-medium" data-testid="stat-members-truncated">{importMembersTotals.truncated_records ?? 0}</div></div>
+                        <div><div className="text-xs text-muted-foreground">URL skipped (invalid)</div><div className="font-medium" data-testid="stat-members-invalid-url">{importMembersTotals.invalid_url_records ?? 0}</div></div>
                         <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersTotals.pages}</div></div>
                       </div>
                       {importMembersTotals.errors?.length > 0 && (
