@@ -1941,12 +1941,19 @@ export default function AdminZohoCrmSync() {
                   <SingleRecordResult result={singleResult} entityType={singleEntityType} />
                 )}
               </div>
-              {(importingOrgs || importingMembers) && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Importing {importingOrgs ? 'organisations' : 'members'} from Zoho — runs in chunks of ~50s each, auto-continuing until done. Keep this tab open.
-                </div>
-              )}
+              {(importingOrgs || importingMembers) && (() => {
+                const isOrgsRunning = importingOrgs;
+                const totals = isOrgsRunning ? importOrgsTotals : importMembersTotals;
+                // `runs` counts already-completed chunks; the in-flight one is +1.
+                const chunkNumber = (totals?.runs || 0) + 1;
+                const processedSoFar = totals?.processed || 0;
+                return (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-import-progress">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Importing {isOrgsRunning ? 'organisations' : 'members'} from Zoho — chunk {chunkNumber}, {processedSoFar} processed so far. Auto-continuing until done; keep this tab open.
+                  </div>
+                );
+              })()}
               {(importOrgsWarning || importOrgsError || importOrgsTotals) && (
                 <div className="space-y-2" data-testid="text-import-orgs-progress">
                   {importOrgsWarning && (
