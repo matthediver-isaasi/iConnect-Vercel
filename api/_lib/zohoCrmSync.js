@@ -3130,23 +3130,28 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     for (let recIdx = 0; recIdx < records.length; recIdx++) {
       const rec = records[recIdx];
       // Mid-page time-budget check (safety net). If the elapsed time
-      // crosses the budget while we still have records to process —
-      // either later in this page, or `more_records` is true — bail
-      // out and resume at the *same* page on the next chunk. This is
-      // safe because `importOneRecord` is idempotent: records we've
-      // already imported get reprocessed on resume but produce a
-      // `no_change` outcome (and no spurious Zoho PUT). Without this
-      // check, a single page that takes longer than ~60s would be
-      // killed by Vercel mid-record, the function would never return,
-      // the UI would see a gateway-timeout HTML response, and the
-      // cursor would never advance past the current page. The trade-
-      // off is that records 0..recIdx-1 on this page get visited
-      // again on the next chunk; they show up in `processed`/
-      // `no_change` totals but cause no writes.
+      // crosses the budget while there's still meaningful work to do
+      // — i.e. records *after* the current one on this page, or more
+      // pages on Zoho's side — bail out and resume at the *same* page
+      // on the next chunk. We deliberately don't count just the in-
+      // flight record as "remaining": if only this record is left and
+      // there are no more pages, it's cheaper to finish it than to
+      // truncate and reprocess the whole page on the next chunk.
+      //
+      // Same-page resume is safe because `importOneRecord` is
+      // idempotent: records we've already imported get reprocessed
+      // but produce a `no_change` outcome (and no spurious Zoho PUT).
+      // Without this check, a single page that takes longer than ~60s
+      // would be killed by Vercel mid-record, the function would
+      // never return, the UI would see a gateway-timeout HTML
+      // response, and the cursor would never advance past the current
+      // page. The trade-off is that records 0..recIdx-1 on this page
+      // get visited again on the next chunk; they show up in
+      // `processed` / `no_change` totals but cause no writes.
       if (recIdx > 0 && Date.now() - startedAt > timeBudgetMs) {
-        const moreOnThisPage = recIdx < records.length;
+        const moreAfterCurrentOnThisPage = recIdx + 1 < records.length;
         const moreOnNextPage = !!resp?.info?.more_records;
-        if (moreOnThisPage || moreOnNextPage) {
+        if (moreAfterCurrentOnThisPage || moreOnNextPage) {
           summary.truncated = true;
           summary.next_page = page;
           summary.last_page = page;
