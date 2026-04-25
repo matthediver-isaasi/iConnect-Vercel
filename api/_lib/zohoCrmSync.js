@@ -2091,6 +2091,101 @@ function summariseEntity(entity, entityType) {
   };
 }
 
+/**
+ * Push a one-time-import backfill payload to Zoho via the standard
+ * `updateZohoCrmRecordById` path. Wraps the call in a try/catch so a
+ * Zoho-side failure does not roll back the inbound write that has
+ * already landed for the same record.
+ *
+ * On success: records the canonical outbound payload hash via
+ * `recordSyncState(..., 'outbound', ...)` so the next inbound poll
+ * recognises the round-trip via the existing echo guard, and writes a
+ * `direction: 'outbound'` success log row.
+ *
+ * On failure: writes a `direction: 'outbound'` failed log row and
+ * returns `{ success: false, error }` so the caller can increment the
+ * `backfill_failed` counter on the bulk summary without aborting the
+ * whole import run.
+ *
+ * The outbound hash is computed from a synthetic inbound view of what
+ * the next poll *would* observe after this backfill lands: existing
+ * `coreUpdates`/`customUpdates` (everything else Zoho returned this
+ * pass) overlaid with the iConnect raw values for backfilled fields
+ * (since Zoho will round-trip those values back on the next read).
+ * Multi-pick canonicalisation is handled by `canonicalizeInboundForHash`
+ * so the hash matches even when Zoho returns array elements in a
+ * different order than we sent.
+ */
+async function pushBackfillToZoho({
+  tenantId, entityType, entity, mapping, zohoModule, zohoId,
+  backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+  currentCustom, source, action, zohoRecord
+}) {
+  if (!zohoId) {
+    return { success: false, error: 'Cannot backfill to Zoho: missing zoho_crm_id' };
+  }
+  try {
+    const result = await updateZohoCrmRecordById(tenantId, zohoModule, zohoId, backfillToZoho);
+    if (!result.success) {
+      const errorMessage = `Backfill push to Zoho failed: ${result.error || 'Unknown error'}`;
+      await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'failed', direction: 'outbound', source, action,
+        error_message: errorMessage,
+        request_payload: backfillToZoho,
+        response_payload: { ...(result.details || result.raw || {}), backfilled_fields: backfilledFields }
+      });
+      return { success: false, error: errorMessage };
+    }
+
+    // Build a synthetic inbound view to compute the outbound hash. For
+    // backfilled fields the next inbound poll will see Zoho returning
+    // (the round-trip of) the iConnect raw values; for everything else
+    // it will see whatever Zoho currently has (`coreUpdates` /
+    // `customUpdates`).
+    const syntheticCore = { ...(coreUpdates || {}) };
+    const syntheticCustom = { ...(customUpdates || {}) };
+    for (const m of mapping.field_mappings || []) {
+      if (!m?.zoho_field || !Object.prototype.hasOwnProperty.call(backfillToZoho, m.zoho_field)) continue;
+      const isCustom = m.iconnect_field?.startsWith('custom:');
+      if (isCustom) {
+        const customId = m.iconnect_field.slice('custom:'.length);
+        syntheticCustom[customId] = currentCustom?.[customId];
+      } else if (m.iconnect_field) {
+        syntheticCore[m.iconnect_field] = entity[m.iconnect_field];
+      }
+    }
+    const outboundHash = computeHash(canonicalizeInboundForHash(mapping, syntheticCore, syntheticCustom));
+    await recordSyncState(tenantId, entityType, entity.id, 'outbound', outboundHash);
+
+    await writeLog({
+      tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+      zoho_module: zohoModule, zoho_record_id: zohoId,
+      status: 'success', direction: 'outbound', source, action,
+      payload_hash: outboundHash,
+      request_payload: backfillToZoho,
+      response_payload: { ...(result.details || {}), backfilled_fields: backfilledFields }
+    });
+    return { success: true, fields_count: Object.keys(backfillToZoho).length };
+  } catch (err) {
+    const errorMessage = `Backfill push to Zoho threw: ${err?.message || String(err)}`;
+    try {
+      await writeLog({
+        tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+        zoho_module: zohoModule, zoho_record_id: zohoId,
+        status: 'failed', direction: 'outbound', source, action,
+        error_message: errorMessage,
+        request_payload: backfillToZoho,
+        response_payload: { backfilled_fields: backfilledFields }
+      });
+    } catch (logErr) {
+      console.error('[ZohoCrmSync] backfill failure log write failed:', logErr);
+    }
+    return { success: false, error: errorMessage };
+  }
+}
+
 async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRecord, source, options = {}) {
   const dryRun = options.dryRun === true;
   const action = options.action || 'one_time_import';
@@ -2303,6 +2398,14 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   // already matched. Iterate `mapping.field_mappings` directly so we have
   // both the iConnect-side and Zoho-side field identifiers for each entry.
   const skippedFields = [];
+  // Backfill collector: when Zoho returned nothing for a mapped field but
+  // iConnect has a non-empty value, push the iConnect value back to Zoho as
+  // part of the same import pass. The payload is keyed by Zoho field name
+  // and routed through `applyMappingValueOutbound` so picklists / multi-pick
+  // arrays / rich-text values are shaped the way Zoho expects (same code
+  // path as the regular outbound sync).
+  const backfillToZoho = {};
+  const backfilledFields = [];
   for (const m of mapping.field_mappings || []) {
     const iconnectField = m?.iconnect_field;
     const zohoField = m?.zoho_field;
@@ -2318,6 +2421,24 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       : entity[iconnectField];
 
     if (!zohoHas || isEmptyZohoValue(zohoValue)) {
+      // Zoho-side is empty. If iConnect has a value, schedule a backfill
+      // push to Zoho rather than just recording the skip — see the
+      // outbound translation + push block further down.
+      if (!isEmptyIconnectValue(iconnectValue)) {
+        const translated = applyMappingValueOutbound(m, iconnectValue, []);
+        if (translated !== undefined) {
+          backfillToZoho[zohoField] = translated;
+          backfilledFields.push({
+            iconnect_field: iconnectField,
+            zoho_field: zohoField,
+            zoho_value: null,
+            iconnect_value: iconnectValue ?? null,
+            translated_zoho_value: translated,
+            reason: 'iconnect_to_zoho_backfill'
+          });
+          continue;
+        }
+      }
       skippedFields.push({
         iconnect_field: iconnectField,
         zoho_field: zohoField,
@@ -2367,10 +2488,12 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
 
   const matched = summariseEntity(entity, entityType);
 
+  const hasBackfill = Object.keys(backfillToZoho).length > 0;
+
   if (Object.keys(coreToWrite).length === 0 && Object.keys(customToWrite).length === 0 && !linkPatch) {
     let errorMessage;
     if (iconnectWins) {
-      const hasIconnectPopulated = skippedFields.some(s => s.reason === 'iconnect_populated');
+      const hasIconnectPopulated = skippedFields.some(s => s.reason === 'iconnect_populated') || hasBackfill;
       if (!hasIconnectPopulated) {
         // Either every mapping was skipped at the Zoho-empty gate, or the
         // mapping is empty altogether — surface the Zoho-side cause so the
@@ -2396,7 +2519,29 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       });
       logId = logRow?.id || null;
     }
-    return { outcome: 'no_change', matched, matchedBy, message: errorMessage, diffs: [], skipped_fields: skippedFields, logId };
+    // Even when there are no inbound changes, we may still need to push
+    // iConnect values back to Zoho where Zoho was empty.
+    let backfillResult = null;
+    if (hasBackfill && !dryRun) {
+      backfillResult = await pushBackfillToZoho({
+        tenantId, entityType, entity, mapping, zohoModule, zohoId,
+        backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+        currentCustom, source, action, zohoRecord
+      });
+    }
+    return {
+      outcome: 'no_change',
+      matched,
+      matchedBy,
+      message: errorMessage,
+      diffs: [],
+      skipped_fields: skippedFields,
+      backfilled_fields: backfilledFields,
+      backfill_failed: backfillResult && !backfillResult.success
+        ? { fields: backfilledFields.map(f => f.zoho_field), error: backfillResult.error }
+        : null,
+      logId
+    };
   }
 
   const diffs = buildDiffs({
@@ -2413,7 +2558,8 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       customToWrite,
       linkPatch,
       diffs,
-      skipped_fields: skippedFields
+      skipped_fields: skippedFields,
+      backfilled_fields: backfilledFields
     };
   }
 
@@ -2471,6 +2617,22 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     request_payload: zohoRecord,
     response_payload: { core: coreToWrite, custom: customToWrite, link: linkPatch }
   });
+
+  // Backfill any iConnect values to Zoho for fields that Zoho returned
+  // empty. Runs after the inbound write has landed (so `zoho_crm_id` is
+  // guaranteed persisted from `linkPatch` when applicable) and is wrapped
+  // in its own try/catch inside the helper — a Zoho-side failure is
+  // logged but does not roll back the inbound update we already
+  // committed.
+  let backfillResult = null;
+  if (hasBackfill) {
+    backfillResult = await pushBackfillToZoho({
+      tenantId, entityType, entity, mapping, zohoModule, zohoId,
+      backfillToZoho, backfilledFields, coreUpdates, customUpdates,
+      currentCustom, source, action, zohoRecord
+    });
+  }
+
   return {
     outcome: 'updated',
     matched,
@@ -2479,6 +2641,10 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
     customToWrite,
     linkPatch,
     diffs,
+    backfilled_fields: backfilledFields,
+    backfill_failed: backfillResult && !backfillResult.success
+      ? { fields: backfilledFields.map(f => f.zoho_field), error: backfillResult.error }
+      : null,
     logId: logRow?.id || null
   };
 }
@@ -2520,6 +2686,8 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     updated: 0,
     skipped: 0,
     failed: 0,
+    backfilled: 0,
+    backfill_failed: 0,
     pages: 0,
     errors: []
   };
@@ -2585,6 +2753,22 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
             summary.errors.push({ id: rec.id || rec.Id || null, error: result.message || 'failed' });
           }
         } else summary.skipped += 1;
+        // Aggregate backfill counters: a record can show up here in any
+        // outcome bucket (most commonly `updated` or `no_change`) and
+        // still have triggered a backfill push to Zoho.
+        if (Array.isArray(result.backfilled_fields) && result.backfilled_fields.length > 0) {
+          if (result.backfill_failed) {
+            summary.backfill_failed += 1;
+            if (summary.errors.length < 50) {
+              summary.errors.push({
+                id: rec.id || rec.Id || null,
+                error: `Backfill push failed: ${result.backfill_failed.error}`
+              });
+            }
+          } else {
+            summary.backfilled += 1;
+          }
+        }
       } catch (err) {
         summary.failed += 1;
         if (summary.errors.length < 50) {

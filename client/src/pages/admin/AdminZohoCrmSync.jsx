@@ -112,11 +112,23 @@ const OUTCOME_BADGE_VARIANT = {
 const SKIPPED_REASON_LABEL = {
   zoho_empty: 'Zoho value empty',
   iconnect_populated: 'iConnect already populated',
-  match: 'Already matches'
+  match: 'Already matches',
+  iconnect_to_zoho_backfill: 'iConnect → Zoho backfill'
 };
 
 function SingleRecordResult({ result, entityType }) {
-  const { outcome, matched, matchedBy, diffs = [], message, dryRun, zoho_module, skipped_fields = [] } = result || {};
+  const {
+    outcome,
+    matched,
+    matchedBy,
+    diffs = [],
+    message,
+    dryRun,
+    zoho_module,
+    skipped_fields = [],
+    backfilled_fields = [],
+    backfill_failed = null
+  } = result || {};
   const outcomeLabel = outcome.replace(/_/g, ' ');
   const [showSkipped, setShowSkipped] = useState(false);
   return (
@@ -174,6 +186,51 @@ function SingleRecordResult({ result, entityType }) {
         outcome !== 'ambiguous' && outcome !== 'no_mapped_values' && (
           <p className="text-xs text-muted-foreground">No field changes.</p>
         )
+      )}
+      {Array.isArray(backfilled_fields) && backfilled_fields.length > 0 && (
+        <div className="space-y-2 rounded-md border bg-background p-3" data-testid="panel-backfill-fields">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={backfill_failed ? 'destructive' : 'default'}
+              className="text-xs"
+              data-testid="badge-backfill-status"
+            >
+              {dryRun
+                ? `Will push to Zoho (${backfilled_fields.length})`
+                : backfill_failed
+                  ? `Push to Zoho failed (${backfilled_fields.length})`
+                  : `Pushed to Zoho (${backfilled_fields.length})`}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              iConnect values will fill empty Zoho fields on the matched record.
+            </span>
+          </div>
+          {backfill_failed?.error && (
+            <p className="text-xs text-destructive" data-testid="text-backfill-error">
+              {backfill_failed.error}
+            </p>
+          )}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>iConnect field</TableHead>
+                  <TableHead>Zoho field</TableHead>
+                  <TableHead>iConnect value (will be sent)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {backfilled_fields.map((b, i) => (
+                  <TableRow key={`backfill-${b.zoho_field}-${i}`} data-testid={`row-backfill-${b.zoho_field}`}>
+                    <TableCell><code className="text-xs">{b.iconnect_field}</code></TableCell>
+                    <TableCell><code className="text-xs">{b.zoho_field}</code></TableCell>
+                    <TableCell>{formatDiffValue(b.iconnect_value)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
       )}
       {Array.isArray(skipped_fields) && skipped_fields.length > 0 && (
         <Collapsible open={showSkipped} onOpenChange={setShowSkipped}>
@@ -1584,13 +1641,15 @@ export default function AdminZohoCrmSync() {
                 {importOrgsSummary && (
                   <div data-testid="text-import-orgs-summary">
                     <div className="text-xs uppercase text-muted-foreground mb-2">Organisations ({importOrgsSummary.zoho_module})</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
-                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{importOrgsSummary.processed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600">{importOrgsSummary.created}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium">{importOrgsSummary.updated}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium">{importOrgsSummary.skipped}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{importOrgsSummary.failed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium">{importOrgsSummary.pages}</div></div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-orgs-processed">{importOrgsSummary.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-orgs-created">{importOrgsSummary.created}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-orgs-updated">{importOrgsSummary.updated}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-orgs-skipped">{importOrgsSummary.skipped}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-failed">{importOrgsSummary.failed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-orgs-backfilled">{importOrgsSummary.backfilled ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-orgs-backfill-failed">{importOrgsSummary.backfill_failed ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-orgs-pages">{importOrgsSummary.pages}</div></div>
                     </div>
                     {importOrgsSummary.errors?.length > 0 && (
                       <p className="text-xs text-destructive mt-2">
@@ -1602,13 +1661,15 @@ export default function AdminZohoCrmSync() {
                 {importMembersSummary && (
                   <div data-testid="text-import-members-summary">
                     <div className="text-xs uppercase text-muted-foreground mb-2">Members ({importMembersSummary.zoho_module})</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
-                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium">{importMembersSummary.processed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600">{importMembersSummary.created}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium">{importMembersSummary.updated}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium">{importMembersSummary.skipped}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive">{importMembersSummary.failed}</div></div>
-                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium">{importMembersSummary.pages}</div></div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
+                      <div><div className="text-xs text-muted-foreground">Processed</div><div className="font-medium" data-testid="stat-members-processed">{importMembersSummary.processed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Created</div><div className="font-medium text-green-600" data-testid="stat-members-created">{importMembersSummary.created}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Updated</div><div className="font-medium" data-testid="stat-members-updated">{importMembersSummary.updated}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Skipped</div><div className="font-medium" data-testid="stat-members-skipped">{importMembersSummary.skipped}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Failed</div><div className="font-medium text-destructive" data-testid="stat-members-failed">{importMembersSummary.failed}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Backfilled to Zoho</div><div className="font-medium" data-testid="stat-members-backfilled">{importMembersSummary.backfilled ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Backfill failed</div><div className="font-medium text-destructive" data-testid="stat-members-backfill-failed">{importMembersSummary.backfill_failed ?? 0}</div></div>
+                      <div><div className="text-xs text-muted-foreground">Pages</div><div className="font-medium" data-testid="stat-members-pages">{importMembersSummary.pages}</div></div>
                     </div>
                     {importMembersSummary.errors?.length > 0 && (
                       <p className="text-xs text-destructive mt-2">
