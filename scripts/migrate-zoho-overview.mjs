@@ -245,11 +245,16 @@ async function updateMapping(args) {
     .from('zoho_crm_sync_mapping')
     .select('id, entity_type, zoho_module, field_mappings')
     .eq('tenant_id', tenantId)
-    .eq('entity_type', 'organization');
+    .eq('entity_type', 'organization')
+    .eq('zoho_module', MODULE);
 
   if (error) throw error;
   if (!rows || rows.length === 0) {
-    console.error(`No organization mapping row found for tenant ${tenantId}`);
+    console.error(`No organization/${MODULE} mapping row found for tenant ${tenantId}`);
+    process.exit(2);
+  }
+  if (rows.length > 1) {
+    console.error(`Expected exactly 1 organization/${MODULE} mapping row for tenant ${tenantId}, found ${rows.length}. Aborting to avoid surprise updates.`);
     process.exit(2);
   }
 

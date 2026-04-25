@@ -114,43 +114,26 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
  * failures are non-fatal: warn + continue, leave the field null.
  */
 /**
- * Wrap a plain-text value as a single `<div>` so Zoho's rich-text
- * gateway treats it as well-formed HTML and skips its lossy auto-format
- * pass. HTML-escapes `&`, `<`, `>`, `"`, `'` in the original text and
- * converts `\r\n`/`\n` to `<br>` so multi-line plain-text input still
- * renders correctly in Zoho's WYSIWYG. See #432 for the silent-drop bug
- * this prevents (Zoho stripped trailing `!BC` from a 36-char value).
- */
-function wrapPlainTextAsRichTextHtml(text) {
-  const escaped = String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/\r\n|\r|\n/g, '<br>');
-  return `<div>${escaped}</div>`;
-}
-
-/**
  * Normalise an HTML-ish rich-text value for the post-write verification
- * comparator. Strips a single outer `<div>`/`<p>` wrapper (Zoho often
- * adds or strips one of its own), collapses runs of whitespace to a
- * single space, normalises `&nbsp;` ↔ space, decodes the basic HTML
- * entities our outbound wrapper emits (so the wrapper round-trip is
- * neutral when Zoho returns the same text decoded), and trims. This
- * filters out cosmetic diffs (Zoho's WYSIWYG re-wraps, attribute
- * reordering, whitespace) so the strict-equality check downstream only
- * fires on real content drift.
+ * comparator. Strips a single outer `<div>`/`<p>` wrapper (Zoho's
+ * WYSIWYG often re-wraps content with one of its own), collapses runs
+ * of whitespace to a single space, normalises `&nbsp;` ↔ space, decodes
+ * the basic HTML entities (`&lt;`, `&gt;`, `&amp;`, `&quot;`, `&#39;`)
+ * so a Zoho-side encode/decode of literal punctuation doesn't trip the
+ * comparator, and trims. This filters out cosmetic diffs (re-wrapping,
+ * attribute reordering, whitespace, entity-encoding round-trips) so the
+ * strict-equality check downstream only fires on real content drift.
  */
 function verificationNormaliseRichText(value) {
   if (value == null) return '';
   let s = String(value);
   // Strip exactly one outer <div>...</div> or <p>...</p> wrapper if the
-  // entire value is wrapped (handles both Zoho's auto-wrap and our own).
+  // entire value is wrapped — Zoho's WYSIWYG often re-wraps content with
+  // a <p> on round-trip even when we sent bare text or a <div>.
   const wrapped = s.match(/^\s*<(div|p)\b[^>]*>([\s\S]*)<\/\1>\s*$/i);
   if (wrapped) s = wrapped[2];
-  // Decode the entities our outbound wrapper emits. Order matters:
+  // Decode the basic HTML entities so a Zoho-side encode/decode of literal
+  // `<`, `>`, `&`, `"`, `'` doesn't trip the comparator. Order matters:
   // decode `&amp;` last so we don't double-decode pre-encoded `&amp;lt;`.
   s = s
     .replace(/&nbsp;/gi, ' ')
@@ -693,25 +676,16 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
         .map(m => m.zoho_field)
     );
     const richTextFieldsInPayload = Object.keys(payload).filter(k => richTextZohoFields.has(k));
-    // Wrap plain-text rich-text values in a single `<div>` before send.
-    // Zoho's rich-text fields are HTML-typed; sending bare plain text
-    // makes the gateway run an auto-wrap/sanitise pass that has been
-    // observed to silently drop trailing characters under conditions we
-    // don't control (most recently: a 36-char value ending in `!BC`
-    // came back at 33 chars with `!BC` stripped — see #432). Sending
-    // well-formed HTML bypasses that auto-format step. Values that
-    // already start with `<` are treated as pre-formatted HTML and pass
-    // through unchanged. The wrapping is idempotent at verification
-    // time because `verificationNormaliseRichText` strips a single
-    // outer `<div>`/`<p>` wrapper before comparing (see below).
-    for (const apiName of richTextFieldsInPayload) {
-      const original = payload[apiName];
-      if (original == null || original === '') continue;
-      const str = String(original);
-      const trimmed = str.trimStart();
-      if (trimmed.startsWith('<')) continue;
-      payload[apiName] = wrapPlainTextAsRichTextHtml(str);
-    }
+    // No outbound transformation for rich-text values: send what the
+    // mapping resolved to. The previous wrap-as-HTML defence (#432) was
+    // ineffective — Zoho's gateway stripped both the wrapper AND the
+    // user's trailing `!<CAPITAL>` characters from the same payload
+    // (verified on gsf Account 815132000006866409). The fix that stuck
+    // (#433) was to retire the broken Zoho field and re-point the
+    // mapping at a plain-text field instead, so this code path now sees
+    // far fewer rich-text writes — and any that remain go through Zoho's
+    // pipeline unwrapped. The post-write verification below still runs
+    // and will surface any future silent drift loudly.
     // Track multi-pick fields in this payload so the operational
     // `mechanisms` log line surfaces them — useful when diagnosing future
     // jsonarray/picklist failures (the original bug behind #424 was hidden
