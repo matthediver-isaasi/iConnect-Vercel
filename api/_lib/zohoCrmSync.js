@@ -3087,8 +3087,12 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   // Smaller page size (was 200) so page boundaries occur twice as often
   // and the time-budget check between pages is the common path. The
   // mid-page check (below) is a safety net for pathological per-record
-  // slowness rather than the normal early-exit path.
-  const perPage = 100;
+  // slowness rather than the normal early-exit path. Overridable for
+  // ops/testing; clamped to Zoho's 1..200 range.
+  const perPageRaw = Number(options.perPage);
+  const perPage = Number.isFinite(perPageRaw) && perPageRaw >= 1
+    ? Math.min(200, Math.max(1, Math.floor(perPageRaw)))
+    : 100;
   // Per-invocation page cap. This is a *per-call* safety cap, not an
   // absolute Zoho page ceiling: a chunk that resumes at page 600 and
   // processes pages 600..610 is fine even if maxPagesPerCall is 500.
