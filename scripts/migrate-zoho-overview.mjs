@@ -133,7 +133,8 @@ async function migrate(args) {
     wouldWrite: 0,
     written: 0,
     failed: 0,
-    riskyValues: []
+    riskyValues: [],
+    errors: []
   };
 
   async function processOne(row) {
@@ -147,13 +148,16 @@ async function migrate(args) {
       richText = await fetchZohoCrmRecordRichText(tenantId, MODULE, recordId, [SOURCE_FIELD]);
     } catch (err) {
       summary.failed++;
-      console.error(`  [FETCH-THREW] ${recordId} "${accountName}" — ${err?.message || err}`);
+      const msg = err?.message || String(err);
+      summary.errors.push({ stage: 'fetch', recordId, accountName, msg });
+      console.error(`  [FETCH-THREW] ${recordId} "${accountName}" — ${msg}`);
       return;
     }
     const sourceValue = richText?.[SOURCE_FIELD];
 
     if (!sourceValue || String(sourceValue).trim() === '') {
       summary.sourceEmpty++;
+      console.log(`  [skipped-empty] ${recordId} "${accountName}" — Organisation_overview empty in Zoho`);
       return;
     }
 
@@ -186,11 +190,15 @@ async function migrate(args) {
         console.log(`  [ok] ${recordId} "${accountName}" — wrote ${sourceStr.length}ch`);
       } else {
         summary.failed++;
-        console.error(`  [FAIL] ${recordId} "${accountName}" — ${result?.error || 'unknown error'}`);
+        const msg = result?.error || 'unknown error';
+        summary.errors.push({ stage: 'update', recordId, accountName, msg });
+        console.error(`  [FAIL] ${recordId} "${accountName}" — ${msg}`);
       }
     } catch (err) {
       summary.failed++;
-      console.error(`  [THREW] ${recordId} "${accountName}" — ${err?.message || err}`);
+      const msg = err?.message || String(err);
+      summary.errors.push({ stage: 'update-threw', recordId, accountName, msg });
+      console.error(`  [THREW] ${recordId} "${accountName}" — ${msg}`);
     }
   }
 
@@ -230,6 +238,16 @@ async function migrate(args) {
   } else {
     console.log(`\n  No risky source values detected.`);
   }
+  if (summary.errors.length > 0) {
+    const head = summary.errors.slice(0, 5);
+    console.log(`\n  First ${head.length} of ${summary.errors.length} error(s):`);
+    for (const e of head) {
+      console.log(`    - [${e.stage}] ${e.recordId} "${e.accountName}" — ${e.msg}`);
+    }
+    if (summary.errors.length > head.length) {
+      console.log(`    ...and ${summary.errors.length - head.length} more (see [FAIL]/[THREW]/[FETCH-THREW] log lines above).`);
+    }
+  }
   console.log('');
 
   return summary;
@@ -264,12 +282,17 @@ async function updateMapping(args) {
     const next = fms.map(m => {
       if (m && m.zoho_field === SOURCE_FIELD) {
         changed = true;
-        const copy = { ...m, zoho_field: TARGET_FIELD, zoho_field_label: TARGET_FIELD };
-        // The new field is plain-text, not rich-text. Strip the flag so the
-        // sync path stops routing it through rich-text verification (which
-        // re-reads via fetch_full_data — only meaningful for rich-text).
-        delete copy.is_rich_text;
-        return copy;
+        // The new field is plain-text, not rich-text. Set is_rich_text
+        // explicitly to `false` (rather than deleting the key) so the
+        // mapping row carries unambiguous "this is plain text" intent and
+        // doesn't rely on enrichMappingFlagsFromMetadata's missing-flag
+        // back-fill to put the right value back later.
+        return {
+          ...m,
+          zoho_field: TARGET_FIELD,
+          zoho_field_label: TARGET_FIELD,
+          is_rich_text: false
+        };
       }
       return m;
     });
@@ -292,6 +315,14 @@ async function updateMapping(args) {
     }
     console.log(`  [ok] mapping ${row.id} updated`);
   }
+
+  // Cache-bust note: the in-memory caches that read this mapping
+  // (`derivedFlagSetsCache` and `moduleFieldsCache` in the API process)
+  // live in the running Express/Vercel function process — NOT in this
+  // out-of-process Node script — so there is nothing to invalidate from
+  // here. Restart the running app workflow after `--update-mapping
+  // --apply` to drop those caches and pick up the re-pointed mapping.
+  console.log('  Restart the app workflow now to bust in-memory mapping/field-type caches.');
   console.log('');
 }
 
