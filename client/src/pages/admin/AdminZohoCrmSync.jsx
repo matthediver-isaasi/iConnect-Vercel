@@ -750,7 +750,7 @@ export default function AdminZohoCrmSync() {
         setCursor(nextPage);
         setCompleted(false);
         if (autoChunkIndex < IMPORT_AUTO_CHUNK_CAP) {
-          const warnMsg = `Imported ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) so far. Resuming at page ${nextPage}…`;
+          const warnMsg = `Import paused after page ${s.last_page ?? '?'} (Vercel time budget reached). Auto-continuing at page ${nextPage} — ${accumulator.processed} ${isOrgs ? 'organisation' : 'member'}(s) processed so far.`;
           setWarning(warnMsg);
           // Hand off to the next chunk. Don't clear the running flag —
           // we want the UI to keep showing the spinner across the
@@ -1942,7 +1942,7 @@ export default function AdminZohoCrmSync() {
                 </div>
               )}
               {(importOrgsWarning || importOrgsError || importOrgsTotals) && (
-                <div className="space-y-2" data-testid="panel-import-orgs-progress">
+                <div className="space-y-2" data-testid="text-import-orgs-progress">
                   {importOrgsWarning && (
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="text-import-orgs-warning">
                       {importOrgsWarning}
@@ -1982,7 +1982,7 @@ export default function AdminZohoCrmSync() {
                 </div>
               )}
               {(importMembersWarning || importMembersError || importMembersTotals) && (
-                <div className="space-y-2" data-testid="panel-import-members-progress">
+                <div className="space-y-2" data-testid="text-import-members-progress">
                   {importMembersWarning && (
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="text-import-members-warning">
                       {importMembersWarning}

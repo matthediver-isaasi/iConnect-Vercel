@@ -3074,7 +3074,12 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   const fieldsParam = encodeURIComponent([...fields].join(','));
 
   const perPage = 200;
-  const MAX_PAGES = Number(options.maxPages) || 500; // safety: 100k records / run
+  // Per-invocation page cap. This is a *per-call* safety cap, not an
+  // absolute Zoho page ceiling: a chunk that resumes at page 600 and
+  // processes pages 600..610 is fine even if maxPagesPerCall is 500.
+  // Falls back to legacy `maxPages` for backward compatibility.
+  const maxPagesPerCall =
+    Number(options.maxPagesPerCall) || Number(options.maxPages) || 500;
   // Chunked-execution controls. The admin endpoint loops by passing
   // `startPage` so each Vercel invocation processes a slice within
   // `timeBudgetMs`. Defaults give us 10s of headroom under Vercel's 60s
@@ -3086,8 +3091,9 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
   const startedAt = Date.now();
   summary.start_page = startPage;
   let page = startPage;
+  let pagesThisCall = 0;
 
-  while (page <= MAX_PAGES) {
+  while (pagesThisCall < maxPagesPerCall) {
     const endpoint = `/${zohoModule}?fields=${fieldsParam}&per_page=${perPage}&page=${page}`;
     let resp;
     try {
@@ -3165,6 +3171,7 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
     }
 
     summary.last_page = page;
+    pagesThisCall += 1;
     if (!resp?.info?.more_records) break;
     // Time-budget check happens *after* a page boundary so we never abandon
     // a partially-processed page (importOneRecord is idempotent across
@@ -3178,6 +3185,13 @@ export async function importEntityFromZoho(tenantId, entityType, options = {}) {
       break;
     }
     page += 1;
+    // Per-call page cap also yields a resumable truncation rather than
+    // silently stopping, so the admin UI can pick up the next chunk.
+    if (pagesThisCall >= maxPagesPerCall) {
+      summary.truncated = true;
+      summary.next_page = page;
+      break;
+    }
   }
 
   return summary;
