@@ -2,8 +2,13 @@ import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { remediatePicklistDashes } from '../../_lib/zohoCrmSync.js';
 
 // Admin-only #463 remediation. Re-pushes iConnect picklist values to Zoho
-// for organisations whose stored picklist value differs from iConnect by
-// dash style only (or is empty after a previous failed overwrite).
+// for records whose stored picklist value differs from iConnect by dash
+// style only (or is empty after a previous failed overwrite).
+//
+// #465: accepts an `entityType` body parameter (`'organization'` |
+// `'member'`) so the same recovery flow now covers Contact picklist drift
+// as well as Account drift. Defaults to `'organization'` for backwards
+// compatibility with the original admin UI invocation.
 //
 // Dry-run by default — caller must explicitly pass `dryRun: false` to
 // commit the change. Honours the same UUID-shaped startAfterId resume
@@ -31,6 +36,20 @@ export default async function handler(req, res) {
       startAfterId = rawCursor;
     }
 
+    // Default to 'organization' to preserve the original behaviour of this
+    // endpoint (#463). Reject anything else upfront so an accidental typo
+    // doesn't silently fall through to the default.
+    const rawEntityType = req.body?.entityType;
+    let entityType = 'organization';
+    if (rawEntityType !== undefined && rawEntityType !== null && rawEntityType !== '') {
+      if (rawEntityType !== 'organization' && rawEntityType !== 'member') {
+        return res.status(400).json({
+          error: "entityType must be 'organization' or 'member'"
+        });
+      }
+      entityType = rawEntityType;
+    }
+
     // Strict opt-in: only the literal boolean `false` flips off dry-run.
     // Anything else (missing, true, "false" string, etc.) keeps dry-run
     // on so an accidental click in the admin UI cannot accidentally
@@ -40,11 +59,13 @@ export default async function handler(req, res) {
     const result = await remediatePicklistDashes(tenantId, {
       source: 'admin_remediate_picklist_dash',
       startAfterId,
-      dryRun
+      dryRun,
+      entityType
     });
     return res.status(200).json({
       success: true,
       dry_run: dryRun,
+      entity_type: entityType,
       summary: result.summary,
       samples: result.samples,
       truncated: !!result.truncated,

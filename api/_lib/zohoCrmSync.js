@@ -352,6 +352,18 @@ function resolveMappedValue(mapping, entity, customValues) {
   return entity?.[src];
 }
 
+// Best-effort human-readable label for an entity surfaced in
+// remediation samples (organisation name, member full name, etc).
+function describeEntityForRemediationSample(entityType, entity) {
+  if (!entity) return null;
+  if (entityType === 'organization') return entity.name || null;
+  if (entityType === 'member') {
+    const composed = [entity.first_name, entity.last_name].filter(Boolean).join(' ').trim();
+    return composed || entity.email || entity.name || null;
+  }
+  return null;
+}
+
 // #463 dash normalisation. Zoho picklist options frequently use the en-dash
 // (`–`, U+2013) — e.g. `Member – Education Support Organisations` — while
 // the same logical value typed into iConnect comes off the keyboard as a
@@ -2562,6 +2574,16 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
   const PAGE = 200;
   const SAMPLE_CAP = 25;
 
+  // #465: same dash-style remediation works for either side. Default to
+  // 'organization' so existing callers (admin endpoint, scripts) don't
+  // change behaviour.
+  const entityType = options.entityType || 'organization';
+  if (entityType !== 'organization' && entityType !== 'member') {
+    throw new Error(`entityType must be 'organization' or 'member' (got ${JSON.stringify(entityType)})`);
+  }
+  const entityTable = ENTITY_TABLE[entityType];
+  if (!entityTable) throw new Error(`No table configured for entityType ${entityType}`);
+
   let cursorId = null;
   if (options.startAfterId !== undefined && options.startAfterId !== null) {
     if (typeof options.startAfterId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(options.startAfterId)) {
@@ -2574,21 +2596,23 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
     .from('zoho_crm_sync_mapping')
     .select('*')
     .eq('tenant_id', tenantId)
-    .eq('entity_type', 'organization')
+    .eq('entity_type', entityType)
     .maybeSingle();
   if (mappingErr) throw mappingErr;
-  if (!mapping) throw new Error('No organisation mapping configured for this tenant');
+  if (!mapping) throw new Error(`No ${entityType} mapping configured for this tenant`);
 
   // Stamp is_picklist / is_multi_pick / _picklistOptions in-memory so
   // `applyMappingValueOutbound` below uses the metadata-aware canonicaliser.
   await enrichMappingFlagsFromMetadata(tenantId, mapping);
 
-  const zohoModule = mapping.zoho_module || 'Accounts';
+  const defaultModule = entityType === 'organization' ? 'Accounts' : 'Contacts';
+  const zohoModule = mapping.zoho_module || defaultModule;
   const targetFields = (Array.isArray(mapping.field_mappings) ? mapping.field_mappings : [])
     .filter(m => m && m.iconnect_field && m.zoho_field && (m.is_picklist === true || m.is_multi_pick === true));
 
   const summary = {
     tenant_id: tenantId,
+    entity_type: entityType,
     dry_run: dryRun,
     zoho_module: zohoModule,
     target_fields: targetFields.map(m => ({ zoho_field: m.zoho_field, iconnect_field: m.iconnect_field, is_multi_pick: !!m.is_multi_pick })),
@@ -2615,33 +2639,33 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
   // eslint-disable-next-line no-constant-condition
   outer: while (true) {
     let q = supabase
-      .from('organization')
+      .from(entityTable)
       .select('*')
       .eq('tenant_id', tenantId)
       .not('zoho_crm_id', 'is', null)
       .order('id', { ascending: true })
       .limit(PAGE);
     if (cursorId !== null) q = q.gt('id', cursorId);
-    const { data: orgs, error: orgErr } = await q;
-    if (orgErr) throw orgErr;
-    if (!orgs || orgs.length === 0) break;
+    const { data: entities, error: entityErr } = await q;
+    if (entityErr) throw entityErr;
+    if (!entities || entities.length === 0) break;
 
-    for (const org of orgs) {
+    for (const entity of entities) {
       if (Date.now() - startedAt > TIME_BUDGET_MS) {
         truncated = true;
         break outer;
       }
       summary.processed += 1;
-      lastProcessedId = org.id;
+      lastProcessedId = entity.id;
 
       try {
-        const customValues = await loadCustomFieldValues(tenantId, 'organization', org.id);
+        const customValues = await loadCustomFieldValues(tenantId, entityType, entity.id);
 
         let zohoRecord;
         try {
           const resp = await zohoCrmApiCall(
             tenantId,
-            `/${zohoModule}/${encodeURIComponent(org.zoho_crm_id)}?fields=${encodeURIComponent(fieldList)}`
+            `/${zohoModule}/${encodeURIComponent(entity.zoho_crm_id)}?fields=${encodeURIComponent(fieldList)}`
           );
           zohoRecord = Array.isArray(resp?.data) ? resp.data[0] : null;
         } catch (err) {
@@ -2662,7 +2686,7 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
         let anyIconnectValuePresent = false;
 
         for (const m of targetFields) {
-          const rawIc = resolveMappedValue(m, org, customValues);
+          const rawIc = resolveMappedValue(m, entity, customValues);
           if (rawIc === undefined || rawIc === null || rawIc === '') continue;
           anyIconnectValuePresent = true;
 
@@ -2726,17 +2750,18 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
         summary.needs_fix += 1;
         if (samples.length < SAMPLE_CAP) {
           samples.push({
-            org_id: org.id,
-            org_name: org.name,
-            zoho_record_id: org.zoho_crm_id,
+            entity_type: entityType,
+            entity_id: entity.id,
+            entity_name: describeEntityForRemediationSample(entityType, entity),
+            zoho_record_id: entity.zoho_crm_id,
             fixes: perFieldDetails
           });
         }
 
         if (dryRun) {
           await writeLog({
-            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+            zoho_module: zohoModule, zoho_record_id: entity.zoho_crm_id,
             status: 'skipped', direction: 'outbound', source, action: 'remediate_picklist_dash_dry_run',
             request_payload: fixesForRecord,
             response_payload: { fixes: perFieldDetails }
@@ -2744,12 +2769,12 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
           continue;
         }
 
-        const result = await updateZohoCrmRecordById(tenantId, zohoModule, org.zoho_crm_id, fixesForRecord);
+        const result = await updateZohoCrmRecordById(tenantId, zohoModule, entity.zoho_crm_id, fixesForRecord);
         if (result?.success) {
           summary.fixed += 1;
           await writeLog({
-            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+            zoho_module: zohoModule, zoho_record_id: entity.zoho_crm_id,
             status: 'success', direction: 'outbound', source, action: 'remediate_picklist_dash',
             request_payload: fixesForRecord,
             response_payload: { fixes: perFieldDetails }
@@ -2757,8 +2782,8 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
         } else {
           summary.failed += 1;
           await writeLog({
-            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+            zoho_module: zohoModule, zoho_record_id: entity.zoho_crm_id,
             status: 'failed', direction: 'outbound', source, action: 'remediate_picklist_dash',
             error_message: result?.error || 'Zoho update returned non-success',
             request_payload: fixesForRecord,
@@ -2768,16 +2793,16 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
       } catch (err) {
         summary.failed += 1;
         await writeLog({
-          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
-          zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id || null,
+          tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
+          zoho_module: zohoModule, zoho_record_id: entity.zoho_crm_id || null,
           status: 'failed', direction: 'outbound', source, action: 'remediate_picklist_dash',
           error_message: err?.message || String(err)
         });
       }
     }
 
-    if (orgs.length < PAGE) break;
-    cursorId = orgs[orgs.length - 1].id;
+    if (entities.length < PAGE) break;
+    cursorId = entities[entities.length - 1].id;
   }
 
   if (truncated) {
