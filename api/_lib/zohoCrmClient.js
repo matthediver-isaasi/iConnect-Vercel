@@ -676,7 +676,14 @@ function mapZohoField(f) {
     read_only: !!f.read_only,
     custom_field: !!f.custom_field,
     length: f.length || null,
-    pick_list_values: (f.pick_list_values || []).map(p => ({ display_value: p.display_value, actual_value: p.actual_value }))
+    // `type` is preserved so the admin mapping UI can hide options Zoho
+    // marks `"unused"` (removed/hidden in Zoho but kept on the field for
+    // historical record compatibility — see #467). Treat a missing/null
+    // `type` as active. The runtime canonicaliser in `zohoCrmSync.js`
+    // walks the raw `/settings/fields` payload directly, so it still
+    // sees unused options and existing records bearing them round-trip
+    // unchanged.
+    pick_list_values: (f.pick_list_values || []).map(p => ({ display_value: p.display_value, actual_value: p.actual_value, type: p.type ?? null }))
   };
 }
 

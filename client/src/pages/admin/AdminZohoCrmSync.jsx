@@ -77,6 +77,14 @@ function getIconnectAllowedValues(opt) {
 }
 
 // Allowed values for a Zoho field. Returns `[{ label, value }]` or `null`.
+//
+// Only currently-active picklist options are returned: Zoho marks removed/
+// hidden values with `type: "unused"` but still surfaces them on the field
+// for historical record compatibility (#467). Any value whose `type` is
+// missing or null is treated as active so non-picklist fields and tenants
+// on older Zoho responses are unaffected. The runtime canonicaliser
+// continues to see the full set, so existing records bearing legacy
+// values still round-trip without warnings.
 function getZohoAllowedValues(field) {
   if (!field) return null;
   if ((field.data_type || "").toLowerCase() === "boolean") {
@@ -88,6 +96,10 @@ function getZohoAllowedValues(field) {
   const pl = field.pick_list_values;
   if (Array.isArray(pl) && pl.length > 0) {
     return pl
+      .filter(p => {
+        const t = p?.type;
+        return t == null || t !== "unused";
+      })
       .map(p => {
         const value = p.actual_value ?? p.display_value;
         const label = p.display_value ?? p.actual_value;
@@ -1313,15 +1325,38 @@ export default function AdminZohoCrmSync() {
     const zField = zohoFields.find(z => z.api_name === row.zoho_field);
     const iAllowed = getIconnectAllowedValues(iOpt) || [];
     const zAllowed = getZohoAllowedValues(zField) || [];
+    // Surface mappings that reference Zoho values which are no longer in
+    // the active picklist (#467). The orphan set is the UNION of inactive
+    // Zoho values appearing as keys in `zoho_to_iconnect` and as targets
+    // in `iconnect_to_zoho` — surfacing both makes every orphan reachable
+    // from the left (Z → I) column with an "(inactive in Zoho)"
+    // indicator, so admins can edit/clear them. Silently hiding would
+    // leave orphan entries the admin couldn't manage. Active values are
+    // matched by their `value` (which is `actual_value` from Zoho — see
+    // `getZohoAllowedValues`).
+    const activeSet = new Set(zAllowed.map(z => z.value));
+    const z2i = row.value_map?.zoho_to_iconnect || {};
+    const i2z = row.value_map?.iconnect_to_zoho || {};
+    const orphanValues = new Set();
+    for (const k of Object.keys(z2i)) {
+      if (k && !activeSet.has(k)) orphanValues.add(String(k));
+    }
+    for (const v of Object.values(i2z)) {
+      if (typeof v === "string" && v !== "" && !activeSet.has(v)) orphanValues.add(v);
+    }
+    const zohoOrphanRows = Array.from(orphanValues).map(v => ({
+      label: v, value: v, inactive: true
+    }));
     setTranslationModal({
       idx,
       iconnectField: row.iconnect_field,
       zohoField: row.zoho_field,
       iconnectAllowed: iAllowed,
       zohoAllowed: zAllowed,
+      zohoOrphanRows,
       draft: {
-        iconnect_to_zoho: { ...(row.value_map?.iconnect_to_zoho || {}) },
-        zoho_to_iconnect: { ...(row.value_map?.zoho_to_iconnect || {}) }
+        iconnect_to_zoho: { ...i2z },
+        zoho_to_iconnect: { ...z2i }
       }
     });
   };
@@ -2702,9 +2737,14 @@ export default function AdminZohoCrmSync() {
             <DialogDescription>
               Map each Zoho value to its iConnect counterpart (and vice versa). Either side may be left
               blank — unmapped values pass through unchanged and a warning is recorded in the sync log.
+              Only currently-active Zoho picklist values are listed; any rows or options labelled
+              "(inactive in Zoho)" reflect existing mappings that should be cleaned up.
             </DialogDescription>
           </DialogHeader>
-          {translationModal && (
+          {translationModal && (() => {
+            const z2iRows = [...translationModal.zohoAllowed, ...translationModal.zohoOrphanRows];
+            const activeZohoSet = new Set(translationModal.zohoAllowed.map(z => z.value));
+            return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm overflow-y-auto px-6 flex-1 min-h-0">
               <div className="space-y-2">
                 <div className="font-medium">Zoho → iConnect</div>
@@ -2712,12 +2752,19 @@ export default function AdminZohoCrmSync() {
                   For each Zoho value, choose the iConnect value to write on inbound sync.
                 </div>
                 <div className="space-y-2">
-                  {translationModal.zohoAllowed.length === 0 && (
+                  {z2iRows.length === 0 && (
                     <div className="text-xs text-muted-foreground">No Zoho values discovered.</div>
                   )}
-                  {translationModal.zohoAllowed.map(zv => (
+                  {z2iRows.map(zv => (
                     <div key={zv.value} className="flex items-center gap-2" data-testid={`row-z2i-${zv.value}`}>
-                      <div className="flex-1 truncate" title={zv.label}>{zv.label}</div>
+                      <div className="flex-1 truncate" title={zv.label}>
+                        {zv.label}
+                        {zv.inactive && (
+                          <span className="ml-2 text-xs text-muted-foreground" data-testid={`label-inactive-z2i-${zv.value}`}>
+                            (inactive in Zoho)
+                          </span>
+                        )}
+                      </div>
                       <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
                       <Select
                         value={translationModal.draft.zoho_to_iconnect[zv.value] || "__none__"}
@@ -2746,30 +2793,45 @@ export default function AdminZohoCrmSync() {
                   {translationModal.iconnectAllowed.length === 0 && (
                     <div className="text-xs text-muted-foreground">No iConnect values discovered.</div>
                   )}
-                  {translationModal.iconnectAllowed.map(iv => (
-                    <div key={iv.value} className="flex items-center gap-2" data-testid={`row-i2z-${iv.value}`}>
-                      <div className="flex-1 truncate" title={iv.label}>{iv.label}</div>
-                      <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                      <Select
-                        value={translationModal.draft.iconnect_to_zoho[iv.value] || "__none__"}
-                        onValueChange={(v) => setTranslationPair("iconnect_to_zoho", iv.value, v === "__none__" ? "" : v)}
-                      >
-                        <SelectTrigger className="flex-1" data-testid={`select-i2z-${iv.value}`}>
-                          <SelectValue placeholder="(unmapped)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">(unmapped)</SelectItem>
-                          {translationModal.zohoAllowed.map(zv => (
-                            <SelectItem key={zv.value} value={zv.value}>{zv.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
+                  {translationModal.iconnectAllowed.map(iv => {
+                    const currentValue = translationModal.draft.iconnect_to_zoho[iv.value];
+                    const showOrphan = !!currentValue && !activeZohoSet.has(currentValue);
+                    return (
+                      <div key={iv.value} className="flex items-center gap-2" data-testid={`row-i2z-${iv.value}`}>
+                        <div className="flex-1 truncate" title={iv.label}>{iv.label}</div>
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                        <Select
+                          value={currentValue || "__none__"}
+                          onValueChange={(v) => setTranslationPair("iconnect_to_zoho", iv.value, v === "__none__" ? "" : v)}
+                        >
+                          <SelectTrigger className="flex-1" data-testid={`select-i2z-${iv.value}`}>
+                            <SelectValue placeholder="(unmapped)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">(unmapped)</SelectItem>
+                            {translationModal.zohoAllowed.map(zv => (
+                              <SelectItem key={zv.value} value={zv.value}>{zv.label}</SelectItem>
+                            ))}
+                            {showOrphan && (
+                              <SelectItem
+                                key={`orphan-${currentValue}`}
+                                value={currentValue}
+                                disabled
+                                data-testid={`option-inactive-i2z-${iv.value}`}
+                              >
+                                {currentValue} (inactive in Zoho)
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
-          )}
+            );
+          })()}
           <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-2 border-t">
             <Button variant="outline" onClick={() => setTranslationModal(null)} data-testid="button-value-map-cancel">Cancel</Button>
             <Button onClick={saveTranslationModal} data-testid="button-value-map-save">Save</Button>
