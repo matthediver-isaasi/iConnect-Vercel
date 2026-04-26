@@ -1524,17 +1524,22 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
     });
   }
 
-  // No-op: same content as the last inbound write.
+  // No-op: same content as the last inbound write. We deliberately do NOT
+  // write a `sync_log` row here — every outbound iConnect→Zoho push bumps
+  // Zoho's `Modified_Time`, so the next inbound poll re-fetches the same
+  // record, computes the same hash, and lands here. Logging that event
+  // would fill the operator-visible log with noise that says literally
+  // "nothing happened". Return a lightweight synthetic result so callers
+  // (webhook handler, retry handler) that read `.id` / `.status` keep
+  // working without a DB round-trip.
   const lastInbound = await getSyncState(tenantId, entityType, entity.id, 'inbound');
   if (lastInbound && lastInbound.payload_hash === payloadHash) {
-    return await writeLog({
-      tenant_id: tenantId, entity_type: entityType, entity_id: entity.id,
-      zoho_module: zohoModule, zoho_record_id: zohoId,
-      status: 'skipped', direction: 'inbound', source, action: 'inbound',
+    return {
+      id: null,
+      status: 'skipped',
       payload_hash: payloadHash,
-      error_message: 'No-op: payload identical to last inbound sync',
-      request_payload: zohoRecord
-    });
+      error_message: 'No-op: payload identical to last inbound sync (not logged)'
+    };
   }
 
   // Conflict resolution. Compare Zoho Modified_Time vs entity.updated_at.
@@ -2845,6 +2850,80 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       diffs,
       logId: logRow?.id || null
     };
+  }
+
+  // Fast no-op short-circuit for the UPDATE branch. Bulk imports re-fetch
+  // every Zoho record on every chunk, and the vast majority of those are
+  // already in sync. Without this guard each "no-op" record still pays
+  // for a custom-field load, a module-fields metadata fetch, and a
+  // sync_log row write — ~400-600ms of Supabase round-trips per record.
+  // With a 40s per-invocation time budget the chunk loop bails mid-page
+  // before advancing, so the same ~70 records get reprocessed forever.
+  //
+  // The short-circuit is safe to take only when ALL of:
+  //   1. The inbound payload hash matches the last inbound write (Zoho
+  //      hasn't changed anything mapped since we last imported), AND
+  //   2. The iConnect entity hasn't been locally modified since that
+  //      last inbound (so there's nothing to push back to Zoho), AND
+  //   3. No custom-field value has been locally modified since that last
+  //      inbound either — `applyCustomFieldUpdates` only bumps the
+  //      pref-value row's `updated_at`, NOT the parent entity's, so
+  //      relying on `entity.updated_at` alone would skip pushing
+  //      legitimate iConnect→Zoho custom-field changes, AND
+  //   4. The entity's `zoho_crm_id` / `zoho_crm_module` already match
+  //      the inbound record so there's no link patch we'd be skipping.
+  //
+  // If any condition fails we fall through to the full merge below so
+  // backfills, overwrites, link patching, and conflict resolution still
+  // run.
+  const fastNoopHash = computeHash(canonicalizeInboundForHash(mapping, coreUpdates, customUpdates));
+  const linkAlreadyMatches =
+    !zohoId ||
+    (entity.zoho_crm_id === zohoId && entity.zoho_crm_module === zohoModule);
+  if (linkAlreadyMatches && entity.updated_at) {
+    const fastNoopState = await getSyncState(tenantId, entityType, entity.id, 'inbound');
+    if (
+      fastNoopState &&
+      fastNoopState.payload_hash === fastNoopHash &&
+      fastNoopState.last_synced_at &&
+      new Date(entity.updated_at).getTime() <= new Date(fastNoopState.last_synced_at).getTime()
+    ) {
+      const lastInboundMs = new Date(fastNoopState.last_synced_at).getTime();
+      // Custom-field freshness: a single MAX(updated_at) read on the
+      // pref-value table for this entity. Cheap (single round-trip,
+      // indexed on the FK) and avoids the architect-flagged correctness
+      // gap where local custom-field edits would be silently skipped.
+      const prefTable = PREF_VALUE_TABLE[entityType];
+      const prefFk = PREF_VALUE_FK[entityType];
+      let customLocalNewer = false;
+      if (prefTable && prefFk) {
+        const { data: latestCustom } = await supabase
+          .from(prefTable)
+          .select('updated_at')
+          .eq(prefFk, entity.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestCustom?.updated_at) {
+          customLocalNewer = new Date(latestCustom.updated_at).getTime() > lastInboundMs;
+        }
+      }
+      if (!customLocalNewer) {
+        return {
+          outcome: 'no_change',
+          matched: summariseEntity(entity, entityType),
+          matchedBy,
+          message: 'No-op: payload identical to last inbound sync and iConnect unchanged (fast path)',
+          diffs: [],
+          skipped_fields: [],
+          backfilled_fields: [],
+          overwritten_fields: [],
+          truncated_fields: [],
+          invalid_url_fields: [],
+          logId: null
+        };
+      }
+    }
   }
 
   // UPDATE: unified merge rule for both `organization` and `member` —
