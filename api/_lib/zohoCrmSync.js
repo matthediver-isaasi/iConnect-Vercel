@@ -2896,19 +2896,24 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
       const prefTable = PREF_VALUE_TABLE[entityType];
       const prefFk = PREF_VALUE_FK[entityType];
       let customLocalNewer = false;
+      let customCheckErrored = false;
       if (prefTable && prefFk) {
-        const { data: latestCustom } = await supabase
+        const { data: latestCustom, error: latestCustomError } = await supabase
           .from(prefTable)
           .select('updated_at')
           .eq(prefFk, entity.id)
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (latestCustom?.updated_at) {
+        if (latestCustomError) {
+          // Don't risk a false-positive no-op skip on a transient DB
+          // read failure — fall through to the full merge instead.
+          customCheckErrored = true;
+        } else if (latestCustom?.updated_at) {
           customLocalNewer = new Date(latestCustom.updated_at).getTime() > lastInboundMs;
         }
       }
-      if (!customLocalNewer) {
+      if (!customLocalNewer && !customCheckErrored) {
         return {
           outcome: 'no_change',
           matched: summariseEntity(entity, entityType),
