@@ -112,9 +112,13 @@ function getZohoAllowedValues(field) {
         // underlying API key — the modal showed one string but saved
         // a different one as the value_map key. `actual_value` is kept
         // only as a last-resort fallback when `display_value` is
-        // missing (which Zoho should never do for picklist options).
-        const value = p.display_value ?? p.actual_value;
-        const label = p.display_value ?? p.actual_value;
+        // missing OR empty (mirrors the runtime helper
+        // `getZohoCrmModuleFieldTypes`, which uses an explicit
+        // empty-string check rather than nullish coalescing).
+        const dvOk = typeof p.display_value === "string" && p.display_value !== "";
+        const avOk = typeof p.actual_value === "string" && p.actual_value !== "";
+        const value = dvOk ? p.display_value : (avOk ? p.actual_value : null);
+        const label = dvOk ? p.display_value : (avOk ? p.actual_value : null);
         if (value == null || value === "") return null;
         return { label: String(label), value: String(value) };
       })
