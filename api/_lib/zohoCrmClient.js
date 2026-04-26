@@ -839,11 +839,24 @@ const FIELD_TYPES_TTL_MS = 5 * 60 * 1000;
 const fieldTypesCacheKey = (tenantId, module) => `${tenantId}::${module}`;
 
 // Returns Map<api_name, { dataType: string, pickListValues: Set<string> }>.
-// `pickListValues` is the set of `actual_value` strings Zoho enumerates for
-// picklist / multi-select-picklist fields and is used by the outbound dash
-// canonicaliser (#463) to send the exact picklist option string Zoho
-// expects when an iConnect value differs only by dash style. Non-picklist
-// fields get an empty set.
+// `pickListValues` is the set of `display_value` strings Zoho enumerates
+// for picklist / multi-select-picklist fields and is used by the outbound
+// dash canonicaliser (#463) and the unknown-option omit guard (#468) to
+// send the exact picklist option string Zoho expects on the wire.
+//
+// #472: previously this set was built from `actual_value`. That diverged
+// from Zoho's wire format whenever an admin had renamed an option's
+// display label without changing its underlying API key (e.g.
+// `Account_Type` option `actual_value: "Vendor"`,
+// `display_value: "Member – Education Support Organisations"`). Zoho's
+// API returns picklist values as `display_value` on inbound and accepts
+// `display_value` on outbound, so standardising on `display_value` here
+// keeps the runtime in lock-step with what Zoho actually exchanges and
+// keeps the mapping modal (`getZohoAllowedValues`) consistent with the
+// runtime canonicaliser. `actual_value` is kept only as a last-resort
+// fallback for the rare option that lacks a `display_value`.
+//
+// Non-picklist fields get an empty set.
 export async function getZohoCrmModuleFieldTypes(tenantId, module) {
   if (!module) throw new Error('Module is required');
   const key = fieldTypesCacheKey(tenantId, module);
@@ -859,8 +872,10 @@ export async function getZohoCrmModuleFieldTypes(tenantId, module) {
     const pickListValues = new Set();
     if (Array.isArray(raw.pick_list_values)) {
       for (const p of raw.pick_list_values) {
-        const av = p?.actual_value;
-        if (typeof av === 'string' && av !== '') pickListValues.add(av);
+        const dv = (typeof p?.display_value === 'string' && p.display_value !== '')
+          ? p.display_value
+          : (typeof p?.actual_value === 'string' && p.actual_value !== '' ? p.actual_value : null);
+        if (dv) pickListValues.add(dv);
       }
     }
     types.set(apiName, { dataType: String(dt), pickListValues });

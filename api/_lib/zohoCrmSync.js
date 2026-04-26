@@ -91,7 +91,9 @@ async function getDerivedFlagSets(tenantId, zohoModule) {
   const richTextSet = new Set();
   // #463: also collect plain-picklist field names and per-field picklist
   // option sets so the outbound dash canonicaliser can decide whether a
-  // hyphen→en-dash swap matches a known Zoho option.
+  // hyphen→en-dash swap matches a known Zoho option. #472: the option
+  // set is now Zoho `display_value` strings (the wire-format identifier),
+  // not `actual_value` — see `getZohoCrmModuleFieldTypes`.
   const picklistSet = new Set();
   const picklistOptionsByField = new Map();
   for (const [apiName, info] of moduleFieldTypes) {

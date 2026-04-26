@@ -101,7 +101,19 @@ function getZohoAllowedValues(field) {
         return t == null || t !== "unused";
       })
       .map(p => {
-        const value = p.actual_value ?? p.display_value;
+        // #472: standardise on `display_value` as both the row's saved
+        // identifier AND its visible label. Zoho's API returns
+        // picklist values as `display_value` on inbound webhooks/poll
+        // responses and accepts `display_value` on outbound writes,
+        // so this is the only identifier the runtime ever sees on the
+        // wire. Using `actual_value` here (as we did pre-#472) silently
+        // diverged from the wire format whenever a Zoho admin had
+        // renamed an option's display label without changing its
+        // underlying API key — the modal showed one string but saved
+        // a different one as the value_map key. `actual_value` is kept
+        // only as a last-resort fallback when `display_value` is
+        // missing (which Zoho should never do for picklist options).
+        const value = p.display_value ?? p.actual_value;
         const label = p.display_value ?? p.actual_value;
         if (value == null || value === "") return null;
         return { label: String(label), value: String(value) };
@@ -1332,8 +1344,11 @@ export default function AdminZohoCrmSync() {
     // from the left (Z → I) column with an "(inactive in Zoho)"
     // indicator, so admins can edit/clear them. Silently hiding would
     // leave orphan entries the admin couldn't manage. Active values are
-    // matched by their `value` (which is `actual_value` from Zoho — see
-    // `getZohoAllowedValues`).
+    // matched by their `value` (which is `display_value` from Zoho since
+    // #472 — see `getZohoAllowedValues`). Pre-#472 mappings whose keys
+    // are still `actual_value` strings will appear here as orphans and
+    // can be re-saved manually, or rewritten in bulk by
+    // `scripts/migrate-picklist-value-map-actual-to-display.mjs`.
     const activeSet = new Set(zAllowed.map(z => z.value));
     const z2i = row.value_map?.zoho_to_iconnect || {};
     const i2z = row.value_map?.iconnect_to_zoho || {};
