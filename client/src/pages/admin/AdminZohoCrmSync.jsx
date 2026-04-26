@@ -2615,6 +2615,69 @@ export default function AdminZohoCrmSync() {
                   </div>
                 </div>
               )}
+              {Array.isArray(viewLog.response_payload?.picklist_translations) && viewLog.response_payload.picklist_translations.length > 0 && (
+                <div data-testid="panel-picklist-translations">
+                  <div className="font-medium flex items-center gap-2">
+                    <ArrowUp className="h-4 w-4" />
+                    Picklist translations
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Per-field breadcrumb of every picklist value sent to Zoho on this sync — what arrived from iConnect, what was translated, whether the value translation map was consulted, and whether the result matched a known active Zoho option. Rows marked <span className="font-medium">omitted</span> were dropped from the payload because they didn't match any known Zoho option (Zoho's existing value is preserved).
+                  </p>
+                  <div className="border rounded-md mt-2 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>iConnect field</TableHead>
+                          <TableHead>Zoho field</TableHead>
+                          <TableHead>Raw value</TableHead>
+                          <TableHead>Translated</TableHead>
+                          <TableHead>Matched option</TableHead>
+                          <TableHead className="w-32">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewLog.response_payload.picklist_translations.map((p, i) => {
+                          const fmt = (v) => {
+                            if (v === null || v === undefined) return '—';
+                            if (Array.isArray(v)) return v.length === 0 ? '[ ]' : v.join(', ');
+                            return String(v);
+                          };
+                          const matchedLabel = p.matched_picklist_option === true
+                            ? 'yes'
+                            : p.matched_picklist_option === false
+                              ? 'no'
+                              : 'unknown';
+                          return (
+                            <TableRow key={`pt-${i}-${p.iconnect_field}-${p.zoho_field}`} data-testid={`row-picklist-translation-${i}`}>
+                              <TableCell className="text-xs"><code>{p.iconnect_field}</code></TableCell>
+                              <TableCell className="text-xs"><code>{p.zoho_field}</code></TableCell>
+                              <TableCell className="text-xs"><code>{fmt(p.raw_value)}</code></TableCell>
+                              <TableCell className="text-xs"><code>{fmt(p.translated_value)}</code></TableCell>
+                              <TableCell className="text-xs">{matchedLabel}</TableCell>
+                              <TableCell className="text-xs">
+                                <div className="flex flex-wrap gap-1">
+                                  {p.value_map_hit === true && (
+                                    <Badge variant="outline" className="text-xs" data-testid={`badge-value-map-hit-${i}`}>map</Badge>
+                                  )}
+                                  {p.is_multi_pick && typeof p.omitted_count === 'number' && p.omitted_count > 0 && !p.omitted && (
+                                    <Badge variant="outline" className="text-xs text-amber-700 border-amber-600" data-testid={`badge-partial-${i}`}>partial: {p.kept_count}/{p.kept_count + p.omitted_count}</Badge>
+                                  )}
+                                  {p.omitted ? (
+                                    <Badge variant="outline" className="text-xs text-amber-700 border-amber-600" data-testid={`badge-omitted-${i}`}>omitted</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs" data-testid={`badge-sent-${i}`}>sent</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
               {viewLog.request_payload && (
                 <div>
                   <div className="font-medium">Request payload</div>

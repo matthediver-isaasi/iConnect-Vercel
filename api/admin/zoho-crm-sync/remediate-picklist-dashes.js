@@ -56,16 +56,26 @@ export default async function handler(req, res) {
     // overwrite production data.
     const dryRun = req.body?.dryRun === false ? false : true;
 
+    // #468: opt-in extension that also re-pushes records whose Zoho
+    // value differs from the canonical desired value AND the desired
+    // value is a known-active picklist option (recovery for records
+    // where Zoho previously substituted its field default after we
+    // forwarded an unknown picklist value). Strict opt-in: only the
+    // literal boolean `true` enables it.
+    const includeFieldDefaults = req.body?.includeFieldDefaults === true;
+
     const result = await remediatePicklistDashes(tenantId, {
       source: 'admin_remediate_picklist_dash',
       startAfterId,
       dryRun,
-      entityType
+      entityType,
+      includeFieldDefaults
     });
     return res.status(200).json({
       success: true,
       dry_run: dryRun,
       entity_type: entityType,
+      include_field_defaults: includeFieldDefaults,
       summary: result.summary,
       samples: result.samples,
       truncated: !!result.truncated,

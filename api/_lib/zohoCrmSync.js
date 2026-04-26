@@ -126,29 +126,109 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
     sets = await getDerivedFlagSets(tenantId, mapping.zoho_module);
   } catch (err) {
     console.warn('[ZohoCrmSync] Could not resolve field-type flags from Zoho metadata at sync time — falling back to persisted flags only:', err?.message || err);
-    return;
   }
-  if (!sets) return;
-  const { multiPickSet, richTextSet, picklistSet, picklistOptionsByField } = sets;
+  if (sets) {
+    const { multiPickSet, richTextSet, picklistSet, picklistOptionsByField } = sets;
+    for (const m of mapping.field_mappings) {
+      if (!m?.zoho_field) continue;
+      if (m.is_multi_pick !== true && multiPickSet.has(m.zoho_field)) {
+        m.is_multi_pick = true;
+      }
+      if (m.is_rich_text !== true && richTextSet.has(m.zoho_field)) {
+        m.is_rich_text = true;
+      }
+      if (m.is_picklist !== true && picklistSet.has(m.zoho_field)) {
+        m.is_picklist = true;
+      }
+      // Stamp per-row picklist option set in-memory (NEVER persisted —
+      // mappings.js only writes the explicit allowlist of keys). Used by
+      // `applyMappingValueOutbound` to canonicalise dash-style drift on
+      // outbound picklist values (#463).
+      const opts = picklistOptionsByField.get(m.zoho_field);
+      if (opts && opts.size > 0) {
+        m._picklistOptions = opts;
+      }
+    }
+  }
+
+  // #468: stamp `_iconnectOptionAliases` for every `custom:<id>` mapping
+  // row so `applyValueMap` can resolve a stored value to its canonical
+  // shape even when the value_map was authored against a different shape
+  // (e.g. the value_map keys are option labels but the entity stores the
+  // option `value`). Without this the lookup misses, `applyValueMap`
+  // returns the raw value unchanged, and the picklist-omit guard in
+  // `applyMappingValueOutbound` then drops the field — leaving Zoho to
+  // substitute its field default.
+  await enrichMappingIconnectOptionAliases(tenantId, mapping);
+}
+
+/**
+ * Build a per-`custom:` mapping-row alias map: every alternate shape of
+ * a preference_field option (id, name, key, label, value — coerced to
+ * string) → the canonical value resolved by `deriveCustomAllowedValues`.
+ *
+ * Stamped on `mapping.field_mappings[i]._iconnectOptionAliases` as a
+ * `Map<altKey, canonicalValue>`. NEVER persisted. Used by `applyValueMap`
+ * as the final fallback after direct + dash-equivalent + case-insensitive
+ * lookups against `value_map[direction]` keys.
+ *
+ * Best-effort: a single batched query per sync. Failure is non-fatal —
+ * the lookup just falls through to today's behaviour.
+ */
+async function enrichMappingIconnectOptionAliases(tenantId, mapping) {
+  if (!tenantId || !mapping?.entity_type || !Array.isArray(mapping.field_mappings)) return;
+  const customFieldIds = [];
   for (const m of mapping.field_mappings) {
-    if (!m?.zoho_field) continue;
-    if (m.is_multi_pick !== true && multiPickSet.has(m.zoho_field)) {
-      m.is_multi_pick = true;
+    if (typeof m?.iconnect_field !== 'string') continue;
+    if (!m.iconnect_field.startsWith('custom:')) continue;
+    const fieldId = m.iconnect_field.slice('custom:'.length);
+    if (fieldId) customFieldIds.push(fieldId);
+  }
+  if (customFieldIds.length === 0) return;
+  try {
+    const { data, error } = await supabase
+      .from('preference_field')
+      .select('id, name, label, field_type, options')
+      .eq('tenant_id', tenantId)
+      .in('id', [...new Set(customFieldIds)]);
+    if (error) {
+      console.warn('[ZohoCrmSync] Could not load preference_field for option-alias enrichment:', error.message);
+      return;
     }
-    if (m.is_rich_text !== true && richTextSet.has(m.zoho_field)) {
-      m.is_rich_text = true;
+    const byId = new Map((data || []).map(r => [r.id, r]));
+    for (const m of mapping.field_mappings) {
+      if (typeof m?.iconnect_field !== 'string') continue;
+      if (!m.iconnect_field.startsWith('custom:')) continue;
+      const fieldId = m.iconnect_field.slice('custom:'.length);
+      const field = byId.get(fieldId);
+      if (!field) continue;
+      const opts = Array.isArray(field.options) ? field.options : null;
+      if (!opts || opts.length === 0) continue;
+      const aliases = new Map();
+      for (const opt of opts) {
+        if (opt == null) continue;
+        if (typeof opt === 'string' || typeof opt === 'number') continue;
+        if (typeof opt !== 'object') continue;
+        // Same canonical-value resolution as `deriveCustomAllowedValues`
+        // (id intentionally excluded so a UUID-only option contributes
+        // nothing to the alias map — it would just point UUID → UUID).
+        const canonical = opt.value ?? opt.key ?? opt.name ?? opt.label;
+        if (canonical == null) continue;
+        const canonicalStr = String(canonical);
+        // Map every alternate shape (including id) to canonical so a
+        // value_map keyed by the legacy id-form still resolves to the
+        // option that the user-facing form now stores.
+        for (const k of [opt.value, opt.key, opt.name, opt.label, opt.id]) {
+          if (k == null) continue;
+          const ks = String(k);
+          if (ks === '') continue;
+          if (!aliases.has(ks)) aliases.set(ks, canonicalStr);
+        }
+      }
+      if (aliases.size > 0) m._iconnectOptionAliases = aliases;
     }
-    if (m.is_picklist !== true && picklistSet.has(m.zoho_field)) {
-      m.is_picklist = true;
-    }
-    // Stamp per-row picklist option set in-memory (NEVER persisted —
-    // mappings.js only writes the explicit allowlist of keys). Used by
-    // `applyMappingValueOutbound` to canonicalise dash-style drift on
-    // outbound picklist values (#463).
-    const opts = picklistOptionsByField.get(m.zoho_field);
-    if (opts && opts.size > 0) {
-      m._picklistOptions = opts;
-    }
+  } catch (err) {
+    console.warn('[ZohoCrmSync] preference_field alias enrichment threw:', err?.message || err);
   }
 }
 
@@ -436,7 +516,13 @@ function canonicalizePicklistOptionForOutbound(options, value) {
  * multi-pick case by parsing into an array first and calling this per
  * element so each unmapped element generates its own warning row.
  */
-function applyValueMap(mapping, value, direction, warnings) {
+function applyValueMap(mapping, value, direction, warnings, info) {
+  // `info`, when provided, is mutated to record how the lookup
+  // resolved (`hit`: 'direct' | 'dash' | 'ci' | 'alias' | null).
+  // Used by `buildPayload` to emit accurate `value_map_hit`
+  // breadcrumbs that reflect the actual resolution path, not just
+  // whether the raw key happens to be a direct value_map entry.
+  if (info && typeof info === 'object') info.hit = null;
   if (value === undefined || value === null || value === '') return value;
   const vm = mapping?.value_map;
   if (!vm || typeof vm !== 'object') return value;
@@ -444,6 +530,7 @@ function applyValueMap(mapping, value, direction, warnings) {
   if (!dir || typeof dir !== 'object' || Object.keys(dir).length === 0) return value;
   const key = String(value);
   if (Object.prototype.hasOwnProperty.call(dir, key)) {
+    if (info && typeof info === 'object') info.hit = 'direct';
     return dir[key];
   }
   // Dash-equivalent fallback (#463): a value_map keyed by the en-dash
@@ -453,7 +540,50 @@ function applyValueMap(mapping, value, direction, warnings) {
   const compareKey = normalizeDashesForCompare(key);
   if (compareKey !== key) {
     for (const k of Object.keys(dir)) {
-      if (normalizeDashesForCompare(k) === compareKey) return dir[k];
+      if (normalizeDashesForCompare(k) === compareKey) {
+        if (info && typeof info === 'object') info.hit = 'dash';
+        return dir[k];
+      }
+    }
+  }
+  // #468: case-insensitive trimmed fallback. A value_map keyed by
+  // `ESO` should still satisfy a stored value of ` eso ` so admins
+  // don't have to author per-casing entries (Zoho options are stored
+  // case-sensitively but iConnect form values often arrive with
+  // surface-only differences).
+  const ciKey = key.trim().toLowerCase();
+  if (ciKey && ciKey !== key) {
+    for (const k of Object.keys(dir)) {
+      if (typeof k === 'string' && k.trim().toLowerCase() === ciKey) {
+        if (info && typeof info === 'object') info.hit = 'ci';
+        return dir[k];
+      }
+    }
+  }
+  // #468: alternate-shape fallback (iConnect→Zoho only). When the
+  // value_map was authored against one shape of the option (e.g. the
+  // option `name`) but the entity stored a different shape (e.g. the
+  // option `value`), translate via the alias map stamped at sync time
+  // to the canonical shape and retry the lookup once. This recovers
+  // mappings whose value_map keys predate the canonical-key migration
+  // (`scripts/migrate-picklist-value-map-keys.mjs`) without needing the
+  // migration to have run yet.
+  if (direction === 'iconnect_to_zoho' && mapping?._iconnectOptionAliases instanceof Map) {
+    const canonical = mapping._iconnectOptionAliases.get(key);
+    if (canonical && canonical !== key) {
+      if (Object.prototype.hasOwnProperty.call(dir, canonical)) {
+        if (info && typeof info === 'object') info.hit = 'alias';
+        return dir[canonical];
+      }
+      const canonicalCompare = normalizeDashesForCompare(canonical);
+      if (canonicalCompare !== canonical) {
+        for (const k of Object.keys(dir)) {
+          if (normalizeDashesForCompare(k) === canonicalCompare) {
+            if (info && typeof info === 'object') info.hit = 'alias';
+            return dir[k];
+          }
+        }
+      }
     }
   }
   if (Array.isArray(warnings)) {
@@ -529,26 +659,117 @@ function parseMultiPickValue(raw) {
  * NOT JSON-encode it back to a string or Zoho rejects with HTTP 400
  * INVALID_DATA `expected_data_type: jsonarray`.
  */
-function applyMappingValueOutbound(mapping, raw, warnings) {
+function applyMappingValueOutbound(mapping, raw, warnings, infoOut) {
   // #463: for picklist / multi-picklist field types, normalise dash
   // style to whatever Zoho's actual picklist option uses (or fall back
   // to en-dash when metadata is unavailable). Plain text / number /
   // date / boolean fields pass through unchanged. The picklist option
   // set is stamped in-memory by `enrichMappingFlagsFromMetadata`.
+  //
+  // `infoOut`, when provided, is mutated to record:
+  //   - `value_map_hit`: did the value_map lookup actually resolve via
+  //     direct/dash/ci/alias path (true), miss entirely (false), or was
+  //     skipped because the value_map is empty / value is empty (null)?
+  //   - `kept_count`, `omitted_count`: per-element accounting for
+  //     multi-pick fields so the breadcrumb panel can show partial drops.
   const isPicklistLike = mapping?.is_multi_pick === true || mapping?.is_picklist === true;
+  const opts = mapping?._picklistOptions;
   const finalize = (translated) => {
     if (!isPicklistLike) return translated;
-    return canonicalizePicklistOptionForOutbound(mapping?._picklistOptions, translated);
+    return canonicalizePicklistOptionForOutbound(opts, translated);
   };
+  // #468: when Zoho metadata gives us an authoritative picklist option
+  // set, treat anything outside that set as an UNKNOWN value and OMIT
+  // it from the outbound payload. Previously we forwarded the unknown
+  // value unchanged — Zoho silently substituted its field default
+  // (e.g. `Account_Type → Vendor`) and the override was invisible
+  // because the API still returned 2xx. Omitting leaves Zoho's
+  // existing value intact and surfaces the gap in the sync log.
+  const isKnownPicklistOption = (v) => {
+    if (!isPicklistLike) return true;
+    if (!opts || opts.size === 0) return true; // metadata unavailable: don't gate
+    if (typeof v !== 'string' || v === '') return false;
+    if (opts.has(v)) return true;
+    const cmp = normalizeDashesForCompare(v);
+    for (const opt of opts) {
+      if (normalizeDashesForCompare(opt) === cmp) return true;
+    }
+    return false;
+  };
+  const recordOmitted = (rawElement, translatedElement) => {
+    if (!Array.isArray(warnings)) return;
+    warnings.push({
+      direction: 'iconnect_to_zoho',
+      iconnect_field: mapping.iconnect_field,
+      zoho_field: mapping.zoho_field,
+      unmapped_value: String(translatedElement ?? rawElement ?? ''),
+      reason: 'unknown_picklist_option_omitted',
+      ...(translatedElement !== rawElement
+        ? { raw_value: rawElement == null ? null : String(rawElement) }
+        : {})
+    });
+  };
+  const wantInfo = infoOut && typeof infoOut === 'object';
   if (mapping?.is_multi_pick) {
     const arr = parseMultiPickValue(raw);
     if (arr === null) return undefined;
-    // Empty array means "clear all values" — preserve so admins can
-    // intentionally clear a multi-pick field.
-    return arr.map(v => finalize(applyValueMap(mapping, v, 'iconnect_to_zoho', warnings)));
+    // Empty input array means "clear all values" — admins can
+    // intentionally clear a multi-pick field. Preserve only if the
+    // input was already empty before filtering.
+    const inputCount = arr.length;
+    let anyHit = false;
+    let anyAttempt = false;
+    const out = [];
+    for (const v of arr) {
+      const probe = wantInfo ? { hit: null } : null;
+      const translated = finalize(applyValueMap(mapping, v, 'iconnect_to_zoho', warnings, probe));
+      if (probe && probe.hit) anyHit = true;
+      if (v !== undefined && v !== null && v !== '') anyAttempt = true;
+      if (!isKnownPicklistOption(translated)) {
+        recordOmitted(v, translated);
+        continue;
+      }
+      out.push(translated);
+    }
+    if (wantInfo) {
+      infoOut.value_map_hit = anyAttempt ? anyHit : null;
+      infoOut.kept_count = out.length;
+      infoOut.omitted_count = inputCount - out.length;
+    }
+    // CRITICAL (#468): if the input had elements but every single one
+    // was unmappable / unknown, OMIT the field entirely. Returning `[]`
+    // here would tell Zoho to clear the multi-pick — silently
+    // overwriting whatever value Zoho currently holds. Only return `[]`
+    // when the input was already empty (intentional clear).
+    if (inputCount > 0 && out.length === 0) return undefined;
+    return out;
   }
-  if (raw === undefined || raw === null || raw === '') return undefined;
-  return finalize(applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings));
+  if (raw === undefined || raw === null || raw === '') {
+    if (wantInfo) {
+      infoOut.value_map_hit = null;
+      infoOut.kept_count = 0;
+      infoOut.omitted_count = 0;
+    }
+    return undefined;
+  }
+  const probe = wantInfo ? { hit: null } : null;
+  const translated = finalize(applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings, probe));
+  if (wantInfo) {
+    infoOut.value_map_hit = probe && probe.hit ? true : false;
+  }
+  if (!isKnownPicklistOption(translated)) {
+    recordOmitted(raw, translated);
+    if (wantInfo) {
+      infoOut.kept_count = 0;
+      infoOut.omitted_count = 1;
+    }
+    return undefined;
+  }
+  if (wantInfo) {
+    infoOut.kept_count = 1;
+    infoOut.omitted_count = 0;
+  }
+  return translated;
 }
 
 // Zoho CRM rejects the entire PUT payload with HTTP 400 INVALID_DATA when
@@ -765,8 +986,9 @@ function canonicalizeForHash(mapping, value) {
   return value;
 }
 
-function buildPayload(mappings, entity, customValues, warnings) {
+function buildPayload(mappings, entity, customValues, warnings, breadcrumbs) {
   const payload = {};
+  const wantBreadcrumbs = Array.isArray(breadcrumbs);
   for (const m of mappings || []) {
     if (!m?.zoho_field) continue;
     const raw = resolveMappedValue(m, entity, customValues);
@@ -774,7 +996,51 @@ function buildPayload(mappings, entity, customValues, warnings) {
     // field — `parseMultiPickValue` returning `null` means truly empty,
     // but an empty-string element list is still a valid "clear" intent.
     if (!m?.is_multi_pick && (raw === undefined || raw === null || raw === '')) continue;
-    const translated = applyMappingValueOutbound(m, raw, warnings);
+    const isPicklistLike = m.is_picklist === true || m.is_multi_pick === true;
+    const info = wantBreadcrumbs && isPicklistLike ? {} : null;
+    const translated = applyMappingValueOutbound(m, raw, warnings, info);
+
+    // #468: per-picklist breadcrumb so the sync log can show — for every
+    // picklist-like field — exactly what arrived from iConnect, what
+    // shipped to Zoho (or that the field was omitted), whether the
+    // value_map was consulted, and whether the result matched a known
+    // active Zoho option. Plain text / number / date fields do NOT emit
+    // a breadcrumb to keep the log payload small.
+    if (info) {
+      // matched_picklist_option: strict boolean. True iff the translated
+      // value is a known active Zoho picklist option (single-pick) or
+      // every kept element is (multi-pick). Null when Zoho metadata is
+      // unavailable so the breadcrumb truthfully reports "unknown".
+      const opts = m._picklistOptions;
+      let matchedPicklistOption = null;
+      if (opts && opts.size > 0) {
+        if (translated === undefined) {
+          matchedPicklistOption = false;
+        } else if (Array.isArray(translated)) {
+          matchedPicklistOption = translated.length > 0
+            && translated.every(v => typeof v === 'string' && opts.has(v));
+        } else {
+          matchedPicklistOption = typeof translated === 'string' && opts.has(translated);
+        }
+      }
+      breadcrumbs.push({
+        iconnect_field: m.iconnect_field,
+        zoho_field: m.zoho_field,
+        is_multi_pick: m.is_multi_pick === true,
+        raw_value: raw === undefined || raw === null ? null
+          : (Array.isArray(raw) ? raw.map(v => v == null ? null : String(v)) : String(raw)),
+        translated_value: translated === undefined ? null
+          : (Array.isArray(translated) ? translated : String(translated)),
+        matched_picklist_option: matchedPicklistOption,
+        value_map_hit: info.value_map_hit ?? null,
+        omitted: translated === undefined,
+        ...(m.is_multi_pick === true ? {
+          kept_count: info.kept_count ?? 0,
+          omitted_count: info.omitted_count ?? 0
+        } : {})
+      });
+    }
+
     if (translated === undefined) continue;
     payload[m.zoho_field] = translated;
   }
@@ -930,7 +1196,11 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
 
     const customValues = await loadCustomFieldValues(tenantId, entityType, entityId);
     const translationWarnings = [];
-    const payload = buildPayload(mapping.field_mappings, entity, customValues, translationWarnings);
+    const picklistTranslations = [];
+    const payload = buildPayload(
+      mapping.field_mappings, entity, customValues,
+      translationWarnings, picklistTranslations
+    );
     const canonicalPayload = buildCanonicalPayload(mapping.field_mappings, entity, customValues);
     if (translationWarnings.length > 0) {
       console.warn('[ZohoCrmSync] Outbound value translation gaps:', translationWarnings);
@@ -1182,7 +1452,8 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
           ...(result.details || {}),
           mechanisms: mechanismsUsed,
           ...(richTextVerification ? { rich_text_verification: richTextVerification } : {}),
-          ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {})
+          ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {}),
+          ...(picklistTranslations.length > 0 ? { picklist_translations: picklistTranslations } : {})
         }
       });
     }
@@ -1196,7 +1467,8 @@ export async function syncEntityToZohoCrm(tenantId, entityType, entityId, option
       response_payload: {
         ...(result.details || result.raw || {}),
         mechanisms: mechanismsUsed,
-        ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {})
+        ...(translationWarnings.length > 0 ? { translation_warnings: translationWarnings } : {}),
+        ...(picklistTranslations.length > 0 ? { picklist_translations: picklistTranslations } : {})
       }
     });
   } catch (err) {
@@ -2573,6 +2845,14 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
   const TIME_BUDGET_MS = options.timeBudgetMs ?? 50_000;
   const PAGE = 200;
   const SAMPLE_CAP = 25;
+  // #468: opt-in extension. When true, also re-push records whose Zoho
+  // value differs from the canonical desired value AND the desired value
+  // resolves to a known-active Zoho picklist option. This recovers
+  // historical records where Zoho silently substituted its field
+  // default (e.g. `Account_Type → Vendor`) after we previously sent an
+  // unknown value. Off by default so the existing dash-only behaviour
+  // is unchanged for callers that want it.
+  const includeFieldDefaults = options.includeFieldDefaults === true;
 
   // #465: same dash-style remediation works for either side. Default to
   // 'organization' so existing callers (admin endpoint, scripts) don't
@@ -2732,9 +3012,36 @@ export async function remediatePicklistDashes(tenantId, options = {}) {
               reason: 'zoho_empty'
             });
           } else {
-            // Real semantic difference. Leave alone — admin can fix via
-            // the normal import flow if intended.
-            summary.real_diff += 1;
+            // Real semantic difference. By default, leave alone — admin
+            // can fix via the normal import flow if intended.
+            //
+            // #468: when `includeFieldDefaults` is on AND the desired
+            // value translates to a known-active Zoho picklist option
+            // (i.e. the iConnect→Zoho translation is fully resolved and
+            // would NOT be omitted by the outbound guard), re-push it.
+            // This recovers historical records where Zoho silently
+            // substituted its own field default after we previously
+            // forwarded an unknown value. We deliberately do NOT touch
+            // records where the desired value can't be resolved against
+            // Zoho metadata — that's still an admin-import problem.
+            const opts = m._picklistOptions;
+            const desiredIsKnownOption = opts && opts.size > 0 && (
+              m.is_multi_pick
+                ? Array.isArray(desired) && desired.length > 0 &&
+                  desired.every(v => typeof v === 'string' && opts.has(v))
+                : typeof desired === 'string' && opts.has(desired)
+            );
+            if (includeFieldDefaults && desiredIsKnownOption) {
+              fixesForRecord[m.zoho_field] = desired;
+              perFieldDetails.push({
+                zoho_field: m.zoho_field,
+                current,
+                desired,
+                reason: 'zoho_field_default_substitution'
+              });
+            } else {
+              summary.real_diff += 1;
+            }
           }
         }
 

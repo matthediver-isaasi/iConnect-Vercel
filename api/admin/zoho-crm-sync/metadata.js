@@ -74,8 +74,14 @@ function deriveCustomAllowedValues(field) {
           return { label: s, value: s };
         }
         if (typeof o === 'object') {
-          const value = o.value ?? o.key ?? o.id ?? o.label ?? o.name;
-          const label = o.label ?? o.name ?? o.value ?? o.key ?? o.id;
+          // Resolution order intentionally drops `id` — preference_field
+          // options carry an opaque UUID `id` that is NOT a stable
+          // user-facing value, and using it as the value_map key produces
+          // mappings keyed by UUID that no admin can recognise. Prefer the
+          // human-meaningful keys (`value`, `key`, `name`) before falling
+          // back to `label`.
+          const value = o.value ?? o.key ?? o.name ?? o.label;
+          const label = o.label ?? o.name ?? o.value ?? o.key;
           if (value == null) return null;
           return { label: String(label), value: String(value) };
         }
