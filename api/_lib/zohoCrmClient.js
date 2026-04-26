@@ -831,6 +831,12 @@ const fieldTypesCache = new Map();
 const FIELD_TYPES_TTL_MS = 5 * 60 * 1000;
 const fieldTypesCacheKey = (tenantId, module) => `${tenantId}::${module}`;
 
+// Returns Map<api_name, { dataType: string, pickListValues: Set<string> }>.
+// `pickListValues` is the set of `actual_value` strings Zoho enumerates for
+// picklist / multi-select-picklist fields and is used by the outbound dash
+// canonicaliser (#463) to send the exact picklist option string Zoho
+// expects when an iConnect value differs only by dash style. Non-picklist
+// fields get an empty set.
 export async function getZohoCrmModuleFieldTypes(tenantId, module) {
   if (!module) throw new Error('Module is required');
   const key = fieldTypesCacheKey(tenantId, module);
@@ -843,7 +849,14 @@ export async function getZohoCrmModuleFieldTypes(tenantId, module) {
     if (!apiName) continue;
     const dt = raw?.data_type;
     if (dt == null) continue;
-    types.set(apiName, String(dt));
+    const pickListValues = new Set();
+    if (Array.isArray(raw.pick_list_values)) {
+      for (const p of raw.pick_list_values) {
+        const av = p?.actual_value;
+        if (typeof av === 'string' && av !== '') pickListValues.add(av);
+      }
+    }
+    types.set(apiName, { dataType: String(dt), pickListValues });
   }
   fieldTypesCache.set(key, { types, expiresAt: Date.now() + FIELD_TYPES_TTL_MS });
   return types;

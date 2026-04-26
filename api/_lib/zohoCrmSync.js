@@ -89,24 +89,38 @@ async function getDerivedFlagSets(tenantId, zohoModule) {
   if (!moduleFieldTypes || moduleFieldTypes.size === 0) return null;
   const multiPickSet = new Set();
   const richTextSet = new Set();
-  for (const [apiName, dataType] of moduleFieldTypes) {
+  // #463: also collect plain-picklist field names and per-field picklist
+  // option sets so the outbound dash canonicaliser can decide whether a
+  // hyphen→en-dash swap matches a known Zoho option.
+  const picklistSet = new Set();
+  const picklistOptionsByField = new Map();
+  for (const [apiName, info] of moduleFieldTypes) {
+    const dataType = info?.dataType ?? info; // tolerate legacy string shape
+    const pickListValues = info?.pickListValues || null;
     const dt = String(dataType || '').toLowerCase();
     if (/rich/i.test(dt)) richTextSet.add(apiName);
-    if (dt.includes('multi')) multiPickSet.add(apiName);
+    if (dt.includes('multi')) {
+      multiPickSet.add(apiName);
+    } else if (dt === 'picklist') {
+      picklistSet.add(apiName);
+    }
+    if (pickListValues && pickListValues.size > 0) {
+      picklistOptionsByField.set(apiName, pickListValues);
+    }
   }
-  const sets = { multiPickSet, richTextSet };
+  const sets = { multiPickSet, richTextSet, picklistSet, picklistOptionsByField };
   derivedFlagSetsCache.set(key, { sets, expiresAt: Date.now() + DERIVED_FLAG_SETS_TTL_MS });
   return sets;
 }
 
 async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
   if (!mapping || !mapping.zoho_module || !Array.isArray(mapping.field_mappings)) return;
-  // Skip the work entirely if every mapping row already has both flags
-  // resolved — common steady-state for tenants who've re-saved.
-  const anyMissing = mapping.field_mappings.some(m =>
-    m && m.zoho_field && (m.is_multi_pick === undefined || m.is_rich_text === undefined)
-  );
-  if (!anyMissing) return;
+  // Always resolve picklist option sets in-memory so the outbound dash
+  // canonicaliser (#463) can use them regardless of whether the persisted
+  // is_* flags are already populated. Cheap: a single cached metadata
+  // lookup per (tenant, module) per 5 minutes. Persisted-flag rows still
+  // take the fast path for is_multi_pick / is_rich_text / is_picklist —
+  // we only stamp those when missing.
   let sets;
   try {
     sets = await getDerivedFlagSets(tenantId, mapping.zoho_module);
@@ -115,7 +129,7 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
     return;
   }
   if (!sets) return;
-  const { multiPickSet, richTextSet } = sets;
+  const { multiPickSet, richTextSet, picklistSet, picklistOptionsByField } = sets;
   for (const m of mapping.field_mappings) {
     if (!m?.zoho_field) continue;
     if (m.is_multi_pick !== true && multiPickSet.has(m.zoho_field)) {
@@ -123,6 +137,17 @@ async function enrichMappingFlagsFromMetadata(tenantId, mapping) {
     }
     if (m.is_rich_text !== true && richTextSet.has(m.zoho_field)) {
       m.is_rich_text = true;
+    }
+    if (m.is_picklist !== true && picklistSet.has(m.zoho_field)) {
+      m.is_picklist = true;
+    }
+    // Stamp per-row picklist option set in-memory (NEVER persisted —
+    // mappings.js only writes the explicit allowlist of keys). Used by
+    // `applyMappingValueOutbound` to canonicalise dash-style drift on
+    // outbound picklist values (#463).
+    const opts = picklistOptionsByField.get(m.zoho_field);
+    if (opts && opts.size > 0) {
+      m._picklistOptions = opts;
     }
   }
 }
@@ -327,6 +352,68 @@ function resolveMappedValue(mapping, entity, customValues) {
   return entity?.[src];
 }
 
+// #463 dash normalisation. Zoho picklist options frequently use the en-dash
+// (`–`, U+2013) — e.g. `Member – Education Support Organisations` — while
+// the same logical value typed into iConnect comes off the keyboard as a
+// plain hyphen (`-`, U+002D). The strict string comparison used by the
+// one-time import treated these as different, pushed iConnect's hyphen up
+// to Zoho, and overwrote the canonical picklist value on every Account.
+//
+// Two helpers:
+//   - `normalizeDashesForCompare`: collapse hyphen / en-dash / em-dash to
+//     the same character (we pick the plain hyphen) so equality checks
+//     and value_map lookups match across dash styles. Used for COMPARISON
+//     ONLY — it never changes what we send on the wire.
+//   - `normalizeDashesToEnDash`: rewrite hyphen / em-dash to en-dash. Used
+//     by the outbound picklist canonicaliser as the safe-by-default
+//     fallback when no Zoho picklist metadata is available (the common
+//     Zoho convention is en-dash for these options).
+const DASH_VARIANTS_RE = /[\u002D\u2013\u2014]/g;
+export function normalizeDashesForCompare(s) {
+  if (typeof s !== 'string') return s;
+  return s.replace(DASH_VARIANTS_RE, '-');
+}
+export function normalizeDashesToEnDash(s) {
+  if (typeof s !== 'string') return s;
+  return s.replace(DASH_VARIANTS_RE, '\u2013');
+}
+function dashEquivalent(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  return normalizeDashesForCompare(a) === normalizeDashesForCompare(b);
+}
+
+/**
+ * Pick the Zoho-canonical form of `value` for a picklist / multi-pick
+ * outbound push (#463). Order:
+ *   1. If metadata enumerates the picklist options for this field and
+ *      `value` is already an exact option → keep as-is.
+ *   2. If a known option matches `value` under dash-equivalence (only
+ *      hyphen/en-dash/em-dash differ) → return that exact option string.
+ *      This is the metadata-aware path that fixes the original bug
+ *      without risk of mutating non-dash content.
+ *   3. If no metadata is available → fall back to a generic
+ *      hyphen→en-dash rewrite. Idempotent for values that are already
+ *      en-dashed or have no dashes; mirrors the dominant Zoho
+ *      convention. `value_map` remains the override for tenants whose
+ *      picklist legitimately uses hyphens.
+ */
+function canonicalizePicklistOptionForOutbound(options, value) {
+  if (typeof value !== 'string' || value === '') return value;
+  if (options && options.size > 0) {
+    if (options.has(value)) return value;
+    const compareValue = normalizeDashesForCompare(value);
+    for (const opt of options) {
+      if (normalizeDashesForCompare(opt) === compareValue) return opt;
+    }
+    // Value not in the picklist at all — Zoho will likely reject. Send
+    // unchanged so the failure surfaces visibly rather than silently
+    // mutating to a different option.
+    return value;
+  }
+  return normalizeDashesToEnDash(value);
+}
+
 /**
  * Apply a per-row value translation in the requested direction. Returns the
  * translated value when a mapping exists, otherwise the original value. When
@@ -346,6 +433,16 @@ function applyValueMap(mapping, value, direction, warnings) {
   const key = String(value);
   if (Object.prototype.hasOwnProperty.call(dir, key)) {
     return dir[key];
+  }
+  // Dash-equivalent fallback (#463): a value_map keyed by the en-dash
+  // canonical form (e.g. `Member – ...`) should also satisfy a lookup
+  // for the hyphen variant that arrives from iConnect, and vice-versa.
+  // Avoids needing two entries per option.
+  const compareKey = normalizeDashesForCompare(key);
+  if (compareKey !== key) {
+    for (const k of Object.keys(dir)) {
+      if (normalizeDashesForCompare(k) === compareKey) return dir[k];
+    }
   }
   if (Array.isArray(warnings)) {
     warnings.push({
@@ -421,15 +518,25 @@ function parseMultiPickValue(raw) {
  * INVALID_DATA `expected_data_type: jsonarray`.
  */
 function applyMappingValueOutbound(mapping, raw, warnings) {
+  // #463: for picklist / multi-picklist field types, normalise dash
+  // style to whatever Zoho's actual picklist option uses (or fall back
+  // to en-dash when metadata is unavailable). Plain text / number /
+  // date / boolean fields pass through unchanged. The picklist option
+  // set is stamped in-memory by `enrichMappingFlagsFromMetadata`.
+  const isPicklistLike = mapping?.is_multi_pick === true || mapping?.is_picklist === true;
+  const finalize = (translated) => {
+    if (!isPicklistLike) return translated;
+    return canonicalizePicklistOptionForOutbound(mapping?._picklistOptions, translated);
+  };
   if (mapping?.is_multi_pick) {
     const arr = parseMultiPickValue(raw);
     if (arr === null) return undefined;
     // Empty array means "clear all values" — preserve so admins can
     // intentionally clear a multi-pick field.
-    return arr.map(v => applyValueMap(mapping, v, 'iconnect_to_zoho', warnings));
+    return arr.map(v => finalize(applyValueMap(mapping, v, 'iconnect_to_zoho', warnings)));
   }
   if (raw === undefined || raw === null || raw === '') return undefined;
-  return applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings);
+  return finalize(applyValueMap(mapping, raw, 'iconnect_to_zoho', warnings));
 }
 
 // Zoho CRM rejects the entire PUT payload with HTTP 400 INVALID_DATA when
@@ -2418,6 +2525,271 @@ export async function relinkOrganizationsToZoho(tenantId, options = {}) {
 }
 
 // ===========================================================================
+// #463 remediation: re-push iConnect picklist values to Zoho for organisations
+// where Zoho's stored picklist value differs from the iConnect value by dash
+// style only (or where Zoho is empty after a previous failed overwrite). The
+// original bulk import compared raw strings, decided iConnect's hyphen and
+// Zoho's en-dash were different, and pushed iConnect — which Zoho silently
+// dropped because it was not a valid picklist option — leaving Account_Type
+// blank on every linked Account.
+//
+// Dry-run by default. Returns a structured summary with up to N sample
+// per-record diffs so an admin can review what would change before flipping
+// `dryRun=false`. Honours the same Vercel time budget pattern as
+// `relinkOrganizationsToZoho` and supports `startAfterId` for resumption.
+//
+// Targets: every organisation field_mapping row where the resolved Zoho
+// field is `picklist` or `multiselectpicklist` (sourced from in-memory
+// metadata via `enrichMappingFlagsFromMetadata`). Other field types are
+// untouched.
+//
+// Per-record decision (per target field):
+//   1. Resolve the iConnect source value. Empty → skip (we don't clear
+//      Zoho values during a remediation pass).
+//   2. Compute the Zoho-canonical form via `applyMappingValueOutbound`
+//      (which now applies dash canonicalisation and any value_map).
+//   3. Compare the canonical form against Zoho's current value:
+//        - Byte-equal      → no fix
+//        - Dash-equivalent → fix (this is the bug case)
+//        - Zoho empty      → fix (recover from a previous failed overwrite)
+//        - Real difference → leave alone (out of scope; admin can use the
+//          standard import flow instead)
+// ===========================================================================
+export async function remediatePicklistDashes(tenantId, options = {}) {
+  const dryRun = options.dryRun !== false; // dry-run by default
+  const source = options.source || 'admin_remediate_picklist_dash';
+  const TIME_BUDGET_MS = options.timeBudgetMs ?? 50_000;
+  const PAGE = 200;
+  const SAMPLE_CAP = 25;
+
+  let cursorId = null;
+  if (options.startAfterId !== undefined && options.startAfterId !== null) {
+    if (typeof options.startAfterId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(options.startAfterId)) {
+      throw new Error(`startAfterId must be a UUID-shaped id string (got ${JSON.stringify(options.startAfterId)})`);
+    }
+    cursorId = options.startAfterId;
+  }
+
+  const { data: mapping, error: mappingErr } = await supabase
+    .from('zoho_crm_sync_mapping')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_type', 'organization')
+    .maybeSingle();
+  if (mappingErr) throw mappingErr;
+  if (!mapping) throw new Error('No organisation mapping configured for this tenant');
+
+  // Stamp is_picklist / is_multi_pick / _picklistOptions in-memory so
+  // `applyMappingValueOutbound` below uses the metadata-aware canonicaliser.
+  await enrichMappingFlagsFromMetadata(tenantId, mapping);
+
+  const zohoModule = mapping.zoho_module || 'Accounts';
+  const targetFields = (Array.isArray(mapping.field_mappings) ? mapping.field_mappings : [])
+    .filter(m => m && m.iconnect_field && m.zoho_field && (m.is_picklist === true || m.is_multi_pick === true));
+
+  const summary = {
+    tenant_id: tenantId,
+    dry_run: dryRun,
+    zoho_module: zohoModule,
+    target_fields: targetFields.map(m => ({ zoho_field: m.zoho_field, iconnect_field: m.iconnect_field, is_multi_pick: !!m.is_multi_pick })),
+    processed: 0,
+    needs_fix: 0,
+    fixed: 0,
+    no_change: 0,
+    skipped_no_iconnect_value: 0,
+    real_diff: 0,
+    failed: 0
+  };
+  const samples = [];
+
+  if (targetFields.length === 0) {
+    summary.message = 'No picklist or multi-pick field mappings configured';
+    return { summary, samples, completed: true };
+  }
+
+  const startedAt = Date.now();
+  let truncated = false;
+  let lastProcessedId = null;
+  const fieldList = ['id', ...targetFields.map(m => m.zoho_field)].join(',');
+
+  // eslint-disable-next-line no-constant-condition
+  outer: while (true) {
+    let q = supabase
+      .from('organization')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .not('zoho_crm_id', 'is', null)
+      .order('id', { ascending: true })
+      .limit(PAGE);
+    if (cursorId !== null) q = q.gt('id', cursorId);
+    const { data: orgs, error: orgErr } = await q;
+    if (orgErr) throw orgErr;
+    if (!orgs || orgs.length === 0) break;
+
+    for (const org of orgs) {
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        truncated = true;
+        break outer;
+      }
+      summary.processed += 1;
+      lastProcessedId = org.id;
+
+      try {
+        const customValues = await loadCustomFieldValues(tenantId, 'organization', org.id);
+
+        let zohoRecord;
+        try {
+          const resp = await zohoCrmApiCall(
+            tenantId,
+            `/${zohoModule}/${encodeURIComponent(org.zoho_crm_id)}?fields=${encodeURIComponent(fieldList)}`
+          );
+          zohoRecord = Array.isArray(resp?.data) ? resp.data[0] : null;
+        } catch (err) {
+          if (/\b404\b|invalid.?id|INVALID_DATA/i.test(err?.message || '')) {
+            // Stale link — out of scope for this remediation; relink covers it.
+            summary.no_change += 1;
+            continue;
+          }
+          throw err;
+        }
+        if (!zohoRecord) {
+          summary.no_change += 1;
+          continue;
+        }
+
+        const fixesForRecord = {};
+        const perFieldDetails = [];
+        let anyIconnectValuePresent = false;
+
+        for (const m of targetFields) {
+          const rawIc = resolveMappedValue(m, org, customValues);
+          if (rawIc === undefined || rawIc === null || rawIc === '') continue;
+          anyIconnectValuePresent = true;
+
+          const desired = applyMappingValueOutbound(m, rawIc, []);
+          if (desired === undefined) continue;
+
+          const current = zohoRecord[m.zoho_field];
+          const isEmptyCurrent =
+            current === null || current === undefined || current === '' ||
+            (Array.isArray(current) && current.length === 0);
+
+          // Byte-equal check (multi-pick: order-sensitive and per-element
+          // string-equal). Skip when already canonical.
+          let sameOnTheWire = false;
+          if (m.is_multi_pick) {
+            const currArr = Array.isArray(current) ? current.map(v => String(v)) : (isEmptyCurrent ? [] : null);
+            const desiredArr = Array.isArray(desired) ? desired.map(v => String(v)) : null;
+            if (Array.isArray(currArr) && Array.isArray(desiredArr) &&
+                currArr.length === desiredArr.length &&
+                currArr.every((v, i) => v === desiredArr[i])) {
+              sameOnTheWire = true;
+            }
+          } else {
+            sameOnTheWire = (current === desired);
+          }
+          if (sameOnTheWire) continue;
+
+          const dashOnlyDiff = !isEmptyCurrent && valuesMatchForMerge(m, rawIc, current);
+          if (dashOnlyDiff) {
+            fixesForRecord[m.zoho_field] = desired;
+            perFieldDetails.push({
+              zoho_field: m.zoho_field,
+              current,
+              desired,
+              reason: 'dash_style_drift'
+            });
+          } else if (isEmptyCurrent) {
+            fixesForRecord[m.zoho_field] = desired;
+            perFieldDetails.push({
+              zoho_field: m.zoho_field,
+              current,
+              desired,
+              reason: 'zoho_empty'
+            });
+          } else {
+            // Real semantic difference. Leave alone — admin can fix via
+            // the normal import flow if intended.
+            summary.real_diff += 1;
+          }
+        }
+
+        if (!anyIconnectValuePresent) {
+          summary.skipped_no_iconnect_value += 1;
+          continue;
+        }
+        if (Object.keys(fixesForRecord).length === 0) {
+          summary.no_change += 1;
+          continue;
+        }
+
+        summary.needs_fix += 1;
+        if (samples.length < SAMPLE_CAP) {
+          samples.push({
+            org_id: org.id,
+            org_name: org.name,
+            zoho_record_id: org.zoho_crm_id,
+            fixes: perFieldDetails
+          });
+        }
+
+        if (dryRun) {
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            status: 'skipped', direction: 'outbound', source, action: 'remediate_picklist_dash_dry_run',
+            request_payload: fixesForRecord,
+            response_payload: { fixes: perFieldDetails }
+          });
+          continue;
+        }
+
+        const result = await updateZohoCrmRecordById(tenantId, zohoModule, org.zoho_crm_id, fixesForRecord);
+        if (result?.success) {
+          summary.fixed += 1;
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            status: 'success', direction: 'outbound', source, action: 'remediate_picklist_dash',
+            request_payload: fixesForRecord,
+            response_payload: { fixes: perFieldDetails }
+          });
+        } else {
+          summary.failed += 1;
+          await writeLog({
+            tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+            zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id,
+            status: 'failed', direction: 'outbound', source, action: 'remediate_picklist_dash',
+            error_message: result?.error || 'Zoho update returned non-success',
+            request_payload: fixesForRecord,
+            response_payload: { fixes: perFieldDetails, raw: result?.raw || result?.details || null }
+          });
+        }
+      } catch (err) {
+        summary.failed += 1;
+        await writeLog({
+          tenant_id: tenantId, entity_type: 'organization', entity_id: org.id,
+          zoho_module: zohoModule, zoho_record_id: org.zoho_crm_id || null,
+          status: 'failed', direction: 'outbound', source, action: 'remediate_picklist_dash',
+          error_message: err?.message || String(err)
+        });
+      }
+    }
+
+    if (orgs.length < PAGE) break;
+    cursorId = orgs[orgs.length - 1].id;
+  }
+
+  if (truncated) {
+    summary.truncated = true;
+    summary.last_processed_id = lastProcessedId;
+  } else {
+    summary.completed = true;
+  }
+  return { summary, samples, completed: !truncated, truncated, last_processed_id: lastProcessedId };
+}
+
+// ===========================================================================
 // One-time bulk import: Zoho CRM → iConnect.
 // Honours the configured field_mappings and is idempotent (safe to re-run).
 //
@@ -2469,15 +2841,19 @@ function isEmptyIconnectValue(v) {
 // one-time import UPDATE path to decide between `match` (no-op) and
 // `iconnect_overwrites_zoho` (push iConnect value to Zoho). The deep-stringify
 // fallback handles arrays/objects while keeping primitive comparison cheap.
-function valuesMatchForMerge(mapping, iconnectValue, zohoValue) {
+export function valuesMatchForMerge(mapping, iconnectValue, zohoValue) {
   const a = canonicalizeForHash(mapping, iconnectValue);
   const b = canonicalizeForHash(mapping, zohoValue);
   if (a === b) return true;
   if (a == null || b == null) return false;
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
+    // Multi-pick is canonicalised (sorted) above so element i should
+    // match element i. Compare with dash-equivalence so a single
+    // hyphen-vs-en-dash drift on any picklist value doesn't classify
+    // the whole array as a real mismatch (#463).
     for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false;
+      if (!dashEquivalent(a[i], b[i])) return false;
     }
     return true;
   }
@@ -2488,9 +2864,12 @@ function valuesMatchForMerge(mapping, iconnectValue, zohoValue) {
       return false;
     }
   }
-  // Lossless cross-type compare for primitives that may have arrived from
-  // Zoho as strings vs iConnect as numbers (e.g. integer-valued picklists).
-  return String(a) === String(b);
+  // Primitive comparison: string-coerce to handle Zoho-stringified
+  // numbers vs iConnect numbers, then dash-normalise so hyphen / en-dash
+  // / em-dash drift on picklist text isn't treated as a real diff
+  // (#463). Dash-normalisation is a no-op for content with no dash
+  // characters.
+  return normalizeDashesForCompare(String(a)) === normalizeDashesForCompare(String(b));
 }
 
 // Build a flat list of {scope, field, zohoValue, beforeValue, afterValue}

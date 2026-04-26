@@ -64,6 +64,11 @@ export default async function handler(req, res) {
       // with HTTP 400 INVALID_DATA `expected_data_type: jsonarray`.
       const richTextZohoFieldNames = new Set();
       const multiPickZohoFieldNames = new Set();
+      // #463: also stamp `is_picklist` so the outbound dash canonicaliser
+      // can identify single-picklist fields without a per-row metadata
+      // lookup. Self-heal in `enrichMappingFlagsFromMetadata` covers
+      // legacy rows that haven't been re-saved since this landed.
+      const picklistZohoFieldNames = new Set();
       try {
         const moduleFields = await getZohoCrmModuleFields(tenantId, zoho_module);
         for (const f of moduleFields || []) {
@@ -74,10 +79,12 @@ export default async function handler(req, res) {
           }
           if (dt.includes('multi')) {
             multiPickZohoFieldNames.add(f.api_name);
+          } else if (dt === 'picklist') {
+            picklistZohoFieldNames.add(f.api_name);
           }
         }
       } catch (err) {
-        console.warn('[ZohoCrmSync mappings] Could not resolve rich-text / multi-pick fields at save:', err?.message || err);
+        console.warn('[ZohoCrmSync mappings] Could not resolve rich-text / multi-pick / picklist fields at save:', err?.message || err);
       }
 
       const sanitizedMappings = Array.isArray(field_mappings)
@@ -90,7 +97,8 @@ export default async function handler(req, res) {
                 ...(m.iconnect_field_type ? { iconnect_field_type: m.iconnect_field_type } : {}),
                 ...(m.zoho_field_label ? { zoho_field_label: m.zoho_field_label } : {}),
                 ...(richTextZohoFieldNames.has(m.zoho_field) ? { is_rich_text: true } : {}),
-                ...(multiPickZohoFieldNames.has(m.zoho_field) ? { is_multi_pick: true } : {})
+                ...(multiPickZohoFieldNames.has(m.zoho_field) ? { is_multi_pick: true } : {}),
+                ...(picklistZohoFieldNames.has(m.zoho_field) ? { is_picklist: true } : {})
               };
               // Persist per-row value translation map. Shape:
               //   value_map: {
