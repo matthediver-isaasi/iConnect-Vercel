@@ -119,6 +119,126 @@ async function apiRequest(method, url, body = null) {
   return response.json();
 }
 
+function isSignatureSubmittedValue(field, value) {
+  if (field?.type === 'signature') return true;
+  if (typeof value === 'string' && value.startsWith('data:image/')) return true;
+  if (value && typeof value === 'object') {
+    if (value.type === 'signature') return true;
+    if (typeof value.data === 'string' && value.data.startsWith('data:image/')) return true;
+  }
+  return false;
+}
+
+function extractSignatureDetails(value) {
+  if (typeof value === 'string') {
+    return { dataUrl: value, typedName: null, signedAt: null, mode: null };
+  }
+  if (value && typeof value === 'object') {
+    const dataUrl = typeof value.data === 'string' ? value.data : null;
+    return {
+      dataUrl,
+      typedName: typeof value.typedName === 'string' ? value.typedName : null,
+      signedAt: typeof value.signed_at === 'string' ? value.signed_at : null,
+      mode: typeof value.mode === 'string' ? value.mode : null,
+    };
+  }
+  return { dataUrl: null, typedName: null, signedAt: null, mode: null };
+}
+
+function summarizeSubmittedObject(value) {
+  if (!value || typeof value !== 'object') return '';
+  if (typeof value.type === 'string') return value.type;
+  for (const v of Object.values(value)) {
+    if (typeof v === 'string' && v && !v.startsWith('data:')) return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  }
+  return 'Submitted';
+}
+
+function processSubmissionData(data, fields) {
+  const fieldMap = {};
+  (fields || []).forEach((f) => { fieldMap[f.id] = f; });
+  const imageEntries = [];
+  const docEntries = [];
+  const fieldEntries = [];
+  Object.entries(data || {}).forEach(([key, value]) => {
+    const field = fieldMap[key];
+    if (value === null || value === undefined || value === '') return;
+    if (field && (field.type === 'instructions' || field.type === 'image')) return;
+    const label = field?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    if (isSignatureSubmittedValue(field, value)) {
+      const sig = extractSignatureDetails(value);
+      if (sig.dataUrl) {
+        fieldEntries.push({ kind: 'signature', label, ...sig });
+      }
+      return;
+    }
+    if (field?.type === 'file_upload' || field?.type === 'image_upload') {
+      const files = Array.isArray(value) ? value : [value];
+      files.forEach((f) => {
+        const url = typeof f === 'string' ? f : f?.file_url || f?.url;
+        const name = typeof f === 'string' ? key : f?.file_name || f?.name || key;
+        if (!url) return;
+        const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
+        if (isImage) imageEntries.push({ url, name });
+        else docEntries.push({ url, name });
+      });
+      return;
+    }
+    if (typeof value === 'boolean') {
+      fieldEntries.push({ kind: 'text', label, text: value ? 'Yes' : 'No' });
+    } else if (Array.isArray(value)) {
+      const text = value
+        .map((v) => (v && typeof v === 'object' ? summarizeSubmittedObject(v) : String(v)))
+        .join(', ');
+      fieldEntries.push({ kind: 'text', label, text });
+    } else if (typeof value === 'object') {
+      fieldEntries.push({ kind: 'text', label, text: summarizeSubmittedObject(value) });
+    } else {
+      fieldEntries.push({ kind: 'text', label, text: String(value) });
+    }
+  });
+  return { imageEntries, docEntries, fieldEntries };
+}
+
+function SubmittedFieldEntry({ entry, testId }) {
+  if (entry.kind === 'signature') {
+    let signedAtText = '';
+    if (entry.signedAt) {
+      try {
+        signedAtText = `Signed ${format(new Date(entry.signedAt), 'PP')}`;
+      } catch (_) {
+        signedAtText = '';
+      }
+    }
+    return (
+      <div data-testid={testId}>
+        <Label className="text-xs text-muted-foreground">{entry.label}</Label>
+        <div className="mt-1 inline-block rounded-md border bg-white p-2">
+          <img
+            src={entry.dataUrl}
+            alt={`${entry.label} preview`}
+            className="block max-h-20 w-auto max-w-full h-auto"
+          />
+        </div>
+        {(entry.typedName || signedAtText) && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {entry.typedName}
+            {entry.typedName && signedAtText ? ' · ' : ''}
+            {signedAtText}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div data-testid={testId}>
+      <Label className="text-xs text-muted-foreground">{entry.label}</Label>
+      <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.text}</p>
+    </div>
+  );
+}
+
 export default function BriefDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1187,35 +1307,10 @@ export default function BriefDetailPage() {
                 if (!hasCopyrightSubmitted) return null;
                 const submission = copyrightSubmission;
                 const formMeta = copyrightForm;
-                const fields = formMeta?.fields || [];
-                const data = submission?.submission_data || {};
-                const fieldMap = {};
-                fields.forEach((f) => { fieldMap[f.id] = f; });
-                const imageEntries = [];
-                const docEntries = [];
-                const fieldEntries = [];
-                Object.entries(data).forEach(([key, value]) => {
-                  const field = fieldMap[key];
-                  if (!value || (field && (field.type === 'instructions' || field.type === 'image'))) return;
-                  if (field?.type === 'file_upload' || field?.type === 'image_upload') {
-                    const files = Array.isArray(value) ? value : [value];
-                    files.forEach((f) => {
-                      const url = typeof f === 'string' ? f : f?.file_url || f?.url;
-                      const name = typeof f === 'string' ? key : f?.file_name || f?.name || key;
-                      if (!url) return;
-                      const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
-                      if (isImage) imageEntries.push({ url, name });
-                      else docEntries.push({ url, name });
-                    });
-                  } else {
-                    const label = field?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-                    let displayValue = value;
-                    if (typeof value === 'boolean') displayValue = value ? 'Yes' : 'No';
-                    else if (Array.isArray(value)) displayValue = value.join(', ');
-                    else if (typeof value === 'object') displayValue = JSON.stringify(value);
-                    fieldEntries.push({ label, value: String(displayValue) });
-                  }
-                });
+                const { imageEntries, docEntries, fieldEntries } = processSubmissionData(
+                  submission?.submission_data || {},
+                  formMeta?.fields || []
+                );
                 return (
                   <div className="space-y-3 mt-3" data-testid="section-copyright-submission">
                     {fieldEntries.length > 0 && (
@@ -1223,10 +1318,11 @@ export default function BriefDetailPage() {
                         <Label className="text-xs text-muted-foreground">Submitted Answers</Label>
                         <div className="grid sm:grid-cols-2 gap-3 mt-2">
                           {fieldEntries.map((entry, i) => (
-                            <div key={i} data-testid={`text-copyright-field-${i}`}>
-                              <Label className="text-xs text-muted-foreground">{entry.label}</Label>
-                              <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.value}</p>
-                            </div>
+                            <SubmittedFieldEntry
+                              key={i}
+                              entry={entry}
+                              testId={`text-copyright-field-${i}`}
+                            />
                           ))}
                         </div>
                       </div>
@@ -1625,42 +1721,10 @@ export default function BriefDetailPage() {
 
               const renderSubmissionDataFor = (submission, formMeta) => {
                 if (!submission?.submission_data) return null;
-                const fields = formMeta?.fields || [];
-                const data = submission.submission_data;
-                const fieldMap = {};
-                fields.forEach((f) => { fieldMap[f.id] = f; });
-
-                const entries = Object.entries(data);
-                const imageEntries = [];
-                const docEntries = [];
-                const fieldEntries = [];
-
-                entries.forEach(([key, value]) => {
-                  const field = fieldMap[key];
-                  if (!value || (field && (field.type === 'instructions' || field.type === 'image'))) return;
-
-                  if (field?.type === 'file_upload' || field?.type === 'image_upload') {
-                    const files = Array.isArray(value) ? value : [value];
-                    files.forEach((f) => {
-                      const url = typeof f === 'string' ? f : f?.file_url || f?.url;
-                      const name = typeof f === 'string' ? key : f?.file_name || f?.name || key;
-                      if (!url) return;
-                      const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
-                      if (isImage) {
-                        imageEntries.push({ url, name });
-                      } else {
-                        docEntries.push({ url, name });
-                      }
-                    });
-                  } else {
-                    const label = field?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-                    let displayValue = value;
-                    if (typeof value === 'boolean') displayValue = value ? 'Yes' : 'No';
-                    else if (Array.isArray(value)) displayValue = value.join(', ');
-                    else if (typeof value === 'object') displayValue = JSON.stringify(value);
-                    fieldEntries.push({ label, value: String(displayValue) });
-                  }
-                });
+                const { imageEntries, docEntries, fieldEntries } = processSubmissionData(
+                  submission.submission_data,
+                  formMeta?.fields || []
+                );
 
                 return (
                   <div className="space-y-4">
@@ -1670,10 +1734,11 @@ export default function BriefDetailPage() {
                         <CardContent>
                           <div className="grid sm:grid-cols-2 gap-4">
                             {fieldEntries.map((entry, i) => (
-                              <div key={i} data-testid={`text-submission-field-${i}`}>
-                                <Label className="text-xs text-muted-foreground">{entry.label}</Label>
-                                <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.value}</p>
-                              </div>
+                              <SubmittedFieldEntry
+                                key={i}
+                                entry={entry}
+                                testId={`text-submission-field-${i}`}
+                              />
                             ))}
                           </div>
                         </CardContent>
