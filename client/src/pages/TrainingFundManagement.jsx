@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -22,7 +22,8 @@ const ITEMS_PER_PAGE = 15;
 export default function TrainingFundManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
-  
+  const [isExporting, setIsExporting] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [balanceFilter, setBalanceFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -234,6 +235,38 @@ export default function TrainingFundManagementPage() {
 
   const handleBackToList = () => {
     setSelectedOrg(null);
+  };
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch('/api/admin/training-fund-transactions/export-csv', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        let message = 'Export failed';
+        try {
+          const errBody = await response.json();
+          if (errBody?.error) message = errBody.error;
+        } catch {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      link.download = `training_fund_transactions_${today}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('CSV file downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export transactions: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const formatTransactionType = (type) => {
@@ -495,15 +528,33 @@ export default function TrainingFundManagementPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              Training Fund Management
-            </h1>
-            {realtimeConnected && (
-              <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
-                <Wifi className="w-3 h-3" />
-                <span>Live</span>
-              </div>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+                Training Fund Management
+              </h1>
+              {realtimeConnected && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
+                  <Wifi className="w-3 h-3" />
+                  <span>Live</span>
+                </div>
+              )}
+            </div>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                onClick={handleExportCSV}
+                disabled={isExporting}
+                className="gap-2"
+                data-testid="button-export-training-fund-transactions-csv"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Export CSV
+              </Button>
             )}
           </div>
           <p className="text-slate-600">
