@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
     const { data: brief, error: briefError } = await supabase
       .from('article_brief')
-      .select('id, title, tenant_id, assigned_writer_id, external_writer_id')
+      .select('id, title, tenant_id, assigned_writer_id, external_writer_id, copyright_form_id, copyright_submission_id')
       .eq('id', briefId)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
@@ -145,14 +145,47 @@ export default async function handler(req, res) {
     }
 
     const now = new Date().toISOString();
+    // Only clear an existing received submission when the editor is switching
+    // to a *different* copyright form than the one the existing submission was
+    // actually made against — in that case a new submission really is
+    // expected. If the editor re-sends the same form, preserve the previously
+    // received submission so a stray "Send" click does not silently wipe
+    // evidence. We check the linked submission's own form_id as the source of
+    // truth (rather than just brief.copyright_form_id, which may have been
+    // changed in flight) so the comparison stays correct even if the brief's
+    // selected form was edited after the submission was received.
+    const briefUpdate = {
+      copyright_required: true,
+      copyright_form_id,
+      copyright_form_sent_at: now,
+    };
+
+    if (brief.copyright_submission_id) {
+      let existingSubmissionFormId = null;
+      const { data: existingSubmission, error: existingSubError } = await supabase
+        .from('form_submission')
+        .select('id, form_id')
+        .eq('id', brief.copyright_submission_id)
+        .maybeSingle();
+      if (existingSubError) {
+        console.error('[SendCopyrightForm] Failed to load existing submission:', existingSubError);
+      } else if (existingSubmission) {
+        existingSubmissionFormId = existingSubmission.form_id;
+      }
+
+      // Conservative compare: if we cannot read the existing submission's
+      // form_id, fall back to comparing against brief.copyright_form_id so we
+      // still preserve the link on a same-form re-send rather than wiping it.
+      const linkedFormId = existingSubmissionFormId || brief.copyright_form_id;
+      const isSwitchingForm = linkedFormId && linkedFormId !== copyright_form_id;
+      if (isSwitchingForm) {
+        briefUpdate.copyright_submission_id = null;
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('article_brief')
-      .update({
-        copyright_required: true,
-        copyright_form_id,
-        copyright_form_sent_at: now,
-        copyright_submission_id: null,
-      })
+      .update(briefUpdate)
       .eq('id', briefId)
       .eq('tenant_id', tenantCtx.tenantId);
 

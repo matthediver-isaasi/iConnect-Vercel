@@ -106,7 +106,7 @@ export default async function handler(req, res) {
         console.log('[Public Form Submission] Linking submission to article_brief:', brief_id);
         const { data: matchingBrief, error: briefLookupError } = await supabase
           .from('article_brief')
-          .select('id, case_study_form_id, copyright_form_id')
+          .select('id, case_study_form_id, case_study_form_sent_at, case_study_submission_id, copyright_form_id, copyright_form_sent_at, copyright_submission_id')
           .eq('id', brief_id)
           .eq('tenant_id', tenantData.id)
           .maybeSingle();
@@ -116,11 +116,47 @@ export default async function handler(req, res) {
         } else if (!matchingBrief) {
           console.warn('[Public Form Submission] No matching brief found for linking (brief_id:', brief_id, ')');
         } else {
+          // Slot matching is intentionally robust to in-flight form swaps: an
+          // editor can change copyright_form_id (or case_study_form_id) on the
+          // brief between hitting "Send" and the writer actually submitting,
+          // which would otherwise orphan the submission against the *previous*
+          // form. The simplest safe heuristic for each slot is to claim the
+          // submission when ANY of:
+          //   1. the slot's current form_id is null,
+          //   2. the slot's current form_id equals the submitted form_id, OR
+          //   3. the slot currently has no *_submission_id and *_form_sent_at
+          //      is set (a send is outstanding for that slot, so this is the
+          //      submission the editor was waiting on — even if they have
+          //      since changed which form is selected).
+          // Copyright is checked before case-study in the fallback because it
+          // is the brief-level slot most likely to have been re-sent.
+          const copyrightSlotClaim =
+            matchingBrief.copyright_form_id === null ||
+            matchingBrief.copyright_form_id === form_id ||
+            (
+              !matchingBrief.copyright_submission_id &&
+              !!matchingBrief.copyright_form_sent_at
+            );
+          const caseStudySlotClaim =
+            matchingBrief.case_study_form_id === null ||
+            matchingBrief.case_study_form_id === form_id ||
+            (
+              !matchingBrief.case_study_submission_id &&
+              !!matchingBrief.case_study_form_sent_at
+            );
+
+          // Direct form_id matches still take precedence (and case-study wins
+          // a direct copyright match because the case-study slot is more
+          // specific when the form_id is configured there).
           let updateField = null;
           if (matchingBrief.case_study_form_id === form_id) {
             updateField = 'case_study_submission_id';
           } else if (matchingBrief.copyright_form_id === form_id) {
             updateField = 'copyright_submission_id';
+          } else if (copyrightSlotClaim) {
+            updateField = 'copyright_submission_id';
+          } else if (caseStudySlotClaim) {
+            updateField = 'case_study_submission_id';
           }
 
           if (!updateField) {

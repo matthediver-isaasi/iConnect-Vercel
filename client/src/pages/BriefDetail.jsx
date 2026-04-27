@@ -280,6 +280,7 @@ export default function BriefDetailPage() {
   const [copyrightSelectedFormId, setCopyrightSelectedFormId] = useState("");
   const [copyrightFormInitialized, setCopyrightFormInitialized] = useState(false);
   const [copyrightConfirmOpen, setCopyrightConfirmOpen] = useState(false);
+  const [copyrightDisableConfirmOpen, setCopyrightDisableConfirmOpen] = useState(false);
 
   const { data: briefSettings } = useQuery({
     queryKey: ["brief-settings"],
@@ -597,26 +598,47 @@ export default function BriefDetailPage() {
   });
 
   const setCopyrightRequiredMutation = useMutation({
-    mutationFn: async (required) => {
+    mutationFn: async ({ required, clearLink }) => {
       const payload = { copyright_required: !!required };
-      if (!required) {
+      // Only clear the form / sent_at / submission link when the editor is
+      // explicitly turning the requirement off. Toggling required back on must
+      // never clear an existing submission, so we never write null fields when
+      // required=true. A received submission is only cleared when the editor
+      // confirms via the dialog (clearLink=true).
+      if (!required && clearLink) {
         payload.copyright_form_id = null;
         payload.copyright_form_sent_at = null;
         payload.copyright_submission_id = null;
       }
       return await base44.entities.ArticleBrief.update(briefId, payload);
     },
-    onSuccess: (_data, required) => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
-      if (!required) {
+      if (!variables.required && variables.clearLink) {
         setCopyrightSelectedFormId("");
       }
+      setCopyrightDisableConfirmOpen(false);
     },
     onError: (err) => {
       toast.error(err.message || "Failed to update copyright requirement");
     },
   });
+
+  const handleCopyrightRequiredToggle = (next) => {
+    if (next) {
+      // Turning ON never clears an existing submission.
+      setCopyrightRequiredMutation.mutate({ required: true, clearLink: false });
+      return;
+    }
+    // Turning OFF: if a submission has already been received, ask the editor
+    // to confirm before unlinking it.
+    if (brief?.copyright_submission_id) {
+      setCopyrightDisableConfirmOpen(true);
+      return;
+    }
+    setCopyrightRequiredMutation.mutate({ required: false, clearLink: true });
+  };
 
   const setCaseStudyRequiredMutation = useMutation({
     mutationFn: async (required) => {
@@ -1402,7 +1424,7 @@ export default function BriefDetailPage() {
                             id="toggle-copyright-required"
                             checked={required}
                             disabled={setCopyrightRequiredMutation.isPending}
-                            onCheckedChange={(v) => setCopyrightRequiredMutation.mutate(!!v)}
+                            onCheckedChange={(v) => handleCopyrightRequiredToggle(!!v)}
                             data-testid="switch-copyright-required"
                           />
                         </div>
@@ -2337,6 +2359,33 @@ export default function BriefDetailPage() {
             >
               {sendCopyrightFormMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {brief?.copyright_form_sent_at ? "Resend" : "Send"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={copyrightDisableConfirmOpen} onOpenChange={setCopyrightDisableConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-copyright-disable">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Turn off copyright requirement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A Copyright Assignment form has already been received for this brief.
+              Turning the requirement off will unlink the received submission from this brief
+              and clear the selected form and sent date. This does not delete the submission record itself.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-copyright-disable">Keep submission</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setCopyrightRequiredMutation.mutate({ required: false, clearLink: true });
+              }}
+              disabled={setCopyrightRequiredMutation.isPending}
+              data-testid="button-confirm-copyright-disable"
+            >
+              {setCopyrightRequiredMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Unlink and turn off
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
