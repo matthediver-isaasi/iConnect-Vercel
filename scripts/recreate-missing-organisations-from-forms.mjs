@@ -133,6 +133,7 @@ try {
       'supabase-url': { type: 'string' },
       'supabase-service-key': { type: 'string' },
       apply: { type: 'boolean', default: false },
+      'allow-dd-email-type-fallback': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: false,
@@ -147,6 +148,12 @@ if (parsed.values.help) printUsageAndExit(0);
 const TENANT_ID = parsed.values['tenant-id'] || DEFAULT_TENANT_ID;
 const FORM_ID = parsed.values['form-id'] || DEFAULT_FORM_ID;
 const APPLY = !!parsed.values.apply;
+// Off by default: in apply mode this fallback could mis-link DD submissions
+// to the wrong organisation if a DD form has multiple email-type fields
+// (CEO, point of contact, safeguarding, etc.) and no exact "Applicant
+// email" label or member.email core mapping. Operators can opt in for
+// dry-run inspection via --allow-dd-email-type-fallback.
+const ALLOW_DD_EMAIL_TYPE_FALLBACK = !!parsed.values['allow-dd-email-type-fallback'];
 
 // Resolve Supabase connection.
 // Priority: explicit CLI flags > DEV_SUPABASE_* > DEST_SUPABASE_* > SUPABASE_*.
@@ -244,6 +251,14 @@ Options:
   --supabase-url=<url>          Override Supabase project URL
   --supabase-service-key=<key>  Override Supabase service role key
   --apply                       Reprocess flagged submissions (otherwise dry-run only)
+  --allow-dd-email-type-fallback
+                                When a DD form has no configured applicant_email_field,
+                                no field labelled "Applicant email", and no field with
+                                core_field_mapping=member.email, allow falling back to
+                                the first field of type "email" on the form. OFF by
+                                default because this can mis-link to CEO / point-of-contact
+                                / safeguarding email fields. Use only after auditing the
+                                dry-run logs.
   --help                        Show this help
 
 Connection priority (first set wins):
@@ -451,6 +466,65 @@ function extractOrgNameFromSubmission(submission, orgNameFieldId) {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
+/**
+ * Find which form-field id supplies the applicant email on the application
+ * form. The `form_submission.submitted_by_email` *column* is frequently NULL
+ * for these submissions (see e.g. tenant 21296ad6 / form 3c4124e1 — 0 of 102
+ * rows had it set, but every row had the email in submission_data under the
+ * "Your Email" field). Without this resolution Step B's email->org map is
+ * empty and the DD-linking pass cannot match anything.
+ *
+ * Resolution order:
+ *   1. entity_pipelines.members primary mappings -> core member.email
+ *   2. legacy field_mappings array -> target_entity=member, target_field=email
+ *   3. per-field core_field_mapping = 'member.email'
+ *   4. first form field of type === 'email'
+ */
+function resolveApplicantEmailSourceFieldId(form) {
+  const memberPipelines = form?.entity_pipelines?.members || [];
+  const primary = memberPipelines.find(o => o.isPrimary || o.is_primary) || memberPipelines[0];
+  if (primary?.mappings && Array.isArray(primary.mappings)) {
+    const m = primary.mappings.find(
+      x => x?.target_type === 'core' && x?.target_field === 'email' && x?.source_field_id
+    );
+    if (m) return m.source_field_id;
+  }
+
+  if (Array.isArray(form?.field_mappings)) {
+    const m = form.field_mappings.find(
+      x => x?.target_type === 'core' && x?.target_entity === 'member'
+        && x?.target_field === 'email' && x?.source_field_id
+    );
+    if (m) return m.source_field_id;
+  }
+
+  if (Array.isArray(form?.fields)) {
+    const f = form.fields.find(x => x?.core_field_mapping === 'member.email');
+    if (f) return f.id;
+    const e = form.fields.find(x => x?.type === 'email' && x?.id);
+    if (e) return e.id;
+  }
+
+  return null;
+}
+
+/**
+ * Extract the applicant email for an application-form submission. Prefer the
+ * configured email field inside submission_data; fall back to the
+ * submitted_by_email column. Returns null if neither yields a non-empty
+ * string.
+ */
+function extractApplicantEmailFromSubmission(submission, emailFieldId) {
+  const data = submission.submission_data || {};
+  if (emailFieldId) {
+    const v = data[emailFieldId];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  const col = submission.submitted_by_email;
+  if (typeof col === 'string' && col.trim()) return col.trim();
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Find flagged submissions (missing/dangling organisation)
 // ---------------------------------------------------------------------------
@@ -527,7 +601,7 @@ async function fetchTenantOrganisationsByName(names, tenantId) {
   return result;
 }
 
-async function buildFlaggedRows(form, tenantId, orgNameFieldId) {
+async function buildFlaggedRows(form, tenantId, orgNameFieldId, emailFieldId) {
   const submissions = await fetchAllSubmissions(form.id, tenantId);
   log(`[scan] Loaded ${submissions.length} submissions for form ${form.id}`);
 
@@ -559,11 +633,16 @@ async function buildFlaggedRows(form, tenantId, orgNameFieldId) {
     }
 
     const orgName = extractOrgNameFromSubmission(s, orgNameFieldId);
+    // applicant_email is resolved using the same submission_data-first /
+    // submitted_by_email-fallback logic Step B uses, so the dry-run CSV
+    // surfaces a real email even when the column is NULL (which it is for
+    // the application form on tenant 21296ad6, all 102 of 102 rows).
+    const applicantEmail = extractApplicantEmailFromSubmission(s, emailFieldId) || '';
     flagged.push({
       submission_id: s.id,
       created_date: s.created_date,
       applicant_name: s.submitted_by_name || '',
-      applicant_email: s.submitted_by_email || '',
+      applicant_email: applicantEmail,
       extracted_org_name: orgName || '',
       missing_reason: reason,
       matched_existing_org_id: '',
@@ -658,22 +737,90 @@ async function discoverDDForms(tenantId) {
     } else {
       log(`[dd discovery] DD form "${form.name || form.id}" (${form.id}): no applicant_organization_name_field configured — will link organization_id only (submission_data left untouched)`);
     }
-    result.push({ form, config });
+
+    // Resolve where the applicant email actually lives on this DD form.
+    // The DB-stored DD config may not have applicant_email_field set, and
+    // form_submission.submitted_by_email is frequently NULL on these rows
+    // too, so fall back to a narrow label/core-mapping heuristic over the
+    // form fields. The bare type:'email' fallback is opt-in (see
+    // --allow-dd-email-type-fallback) because it can mis-link to CEO /
+    // point-of-contact / safeguarding email fields on multi-email DD forms.
+    const { fieldId: effectiveApplicantEmailFieldId, source: emailSource } =
+      resolveDDApplicantEmailFieldId(form, config, { allowTypeFallback: ALLOW_DD_EMAIL_TYPE_FALLBACK });
+    if (effectiveApplicantEmailFieldId) {
+      log(`[dd discovery]   applicant email source: submission_data["${effectiveApplicantEmailFieldId}"] (resolver=${emailSource}), with submitted_by_email column as fallback`);
+      if (emailSource === 'type_email_fallback') {
+        warn(`[dd discovery]   WARNING: chose first type:'email' field on this form. If the DD form has multiple email fields (CEO / POC / safeguarding) this may mis-link. Audit the dry-run CSV before running --apply.`);
+      }
+    } else if (emailSource === 'unresolved_type_fallback_disabled') {
+      warn(`[dd discovery]   no configured / "Applicant email"-labelled / member.email-mapped field on this form. A type:'email' field exists but was NOT used (pass --allow-dd-email-type-fallback to opt in after auditing). Falling back to the submitted_by_email column only.`);
+    } else {
+      warn(`[dd discovery]   no applicant email source resolvable on this form — will rely on submitted_by_email column only`);
+    }
+
+    result.push({ form, config, effectiveApplicantEmailFieldId, emailSource });
   }
   log(`[dd discovery] ${result.length} DD form(s) eligible for re-linking (out of ${configs.length} config row(s))`);
   return result;
 }
 
 /**
- * Extract the applicant email for a DD submission. Prefer the configured
- * `applicant_email_field` value inside submission_data; fall back to
+ * Find which form-field id supplies the applicant email on a Due Diligence
+ * form, and explain how it was chosen. Resolution order:
+ *   1. Whatever the DD config explicitly says (form_due_diligence_config.applicant_email_field).
+ *   2. A field on the DD form whose label equals "applicant email" (case-insensitive).
+ *   3. A field whose core_field_mapping = 'member.email'.
+ *   4. (OPT-IN) The first field with type === 'email', only if
+ *      `allowTypeFallback` is true.
+ * Returns { fieldId, source } where source ∈
+ *   'configured' | 'label_match' | 'core_field_mapping' |
+ *   'type_email_fallback' | 'unresolved' | 'unresolved_type_fallback_disabled'.
+ * fieldId is null when source starts with 'unresolved'; the caller will
+ * then rely on the submitted_by_email column.
+ *
+ * The label match is intentionally narrow — DD forms typically have several
+ * email-shaped fields (CEO, point of contact, safeguarding lead, etc.) that
+ * we MUST NOT pick by accident. The bare "first email field" fallback is
+ * therefore disabled by default and only enabled via
+ * --allow-dd-email-type-fallback after the operator has audited the
+ * dry-run logs.
+ */
+function resolveDDApplicantEmailFieldId(form, ddConfig, { allowTypeFallback = false } = {}) {
+  if (ddConfig?.applicant_email_field) {
+    return { fieldId: ddConfig.applicant_email_field, source: 'configured' };
+  }
+  const fields = Array.isArray(form?.fields) ? form.fields : [];
+  if (fields.length === 0) return { fieldId: null, source: 'unresolved' };
+
+  const labelMatch = fields.find(f => {
+    const label = (f?.label || f?.name || '').trim().toLowerCase();
+    return label === 'applicant email';
+  });
+  if (labelMatch?.id) return { fieldId: labelMatch.id, source: 'label_match' };
+
+  const coreMatch = fields.find(f => f?.core_field_mapping === 'member.email');
+  if (coreMatch?.id) return { fieldId: coreMatch.id, source: 'core_field_mapping' };
+
+  const typeMatch = fields.find(f => f?.type === 'email' && f?.id);
+  if (typeMatch?.id) {
+    if (allowTypeFallback) {
+      return { fieldId: typeMatch.id, source: 'type_email_fallback' };
+    }
+    return { fieldId: null, source: 'unresolved_type_fallback_disabled' };
+  }
+
+  return { fieldId: null, source: 'unresolved' };
+}
+
+/**
+ * Extract the applicant email for a DD submission. Prefer the resolved
+ * `applicantEmailFieldId` value inside submission_data; fall back to
  * `submitted_by_email` on the submission row itself.
  */
-function getDDApplicantEmail(submission, ddConfig) {
+function getDDApplicantEmail(submission, applicantEmailFieldId) {
   const data = submission.submission_data || {};
-  const fieldId = ddConfig.applicant_email_field;
-  if (fieldId) {
-    const v = data[fieldId];
+  if (applicantEmailFieldId) {
+    const v = data[applicantEmailFieldId];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   if (typeof submission.submitted_by_email === 'string' && submission.submitted_by_email.trim()) {
@@ -702,7 +849,7 @@ function getDDOrgFieldRawValue(submission, ddConfig) {
  * the application-form scan uses. Returns flagged rows annotated with the
  * applicant email and the current invalid org-field value.
  */
-async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId) {
+async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId, applicantEmailFieldId, applicantEmailFieldSource) {
   const submissions = [];
   const pageSize = 1000;
   let from = 0;
@@ -752,7 +899,11 @@ async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId) {
       dd_form_name: ddForm.name || '',
       submission_id: s.id,
       created_date: s.created_date,
-      applicant_email: getDDApplicantEmail(s, ddConfig) || '',
+      applicant_email: getDDApplicantEmail(s, applicantEmailFieldId) || '',
+      // Provenance of the per-form email-field resolution. Constant for
+      // every row from the same DD form, but per-row makes the CSV
+      // self-contained for auditing without cross-referencing logs.
+      email_source: applicantEmailFieldSource || '',
       current_invalid_org_field_value: getDDOrgFieldRawValue(s, ddConfig) || '',
       missing_reason: reason,
       // Carried through so the apply step knows which key in submission_data
@@ -780,12 +931,17 @@ async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId) {
  * with a resolved org wins. The total count of matching submissions is kept
  * so the dry-run CSV can record "picked most recent of N matching".
  */
-function buildEmailToOrgMap({ submissions, flagged, applyResultsById, orgMap, tenantId, applyMode }) {
+function buildEmailToOrgMap({ submissions, flagged, applyResultsById, orgMap, tenantId, applyMode, emailFieldId }) {
   const flaggedById = new Map(flagged.map(f => [f.submission_id, f]));
   const perEmail = new Map();
 
   for (const s of submissions) {
-    const rawEmail = (s.submitted_by_email || '').trim();
+    // Same resolution as the dry-run row: prefer submission_data[emailFieldId]
+    // (which is where the application form actually stores it for this
+    // tenant), fall back to the submitted_by_email column. Without this the
+    // map ends up empty for any application form that doesn't populate the
+    // column (e.g. "Initial enquiry" on tenant 21296ad6 — 0 of 102 rows).
+    const rawEmail = extractApplicantEmailFromSubmission(s, emailFieldId);
     if (!rawEmail) continue;
     const email = rawEmail.toLowerCase();
 
@@ -1373,6 +1529,16 @@ async function main() {
   log(`Tenant id:     ${TENANT_ID}`);
   log(`Form id:       ${FORM_ID}`);
   log(`Mode:          ${APPLY ? 'APPLY (will reprocess + link)' : 'DRY RUN (no changes)'}`);
+  if (ALLOW_DD_EMAIL_TYPE_FALLBACK) {
+    log(`DD email fallback: --allow-dd-email-type-fallback ENABLED`);
+    if (APPLY) {
+      warn('!! APPLY + --allow-dd-email-type-fallback combined. On any DD form');
+      warn('!! lacking a configured / "Applicant email"-labelled / member.email-mapped');
+      warn('!! field, the resolver will fall back to the FIRST type:"email" field on');
+      warn('!! that form. Multi-email DD forms (CEO / POC / safeguarding) can be');
+      warn('!! mis-linked. Audit the dry-run CSV first if you have not already.');
+    }
+  }
   log('');
 
   // 1. Pre-flight schema sanity check — abort loudly if we are pointed at a
@@ -1396,8 +1562,20 @@ async function main() {
     log(`[form] Organisation name source field id: ${orgNameFieldId}`);
   }
 
+  // Resolve the form-field id that supplies the applicant email. Step B
+  // joins DD submissions to application submissions on this email, so if
+  // we cannot find it the email->org map will be empty and DD linking
+  // cannot match anything. The submitted_by_email column is frequently
+  // NULL on these submissions (it is for tenant 21296ad6 — 0 of 102 rows).
+  const emailFieldId = resolveApplicantEmailSourceFieldId(form);
+  if (!emailFieldId) {
+    warn('[form] Could not resolve which form field supplies the applicant email. Step B will fall back to the submitted_by_email column only; if that column is not populated for these submissions the email->org map will be empty and no DD submissions can be linked.');
+  } else {
+    log(`[form] Applicant email source field id: ${emailFieldId}`);
+  }
+
   // 4. Build the missing-org report for the application form
-  const stats = await buildFlaggedRows(form, TENANT_ID, orgNameFieldId);
+  const stats = await buildFlaggedRows(form, TENANT_ID, orgNameFieldId, emailFieldId);
 
   // 5. Always write the application-form dry-run CSV
   const ts = timestamp();
@@ -1420,10 +1598,10 @@ async function main() {
   log('\n=== Step B: Due Diligence form scan ===');
   const ddForms = await discoverDDForms(TENANT_ID);
   const ddScans = [];
-  for (const { form: ddForm, config: ddConfig } of ddForms) {
-    const scan = await scanDDForMissingOrgs(ddForm, ddConfig, TENANT_ID);
+  for (const { form: ddForm, config: ddConfig, effectiveApplicantEmailFieldId, emailSource } of ddForms) {
+    const scan = await scanDDForMissingOrgs(ddForm, ddConfig, TENANT_ID, effectiveApplicantEmailFieldId, emailSource);
     log(`[dd scan] "${ddForm.name || ddForm.id}" (${ddForm.id}): ${scan.totalSubmissions} submission(s), ${scan.validCount} valid, ${scan.flagged.length} flagged`);
-    ddScans.push({ ddForm, ddConfig, scan });
+    ddScans.push({ ddForm, ddConfig, effectiveApplicantEmailFieldId, emailSource, scan });
   }
   const allDDFlagged = ddScans.flatMap(s => s.scan.flagged);
 
@@ -1467,6 +1645,7 @@ async function main() {
     orgMap: stats.orgMap,
     tenantId: TENANT_ID,
     applyMode: APPLY,
+    emailFieldId,
   });
   log(`\n[dd email map] Built map for ${emailMap.size} unique applicant email(s) from ${stats.submissions.length} application submission(s)`);
 
@@ -1486,6 +1665,9 @@ async function main() {
     'submission_id',
     'created_date',
     'applicant_email',
+    // How the email-field id was chosen for this DD form (configured /
+    // label_match / core_field_mapping / type_email_fallback / unresolved*).
+    'email_source',
     'current_invalid_org_field_value',
     'outcome',
     'resolved_organization_id',
@@ -1523,6 +1705,11 @@ async function main() {
         'dd_form_id',
         'submission_id',
         'applicant_email',
+        // How the email-field id was chosen for this DD form (configured /
+        // label_match / core_field_mapping / type_email_fallback /
+        // unresolved*). Mirrors the dry-run CSV so apply artifacts are
+        // self-contained for audit.
+        'email_source',
         'outcome',
         'organization_id',
         // yes -> the row's submission_data was rewritten alongside organization_id;
