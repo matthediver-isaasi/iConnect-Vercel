@@ -1708,6 +1708,7 @@ const functionHandlers = {
     let validatedTrainingFundAmount = 0;
     let voucherAmountApplied = 0;
     const voucherDeductions = [];
+    let pendingTrainingFundTxId = null;
     
     if (!isGuestBooking && org) {
       // Server-side role restriction validation for training fund
@@ -1823,8 +1824,9 @@ const functionHandlers = {
           })
           .eq('id', org.id);
         
-        // Create training fund transaction record in the correct table
-        const { error: tfTxError } = await supabase
+        // Create training fund transaction record in the correct table.
+        // booking_id is left null here and updated after bookings are inserted (below).
+        const { data: tfTxRow, error: tfTxError } = await supabase
           .from('training_fund_transaction')
           .insert({
             organization_id: org.id,
@@ -1836,12 +1838,15 @@ const functionHandlers = {
             created_by: member?.id || null,
             created_date: new Date().toISOString(),
             tenant_id: event.tenant_id || org.tenant_id || null
-          });
+          })
+          .select('id')
+          .single();
         
         if (tfTxError) {
           console.error('[createOneOffEventBooking] Failed to create training fund transaction:', tfTxError.message);
         } else {
           console.log('[createOneOffEventBooking] Training fund transaction created successfully');
+          pendingTrainingFundTxId = tfTxRow?.id || null;
         }
       }
     }
@@ -2187,6 +2192,19 @@ const functionHandlers = {
       }
       
       return { success: false, error: 'No bookings were created' };
+    }
+
+    // Backfill the booking_id on the training fund transaction now that we
+    // have a real booking row to link to (so the report export can resolve
+    // the event's internal_reference).
+    if (pendingTrainingFundTxId && createdBookings.length > 0) {
+      const { error: tfLinkErr } = await supabase
+        .from('training_fund_transaction')
+        .update({ booking_id: createdBookings[0].id })
+        .eq('id', pendingTrainingFundTxId);
+      if (tfLinkErr) {
+        console.error('[createOneOffEventBooking] Failed to link training fund transaction to booking:', tfLinkErr.message);
+      }
     }
 
     // Register attendees with Zoom if this is a Zoom webinar event

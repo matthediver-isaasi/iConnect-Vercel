@@ -777,6 +777,7 @@ export default async function handler(req, res) {
               balance_before: org.training_fund_balance,
               balance_after: updatedOrg.training_fund_balance,
               reason: `Complex event booking: ${event.title || 'Complex Event'} (${firstBookingRef})`,
+              booking_id: bookings[0]?.id || null,
               created_by: member_id || null,
               created_date: new Date().toISOString(),
               tenant_id: tenant.id

@@ -52,8 +52,6 @@ function formatBalance(value) {
 
 function memberDisplayName(member) {
   if (!member) return '';
-  const fullName = member.full_name && member.full_name.trim();
-  if (fullName) return fullName;
   const composed = [member.first_name, member.last_name].filter(Boolean).join(' ').trim();
   if (composed) return composed;
   return member.email || '';
@@ -125,14 +123,16 @@ export default async function handler(req, res) {
         const batch = memberIds.slice(i, i + batchSize);
         const { data: members, error: memberErr } = await supabase
           .from('member')
-          .select('id, first_name, last_name, full_name, email')
-          .in('id', batch)
-          .eq('tenant_id', tenantId);
+          .select('id, first_name, last_name, email, tenant_id')
+          .in('id', batch);
         if (memberErr) {
           console.warn('[TrainingFundExportCSV] Members query error (non-blocking):', memberErr.message);
           continue;
         }
-        (members || []).forEach(m => { memberMap[m.id] = m; });
+        (members || []).forEach(m => {
+          if (m.tenant_id && m.tenant_id !== tenantId) return;
+          memberMap[m.id] = m;
+        });
       }
     }
 
@@ -149,33 +149,33 @@ export default async function handler(req, res) {
 
       for (let i = 0; i < bookingIds.length; i += batchSize) {
         const batch = bookingIds.slice(i, i + batchSize);
-        const { data: bookings, error: bErr } = await supabase
+        const { data: bookingsRaw, error: bErr } = await supabase
           .from('booking')
-          .select('id, event_id')
-          .in('id', batch)
-          .eq('tenant_id', tenantId);
+          .select('id, event_id, tenant_id')
+          .in('id', batch);
         if (bErr) {
           console.warn('[TrainingFundExportCSV] Bookings lookup error (non-blocking):', bErr.message);
           continue;
         }
-        if (!bookings || bookings.length === 0) continue;
+        const bookings = (bookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
+        if (bookings.length === 0) continue;
 
         bookings.forEach(b => resolvedAsBooking.add(b.id));
 
         const eventIds = Array.from(new Set(bookings.map(b => b.event_id).filter(Boolean)));
         if (eventIds.length === 0) continue;
 
-        const { data: events, error: eErr } = await supabase
+        const { data: eventsRaw, error: eErr } = await supabase
           .from('event')
-          .select('id, internal_reference')
-          .in('id', eventIds)
-          .eq('tenant_id', tenantId);
+          .select('id, internal_reference, tenant_id')
+          .in('id', eventIds);
         if (eErr) {
           console.warn('[TrainingFundExportCSV] Events lookup error (non-blocking):', eErr.message);
           continue;
         }
+        const events = (eventsRaw || []).filter(e => !e.tenant_id || e.tenant_id === tenantId);
         const eventRefMap = {};
-        (events || []).forEach(e => {
+        events.forEach(e => {
           if (e.internal_reference) eventRefMap[e.id] = e.internal_reference;
         });
         bookings.forEach(b => {
@@ -187,16 +187,16 @@ export default async function handler(req, res) {
       const unresolvedIds = bookingIds.filter(id => !resolvedAsBooking.has(id));
       for (let i = 0; i < unresolvedIds.length; i += batchSize) {
         const batch = unresolvedIds.slice(i, i + batchSize);
-        const { data: complexBookings, error: cbErr } = await supabase
+        const { data: complexBookingsRaw, error: cbErr } = await supabase
           .from('complex_event_booking')
-          .select('id, event_id')
-          .in('id', batch)
-          .eq('tenant_id', tenantId);
+          .select('id, event_id, tenant_id')
+          .in('id', batch);
         if (cbErr) {
           console.warn('[TrainingFundExportCSV] Complex bookings lookup error (non-blocking):', cbErr.message);
           continue;
         }
-        if (!complexBookings || complexBookings.length === 0) continue;
+        const complexBookings = (complexBookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
+        if (complexBookings.length === 0) continue;
 
         const ceIds = Array.from(new Set(complexBookings.map(b => b.event_id).filter(Boolean)));
         if (ceIds.length === 0) continue;
@@ -204,17 +204,18 @@ export default async function handler(req, res) {
         const ceRefMap = {};
         const { data: ces, error: ceErr } = await supabase
           .from('complex_event')
-          .select('id, internal_reference')
-          .in('id', ceIds)
-          .eq('tenant_id', tenantId);
+          .select('id, internal_reference, tenant_id')
+          .in('id', ceIds);
         if (ceErr) {
           if (ceErr.code !== '42703') {
             console.warn('[TrainingFundExportCSV] Complex events lookup error (non-blocking):', ceErr.message);
           }
         } else {
-          (ces || []).forEach(e => {
-            if (e.internal_reference) ceRefMap[e.id] = e.internal_reference;
-          });
+          (ces || [])
+            .filter(e => !e.tenant_id || e.tenant_id === tenantId)
+            .forEach(e => {
+              if (e.internal_reference) ceRefMap[e.id] = e.internal_reference;
+            });
         }
         complexBookings.forEach(b => {
           const ref = ceRefMap[b.event_id];
