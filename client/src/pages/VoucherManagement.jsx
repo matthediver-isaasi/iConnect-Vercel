@@ -131,14 +131,21 @@ export default function VoucherManagementPage() {
     }
     
     if (statusFilter !== "all") {
-      filtered = filtered.filter(v => v.status === statusFilter);
+      if (statusFilter === "expired") {
+        filtered = filtered.filter(v => {
+          const isPastExpiry = v.expires_at && new Date(v.expires_at) < new Date();
+          return v.status === 'expired' || isPastExpiry;
+        });
+      } else {
+        filtered = filtered.filter(v => v.status === statusFilter);
+      }
     }
     
     if (orgFilter !== "all") {
       filtered = filtered.filter(v => v.organization_id === orgFilter);
     }
     
-    if (!showExpired) {
+    if (!showExpired && statusFilter !== "expired") {
       filtered = filtered.filter(v => {
         if (!v.expires_at) return true;
         return new Date(v.expires_at) >= new Date();
