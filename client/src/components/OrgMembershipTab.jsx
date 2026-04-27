@@ -28,7 +28,7 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2
+  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Eye, Download
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
@@ -557,6 +557,72 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [emailFeesManualEmails, setEmailFeesManualEmails] = useState([]);
   const [emailFeesConfirmStep, setEmailFeesConfirmStep] = useState(false);
   const [feesApprovedMap, setFeesApprovedMap] = useState({});
+  const [loadingInvoiceRecordId, setLoadingInvoiceRecordId] = useState(null);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
+  const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+
+  const handleViewInvoice = async (recordId, invoiceNumber) => {
+    setLoadingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(err.error || 'Failed to load invoice');
+      }
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber || null);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading membership invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingInvoiceRecordId(null);
+    }
+  };
+
+  const handleDownloadInvoice = async (recordId, invoiceNumber) => {
+    setLoadingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(err.error || 'Failed to download invoice');
+      }
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `membership-invoice-${invoiceNumber || recordId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading membership invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingInvoiceRecordId(null);
+    }
+  };
+
+  const handleInvoiceModalClose = (open) => {
+    if (!open && currentInvoiceUrl) {
+      const baseBlobUrl = currentInvoiceUrl.split('#')[0];
+      URL.revokeObjectURL(baseBlobUrl);
+      setCurrentInvoiceUrl(null);
+      setCurrentInvoiceNumber(null);
+    }
+    setInvoiceModalOpen(open);
+  };
 
   const joinFormCard = (
     <Card>
@@ -1380,6 +1446,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                     <th className="text-right p-3 font-medium">Adjustments</th>
                     <th className="text-right p-3 font-medium">Final Cost</th>
                     <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-center p-3 font-medium">Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1413,6 +1480,41 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                         <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                           {record.status || 'active'}
                         </Badge>
+                      </td>
+                      <td className="p-3">
+                        {record.xero_invoice_id ? (
+                          <div className="flex items-center justify-center gap-1">
+                            {loadingInvoiceRecordId === record.id ? (
+                              <Loader2
+                                className="w-4 h-4 animate-spin text-muted-foreground"
+                                data-testid={`spinner-invoice-${record.id}`}
+                              />
+                            ) : (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleViewInvoice(record.id, record.xero_invoice_number)}
+                                  title={`View invoice ${record.xero_invoice_number || ''}`.trim()}
+                                  data-testid={`button-view-invoice-${record.id}`}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleDownloadInvoice(record.id, record.xero_invoice_number)}
+                                  title={`Download invoice ${record.xero_invoice_number || ''}`.trim()}
+                                  data-testid={`button-download-invoice-${record.id}`}
+                                >
+                                  <Download className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-center text-muted-foreground" data-testid={`text-no-invoice-${record.id}`}>—</div>
+                        )}
                       </td>
                     </tr>
                     );
@@ -1955,6 +2057,30 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
               })()}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={invoiceModalOpen} onOpenChange={handleInvoiceModalClose}>
+        <DialogContent className="max-w-4xl h-[90vh] p-0 flex flex-col">
+          <DialogHeader className="p-6 pb-4 border-b shrink-0">
+            <DialogTitle data-testid="text-invoice-modal-title">
+              Invoice {currentInvoiceNumber || 'Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            {currentInvoiceUrl ? (
+              <iframe
+                src={currentInvoiceUrl}
+                className="w-full h-full border-0"
+                title="Invoice PDF"
+                data-testid="iframe-invoice-pdf"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

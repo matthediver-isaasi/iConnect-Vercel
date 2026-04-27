@@ -1,4 +1,5 @@
 import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { fetchXeroInvoicePdf } from '../_lib/xero.js';
 import { supabase } from '../_lib/database.js';
 
@@ -11,8 +12,10 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
+  const tenantContext = await getTenantContext(req);
   const sessionMember = await getSessionMember(req);
-  if (!sessionMember) {
+
+  if (!tenantContext?.isAuthenticated && !sessionMember) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
@@ -23,16 +26,54 @@ export default async function handler(req, res) {
   }
 
   try {
-    const appTenantId = sessionMember.tenant_id;
+    const appTenantId = tenantContext?.tenantId || sessionMember?.tenant_id;
     if (!appTenantId) {
       console.error('[membership-invoice] Cannot determine tenant for Xero PDF fetch');
       return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });
     }
 
-    const organizationId = sessionMember.organization_id;
+    const isTenantAdmin = !!tenantContext?.tenantUserId;
+    const memberOrganizationId = sessionMember?.organization_id || null;
     let record;
 
-    if (organizationId) {
+    if (isTenantAdmin) {
+      const { data, error } = await supabase
+        .from('organisation_membership_history')
+        .select('id, xero_invoice_id, xero_invoice_number, organization_id, tenant_id')
+        .eq('id', recordId)
+        .eq('tenant_id', appTenantId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[membership-invoice] Error fetching org record (tenant admin):', error);
+        return res.status(500).json({ error: 'Failed to fetch membership record' });
+      }
+
+      if (data) {
+        if (!data.xero_invoice_id) {
+          return res.status(404).json({ error: 'Invoice not found for this membership record' });
+        }
+        record = data;
+      } else {
+        const { data: memberData, error: memberErr } = await supabase
+          .from('member_membership_history')
+          .select('id, xero_invoice_id, xero_invoice_number, member_id, tenant_id')
+          .eq('id', recordId)
+          .eq('tenant_id', appTenantId)
+          .maybeSingle();
+
+        if (memberErr) {
+          console.error('[membership-invoice] Error fetching member record (tenant admin):', memberErr);
+          return res.status(500).json({ error: 'Failed to fetch membership record' });
+        }
+
+        if (!memberData || !memberData.xero_invoice_id) {
+          return res.status(404).json({ error: 'Invoice not found for this membership record' });
+        }
+
+        record = memberData;
+      }
+    } else if (memberOrganizationId) {
       const { data, error } = await supabase
         .from('organisation_membership_history')
         .select('id, xero_invoice_id, xero_invoice_number, organization_id, tenant_id')
@@ -49,7 +90,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Invoice not found for this membership record' });
       }
 
-      if (data.organization_id !== organizationId) {
+      if (data.organization_id !== memberOrganizationId) {
         return res.status(403).json({ error: 'Not authorized to view this invoice' });
       }
 
