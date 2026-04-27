@@ -47,9 +47,36 @@
  *   node scripts/recreate-missing-organisations-from-forms.mjs \
  *     --tenant-id=<uuid> --form-id=<uuid> [--apply]
  *
- * Required env vars:
- *   SUPABASE_URL and SUPABASE_SERVICE_KEY (or DEV_SUPABASE_URL /
- *   DEV_SUPABASE_SERVICE_KEY) — the same vars used by other scripts/.
+ *   # Point at a different Supabase project (rare; only when explicitly directed):
+ *   node scripts/recreate-missing-organisations-from-forms.mjs \
+ *     --supabase-url=https://<ref>.supabase.co \
+ *     --supabase-service-key=<service-role-key>
+ *
+ * Required env vars (in priority order — first COMPLETE pair wins):
+ *   1. --supabase-url / --supabase-service-key CLI flags (highest priority).
+ *   2. DEV_SUPABASE_URL  / DEV_SUPABASE_SERVICE_KEY  (the current iConnect dev DB;
+ *      this is what you almost always want in this Repl).
+ *   3. DEST_SUPABASE_URL / DEST_SUPABASE_SERVICE_KEY (used by some sibling
+ *      migration scripts to denote the "destination" DB).
+ *   4. SUPABASE_URL      / SUPABASE_SERVICE_KEY      (legacy fallback — note that
+ *      in this Repl this currently points at an OLD pre-multi-tenancy snapshot
+ *      that does not have workflow.tenant_id; the schema sanity check below will
+ *      abort loudly if you accidentally land there).
+ *
+ *   URL and service key are resolved as a PAIR from the same tier — never mixed.
+ *   If a tier has only one half set (e.g. you pass --supabase-url but not
+ *   --supabase-service-key), that tier is skipped with a warning and the script
+ *   falls through to the next complete tier. This prevents the footgun of
+ *   authenticating against the wrong Supabase project with another project's key.
+ *
+ * Sanity checks (run before any data work, in both dry-run and apply mode):
+ *   - The script prints a startup banner naming the Supabase host it is about to
+ *     connect to, so the operator can sanity-check before anything happens.
+ *   - It then verifies the connected DB looks like a multi-tenant iConnect DB
+ *     (workflow.tenant_id column present, tenant table present). If not, it
+ *     aborts with a clear, actionable error naming the host and pointing at the
+ *     env vars / CLI flags above, instead of failing later with a cryptic
+ *     PostgREST "column workflow.tenant_id does not exist" error.
  *
  * Important:
  *   This script must only be used for the specified tenant/form unless
@@ -72,6 +99,8 @@ try {
     options: {
       'tenant-id': { type: 'string' },
       'form-id': { type: 'string' },
+      'supabase-url': { type: 'string' },
+      'supabase-service-key': { type: 'string' },
       apply: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -88,12 +117,89 @@ const TENANT_ID = parsed.values['tenant-id'] || DEFAULT_TENANT_ID;
 const FORM_ID = parsed.values['form-id'] || DEFAULT_FORM_ID;
 const APPLY = !!parsed.values.apply;
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.DEV_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || process.env.DEV_SUPABASE_SERVICE_KEY;
+// Resolve Supabase connection.
+// Priority: explicit CLI flags > DEV_SUPABASE_* > DEST_SUPABASE_* > SUPABASE_*.
+// In this Repl, plain SUPABASE_URL points at an OLD pre-multi-tenancy snapshot
+// that does NOT have workflow.tenant_id, so we deliberately demote it to the
+// last fallback. The schema sanity check (assertMultiTenantSchema) will abort
+// loudly if we end up connected there anyway.
+//
+// IMPORTANT: URL and service key are resolved as a PAIR from the same source,
+// not independently. Mixing (e.g. CLI URL + DEV env key, or DEV URL + legacy
+// SUPABASE key) is a footgun — operators end up authenticating against the
+// wrong DB or failing with confusing auth errors. We require both halves of
+// a tier to be present together; if a tier has only one half set we skip it
+// and fall through to the next tier, with a warning printed at startup.
+const credentialTiers = [
+  {
+    name: 'CLI flags',
+    url: parsed.values['supabase-url'],
+    key: parsed.values['supabase-service-key'],
+    urlSource: '--supabase-url flag',
+    keySource: '--supabase-service-key flag',
+  },
+  {
+    name: 'DEV_SUPABASE_*',
+    url: process.env.DEV_SUPABASE_URL,
+    key: process.env.DEV_SUPABASE_SERVICE_KEY,
+    urlSource: 'DEV_SUPABASE_URL env var',
+    keySource: 'DEV_SUPABASE_SERVICE_KEY env var',
+  },
+  {
+    name: 'DEST_SUPABASE_*',
+    url: process.env.DEST_SUPABASE_URL,
+    key: process.env.DEST_SUPABASE_SERVICE_KEY,
+    urlSource: 'DEST_SUPABASE_URL env var',
+    keySource: 'DEST_SUPABASE_SERVICE_KEY env var',
+  },
+  {
+    name: 'SUPABASE_* (legacy)',
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_SERVICE_KEY,
+    urlSource: 'SUPABASE_URL env var',
+    keySource: 'SUPABASE_SERVICE_KEY env var',
+  },
+];
+
+const credentialWarnings = [];
+let chosenTier = null;
+for (const tier of credentialTiers) {
+  if (tier.url && tier.key) {
+    chosenTier = tier;
+    break;
+  }
+  if (tier.url && !tier.key) {
+    credentialWarnings.push(`Skipping ${tier.name}: ${tier.urlSource} is set but ${tier.keySource} is not. URL and key must come from the same tier.`);
+  } else if (!tier.url && tier.key) {
+    credentialWarnings.push(`Skipping ${tier.name}: ${tier.keySource} is set but ${tier.urlSource} is not. URL and key must come from the same tier.`);
+  }
+}
+
+const supabaseUrl = chosenTier?.url;
+const supabaseServiceKey = chosenTier?.key;
+const supabaseUrlSource = chosenTier?.urlSource || '(none)';
+const supabaseKeySource = chosenTier?.keySource || '(none)';
+
+if (credentialWarnings.length > 0) {
+  for (const w of credentialWarnings) console.warn(`[connection] WARNING: ${w}`);
+}
 
 if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Missing SUPABASE_URL/SUPABASE_SERVICE_KEY env vars.');
+  console.error('Missing Supabase connection details.');
+  console.error('Provide a complete URL+key pair from one of these tiers (first complete pair wins):');
+  console.error('  1. --supabase-url=<url> --supabase-service-key=<key>           (CLI flags)');
+  console.error('  2. DEV_SUPABASE_URL  / DEV_SUPABASE_SERVICE_KEY                (preferred for this Repl)');
+  console.error('  3. DEST_SUPABASE_URL / DEST_SUPABASE_SERVICE_KEY');
+  console.error('  4. SUPABASE_URL      / SUPABASE_SERVICE_KEY                    (legacy fallback)');
+  console.error('Tiers where only one half is set are skipped to avoid mixing credentials across projects.');
   process.exit(1);
+}
+
+let supabaseHost;
+try {
+  supabaseHost = new URL(supabaseUrl).host;
+} catch {
+  supabaseHost = supabaseUrl;
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -102,10 +208,18 @@ function printUsageAndExit(code) {
   console.log(`Usage: node scripts/recreate-missing-organisations-from-forms.mjs [options]
 
 Options:
-  --tenant-id=<uuid>  Tenant id (default ${DEFAULT_TENANT_ID})
-  --form-id=<uuid>    Form id   (default ${DEFAULT_FORM_ID})
-  --apply             Reprocess flagged submissions (otherwise dry-run only)
-  --help              Show this help
+  --tenant-id=<uuid>            Tenant id (default ${DEFAULT_TENANT_ID})
+  --form-id=<uuid>              Form id   (default ${DEFAULT_FORM_ID})
+  --supabase-url=<url>          Override Supabase project URL
+  --supabase-service-key=<key>  Override Supabase service role key
+  --apply                       Reprocess flagged submissions (otherwise dry-run only)
+  --help                        Show this help
+
+Connection priority (first set wins):
+  1. --supabase-url / --supabase-service-key
+  2. DEV_SUPABASE_URL  / DEV_SUPABASE_SERVICE_KEY    (preferred for this Repl)
+  3. DEST_SUPABASE_URL / DEST_SUPABASE_SERVICE_KEY
+  4. SUPABASE_URL      / SUPABASE_SERVICE_KEY        (legacy fallback)
 `);
   process.exit(code);
 }
@@ -134,6 +248,84 @@ function writeCsv(filepath, rows, headers) {
   }
   fs.mkdirSync(path.dirname(filepath), { recursive: true });
   fs.writeFileSync(filepath, lines.join('\n') + '\n');
+}
+
+// ---------------------------------------------------------------------------
+// Pre-flight: schema sanity check
+// ---------------------------------------------------------------------------
+/**
+ * Confirm we are connected to a multi-tenant iConnect database before doing
+ * anything else. We check two things:
+ *   1. workflow.tenant_id column exists (the canonical multi-tenancy marker
+ *      and the exact column whose absence triggered the original bug report).
+ *   2. The `tenant` table itself exists.
+ * If either check fails, abort with a clear, host-named error message instead
+ * of letting the run blow up later with a cryptic PostgREST error.
+ */
+async function assertMultiTenantSchema() {
+  // Probe 1: tiny tenant_id select against workflow. We use limit(0) so no
+  // row is returned but PostgREST will still validate the column reference
+  // and surface a "column does not exist" error if it's missing.
+  const { error: wfErr } = await supabase
+    .from('workflow')
+    .select('tenant_id')
+    .limit(0);
+  if (wfErr) {
+    const msg = (wfErr.message || '').toLowerCase();
+    const looksLikeMissingColumn =
+      msg.includes('tenant_id') ||
+      msg.includes('does not exist') ||
+      msg.includes('column') ||
+      wfErr.code === '42703';
+    if (looksLikeMissingColumn) {
+      err('\nABORTED: This database does not look like a multi-tenant iConnect database.');
+      err(`Connected host: ${supabaseHost}`);
+      err(`URL source:     ${supabaseUrlSource}`);
+      err(`Key source:     ${supabaseKeySource}`);
+      err('Reason:         workflow.tenant_id is missing on this database.');
+      err('');
+      err('You are probably pointed at the wrong Supabase project. Check your');
+      err('SUPABASE_URL / DEV_SUPABASE_URL env vars, or pass --supabase-url and');
+      err('--supabase-service-key explicitly. The current iConnect dev DB is');
+      err('exposed via DEV_SUPABASE_URL in this Repl.');
+      err(`Underlying error: ${wfErr.message}`);
+      process.exit(1);
+    }
+    err(`Failed to verify workflow schema on ${supabaseHost}: ${wfErr.message}`);
+    process.exit(1);
+  }
+
+  // Probe 2: tenant table exists.
+  const { error: tErr } = await supabase
+    .from('tenant')
+    .select('id')
+    .limit(0);
+  if (tErr) {
+    const msg = (tErr.message || '').toLowerCase();
+    const looksLikeMissingTable =
+      msg.includes('relation') ||
+      msg.includes('does not exist') ||
+      msg.includes('not find the table') ||
+      tErr.code === '42P01' ||
+      tErr.code === 'PGRST205';
+    if (looksLikeMissingTable) {
+      err('\nABORTED: This database does not look like a multi-tenant iConnect database.');
+      err(`Connected host: ${supabaseHost}`);
+      err(`URL source:     ${supabaseUrlSource}`);
+      err(`Key source:     ${supabaseKeySource}`);
+      err('Reason:         the `tenant` table is missing on this database.');
+      err('');
+      err('You are probably pointed at the wrong Supabase project. Check your');
+      err('SUPABASE_URL / DEV_SUPABASE_URL env vars, or pass --supabase-url and');
+      err('--supabase-service-key explicitly.');
+      err(`Underlying error: ${tErr.message}`);
+      process.exit(1);
+    }
+    err(`Failed to verify tenant schema on ${supabaseHost}: ${tErr.message}`);
+    process.exit(1);
+  }
+
+  log(`[schema check] OK — ${supabaseHost} has workflow.tenant_id and tenant table`);
 }
 
 // ---------------------------------------------------------------------------
@@ -685,15 +877,22 @@ async function main() {
   log('='.repeat(70));
   log('Recreate missing organisations from form submissions');
   log('='.repeat(70));
-  log(`Tenant id: ${TENANT_ID}`);
-  log(`Form id:   ${FORM_ID}`);
-  log(`Mode:      ${APPLY ? 'APPLY (will reprocess)' : 'DRY RUN (no changes)'}`);
+  log(`Connecting to: ${supabaseHost}`);
+  log(`URL source:    ${supabaseUrlSource}`);
+  log(`Key source:    ${supabaseKeySource}`);
+  log(`Tenant id:     ${TENANT_ID}`);
+  log(`Form id:       ${FORM_ID}`);
+  log(`Mode:          ${APPLY ? 'APPLY (will reprocess)' : 'DRY RUN (no changes)'}`);
   log('');
 
-  // 1. Pre-flight workflow audit (always runs, in both dry-run and apply mode)
+  // 1. Pre-flight schema sanity check — abort loudly if we are pointed at a
+  //    non-multi-tenant DB before touching any data.
+  await assertMultiTenantSchema();
+
+  // 2. Pre-flight workflow audit (always runs, in both dry-run and apply mode)
   await auditWorkflowsOff(TENANT_ID);
 
-  // 2. Fetch form
+  // 3. Fetch form
   const form = await fetchForm(FORM_ID, TENANT_ID);
   log(`[form] Loaded "${form.title || form.name || form.id}"`);
 
@@ -704,10 +903,10 @@ async function main() {
     log(`[form] Organisation name source field id: ${orgNameFieldId}`);
   }
 
-  // 3. Build the missing-org report
+  // 4. Build the missing-org report
   const stats = await buildFlaggedRows(form, TENANT_ID, orgNameFieldId);
 
-  // 4. Always write the dry-run CSV
+  // 5. Always write the dry-run CSV
   const ts = timestamp();
   const dryRunPath = path.join('tmp', `missing-orgs-dry-run-${ts}.csv`);
   writeCsv(dryRunPath, stats.flagged, [
@@ -734,7 +933,7 @@ async function main() {
     return;
   }
 
-  // 5. Apply path
+  // 6. Apply path
   log('\n=== Apply: reprocessing flagged submissions ===');
   const applyResult = await applyReprocessing(form, TENANT_ID, stats.flagged, orgNameFieldId);
 
