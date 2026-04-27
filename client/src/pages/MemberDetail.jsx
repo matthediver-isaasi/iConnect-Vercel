@@ -357,9 +357,41 @@ export default function MemberDetail() {
     queryFn: async () => {
       try {
         const bookings = await base44.entities.Booking.list({ filter: { member_id: id } });
-        return (bookings || []).sort((a, b) => 
+        return (bookings || []).sort((a, b) =>
           new Date(b.created_date || 0) - new Date(a.created_date || 0)
-        ).slice(0, 20);
+        );
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: complexBookings = [], isLoading: complexBookingsLoading } = useQuery({
+    queryKey: ['member-detail-complex-bookings', id, member?.email],
+    enabled: !!id && activeTab === 'activity',
+    queryFn: async () => {
+      const memberEmail = (member?.email || '').trim();
+      try {
+        const queries = [
+          base44.entities.ComplexEventBooking.list({ filter: { member_id: id } })
+        ];
+        if (memberEmail) {
+          queries.push(
+            base44.entities.ComplexEventBooking.list({ filter: { attendee_email: { ilike: memberEmail } } })
+          );
+        }
+        const results = await Promise.all(queries.map(p => p.catch(() => [])));
+        const seen = new Set();
+        const merged = [];
+        for (const list of results) {
+          for (const b of (list || [])) {
+            if (b && b.id && !seen.has(b.id)) {
+              seen.add(b.id);
+              merged.push(b);
+            }
+          }
+        }
+        return merged;
       } catch {
         return [];
       }
@@ -371,6 +403,67 @@ export default function MemberDetail() {
     enabled: activeTab === 'activity' && memberBookings.length > 0,
     queryFn: () => base44.entities.Event.list()
   });
+
+  const complexEventIds = useMemo(() => {
+    const ids = new Set();
+    for (const b of complexBookings) {
+      if (b?.event_id) ids.add(b.event_id);
+    }
+    return Array.from(ids);
+  }, [complexBookings]);
+
+  const { data: complexEvents = [] } = useQuery({
+    queryKey: ['complex-events-for-member-detail', complexEventIds],
+    enabled: activeTab === 'activity' && complexEventIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.ComplexEvent.list({
+          filter: { id: { in: complexEventIds } }
+        }) || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const memberEmailLower = (member?.email || '').trim().toLowerCase();
+
+  const unifiedBookings = useMemo(() => {
+    const simpleItems = (memberBookings || []).map(b => {
+      const event = events.find(e => e.id === b.event_id);
+      return {
+        key: `simple-${b.id}`,
+        id: b.id,
+        source: 'simple',
+        title: event?.title || 'Unknown Event',
+        date: b.created_date || null,
+        status: b.status || 'confirmed',
+        isAttendeeOnly: false,
+      };
+    });
+
+    const complexItems = (complexBookings || []).map(b => {
+      const ev = complexEvents.find(e => e.id === b.event_id);
+      const isBuyer = !!(id && b.member_id && b.member_id === id);
+      const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
+      const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
+      return {
+        key: `complex-${b.id}`,
+        id: b.id,
+        source: 'complex',
+        title: ev?.title || 'Unknown Event',
+        date: b.created_at || null,
+        status: b.status || 'confirmed',
+        isAttendeeOnly: !isBuyer && isAttendee,
+      };
+    });
+
+    return [...simpleItems, ...complexItems]
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+      .slice(0, 20);
+  }, [memberBookings, complexBookings, events, complexEvents, id, memberEmailLower]);
+
+  const anyBookingsLoading = bookingsLoading || complexBookingsLoading;
 
   // Categories tab queries
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
@@ -1637,33 +1730,43 @@ export default function MemberDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {bookingsLoading ? (
+              {anyBookingsLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
                 </div>
-              ) : memberBookings.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No bookings found</p>
+              ) : unifiedBookings.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8" data-testid="text-no-bookings">No bookings found</p>
               ) : (
                 <div className="space-y-3">
-                  {memberBookings.map(booking => {
-                    const event = events.find(e => e.id === booking.event_id);
-                    return (
-                      <div key={booking.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <Calendar className="w-5 h-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{event?.title || 'Unknown Event'}</p>
-                            <p className="text-xs text-slate-500">
-                              {formatDate(booking.created_date)}
-                            </p>
-                          </div>
+                  {unifiedBookings.map(item => (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                      data-testid={`row-booking-${item.source}-${item.id}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                          <Calendar className="w-5 h-5 text-blue-600" />
                         </div>
-                        <Badge variant="outline">{booking.status || 'confirmed'}</Badge>
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
+                            {item.title}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {item.date ? formatDate(item.date) : '—'}
+                          </p>
+                        </div>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.isAttendeeOnly && (
+                          <Badge variant="secondary" data-testid={`badge-attendee-${item.source}-${item.id}`}>Attendee</Badge>
+                        )}
+                        <Badge variant="outline" data-testid={`badge-booking-status-${item.source}-${item.id}`}>
+                          {item.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
