@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams, useLocation } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -37,10 +37,16 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
+const DEFAULT_PAGE_SIZE = 20;
+
 export default function FormSubmissionsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || "");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -51,12 +57,35 @@ export default function FormSubmissionsPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
-  const [selectedForm, setSelectedForm] = useState("all");
-  const [selectedStatus, setSelectedStatus] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [selectedForm, setSelectedForm] = useState(() => searchParams.get('form') || "all");
+  const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || "all");
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || "");
+  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || "");
+  const [currentPage, setCurrentPage] = useState(() => {
+    const p = parseInt(searchParams.get('page'), 10);
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const s = parseInt(searchParams.get('size'), 10);
+    return ALLOWED_PAGE_SIZES.includes(s) ? s : DEFAULT_PAGE_SIZE;
+  });
+
+  const filterQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    if (selectedForm !== 'all') params.set('form', selectedForm);
+    if (selectedStatus !== 'all') params.set('status', selectedStatus);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    if (currentPage !== 1) params.set('page', String(currentPage));
+    if (itemsPerPage !== DEFAULT_PAGE_SIZE) params.set('size', String(itemsPerPage));
+    const str = params.toString();
+    return str ? `?${str}` : '';
+  }, [searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setSearchParams(filterQueryString ? filterQueryString.slice(1) : '', { replace: true });
+  }, [filterQueryString, setSearchParams]);
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -742,7 +771,7 @@ export default function FormSubmissionsPage() {
                             <RotateCcw className="w-4 h-4" />
                           )}
                         </Button>
-                        <Link to={`/FormSubmission/${submission.id}`}>
+                        <Link to={`/FormSubmission/${submission.id}?back=${encodeURIComponent(`${location.pathname}${filterQueryString}`)}`}>
                           <Button
                             variant="outline"
                             size="sm"

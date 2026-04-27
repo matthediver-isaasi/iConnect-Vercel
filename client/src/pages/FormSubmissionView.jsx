@@ -27,7 +27,17 @@ export default function FormSubmissionView() {
 
   const fromOrg = searchParams.get('from') === 'org';
   const orgId = searchParams.get('orgId');
-  const backPath = fromOrg && orgId ? `/organisations/${orgId}` : '/FormSubmissions';
+  const backParam = searchParams.get('back');
+  const safeBackPath = (() => {
+    if (!backParam) return null;
+    if (typeof backParam !== 'string') return null;
+    if (!backParam.startsWith('/')) return null;
+    if (backParam.startsWith('//')) return null;
+    if (backParam.startsWith('/\\')) return null;
+    return backParam;
+  })();
+  const defaultBackPath = fromOrg && orgId ? `/organisations/${orgId}` : '/FormSubmissions';
+  const backPath = safeBackPath || defaultBackPath;
   const backLabel = fromOrg ? 'Back to Organisation' : 'Back to Submissions';
 
   const { data: submission, isLoading: submissionLoading, error: submissionError } = useQuery({
