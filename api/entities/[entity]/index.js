@@ -319,6 +319,56 @@ export default async function handler(req, res) {
         console.log('[Entity Access] Booking with event_id filter - allowing cross-org access');
       }
     }
+
+    // Booking with single-member context filter: allow cross-org access for
+    // viewers with cross-member admin permission (e.g. CRM /members/:id Activity tab).
+    //
+    // Strictly gated to a SINGLE member identifier to prevent tenant-wide booking
+    // harvesting via wildcard / multi-value filters. Allowed shapes:
+    //   member_id: "<uuid>"            OR  { eq: "<uuid>" }
+    //   attendee_email: "<email>"      OR  { eq: "<email>" }
+    //                                  OR  { ilike: "<exact email, no wildcards>" }
+    // Any other shape (arrays, `in`, `like`, ilike with `%` / `_`, empty values)
+    // does NOT enable tenant-wide access.
+    if (
+      entity === 'Booking' &&
+      effectiveTenantId &&
+      !allowsTenantWideAccess &&
+      tenantCtx.roleId &&
+      parsedFilter
+    ) {
+      const isNonEmptyString = (v) => typeof v === 'string' && v.length > 0;
+      const containsLikeWildcard = (s) => typeof s === 'string' && /[%_]/.test(s);
+
+      const isStrictSingleMemberId = (v) => {
+        if (isNonEmptyString(v)) return true;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          return isNonEmptyString(v.eq);
+        }
+        return false;
+      };
+
+      const isStrictSingleAttendeeEmail = (v) => {
+        if (isNonEmptyString(v)) return true;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          if (isNonEmptyString(v.eq)) return true;
+          if (isNonEmptyString(v.ilike) && !containsLikeWildcard(v.ilike)) return true;
+        }
+        return false;
+      };
+
+      const hasMemberContextFilter =
+        isStrictSingleMemberId(parsedFilter.member_id) ||
+        isStrictSingleAttendeeEmail(parsedFilter.attendee_email);
+
+      if (hasMemberContextFilter) {
+        const { hasCrossMemberAccess } = await checkCrossMemberPermissions(tenantCtx.roleId);
+        if (hasCrossMemberAccess) {
+          allowsTenantWideAccess = true;
+          console.log('[Entity Access] Booking with single-member filter and cross-member role - allowing cross-org access');
+        }
+      }
+    }
     
     // Store for use in query logic
     tenantCtx.allowsTenantWideAccess = allowsTenantWideAccess;
