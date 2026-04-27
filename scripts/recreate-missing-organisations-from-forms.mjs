@@ -19,25 +19,30 @@
  *       - links to an existing organisation whose name matches case-insensitively, or
  *       - fails (and is logged in the post-run CSV; the batch continues).
  *
- *   Step B — Due Diligence submissions (NEW):
+ *   Step B — Due Diligence submissions:
  *     After the application form is processed, the script also scans every Due
  *     Diligence form configured for the tenant (auto-discovered via
  *     `form_due_diligence_config`) and finds DD submissions whose organisation
  *     is missing/dangling/wrong-tenant. For each flagged DD submission it tries
  *     to resolve a target organisation by joining on the applicant email shared
  *     with the application form (most recent application submission wins on a
- *     tie). With --apply it then updates `form_submission.organization_id` AND
- *     overwrites the DD form's "Name of Organisation" field value inside
- *     `submission_data` with the resolved organisation id (replacing the stale
- *     invalid UUID), as a single update per submission so the row stays
- *     consistent.
+ *     tie). With --apply it always updates `form_submission.organization_id`
+ *     and, when the DD form's `applicant_organization_name_field` IS
+ *     configured, also overwrites that key inside `submission_data` with the
+ *     resolved organisation id (replacing the stale invalid UUID). When the
+ *     org-name field is NOT configured (e.g. the "ESO Long form" case where
+ *     the only thing actually broken is `organization_id`), the script links
+ *     by `organization_id` only and leaves `submission_data` untouched. Both
+ *     column updates happen in a single update per submission so the row
+ *     never lands in a partially-updated state.
  *     Two extra reports are written:
  *       tmp/missing-dd-orgs-dry-run-<ts>.csv  (always)
  *       tmp/missing-dd-orgs-apply-<ts>.csv    (only with --apply)
- *     DD forms whose `applicant_organization_name_field` is NOT configured are
- *     skipped with a warning. DD submissions whose applicant email does not
- *     match any application submission, or whose matched application submission
- *     has no valid organisation, are reported as `no_application_match` /
+ *     A `submission_data_patched` column on both reports records, per row,
+ *     whether the `submission_data` patch is applicable (`yes` / `no`).
+ *     DD submissions whose applicant email does not match any application
+ *     submission, or whose matched application submission has no valid
+ *     organisation, are reported as `no_application_match` /
  *     `application_org_unresolved` and the run continues.
  *
  * Workflow-off precondition:
@@ -607,9 +612,10 @@ async function buildFlaggedRows(form, tenantId, orgNameFieldId) {
  * Auto-discover all Due Diligence forms for the tenant. Returns
  *   [{ form, config }]
  * for every form_due_diligence_config row whose joined `form` row exists for
- * the same tenant AND has an `applicant_organization_name_field` configured
- * (we have nowhere to write the resolved org id back to without it). Forms
- * missing that field are skipped with a clear warning.
+ * the same tenant. Forms missing `applicant_organization_name_field` are
+ * still returned — for those, the apply step links by `organization_id`
+ * only and skips the optional `submission_data` patch. An informational log
+ * line records which mode each form will use.
  */
 async function discoverDDForms(tenantId) {
   const { data: configs, error } = await supabase
@@ -647,9 +653,10 @@ async function discoverDDForms(tenantId) {
       warn(`[dd discovery] DD config ${config.id} references form ${config.form_id} which is missing or belongs to a different tenant; skipping`);
       continue;
     }
-    if (!config.applicant_organization_name_field) {
-      warn(`[dd discovery] DD form "${form.name || form.id}" (${form.id}) has no applicant_organization_name_field configured; skipping (cannot patch submission_data without it)`);
-      continue;
+    if (config.applicant_organization_name_field) {
+      log(`[dd discovery] DD form "${form.name || form.id}" (${form.id}): will link organization_id and patch submission_data["${config.applicant_organization_name_field}"]`);
+    } else {
+      log(`[dd discovery] DD form "${form.name || form.id}" (${form.id}): no applicant_organization_name_field configured — will link organization_id only (submission_data left untouched)`);
     }
     result.push({ form, config });
   }
@@ -844,6 +851,12 @@ function buildEmailToOrgMap({ submissions, flagged, applyResultsById, orgMap, te
 function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
   const out = [];
   for (const row of ddFlaggedRows) {
+    // Per-row prediction of whether the apply step would also patch
+    // submission_data. Driven entirely by whether the DD form had its
+    // `applicant_organization_name_field` configured. Empty for non-
+    // linkable outcomes (since no apply update would happen).
+    const willPatchSubmissionData = row.applicant_organization_name_field ? 'yes' : 'no';
+
     const email = (row.applicant_email || '').trim().toLowerCase();
     if (!email) {
       out.push({
@@ -852,6 +865,7 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
         resolved_organization_id: '',
         resolved_organization_name: '',
         application_submission_id: '',
+        submission_data_patched: '',
         notes: 'DD submission has no applicant email (neither configured field nor submitted_by_email)',
       });
       continue;
@@ -864,6 +878,7 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
         resolved_organization_id: '',
         resolved_organization_name: '',
         application_submission_id: '',
+        submission_data_patched: '',
         notes: '',
       });
       continue;
@@ -875,21 +890,27 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
         resolved_organization_id: '',
         resolved_organization_name: '',
         application_submission_id: '',
+        submission_data_patched: '',
         notes: entry.total_application_matches > 1
           ? `${entry.total_application_matches} matching application submission(s), none resolved to a valid organisation in this run`
           : 'Matching application submission has no valid organisation in this run',
       });
       continue;
     }
-    const notes = entry.total_application_matches > 1
+    const tieNote = entry.total_application_matches > 1
       ? `picked most recent of ${entry.total_application_matches} matching application submission(s) (${entry.total_resolved_matches} had a resolved org)`
       : '';
+    const patchNote = willPatchSubmissionData === 'no'
+      ? 'organization_id only — no applicant_organization_name_field configured, submission_data will not be patched'
+      : '';
+    const notes = [tieNote, patchNote].filter(Boolean).join(' | ');
     out.push({
       ...row,
       outcome: 'linkable',
       resolved_organization_id: entry.organization_id,
       resolved_organization_name: orgNameMap.get(entry.organization_id) || '',
       application_submission_id: entry.application_submission_id || '',
+      submission_data_patched: willPatchSubmissionData,
       notes,
     });
   }
@@ -898,12 +919,13 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
 
 /**
  * Apply DD linking: for each `linkable` row, re-verify the resolved org is
- * still valid for the tenant, then update `form_submission.organization_id`
- * AND patch the DD form's "Name of Organisation" key inside `submission_data`
- * so it holds the resolved org id (replacing the stale invalid UUID). Both
- * column updates happen in a SINGLE update per row so the row never lands in
- * a partially-updated state. On any failure the row is left untouched and
- * the run continues.
+ * still valid for the tenant, then update `form_submission.organization_id`.
+ * If the DD form has `applicant_organization_name_field` configured, the same
+ * UPDATE also patches that key inside `submission_data` to hold the resolved
+ * org id (replacing the stale invalid UUID); otherwise `submission_data` is
+ * left untouched. Either way the column updates happen in a SINGLE update
+ * per row, so the row never lands in a partially-updated state. On any
+ * failure the row is left untouched and the run continues.
  */
 async function applyDDLinking(resolvedDDRows, tenantId) {
   const results = [];
@@ -926,12 +948,12 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
 
     if (row.outcome === 'no_application_match') {
       noMatchCount++;
-      results.push({ ...baseRecord, outcome: 'no_application_match', organization_id: '', error: '' });
+      results.push({ ...baseRecord, outcome: 'no_application_match', organization_id: '', submission_data_patched: '', error: '' });
       continue;
     }
     if (row.outcome === 'application_org_unresolved') {
       unresolvedCount++;
-      results.push({ ...baseRecord, outcome: 'application_org_unresolved', organization_id: '', error: '' });
+      results.push({ ...baseRecord, outcome: 'application_org_unresolved', organization_id: '', submission_data_patched: '', error: '' });
       continue;
     }
 
@@ -948,11 +970,11 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
       const msg = `Resolved org ${row.resolved_organization_id} not found or wrong tenant: ${orgErr?.message || 'not found for tenant'}`;
       err(`  -> FAILED: ${msg}`);
       failedCount++;
-      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', submission_data_patched: '', error: msg });
       continue;
     }
 
-    // Re-fetch DD submission to get fresh submission_data for the patch.
+    // Re-fetch DD submission to get fresh submission_data for the (optional) patch.
     const { data: sub, error: subErr } = await supabase
       .from('form_submission')
       .select('id, submission_data')
@@ -963,40 +985,47 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
       const msg = `DD submission ${row.submission_id} not found for tenant: ${subErr?.message || 'not found'}`;
       err(`  -> FAILED: ${msg}`);
       failedCount++;
-      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', submission_data_patched: '', error: msg });
       continue;
     }
 
-    if (!row.applicant_organization_name_field) {
-      const msg = 'No applicant_organization_name_field on row (should have been filtered at discovery)';
-      err(`  -> FAILED: ${msg}`);
-      failedCount++;
-      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
-      continue;
+    // Build the per-row update payload. We always set organization_id; the
+    // submission_data patch is OPTIONAL and only happens when the DD config
+    // declared which field key to overwrite. Forms like ESO Long form have
+    // no such field configured — for those we just fix organization_id and
+    // leave submission_data alone. Both column updates (when applicable)
+    // happen in the same UPDATE so the row never lands partially patched.
+    const update = { organization_id: row.resolved_organization_id };
+    let submissionDataPatched = false;
+    if (row.applicant_organization_name_field) {
+      const newSubmissionData = { ...(sub.submission_data || {}) };
+      newSubmissionData[row.applicant_organization_name_field] = row.resolved_organization_id;
+      update.submission_data = newSubmissionData;
+      submissionDataPatched = true;
     }
-
-    const newSubmissionData = { ...(sub.submission_data || {}) };
-    newSubmissionData[row.applicant_organization_name_field] = row.resolved_organization_id;
 
     const { error: updErr } = await supabase
       .from('form_submission')
-      .update({
-        organization_id: row.resolved_organization_id,
-        submission_data: newSubmissionData,
-      })
+      .update(update)
       .eq('id', row.submission_id)
       .eq('tenant_id', tenantId);
     if (updErr) {
       const msg = `Failed to update form_submission: ${updErr.message}`;
       err(`  -> FAILED: ${msg}`);
       failedCount++;
-      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', submission_data_patched: '', error: msg });
       continue;
     }
 
     linkedCount++;
-    log(`  -> LINKED`);
-    results.push({ ...baseRecord, outcome: 'linked', organization_id: row.resolved_organization_id, error: '' });
+    log(`  -> LINKED${submissionDataPatched ? ' (organization_id + submission_data patched)' : ' (organization_id only — submission_data left untouched)'}`);
+    results.push({
+      ...baseRecord,
+      outcome: 'linked',
+      organization_id: row.resolved_organization_id,
+      submission_data_patched: submissionDataPatched ? 'yes' : 'no',
+      error: '',
+    });
   }
 
   return { results, linkedCount, noMatchCount, unresolvedCount, failedCount };
@@ -1462,6 +1491,10 @@ async function main() {
     'resolved_organization_id',
     'resolved_organization_name',
     'application_submission_id',
+    // Predicts whether the apply step would also rewrite submission_data
+    // for this row (yes when the DD form has applicant_organization_name_field
+    // configured, no when it does not, blank for non-linkable outcomes).
+    'submission_data_patched',
     'notes',
   ]);
   log(`[csv] DD dry-run report written: ${ddDryRunPath}`);
@@ -1492,6 +1525,11 @@ async function main() {
         'applicant_email',
         'outcome',
         'organization_id',
+        // yes -> the row's submission_data was rewritten alongside organization_id;
+        // no  -> only organization_id was set (DD form had no
+        //        applicant_organization_name_field configured);
+        // ''  -> no apply update happened (skipped or failed).
+        'submission_data_patched',
         // Tie-resolution metadata: which application submission supplied the
         // resolved org id, and the human-readable note (e.g. "picked most
         // recent of 3 matching application submission(s)") so an operator can
