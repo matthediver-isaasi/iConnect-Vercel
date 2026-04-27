@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle, Send } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -36,6 +36,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
@@ -817,6 +823,37 @@ export default function EventsPage({
     setComplexImportEmailsText("");
     setShowComplexImportDialog(true);
   };
+
+  const [complexResendingBookingId, setComplexResendingBookingId] = useState(null);
+
+  const complexResendConfirmationMutation = useMutation({
+    mutationFn: async (bookingId) => {
+      const response = await fetch(`/api/admin/events/${complexAttendeesEvent.id}/attendees/resend-confirmation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId })
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to resend confirmation email');
+      }
+      return response.json();
+    },
+    onMutate: (bookingId) => {
+      setComplexResendingBookingId(bookingId);
+    },
+    onSuccess: (data) => {
+      toast.success(`Confirmation email resent to ${data.email}`);
+    },
+    onError: (error) => {
+      console.error('Resend confirmation error:', error);
+      toast.error(error.message || 'Failed to resend confirmation email');
+    },
+    onSettled: () => {
+      setComplexResendingBookingId(null);
+    }
+  });
 
   const handleComplexImportSubmit = () => {
     const emails = complexImportEmailsText
@@ -1990,36 +2027,65 @@ export default function EventsPage({
                       <TableHead>Job Title</TableHead>
                       <TableHead>Organisation</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {complexPaginatedAttendees.map((booking, index) => (
-                      <TableRow key={booking.id || index} data-testid={`row-complex-attendee-${booking.id || index}`}>
-                        <TableCell className="font-medium">
-                          {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
-                        </TableCell>
-                        <TableCell>
-                          {booking.member_id
-                            ? (complexMemberJobTitleMap[booking.member_id] || '-')
-                            : <span className="text-muted-foreground">-</span>
-                          }
-                        </TableCell>
-                        <TableCell>
-                          {booking.organization_id 
-                            ? (complexOrgMap[booking.organization_id] || '-')
-                            : <span className="text-muted-foreground italic">Non-member</span>
-                          }
-                        </TableCell>
-                        <TableCell>
-                          <a 
-                            href={`mailto:${booking.attendee_email}`} 
-                            className="text-blue-600 hover:underline"
-                          >
-                            {booking.attendee_email || '-'}
-                          </a>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {complexPaginatedAttendees.map((booking, index) => {
+                      const isResending = complexResendingBookingId === booking.id;
+                      return (
+                        <TableRow key={booking.id || index} data-testid={`row-complex-attendee-${booking.id || index}`}>
+                          <TableCell className="font-medium">
+                            {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {booking.member_id
+                              ? (complexMemberJobTitleMap[booking.member_id] || '-')
+                              : <span className="text-muted-foreground">-</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            {booking.organization_id 
+                              ? (complexOrgMap[booking.organization_id] || '-')
+                              : <span className="text-muted-foreground italic">Non-member</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            <a 
+                              href={`mailto:${booking.attendee_email}`} 
+                              className="text-blue-600 hover:underline"
+                            >
+                              {booking.attendee_email || '-'}
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <TooltipProvider delayDuration={100}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => booking.id && complexResendConfirmationMutation.mutate(booking.id)}
+                                    disabled={!booking.id || isResending}
+                                    aria-label="Resend confirmation email"
+                                    data-testid={`button-resend-confirmation-${booking.id}`}
+                                  >
+                                    {isResending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Send className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Resend confirmation email
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

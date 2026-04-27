@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -36,6 +36,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // formatEventTime, formatEventDate, and is24HourFormat are imported from @/utils/timeFormat
 
@@ -433,6 +439,37 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     onError: (error) => {
       console.error('Delete event error:', error);
       toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const [resendingBookingId, setResendingBookingId] = useState(null);
+
+  const resendConfirmationMutation = useMutation({
+    mutationFn: async (bookingId) => {
+      const response = await fetch(`/api/admin/events/${event.id}/attendees/resend-confirmation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId })
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to resend confirmation email');
+      }
+      return response.json();
+    },
+    onMutate: (bookingId) => {
+      setResendingBookingId(bookingId);
+    },
+    onSuccess: (data) => {
+      toast.success(`Confirmation email resent to ${data.email}`);
+    },
+    onError: (error) => {
+      console.error('Resend confirmation error:', error);
+      toast.error(error.message || 'Failed to resend confirmation email');
+    },
+    onSettled: () => {
+      setResendingBookingId(null);
     }
   });
 
@@ -937,36 +974,65 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TableHead>Job Title</TableHead>
                       <TableHead>Organisation</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedAttendees.map((booking, index) => (
-                      <TableRow key={booking.id || index} data-testid={`row-attendee-${booking.id || index}`}>
-                        <TableCell className="font-medium">
-                          {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
-                        </TableCell>
-                        <TableCell>
-                          {booking.member_id
-                            ? (memberJobTitleMap[booking.member_id] || '-')
-                            : <span className="text-muted-foreground">-</span>
-                          }
-                        </TableCell>
-                        <TableCell>
-                          {booking.organization_id 
-                            ? (organizationMap[booking.organization_id] || '-')
-                            : <span className="text-muted-foreground italic">Non-member</span>
-                          }
-                        </TableCell>
-                        <TableCell>
-                          <a 
-                            href={`mailto:${booking.attendee_email}`} 
-                            className="text-blue-600 hover:underline"
-                          >
-                            {booking.attendee_email || '-'}
-                          </a>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {paginatedAttendees.map((booking, index) => {
+                      const isResending = resendingBookingId === booking.id;
+                      return (
+                        <TableRow key={booking.id || index} data-testid={`row-attendee-${booking.id || index}`}>
+                          <TableCell className="font-medium">
+                            {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {booking.member_id
+                              ? (memberJobTitleMap[booking.member_id] || '-')
+                              : <span className="text-muted-foreground">-</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            {booking.organization_id 
+                              ? (organizationMap[booking.organization_id] || '-')
+                              : <span className="text-muted-foreground italic">Non-member</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            <a 
+                              href={`mailto:${booking.attendee_email}`} 
+                              className="text-blue-600 hover:underline"
+                            >
+                              {booking.attendee_email || '-'}
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <TooltipProvider delayDuration={100}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => booking.id && resendConfirmationMutation.mutate(booking.id)}
+                                    disabled={!booking.id || isResending}
+                                    aria-label="Resend confirmation email"
+                                    data-testid={`button-resend-confirmation-${booking.id}`}
+                                  >
+                                    {isResending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Send className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Resend confirmation email
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
