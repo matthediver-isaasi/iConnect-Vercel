@@ -109,6 +109,27 @@ const SORT_OPTIONS = [
   { value: "deadline_desc", label: "Deadline (Latest)" },
 ];
 
+const COPYRIGHT_STATUS_ORDER = {
+  not_required: 0,
+  not_sent: 1,
+  sent: 2,
+  received: 3,
+};
+
+const COPYRIGHT_STATUS_LABEL = {
+  not_required: "Not required",
+  not_sent: "Not sent",
+  sent: "Sent",
+  received: "Received",
+};
+
+function getCopyrightStatus(brief) {
+  if (!brief?.copyright_required) return "not_required";
+  if (brief.copyright_submission_id) return "received";
+  if (brief.copyright_form_sent_at) return "sent";
+  return "not_sent";
+}
+
 function SortableHeader({ field, label, sortField, sortDir, onSort }) {
   const active = sortField === field;
   const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
@@ -312,6 +333,7 @@ export default function BriefManagementPage() {
   const [writerFilter, setWriterFilter] = useState([]);
   const [reviewerFilter, setReviewerFilter] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState([]);
+  const [caseStudyFilter, setCaseStudyFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [sortField, setSortField] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
@@ -669,6 +691,11 @@ export default function BriefManagementPage() {
     if (categoryFilter.length > 0) {
       filtered = filtered.filter((b) => categoryFilter.includes(b.category));
     }
+    if (caseStudyFilter === "required") {
+      filtered = filtered.filter((b) => !!b.case_study_required);
+    } else if (caseStudyFilter === "not_required") {
+      filtered = filtered.filter((b) => !b.case_study_required);
+    }
     if (dateFrom || dateTo) {
       filtered = filtered.filter((b) => {
         const val = b[dateField];
@@ -714,6 +741,8 @@ export default function BriefManagementPage() {
             if (v.created_at) return new Date(v.created_at).getTime();
             return v.version_number ?? null;
           }
+          case "copyright":
+            return COPYRIGHT_STATUS_ORDER[getCopyrightStatus(b)];
           default:
             return null;
         }
@@ -758,7 +787,7 @@ export default function BriefManagementPage() {
       }
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, sortBy, sortField, sortDir, STATUS_CONFIG, latestVersionByBrief, membersById, externalWritersById]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, dateField, dateFrom, dateTo, searchQuery, sortBy, sortField, sortDir, STATUS_CONFIG, latestVersionByBrief, membersById, externalWritersById]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -769,7 +798,7 @@ export default function BriefManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, dateField, dateFrom, dateTo, searchQuery, pageSize, sortField, sortDir, sortBy]);
+  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, dateField, dateFrom, dateTo, searchQuery, pageSize, sortField, sortDir, sortBy]);
 
   const handleHeaderSort = (field) => {
     if (sortField !== field) {
@@ -1112,6 +1141,16 @@ export default function BriefManagementPage() {
                   className="w-[160px]"
                   data-testid="select-category-filter"
                 />
+                <Select value={caseStudyFilter} onValueChange={setCaseStudyFilter}>
+                  <SelectTrigger className="w-[170px]" data-testid="select-case-study-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Case Studies</SelectItem>
+                    <SelectItem value="required">Required</SelectItem>
+                    <SelectItem value="not_required">Not required</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[170px]" data-testid="select-sort-by">
                     <ArrowUpDown className="w-3 h-3 mr-1" />
@@ -1190,13 +1229,16 @@ export default function BriefManagementPage() {
                   <TableHead className="min-w-[110px]">
                     <SortableHeader field="latest_draft" label="Latest Draft" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
                   </TableHead>
+                  <TableHead className="min-w-[120px]">
+                    <SortableHeader field="copyright" label="Copyright" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
+                  </TableHead>
                   {(canDelete || canChangeStatus) && <TableHead className="min-w-[100px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedBriefs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6 + (canChangeStatus ? 1 : 0) + ((canDelete || canChangeStatus) ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={7 + (canChangeStatus ? 1 : 0) + ((canDelete || canChangeStatus) ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
@@ -1265,6 +1307,9 @@ export default function BriefManagementPage() {
                               ? format(new Date(latestVersion.created_at), "MMM d")
                               : `v${latestVersion.version_number}`
                             : "--"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground" data-testid={`text-brief-copyright-${brief.id}`}>
+                          {COPYRIGHT_STATUS_LABEL[getCopyrightStatus(brief)]}
                         </TableCell>
                         {(canDelete || canChangeStatus) && (
                           <TableCell onClick={(e) => e.stopPropagation()}>
