@@ -1,0 +1,176 @@
+import { supabase } from '../../_lib/database.js';
+import { getTenantContext } from '../../_lib/tenantContext.js';
+import { sendEmail } from '../../_lib/emailService.js';
+
+export default async function handler(req, res) {
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const tenantCtx = await getTenantContext(req);
+  if (!tenantCtx.isAuthenticated || !tenantCtx.tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  try {
+    const { briefId } = req.query;
+    if (!briefId) {
+      return res.status(400).json({ error: 'briefId is required' });
+    }
+
+    const { copyright_form_id } = req.body || {};
+    if (!copyright_form_id) {
+      return res.status(400).json({ error: 'copyright_form_id is required' });
+    }
+
+    const { data: brief, error: briefError } = await supabase
+      .from('article_brief')
+      .select('id, title, tenant_id, assigned_writer_id, external_writer_id')
+      .eq('id', briefId)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .single();
+
+    if (briefError || !brief) {
+      return res.status(404).json({ error: 'Article brief not found' });
+    }
+
+    // Resolve writer name + email from assigned member or external writer
+    let writerEmail = null;
+    let writerFirstName = null;
+    let writerLastName = null;
+
+    if (brief.external_writer_id) {
+      const { data: ext } = await supabase
+        .from('external_writer')
+        .select('first_name, last_name, email')
+        .eq('id', brief.external_writer_id)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      if (ext) {
+        writerEmail = ext.email || null;
+        writerFirstName = ext.first_name || null;
+        writerLastName = ext.last_name || null;
+      }
+    } else if (brief.assigned_writer_id) {
+      const { data: mem } = await supabase
+        .from('member')
+        .select('first_name, last_name, email')
+        .eq('id', brief.assigned_writer_id)
+        .single();
+      if (mem) {
+        writerEmail = mem.email || null;
+        writerFirstName = mem.first_name || null;
+        writerLastName = mem.last_name || null;
+      }
+    } else {
+      return res.status(400).json({ error: 'No writer is assigned to this brief' });
+    }
+
+    if (!writerEmail) {
+      return res.status(400).json({ error: 'The assigned writer has no email address on file' });
+    }
+
+    const { data: form, error: formError } = await supabase
+      .from('form')
+      .select('id, name, slug, is_active, require_authentication')
+      .eq('id', copyright_form_id)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .single();
+
+    if (formError || !form) {
+      return res.status(400).json({ error: 'Copyright Assignment form not found' });
+    }
+    if (!form.is_active) {
+      return res.status(400).json({ error: 'Copyright Assignment form is not active' });
+    }
+    if (form.require_authentication) {
+      return res.status(400).json({ error: 'Copyright Assignment form requires authentication and cannot be used for the writer link' });
+    }
+    if (!form.slug) {
+      return res.status(400).json({ error: 'Copyright Assignment form does not have a slug configured' });
+    }
+
+    const { data: tenantRecord } = await supabase
+      .from('tenant')
+      .select('domain, slug')
+      .eq('id', tenantCtx.tenantId)
+      .single();
+
+    const tenantHost = tenantRecord?.domain || `${tenantRecord?.slug || 'app'}.iconn.app`;
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const baseUrl = `${protocol}://${tenantHost}`;
+
+    const formUrl = `${baseUrl}/FormView?slug=${encodeURIComponent(form.slug)}&brief_id=${encodeURIComponent(briefId)}`;
+
+    const writerName = [writerFirstName, writerLastName].filter(Boolean).join(' ').trim() || 'there';
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="color: #333; font-size: 15px; line-height: 1.6;">
+          <p>Hi ${writerName},</p>
+          <p>Please complete the Copyright Assignment Form for the article brief
+            "<strong>${brief.title || 'Article Brief'}</strong>".</p>
+        </div>
+        <div style="margin-top: 16px;">
+          <a href="${formUrl}"
+             style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: 500;">
+            Complete the Copyright Assignment Form
+          </a>
+        </div>
+        <p style="color: #888; font-size: 13px; margin-top: 8px;">
+          Or copy this link: <a href="${formUrl}" style="color: #2563eb;">${formUrl}</a>
+        </p>
+      </div>
+    `;
+
+    const emailResult = await sendEmail({
+      to: writerEmail,
+      subject: `Copyright Assignment Form: ${brief.title || 'Article Brief'}`,
+      html: emailHtml,
+      tenantId: tenantCtx.tenantId,
+      skipFooter: false,
+    });
+
+    if (!emailResult || emailResult.success !== true) {
+      console.error('[SendCopyrightForm] Email send failed:', emailResult?.error || 'Unknown error');
+      return res.status(500).json({ error: 'Failed to send email: ' + (emailResult?.error || 'Unknown error') });
+    }
+
+    const now = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from('article_brief')
+      .update({
+        copyright_required: true,
+        copyright_form_id,
+        copyright_form_sent_at: now,
+        copyright_submission_id: null,
+      })
+      .eq('id', briefId)
+      .eq('tenant_id', tenantCtx.tenantId);
+
+    if (updateError) {
+      console.error('[SendCopyrightForm] Failed to update brief:', updateError);
+      return res.status(500).json({ error: 'Email sent but failed to update brief record' });
+    }
+
+    console.log(`[SendCopyrightForm] Copyright form link sent to ${writerEmail} for brief ${briefId}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Copyright Assignment form link sent to writer',
+      sent_at: now,
+      writer_email: writerEmail,
+    });
+  } catch (error) {
+    console.error('[SendCopyrightForm] Error:', error);
+    return res.status(500).json({ error: 'Failed to send copyright form: ' + (error.message || 'Unknown error') });
+  }
+}

@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -153,9 +154,12 @@ export default function BriefDetailPage() {
 
   const [csProvider, setCsProvider] = useState({ first_name: "", last_name: "", email: "" });
   const [csSelectedFormId, setCsSelectedFormId] = useState("");
-  const [csSelectedCopyrightFormId, setCsSelectedCopyrightFormId] = useState("");
   const [csEmailContent, setCsEmailContent] = useState("");
   const [csFormInitialized, setCsFormInitialized] = useState(false);
+
+  const [copyrightSelectedFormId, setCopyrightSelectedFormId] = useState("");
+  const [copyrightFormInitialized, setCopyrightFormInitialized] = useState(false);
+  const [copyrightConfirmOpen, setCopyrightConfirmOpen] = useState(false);
 
   const { data: briefSettings } = useQuery({
     queryKey: ["brief-settings"],
@@ -213,15 +217,15 @@ export default function BriefDetailPage() {
     queryKey: ["forms-for-case-study"],
     queryFn: async () => {
       const allForms = await base44.entities.Form.list();
-      return allForms.filter((f) => f.is_active && !f.is_contract && !f.require_authentication);
+      return allForms.filter((f) => f.is_active && !f.is_contract && !f.require_authentication && !!f.slug);
     },
     enabled: isAccessReady,
   });
 
   const caseStudySubmissionId = brief?.case_study_submission_id;
   const caseStudyFormId = brief?.case_study_form_id;
-  const caseStudyCopyrightSubmissionId = brief?.case_study_copyright_submission_id;
-  const caseStudyCopyrightFormId = brief?.case_study_copyright_form_id;
+  const copyrightSubmissionId = brief?.copyright_submission_id;
+  const copyrightFormId = brief?.copyright_form_id;
 
   const { data: caseStudySubmission } = useQuery({
     queryKey: ["case-study-submission", caseStudySubmissionId],
@@ -241,22 +245,22 @@ export default function BriefDetailPage() {
     enabled: isAccessReady && !!caseStudyFormId,
   });
 
-  const { data: caseStudyCopyrightSubmission } = useQuery({
-    queryKey: ["case-study-copyright-submission", caseStudyCopyrightSubmissionId],
+  const { data: copyrightSubmission } = useQuery({
+    queryKey: ["brief-copyright-submission", copyrightSubmissionId],
     queryFn: async () => {
-      if (!caseStudyCopyrightSubmissionId) return null;
-      return await base44.entities.FormSubmission.get(caseStudyCopyrightSubmissionId);
+      if (!copyrightSubmissionId) return null;
+      return await base44.entities.FormSubmission.get(copyrightSubmissionId);
     },
-    enabled: isAccessReady && !!caseStudyCopyrightSubmissionId,
+    enabled: isAccessReady && !!copyrightSubmissionId,
   });
 
-  const { data: caseStudyCopyrightForm } = useQuery({
-    queryKey: ["case-study-copyright-form", caseStudyCopyrightFormId],
+  const { data: copyrightForm } = useQuery({
+    queryKey: ["brief-copyright-form", copyrightFormId],
     queryFn: async () => {
-      if (!caseStudyCopyrightFormId) return null;
-      return await base44.entities.Form.get(caseStudyCopyrightFormId);
+      if (!copyrightFormId) return null;
+      return await base44.entities.Form.get(copyrightFormId);
     },
-    enabled: isAccessReady && !!caseStudyCopyrightFormId,
+    enabled: isAccessReady && !!copyrightFormId,
   });
 
   const { data: caseStudyUploads = [], isLoading: caseStudyUploadsLoading } = useQuery({
@@ -455,30 +459,65 @@ export default function BriefDetailPage() {
   });
 
   const sendCaseStudyFormMutation = useMutation({
-    mutationFn: async ({ form_id, copyright_form_id, provider, email_content }) => {
+    mutationFn: async ({ form_id, provider, email_content }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-case-study-form`, {
         form_id,
-        copyright_form_id: copyright_form_id || null,
         provider,
         email_content,
       });
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
-      toast.success(
-        variables?.copyright_form_id
-          ? "Case study form links sent successfully"
-          : "Case study form link sent successfully"
-      );
+      toast.success("Case study form link sent successfully");
     },
     onError: (err) => {
       toast.error(err.message || "Failed to send case study form link");
     },
   });
 
+  const setCopyrightRequiredMutation = useMutation({
+    mutationFn: async (required) => {
+      const payload = { copyright_required: !!required };
+      if (!required) {
+        payload.copyright_form_id = null;
+        payload.copyright_form_sent_at = null;
+        payload.copyright_submission_id = null;
+      }
+      return await base44.entities.ArticleBrief.update(briefId, payload);
+    },
+    onSuccess: (_data, required) => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+      if (!required) {
+        setCopyrightSelectedFormId("");
+      }
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update copyright requirement");
+    },
+  });
+
+  const sendCopyrightFormMutation = useMutation({
+    mutationFn: async ({ copyright_form_id }) => {
+      return await apiRequest("POST", `/api/article-briefs/${briefId}/send-copyright-form`, {
+        copyright_form_id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+      setCopyrightConfirmOpen(false);
+      toast.success("Copyright Assignment form link sent to writer");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to send copyright form link");
+    },
+  });
+
   useEffect(() => {
     setCsFormInitialized(false);
+    setCopyrightFormInitialized(false);
   }, [briefId]);
 
   useEffect(() => {
@@ -490,11 +529,17 @@ export default function BriefDetailPage() {
         email: prov.email || "",
       });
       setCsSelectedFormId(brief.case_study_form_id || "");
-      setCsSelectedCopyrightFormId(brief.case_study_copyright_form_id || "");
       setCsEmailContent(brief.case_study_email_content || "");
       setCsFormInitialized(true);
     }
   }, [brief, csFormInitialized]);
+
+  useEffect(() => {
+    if (brief && !copyrightFormInitialized) {
+      setCopyrightSelectedFormId(brief.copyright_form_id || "");
+      setCopyrightFormInitialized(true);
+    }
+  }, [brief, copyrightFormInitialized]);
 
   const handleStartEdit = () => {
     const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
@@ -1093,6 +1138,212 @@ export default function BriefDetailPage() {
                 </CardContent>
               </Card>
             )}
+
+            {!isEditing && (() => {
+              const isWriterAssigned = !!brief.assigned_writer_id || !!brief.external_writer_id;
+              const writerName = brief.external_writer_id
+                ? (externalWriter
+                  ? [externalWriter.first_name, externalWriter.last_name].filter(Boolean).join(" ").trim() || externalWriter.email
+                  : "External writer")
+                : (brief.assigned_writer_id ? getMemberName(brief.assigned_writer_id) : "");
+              const writerEmail = brief.external_writer_id
+                ? externalWriter?.email || ""
+                : (brief.assigned_writer_id ? membersById[brief.assigned_writer_id]?.email || "" : "");
+              const required = !!brief.copyright_required;
+              const sentAt = brief.copyright_form_sent_at;
+              const hasCopyrightSubmitted = !!brief.copyright_submission_id && !!copyrightSubmission;
+
+              const formatSent = (ts) => { try { return format(new Date(ts), "MMM d, yyyy"); } catch { return ts; } };
+
+              let disabledReason = null;
+              if (!isWriterAssigned) disabledReason = "Assign a writer to this brief first";
+              else if (!writerEmail) disabledReason = "The assigned writer has no email on file";
+              else if (!copyrightSelectedFormId) disabledReason = "Select a Copyright Assignment form";
+
+              const renderCopyrightSubmissionData = () => {
+                if (!hasCopyrightSubmitted) return null;
+                const submission = copyrightSubmission;
+                const formMeta = copyrightForm;
+                const fields = formMeta?.fields || [];
+                const data = submission?.submission_data || {};
+                const fieldMap = {};
+                fields.forEach((f) => { fieldMap[f.id] = f; });
+                const imageEntries = [];
+                const docEntries = [];
+                const fieldEntries = [];
+                Object.entries(data).forEach(([key, value]) => {
+                  const field = fieldMap[key];
+                  if (!value || (field && (field.type === 'instructions' || field.type === 'image'))) return;
+                  if (field?.type === 'file_upload' || field?.type === 'image_upload') {
+                    const files = Array.isArray(value) ? value : [value];
+                    files.forEach((f) => {
+                      const url = typeof f === 'string' ? f : f?.file_url || f?.url;
+                      const name = typeof f === 'string' ? key : f?.file_name || f?.name || key;
+                      if (!url) return;
+                      const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
+                      if (isImage) imageEntries.push({ url, name });
+                      else docEntries.push({ url, name });
+                    });
+                  } else {
+                    const label = field?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                    let displayValue = value;
+                    if (typeof value === 'boolean') displayValue = value ? 'Yes' : 'No';
+                    else if (Array.isArray(value)) displayValue = value.join(', ');
+                    else if (typeof value === 'object') displayValue = JSON.stringify(value);
+                    fieldEntries.push({ label, value: String(displayValue) });
+                  }
+                });
+                return (
+                  <div className="space-y-3 mt-3" data-testid="section-copyright-submission">
+                    {fieldEntries.length > 0 && (
+                      <div className="rounded-md border p-3">
+                        <Label className="text-xs text-muted-foreground">Submitted Answers</Label>
+                        <div className="grid sm:grid-cols-2 gap-3 mt-2">
+                          {fieldEntries.map((entry, i) => (
+                            <div key={i} data-testid={`text-copyright-field-${i}`}>
+                              <Label className="text-xs text-muted-foreground">{entry.label}</Label>
+                              <p className="text-sm mt-0.5 whitespace-pre-wrap">{entry.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(imageEntries.length > 0 || docEntries.length > 0) && (
+                      <div className="rounded-md border p-3 space-y-2">
+                        {imageEntries.length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {imageEntries.map((img, i) => (
+                              <a key={i} href={img.url} target="_blank" rel="noopener noreferrer" className="block rounded-md overflow-visible border hover-elevate" data-testid={`link-copyright-image-${i}`}>
+                                <img src={img.url} alt={img.name} className="w-full h-24 object-cover rounded-md" />
+                                <p className="text-xs text-muted-foreground p-1 truncate">{img.name}</p>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        {docEntries.length > 0 && (
+                          <div className="space-y-2">
+                            {docEntries.map((doc, i) => (
+                              <a key={i} href={doc.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm hover-elevate p-2 rounded-md border" data-testid={`link-copyright-doc-${i}`}>
+                                <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                                <span>{doc.name}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <Card className="mt-4" data-testid="card-brief-copyright">
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5" />
+                        Copyright Assignment
+                      </CardTitle>
+                      {canManage && (
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="toggle-copyright-required" className="text-sm">Copyright form required</Label>
+                          <Switch
+                            id="toggle-copyright-required"
+                            checked={required}
+                            disabled={setCopyrightRequiredMutation.isPending}
+                            onCheckedChange={(v) => setCopyrightRequiredMutation.mutate(!!v)}
+                            data-testid="switch-copyright-required"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </CardHeader>
+                  {required ? (
+                    <CardContent className="space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Writer</Label>
+                          <p className="text-sm mt-0.5" data-testid="text-copyright-writer-name">{writerName || "—"}</p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Writer Email</Label>
+                          <p className="text-sm mt-0.5" data-testid="text-copyright-writer-email">{writerEmail || "—"}</p>
+                        </div>
+                      </div>
+                      {canManage && (
+                        <div className="space-y-1">
+                          <Label>Copyright Assignment Form</Label>
+                          <Select
+                            value={copyrightSelectedFormId || "none"}
+                            onValueChange={(v) => setCopyrightSelectedFormId(v === "none" ? "" : v)}
+                          >
+                            <SelectTrigger data-testid="select-copyright-form"><SelectValue placeholder="Select a form..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Select a form...</SelectItem>
+                              {availableForms.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {!canManage && copyrightForm?.name && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Form</Label>
+                          <p className="text-sm mt-0.5" data-testid="text-copyright-form-name">{copyrightForm.name}</p>
+                        </div>
+                      )}
+                      <Separator />
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="min-w-[140px]">
+                          <Label className="text-xs text-muted-foreground">Status</Label>
+                          <div className="mt-1">
+                            <Badge
+                              variant={hasCopyrightSubmitted ? "default" : "secondary"}
+                              data-testid="badge-copyright-status"
+                            >
+                              {hasCopyrightSubmitted && <CheckCircle className="w-3 h-3 mr-1" />}
+                              {!hasCopyrightSubmitted && sentAt && <Clock className="w-3 h-3 mr-1" />}
+                              {hasCopyrightSubmitted
+                                ? `Submitted on ${formatSent(copyrightSubmission?.created_at || sentAt)}`
+                                : sentAt
+                                  ? `Sent on ${formatSent(sentAt)}`
+                                  : "Not sent"}
+                            </Badge>
+                          </div>
+                        </div>
+                        {canManage && (
+                          <div className="ml-auto flex flex-col items-end gap-1">
+                            <Button
+                              onClick={() => setCopyrightConfirmOpen(true)}
+                              disabled={!!disabledReason || sendCopyrightFormMutation.isPending}
+                              data-testid="button-send-copyright-form"
+                            >
+                              {sendCopyrightFormMutation.isPending ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4 mr-1" />
+                              )}
+                              {sentAt ? "Resend to writer" : "Send to writer"}
+                            </Button>
+                            {disabledReason && (
+                              <p className="text-xs text-muted-foreground" data-testid="text-copyright-disabled-reason">{disabledReason}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {renderCopyrightSubmissionData()}
+                    </CardContent>
+                  ) : (
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground" data-testid="text-copyright-not-required">
+                        Copyright Assignment form is not required for this brief.
+                      </p>
+                    </CardContent>
+                  )}
+                </Card>
+              );
+            })()}
           </TabsContent>
 
           <TabsContent value="versions" className="mt-4">
@@ -1312,8 +1563,6 @@ export default function BriefDetailPage() {
               const canEditCaseStudy = isWriter || canManage;
               const hasFormSubmission = !!brief.case_study_submission_id && !!caseStudySubmission;
               const hasFormSent = !!brief.case_study_form_sent_at;
-              const hasCopyrightFormConfigured = !!brief.case_study_copyright_form_id;
-              const hasCopyrightSubmission = !!brief.case_study_copyright_submission_id && !!caseStudyCopyrightSubmission;
               const hasLegacyContent = brief.case_study_content || (Array.isArray(brief.case_study_images) && brief.case_study_images.length > 0) || brief.case_study_permissions;
               const provider = brief.case_study_provider;
 
@@ -1463,13 +1712,6 @@ export default function BriefDetailPage() {
                           sentAt: brief.case_study_form_sent_at,
                           hasSubmission: hasFormSubmission,
                           testIdSuffix: "permission",
-                        })}
-                        {hasCopyrightFormConfigured && renderFormStatusRow({
-                          rowLabel: "Copyright Assignment",
-                          formName: caseStudyCopyrightForm?.name,
-                          sentAt: brief.case_study_copyright_form_sent_at,
-                          hasSubmission: hasCopyrightSubmission,
-                          testIdSuffix: "copyright",
                         })}
                       </div>
                     </CardContent>
@@ -1650,34 +1892,8 @@ export default function BriefDetailPage() {
               };
 
               const renderAllSubmissions = () => {
-                const hasBoth = hasFormSubmission && hasCopyrightSubmission;
-                if (hasBoth) {
-                  return (
-                    <div className="space-y-6">
-                      <div className="space-y-2" data-testid="section-submission-permission">
-                        <h3 className="text-base font-semibold flex items-center gap-2">
-                          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
-                          Permission Form Submission
-                          {caseStudyForm?.name && <span className="text-sm font-normal text-muted-foreground">— {caseStudyForm.name}</span>}
-                        </h3>
-                        {renderSubmissionDataFor(caseStudySubmission, caseStudyForm)}
-                      </div>
-                      <div className="space-y-2" data-testid="section-submission-copyright">
-                        <h3 className="text-base font-semibold flex items-center gap-2">
-                          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
-                          Copyright Assignment Form Submission
-                          {caseStudyCopyrightForm?.name && <span className="text-sm font-normal text-muted-foreground">— {caseStudyCopyrightForm.name}</span>}
-                        </h3>
-                        {renderSubmissionDataFor(caseStudyCopyrightSubmission, caseStudyCopyrightForm)}
-                      </div>
-                    </div>
-                  );
-                }
                 if (hasFormSubmission) {
                   return renderSubmissionDataFor(caseStudySubmission, caseStudyForm);
-                }
-                if (hasCopyrightSubmission) {
-                  return renderSubmissionDataFor(caseStudyCopyrightSubmission, caseStudyCopyrightForm);
                 }
                 return null;
               };
@@ -1784,35 +2000,26 @@ export default function BriefDetailPage() {
                   toast.error("Please select a Permission Form to send");
                   return;
                 }
-                if (csSelectedCopyrightFormId && csSelectedCopyrightFormId === csSelectedFormId) {
-                  toast.error("Permission and Copyright Assignment forms must be different");
-                  return;
-                }
                 if (!csEmailContent.trim()) {
                   toast.error("Please write an email message to accompany the form link");
                   return;
                 }
                 sendCaseStudyFormMutation.mutate({
                   form_id: csSelectedFormId,
-                  copyright_form_id: csSelectedCopyrightFormId || null,
                   provider: csProvider,
                   email_content: csEmailContent,
                 });
               };
 
-              const willSendBoth = !!csSelectedCopyrightFormId;
-              const sendButtonLabel = hasFormSent
-                ? (willSendBoth ? "Resend Form Links" : "Resend Form Link")
-                : (willSendBoth ? "Send Form Links" : "Send Form Link");
+              const sendButtonLabel = hasFormSent ? "Resend Form Link" : "Send Form Link";
 
               return (
                 <div className="space-y-4">
                   {hasFormSent && renderProviderStatus()}
                   {renderCaseStudyUploads()}
-                  {hasFormSent && hasCopyrightSubmission && !hasFormSubmission && renderAllSubmissions()}
 
                   <Card>
-                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="w-5 h-5" />{hasFormSent ? "Resend Form Link(s)" : "Send Case Study Form(s)"}</CardTitle></CardHeader>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="w-5 h-5" />{hasFormSent ? "Resend Form Link" : "Send Case Study Form"}</CardTitle></CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
@@ -1860,24 +2067,11 @@ export default function BriefDetailPage() {
                         </Select>
                       </div>
                       <div className="space-y-1">
-                        <Label>Copyright Assignment Form</Label>
-                        <Select value={csSelectedCopyrightFormId || "none"} onValueChange={(v) => setCsSelectedCopyrightFormId(v === "none" ? "" : v)}>
-                          <SelectTrigger data-testid="select-cs-copyright-form"><SelectValue placeholder="None (optional)" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None (optional)</SelectItem>
-                            {availableForms.map((f) => (
-                              <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">Optional. When selected, the email will include a second button for the recipient to also complete the Copyright Assignment Form.</p>
-                      </div>
-                      <div className="space-y-1">
                         <Label htmlFor="cs-email-body">Email Message *</Label>
                         <SimpleRichTextEditor
                           content={csEmailContent}
                           onChange={setCsEmailContent}
-                          placeholder="Write the email message to send along with the form link(s)..."
+                          placeholder="Write the email message to send along with the form link..."
                           className=""
                         />
                       </div>
@@ -1990,6 +2184,40 @@ export default function BriefDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={copyrightConfirmOpen} onOpenChange={setCopyrightConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-copyright-send">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {brief?.copyright_form_sent_at ? "Resend Copyright Assignment form?" : "Send Copyright Assignment form?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const writerEmail = brief?.external_writer_id
+                  ? externalWriter?.email || ""
+                  : (brief?.assigned_writer_id ? membersById[brief.assigned_writer_id]?.email || "" : "");
+                const formName = (availableForms.find((f) => f.id === copyrightSelectedFormId) || {}).name || copyrightForm?.name || "the selected form";
+                return `A unique link to "${formName}" will be emailed to the writer at ${writerEmail || "their email"}.`;
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-copyright-send">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (!copyrightSelectedFormId) return;
+                sendCopyrightFormMutation.mutate({ copyright_form_id: copyrightSelectedFormId });
+              }}
+              disabled={sendCopyrightFormMutation.isPending || !copyrightSelectedFormId}
+              data-testid="button-confirm-copyright-send"
+            >
+              {sendCopyrightFormMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {brief?.copyright_form_sent_at ? "Resend" : "Send"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!statusConfirm} onOpenChange={(open) => !open && setStatusConfirm(null)}>
         <AlertDialogContent data-testid="dialog-confirm-status">

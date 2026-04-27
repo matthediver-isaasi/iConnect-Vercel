@@ -98,15 +98,15 @@ export default async function handler(req, res) {
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
 
     // Link submission back to article_brief if brief_id context parameter is present.
-    // The submitted form may be either the Permission form (case_study_form_id ->
-    // case_study_submission_id) or the optional Copyright Assignment form
-    // (case_study_copyright_form_id -> case_study_copyright_submission_id).
+    // The submitted form may be either the case-study Permission form
+    // (case_study_form_id -> case_study_submission_id) or the brief-level
+    // Copyright Assignment form (copyright_form_id -> copyright_submission_id).
     if (brief_id) {
       try {
         console.log('[Public Form Submission] Linking submission to article_brief:', brief_id);
         const { data: matchingBrief, error: briefLookupError } = await supabase
           .from('article_brief')
-          .select('id, case_study_form_id, case_study_copyright_form_id')
+          .select('id, case_study_form_id, copyright_form_id')
           .eq('id', brief_id)
           .eq('tenant_id', tenantData.id)
           .maybeSingle();
@@ -119,12 +119,12 @@ export default async function handler(req, res) {
           let updateField = null;
           if (matchingBrief.case_study_form_id === form_id) {
             updateField = 'case_study_submission_id';
-          } else if (matchingBrief.case_study_copyright_form_id === form_id) {
-            updateField = 'case_study_copyright_submission_id';
+          } else if (matchingBrief.copyright_form_id === form_id) {
+            updateField = 'copyright_submission_id';
           }
 
           if (!updateField) {
-            console.warn('[Public Form Submission] Submitted form does not match any case study slot for brief (brief_id:', brief_id, 'form_id:', form_id, ')');
+            console.warn('[Public Form Submission] Submitted form does not match any brief form slot (brief_id:', brief_id, 'form_id:', form_id, ')');
           } else {
             const { error: briefUpdateError } = await supabase
               .from('article_brief')
@@ -142,9 +142,9 @@ export default async function handler(req, res) {
               // separate files_uploaded item) so one event = one inbox row.
               // Non-blocking: failures must not break the public submission.
               try {
-                const eventType = updateField === 'case_study_submission_id'
-                  ? 'permission_submitted'
-                  : 'copyright_submitted';
+                const eventType = updateField === 'copyright_submission_id'
+                  ? 'copyright_submitted'
+                  : 'permission_submitted';
 
                 const fields = form.fields || [];
                 let submitterEmailForInbox = null;
