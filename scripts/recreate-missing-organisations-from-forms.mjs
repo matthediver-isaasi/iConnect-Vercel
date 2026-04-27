@@ -430,7 +430,7 @@ async function fetchAllSubmissions(formId, tenantId) {
   while (true) {
     const { data, error } = await supabase
       .from('form_submission')
-      .select('id, created_date, submitted_by_name, submitted_by_email, organization_id, processed_at, submission_data')
+      .select('id, created_date, submitted_by_name, submitted_by_email, organization_id, submission_data')
       .eq('form_id', formId)
       .eq('tenant_id', tenantId)
       .order('created_date', { ascending: true })
@@ -749,10 +749,11 @@ async function applyReprocessing(form, tenantId, flaggedRows, orgNameFieldId) {
     }
 
     // Build the same payload the public submission endpoint would send.
-    // Notably we do NOT pass submission_id (the handler short-circuits on
-    // already-processed submissions via processed_at). We DO pass
-    // prefill_organization_id so the handler uses our verified/pre-created
-    // tenant-safe id and skips its unscoped name lookup.
+    // Notably we do NOT pass submission_id, which bypasses the handler's
+    // idempotency short-circuit entirely — so this script does not depend on
+    // the form_submission.processed_at column existing in the target DB. We
+    // DO pass prefill_organization_id so the handler uses our verified/
+    // pre-created tenant-safe id and skips its unscoped name lookup.
     const payload = {
       form_id: form.id,
       form_values: submission.submission_data || {},
