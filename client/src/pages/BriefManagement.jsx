@@ -49,6 +49,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckSquare,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -59,12 +61,16 @@ import MemberCombobox from "@/components/MemberCombobox";
 import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
 
+const ARCHIVED_STATUS = "archived";
+const ARCHIVED_STATUS_CONFIG = { label: "Archived", color: "#64748b", icon: Archive };
+
 const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
   assigned: { label: "Assigned", color: "#3b82f6", icon: FileText },
   in_progress: { label: "In Progress", color: "#f59e0b", icon: Pencil },
   changes_requested: { label: "Changes Requested", color: "#f97316", icon: AlertCircle },
   rejected: { label: "Rejected", color: "#ef4444", icon: XCircle },
+  [ARCHIVED_STATUS]: ARCHIVED_STATUS_CONFIG,
 };
 
 function buildStatusConfig(stages) {
@@ -73,6 +79,7 @@ function buildStatusConfig(stages) {
   for (const stage of stages) {
     config[stage.key] = { label: stage.label, color: stage.color, icon: Clock };
   }
+  config[ARCHIVED_STATUS] = ARCHIVED_STATUS_CONFIG;
   return new Proxy(config, {
     get(target, prop) {
       if (prop in target) return target[prop];
@@ -183,6 +190,10 @@ export default function BriefManagementPage() {
   });
 
   const STATUS_CONFIG = useMemo(() => buildStatusConfig(briefSettings?.stages), [briefSettings?.stages]);
+
+  const firstStageKey = useMemo(() => {
+    return briefSettings?.stages?.[0]?.key || "new";
+  }, [briefSettings?.stages]);
 
   const { data: briefs = [], isLoading } = useQuery({
     queryKey: ["article-briefs"],
@@ -297,10 +308,24 @@ export default function BriefManagementPage() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: async ({ id, status }) => {
+      return await base44.entities.ArticleBrief.update(id, { status });
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+      toast.success(vars.status === ARCHIVED_STATUS ? "Brief archived" : "Brief restored");
+    },
+    onError: () => {
+      toast.error("Failed to update brief");
+    },
+  });
+
   const stats = useMemo(() => {
-    const total = briefs.length;
+    const active = briefs.filter((b) => b.status !== ARCHIVED_STATUS);
+    const total = active.length;
     const byStatus = {};
-    briefs.forEach((b) => {
+    active.forEach((b) => {
       byStatus[b.status] = (byStatus[b.status] || 0) + 1;
     });
     return {
@@ -343,15 +368,20 @@ export default function BriefManagementPage() {
   const filteredAndSorted = useMemo(() => {
     let filtered = briefs;
 
-    if (activeView === "my_briefs" && memberInfo?.id) {
-      filtered = filtered.filter((b) => b.review_owner_id === memberInfo.id);
-    } else if (activeView === "review_queue" && memberInfo?.id) {
-      filtered = filtered.filter(
-        (b) => b.review_owner_id === memberInfo.id && b.status === "changes_requested"
-      );
+    if (activeView === "archived") {
+      filtered = filtered.filter((b) => b.status === ARCHIVED_STATUS);
+    } else {
+      filtered = filtered.filter((b) => b.status !== ARCHIVED_STATUS);
+      if (activeView === "my_briefs" && memberInfo?.id) {
+        filtered = filtered.filter((b) => b.review_owner_id === memberInfo.id);
+      } else if (activeView === "review_queue" && memberInfo?.id) {
+        filtered = filtered.filter(
+          (b) => b.review_owner_id === memberInfo.id && b.status === "changes_requested"
+        );
+      }
     }
 
-    if (statusFilter.length > 0) {
+    if (statusFilter.length > 0 && activeView !== "archived") {
       filtered = filtered.filter((b) => statusFilter.includes(b.status));
     }
     if (writerFilter.length > 0) {
@@ -696,6 +726,7 @@ export default function BriefManagementPage() {
             <TabsTrigger value="all" data-testid="tab-all-briefs">All Briefs</TabsTrigger>
             <TabsTrigger value="my_briefs" data-testid="tab-my-briefs">My Briefs</TabsTrigger>
             <TabsTrigger value="review_queue" data-testid="tab-review-queue">Review Queue</TabsTrigger>
+            <TabsTrigger value="archived" data-testid="tab-archived">Archived</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -714,7 +745,9 @@ export default function BriefManagementPage() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <MultiSelectFilter
-                  options={Object.entries(STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+                  options={Object.entries(STATUS_CONFIG)
+                    .filter(([key]) => key !== ARCHIVED_STATUS)
+                    .map(([key, cfg]) => ({ value: key, label: cfg.label }))}
                   selected={statusFilter}
                   onChange={setStatusFilter}
                   placeholder="All Statuses"
@@ -829,19 +862,21 @@ export default function BriefManagementPage() {
                   <TableHead className="min-w-[110px]">
                     <SortableHeader field="latest_draft" label="Latest Draft" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
                   </TableHead>
-                  {canDelete && <TableHead className="min-w-[60px]">Actions</TableHead>}
+                  {(canDelete || canChangeStatus) && <TableHead className="min-w-[100px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedBriefs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={(canDelete ? 7 : 6) + (canChangeStatus ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={6 + (canChangeStatus ? 1 : 0) + ((canDelete || canChangeStatus) ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
                         ? "No briefs assigned to you."
                         : activeView === "review_queue"
                         ? "No briefs awaiting your review."
+                        : activeView === "archived"
+                        ? "No archived briefs."
                         : "No briefs match your filters."}
                     </TableCell>
                   </TableRow>
@@ -903,19 +938,58 @@ export default function BriefManagementPage() {
                               : `v${latestVersion.version_number}`
                             : "--"}
                         </TableCell>
-                        {canDelete && (
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setBriefToDelete(brief);
-                              }}
-                              data-testid={`button-delete-brief-${brief.id}`}
-                            >
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            </Button>
+                        {(canDelete || canChangeStatus) && (
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1">
+                              {canChangeStatus && (
+                                brief.status === ARCHIVED_STATUS ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      archiveMutation.mutate({ id: brief.id, status: firstStageKey });
+                                    }}
+                                    disabled={archiveMutation.isPending}
+                                    aria-label={`Restore brief ${brief.title}`}
+                                    title="Restore"
+                                    data-testid={`button-unarchive-brief-${brief.id}`}
+                                  >
+                                    <ArchiveRestore className="w-4 h-4" />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      archiveMutation.mutate({ id: brief.id, status: ARCHIVED_STATUS });
+                                    }}
+                                    disabled={archiveMutation.isPending}
+                                    aria-label={`Archive brief ${brief.title}`}
+                                    title="Archive"
+                                    data-testid={`button-archive-brief-${brief.id}`}
+                                  >
+                                    <Archive className="w-4 h-4" />
+                                  </Button>
+                                )
+                              )}
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBriefToDelete(brief);
+                                  }}
+                                  aria-label={`Delete brief ${brief.title}`}
+                                  title="Delete"
+                                  data-testid={`button-delete-brief-${brief.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
