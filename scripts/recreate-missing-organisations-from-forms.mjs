@@ -252,6 +252,24 @@ try {
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Re-export the chosen credentials onto the canonical SUPABASE_URL /
+// SUPABASE_SERVICE_KEY env vars BEFORE we dynamically import any
+// `api/forms/*` handler in apply mode. Those handlers (e.g.
+// `api/forms/process-application.js`) build their own Supabase client at
+// module-load time directly from `process.env.SUPABASE_URL` /
+// `process.env.SUPABASE_SERVICE_KEY`. Without this override the apply
+// path silently splits brain across two databases — this script reads
+// from the resolved tier (typically DEV_SUPABASE_*) but the AppProcessor
+// writes to the legacy SUPABASE_* snapshot, which on this Repl is a
+// pre-multi-tenancy database missing `organization.tenant_id` and other
+// columns. Symptom is a PGRST204 "Could not find the 'tenant_id'
+// column of 'organization' in the schema cache" error during org
+// creation. We force both clients to point at the same DB by mirroring
+// the chosen tier's credentials onto SUPABASE_URL / SUPABASE_SERVICE_KEY
+// here, even when the chosen tier already IS SUPABASE_* (idempotent).
+process.env.SUPABASE_URL = supabaseUrl;
+process.env.SUPABASE_SERVICE_KEY = supabaseServiceKey;
+
 function printUsageAndExit(code) {
   console.log(`Usage: node scripts/recreate-missing-organisations-from-forms.mjs [options]
 
