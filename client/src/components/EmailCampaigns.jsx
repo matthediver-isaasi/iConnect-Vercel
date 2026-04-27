@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
@@ -22,6 +21,7 @@ import { base44 } from "@/api/base44Client";
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign } from '@/components/email-builder/types';
 import DOMPurify from 'dompurify';
+import TestSendDialog from '@/components/TestSendDialog';
 
 export default function EmailCampaigns() {
   const navigate = useNavigate();
@@ -38,13 +38,7 @@ export default function EmailCampaigns() {
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
-  const [testEmailAddress, setTestEmailAddress] = useState('');
   const [testEmailCampaign, setTestEmailCampaign] = useState(null);
-  const [testEmailMode, setTestEmailMode] = useState('manual');
-  const [memberSearchQuery, setMemberSearchQuery] = useState('');
-  const [memberSearchResults, setMemberSearchResults] = useState([]);
-  const [searchingMembers, setSearchingMembers] = useState(false);
-  const [selectedMember, setSelectedMember] = useState(null);
   const [duplicating, setDuplicating] = useState(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [campaignToCancel, setCampaignToCancel] = useState(null);
@@ -139,54 +133,6 @@ export default function EmailCampaigns() {
       scheduledCount
     };
   }, [campaigns]);
-
-  // Member search for test emails with debouncing
-  useEffect(() => {
-    if (!memberSearchQuery || memberSearchQuery.length < 2) {
-      setMemberSearchResults([]);
-      return;
-    }
-
-    const searchController = new AbortController();
-    const debounceTimer = setTimeout(async () => {
-      setSearchingMembers(true);
-      try {
-        const response = await fetch(`/api/members/search?q=${encodeURIComponent(memberSearchQuery)}&limit=10`, {
-          credentials: 'include',
-          signal: searchController.signal
-        });
-        
-        if (response.ok) {
-          const results = await response.json();
-          setMemberSearchResults(results);
-        }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          console.error('Failed to search members:', e);
-          setMemberSearchResults([]);
-        }
-      } finally {
-        setSearchingMembers(false);
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(debounceTimer);
-      searchController.abort();
-    };
-  }, [memberSearchQuery]);
-
-  const handleMemberSearchInput = (query) => {
-    setMemberSearchQuery(query);
-    setSelectedMember(null);
-  };
-
-  const handleSelectMember = (member) => {
-    setSelectedMember(member);
-    setTestEmailAddress(member.email);
-    setMemberSearchQuery(`${member.first_name || ''} ${member.last_name || ''} <${member.email}>`);
-    setMemberSearchResults([]);
-  };
 
   const handleDeleteCampaign = async () => {
     if (!campaignToDelete || isDeleting) return;
@@ -311,8 +257,11 @@ export default function EmailCampaigns() {
     }
   };
 
-  const handleTestSend = async (campaign, testEmail) => {
+  const handleTestSend = async (campaign, recipients) => {
     if (testSending) return;
+    const list = Array.isArray(recipients) ? recipients : [recipients];
+    if (list.length === 0) return;
+
     setTestSending(true);
 
     try {
@@ -320,16 +269,29 @@ export default function EmailCampaigns() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ campaignId: campaign.id, testEmail })
+        body: JSON.stringify({ campaignId: campaign.id, testEmails: list })
       });
 
       const data = await response.json();
-      
-      if (!response.ok) {
+
+      if (!response.ok && !data?.failures) {
         throw new Error(data.error || 'Failed to send test email');
       }
 
-      toast.success(data.message || `Test email sent to ${testEmail}`);
+      const succeeded = data.succeededCount ?? (data.sentTo ? data.sentTo.length : 0);
+      const failed = data.failedCount ?? (data.failures ? data.failures.length : 0);
+
+      if (succeeded > 0 && failed === 0) {
+        toast.success(data.message || `Test email sent to ${succeeded} recipient${succeeded > 1 ? 's' : ''}`);
+      } else if (succeeded > 0 && failed > 0) {
+        const failedList = (data.failures || []).map((f) => f.email).join(', ');
+        toast.warning(`Sent to ${succeeded} of ${succeeded + failed} recipients. Failed: ${failedList}`);
+      } else {
+        const failedList = (data.failures || []).map((f) => f.email).join(', ');
+        toast.error(data.message || `Failed to send test email${failedList ? ` to ${failedList}` : ''}`);
+      }
+
+      setShowTestEmailDialog(false);
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -1128,7 +1090,6 @@ export default function EmailCampaigns() {
                                   size="icon"
                                   onClick={() => {
                                     setTestEmailCampaign(campaign);
-                                    setTestEmailAddress('');
                                     setShowTestEmailDialog(true);
                                   }}
                                   disabled={testSending}
@@ -1809,151 +1770,17 @@ export default function EmailCampaigns() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showTestEmailDialog} onOpenChange={(open) => {
-        setShowTestEmailDialog(open);
-        if (!open) {
-          setTestEmailAddress('');
-          setTestEmailCampaign(null);
-          setTestEmailMode('manual');
-          setMemberSearchQuery('');
-          setMemberSearchResults([]);
-          setSelectedMember(null);
-        }
-      }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Send Test Email</DialogTitle>
-            <DialogDescription>
-              Send a test email for "{testEmailCampaign?.name}" to preview how it will look
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <Tabs value={testEmailMode} onValueChange={(v) => {
-              setTestEmailMode(v);
-              setTestEmailAddress('');
-              setMemberSearchQuery('');
-              setMemberSearchResults([]);
-              setSelectedMember(null);
-            }}>
-              <TabsList className="w-full">
-                <TabsTrigger value="manual" className="flex-1" data-testid="tab-manual-email-list">
-                  <Mail className="w-4 h-4 mr-2" />
-                  Enter Email
-                </TabsTrigger>
-                <TabsTrigger value="member" className="flex-1" data-testid="tab-member-lookup-list">
-                  <Search className="w-4 h-4 mr-2" />
-                  Find Member
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="manual" className="mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="test-email-list">Email Address</Label>
-                  <Input
-                    id="test-email-list"
-                    type="email"
-                    value={testEmailAddress}
-                    onChange={(e) => setTestEmailAddress(e.target.value)}
-                    placeholder="your@email.com"
-                    data-testid="input-test-email-list"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The test email will be sent to this address
-                  </p>
-                </div>
-              </TabsContent>
-              
-              <TabsContent value="member" className="mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="member-search-list">Search Member</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="member-search-list"
-                      value={memberSearchQuery}
-                      onChange={(e) => handleMemberSearchInput(e.target.value)}
-                      placeholder="Search by name or email..."
-                      className="pl-9"
-                      data-testid="input-member-search-list"
-                    />
-                    {searchingMembers && (
-                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-                    )}
-                  </div>
-                  
-                  {memberSearchResults.length > 0 && (
-                    <div className="border rounded-md max-h-48 overflow-y-auto">
-                      {memberSearchResults.map((member) => (
-                        <button
-                          key={member.id}
-                          type="button"
-                          onClick={() => handleSelectMember(member)}
-                          className="w-full text-left px-3 py-2 hover-elevate flex items-center gap-2 border-b last:border-b-0"
-                          data-testid={`member-result-list-${member.id}`}
-                        >
-                          <Users className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">
-                              {member.first_name} {member.last_name}
-                            </div>
-                            <div className="text-sm text-muted-foreground truncate">
-                              {member.email}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {memberSearchQuery.length >= 2 && memberSearchResults.length === 0 && !searchingMembers && (
-                    <p className="text-sm text-muted-foreground">No members found</p>
-                  )}
-                  
-                  {selectedMember && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
-                      <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-blue-900">
-                          {selectedMember.first_name} {selectedMember.last_name}
-                        </div>
-                        <div className="text-sm text-blue-700 truncate">
-                          {selectedMember.email}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => setShowTestEmailDialog(false)}
-              data-testid="button-cancel-test-send-list"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={() => {
-                if (testEmailAddress && testEmailCampaign) {
-                  handleTestSend(testEmailCampaign, testEmailAddress);
-                  setShowTestEmailDialog(false);
-                }
-              }}
-              disabled={!testEmailAddress || testSending}
-              data-testid="button-confirm-test-send-list"
-            >
-              {testSending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <TestTube2 className="w-4 h-4 mr-2" />
-              )}
-              Send Test
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TestSendDialog
+        open={showTestEmailDialog}
+        onOpenChange={(open) => {
+          setShowTestEmailDialog(open);
+          if (!open) setTestEmailCampaign(null);
+        }}
+        description={testEmailCampaign?.name ? `Send a test email for "${testEmailCampaign.name}" to preview how it will look` : 'Send a test email to preview how the campaign will look'}
+        onSend={(recipients) => testEmailCampaign && handleTestSend(testEmailCampaign, recipients)}
+        sending={testSending}
+        testIdSuffix="-list"
+      />
 
       <Dialog open={showEmailPreview} onOpenChange={(open) => {
         setShowEmailPreview(open);
