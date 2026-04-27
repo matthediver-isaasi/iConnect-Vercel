@@ -27,19 +27,29 @@
  *     to resolve a target organisation by joining on the applicant email shared
  *     with the application form (most recent application submission wins on a
  *     tie). With --apply it always updates `form_submission.organization_id`
- *     and, when the DD form's `applicant_organization_name_field` IS
- *     configured, also overwrites that key inside `submission_data` with the
- *     resolved organisation id (replacing the stale invalid UUID). When the
- *     org-name field is NOT configured (e.g. the "ESO Long form" case where
- *     the only thing actually broken is `organization_id`), the script links
- *     by `organization_id` only and leaves `submission_data` untouched. Both
- *     column updates happen in a single update per submission so the row
- *     never lands in a partially-updated state.
+ *     and ALSO overwrites the DD form's "Name of organisation" key inside
+ *     `submission_data` with the resolved organisation id (replacing the stale
+ *     invalid UUID or free-text value). The target field is resolved per DD
+ *     form, in order:
+ *       1. configured                       — form_due_diligence_config.applicant_organization_name_field
+ *       2. label_match                      — field whose label equals "name of organisation"
+ *       3. type_organisation_dropdown       — first field whose type === 'organisation_dropdown'
+ *     `organisation_dropdown` is single-purpose (its value semantics ARE "an
+ *     organisation id"), so the type-based fallback is on by default — unlike
+ *     the email resolver, which has --allow-dd-email-type-fallback because DD
+ *     forms typically have several email-shaped fields (CEO, point of contact,
+ *     safeguarding lead, etc.). When even that fallback finds nothing, the
+ *     script links by `organization_id` only and leaves `submission_data`
+ *     untouched. Both column updates (when applicable) happen in a single
+ *     update per submission so the row never lands in a partially-updated
+ *     state.
  *     Two extra reports are written:
  *       tmp/missing-dd-orgs-dry-run-<ts>.csv  (always)
  *       tmp/missing-dd-orgs-apply-<ts>.csv    (only with --apply)
  *     A `submission_data_patched` column on both reports records, per row,
- *     whether the `submission_data` patch is applicable (`yes` / `no`).
+ *     whether the `submission_data` patch is applicable (`yes` / `no`); an
+ *     `org_field_source` column records which resolution rule above produced
+ *     the field id used for the patch.
  *     DD submissions whose applicant email does not match any application
  *     submission, or whose matched application submission has no valid
  *     organisation, are reported as `no_application_match` /
@@ -732,10 +742,21 @@ async function discoverDDForms(tenantId) {
       warn(`[dd discovery] DD config ${config.id} references form ${config.form_id} which is missing or belongs to a different tenant; skipping`);
       continue;
     }
-    if (config.applicant_organization_name_field) {
-      log(`[dd discovery] DD form "${form.name || form.id}" (${form.id}): will link organization_id and patch submission_data["${config.applicant_organization_name_field}"]`);
+    log(`[dd discovery] DD form "${form.name || form.id}" (${form.id})`);
+
+    // Resolve where the "Name of organisation" dropdown actually lives on this
+    // DD form. The DB-stored DD config has applicant_organization_name_field
+    // unset on the GSF tenant, so fall back to a label match ("Name of
+    // organisation") and finally to the first organisation_dropdown-typed
+    // field. The type-based fallback is on by default — that field type is
+    // single-purpose, so picking it cannot mis-link to an unrelated email-like
+    // field.
+    const { fieldId: effectiveOrgFieldId, source: orgFieldSource } =
+      resolveDDApplicantOrgFieldId(form, config);
+    if (effectiveOrgFieldId) {
+      log(`[dd discovery]   "Name of organisation" field: submission_data["${effectiveOrgFieldId}"] (resolver=${orgFieldSource}) — apply will overwrite this with the resolved org id and also set organization_id`);
     } else {
-      log(`[dd discovery] DD form "${form.name || form.id}" (${form.id}): no applicant_organization_name_field configured — will link organization_id only (submission_data left untouched)`);
+      warn(`[dd discovery]   no "Name of organisation" field could be resolved on this form (no DD-config field, no "name of organisation" label, no organisation_dropdown-typed field) — apply will set organization_id only and leave submission_data untouched`);
     }
 
     // Resolve where the applicant email actually lives on this DD form.
@@ -758,7 +779,7 @@ async function discoverDDForms(tenantId) {
       warn(`[dd discovery]   no applicant email source resolvable on this form — will rely on submitted_by_email column only`);
     }
 
-    result.push({ form, config, effectiveApplicantEmailFieldId, emailSource });
+    result.push({ form, config, effectiveApplicantEmailFieldId, emailSource, effectiveOrgFieldId, orgFieldSource });
   }
   log(`[dd discovery] ${result.length} DD form(s) eligible for re-linking (out of ${configs.length} config row(s))`);
   return result;
@@ -813,6 +834,43 @@ function resolveDDApplicantEmailFieldId(form, ddConfig, { allowTypeFallback = fa
 }
 
 /**
+ * Find which form-field id supplies the "Name of organisation" dropdown on a
+ * Due Diligence form, and explain how it was chosen. Resolution order:
+ *   1. Whatever the DD config explicitly says
+ *      (form_due_diligence_config.applicant_organization_name_field).
+ *   2. A field whose label equals "name of organisation" (case-insensitive).
+ *   3. The first field whose type === 'organisation_dropdown'.
+ * Returns { fieldId, source } where source ∈
+ *   'configured' | 'label_match' | 'type_organisation_dropdown' | 'unresolved'.
+ * fieldId is null when source === 'unresolved'; the apply step will then skip
+ * the submission_data patch for that form (as it does today for forms with no
+ * configured org-name field).
+ *
+ * Unlike the email resolver, the type-based fallback here is on by default.
+ * `organisation_dropdown` is single-purpose: its semantics are "this field
+ * holds an organisation id". DD forms typically have at most one such field,
+ * so picking it by type is safe even when the label has been customised.
+ */
+function resolveDDApplicantOrgFieldId(form, ddConfig) {
+  if (ddConfig?.applicant_organization_name_field) {
+    return { fieldId: ddConfig.applicant_organization_name_field, source: 'configured' };
+  }
+  const fields = Array.isArray(form?.fields) ? form.fields : [];
+  if (fields.length === 0) return { fieldId: null, source: 'unresolved' };
+
+  const labelMatch = fields.find(f => {
+    const label = (f?.label || f?.name || '').trim().toLowerCase();
+    return label === 'name of organisation';
+  });
+  if (labelMatch?.id) return { fieldId: labelMatch.id, source: 'label_match' };
+
+  const typeMatch = fields.find(f => f?.type === 'organisation_dropdown' && f?.id);
+  if (typeMatch?.id) return { fieldId: typeMatch.id, source: 'type_organisation_dropdown' };
+
+  return { fieldId: null, source: 'unresolved' };
+}
+
+/**
  * Extract the applicant email for a DD submission. Prefer the resolved
  * `applicantEmailFieldId` value inside submission_data; fall back to
  * `submitted_by_email` on the submission row itself.
@@ -831,14 +889,18 @@ function getDDApplicantEmail(submission, applicantEmailFieldId) {
 
 /**
  * Read the current value of the DD form's "Name of Organisation" field on the
- * submission. After the incident this typically holds an invalid org UUID.
- * Returned as a string for reporting; objects/arrays are JSON-stringified.
+ * submission. After the incident this typically holds an invalid org UUID; in
+ * historically-clean rows it tends to hold a free-text org name. Returned as
+ * a string for reporting; objects/arrays are JSON-stringified.
+ *
+ * `orgFieldId` is the resolver's chosen field id (configured / label_match /
+ * type_organisation_dropdown). When the resolver returned `unresolved`, the
+ * caller passes null and we report no value.
  */
-function getDDOrgFieldRawValue(submission, ddConfig) {
+function getDDOrgFieldRawValue(submission, orgFieldId) {
+  if (!orgFieldId) return null;
   const data = submission.submission_data || {};
-  const fieldId = ddConfig.applicant_organization_name_field;
-  if (!fieldId) return null;
-  const v = data[fieldId];
+  const v = data[orgFieldId];
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') return v;
   try { return JSON.stringify(v); } catch { return String(v); }
@@ -849,7 +911,7 @@ function getDDOrgFieldRawValue(submission, ddConfig) {
  * the application-form scan uses. Returns flagged rows annotated with the
  * applicant email and the current invalid org-field value.
  */
-async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId, applicantEmailFieldId, applicantEmailFieldSource) {
+async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId, applicantEmailFieldId, applicantEmailFieldSource, orgFieldId, orgFieldSource) {
   const submissions = [];
   const pageSize = 1000;
   let from = 0;
@@ -904,12 +966,20 @@ async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId, applicantEmailFi
       // every row from the same DD form, but per-row makes the CSV
       // self-contained for auditing without cross-referencing logs.
       email_source: applicantEmailFieldSource || '',
-      current_invalid_org_field_value: getDDOrgFieldRawValue(s, ddConfig) || '',
+      current_invalid_org_field_value: getDDOrgFieldRawValue(s, orgFieldId) || '',
       missing_reason: reason,
       // Carried through so the apply step knows which key in submission_data
-      // to overwrite. Always identical for a given DD form, but per-row makes
-      // the apply loop simpler.
-      applicant_organization_name_field: ddConfig.applicant_organization_name_field,
+      // to overwrite. Comes from the resolver (configured / label_match /
+      // type_organisation_dropdown), NOT directly from the DD config — many
+      // DD configs have applicant_organization_name_field unset even when
+      // the form does have a "Name of organisation" dropdown. Empty when
+      // the resolver returned 'unresolved', in which case the apply step
+      // skips the submission_data patch for this row.
+      applicant_organization_name_field: orgFieldId || null,
+      // Provenance of the per-form org-field resolution. Mirrors email_source
+      // so an operator auditing the dry-run CSV can tell at a glance how the
+      // patch target was discovered.
+      org_field_source: orgFieldSource || '',
     });
   }
   return { totalSubmissions: submissions.length, validCount, flagged };
@@ -1008,9 +1078,12 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
   const out = [];
   for (const row of ddFlaggedRows) {
     // Per-row prediction of whether the apply step would also patch
-    // submission_data. Driven entirely by whether the DD form had its
-    // `applicant_organization_name_field` configured. Empty for non-
-    // linkable outcomes (since no apply update would happen).
+    // submission_data. `applicant_organization_name_field` here comes from
+    // the resolver (configured / label_match / type_organisation_dropdown),
+    // not from the raw DD config — so on the GSF tenant where the DD
+    // configs leave that column NULL, the label/type fallbacks still let
+    // us patch the dropdown. Empty for non-linkable outcomes (since no
+    // apply update would happen).
     const willPatchSubmissionData = row.applicant_organization_name_field ? 'yes' : 'no';
 
     const email = (row.applicant_email || '').trim().toLowerCase();
@@ -1057,7 +1130,7 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
       ? `picked most recent of ${entry.total_application_matches} matching application submission(s) (${entry.total_resolved_matches} had a resolved org)`
       : '';
     const patchNote = willPatchSubmissionData === 'no'
-      ? 'organization_id only — no applicant_organization_name_field configured, submission_data will not be patched'
+      ? 'organization_id only — no "Name of organisation" field could be resolved on this DD form, submission_data will not be patched'
       : '';
     const notes = [tieNote, patchNote].filter(Boolean).join(' | ');
     out.push({
@@ -1076,12 +1149,14 @@ function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
 /**
  * Apply DD linking: for each `linkable` row, re-verify the resolved org is
  * still valid for the tenant, then update `form_submission.organization_id`.
- * If the DD form has `applicant_organization_name_field` configured, the same
- * UPDATE also patches that key inside `submission_data` to hold the resolved
- * org id (replacing the stale invalid UUID); otherwise `submission_data` is
- * left untouched. Either way the column updates happen in a SINGLE update
- * per row, so the row never lands in a partially-updated state. On any
- * failure the row is left untouched and the run continues.
+ * If the row carries a resolved `applicant_organization_name_field` (set
+ * upstream by `resolveDDApplicantOrgFieldId` — configured / label_match /
+ * type_organisation_dropdown), the same UPDATE also patches that key inside
+ * `submission_data` to hold the resolved org id (replacing the stale invalid
+ * UUID or free-text value); otherwise `submission_data` is left untouched.
+ * Either way the column updates happen in a SINGLE update per row, so the
+ * row never lands in a partially-updated state. On any failure the row is
+ * left untouched and the run continues.
  */
 async function applyDDLinking(resolvedDDRows, tenantId) {
   const results = [];
@@ -1098,6 +1173,10 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
       dd_form_id: row.dd_form_id,
       submission_id: row.submission_id,
       applicant_email: row.applicant_email,
+      // Mirror the dry-run CSV columns so the apply artifact is fully
+      // self-contained for audit (no need to cross-reference logs).
+      email_source: row.email_source || '',
+      org_field_source: row.org_field_source || '',
       application_submission_id: row.application_submission_id || '',
       notes: row.notes || '',
     };
@@ -1146,11 +1225,14 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
     }
 
     // Build the per-row update payload. We always set organization_id; the
-    // submission_data patch is OPTIONAL and only happens when the DD config
-    // declared which field key to overwrite. Forms like ESO Long form have
-    // no such field configured — for those we just fix organization_id and
-    // leave submission_data alone. Both column updates (when applicable)
-    // happen in the same UPDATE so the row never lands partially patched.
+    // submission_data patch is OPTIONAL and only happens when the resolver
+    // (`resolveDDApplicantOrgFieldId`) chose a target field key for this DD
+    // form. The resolver tries configured -> "name of organisation" label
+    // -> first organisation_dropdown-typed field, so on the GSF tenant —
+    // where DD configs leave applicant_organization_name_field NULL — we
+    // still get a target field id from the label/type fallbacks. Both
+    // column updates (when applicable) happen in the same UPDATE so the
+    // row never lands partially patched.
     const update = { organization_id: row.resolved_organization_id };
     let submissionDataPatched = false;
     if (row.applicant_organization_name_field) {
@@ -1174,7 +1256,7 @@ async function applyDDLinking(resolvedDDRows, tenantId) {
     }
 
     linkedCount++;
-    log(`  -> LINKED${submissionDataPatched ? ' (organization_id + submission_data patched)' : ' (organization_id only — submission_data left untouched)'}`);
+    log(`  -> LINKED${submissionDataPatched ? ` (organization_id + submission_data["${row.applicant_organization_name_field}"] patched, resolver=${row.org_field_source})` : ' (organization_id only — submission_data left untouched, no "Name of organisation" field resolvable)'}`);
     results.push({
       ...baseRecord,
       outcome: 'linked',
@@ -1598,10 +1680,10 @@ async function main() {
   log('\n=== Step B: Due Diligence form scan ===');
   const ddForms = await discoverDDForms(TENANT_ID);
   const ddScans = [];
-  for (const { form: ddForm, config: ddConfig, effectiveApplicantEmailFieldId, emailSource } of ddForms) {
-    const scan = await scanDDForMissingOrgs(ddForm, ddConfig, TENANT_ID, effectiveApplicantEmailFieldId, emailSource);
+  for (const { form: ddForm, config: ddConfig, effectiveApplicantEmailFieldId, emailSource, effectiveOrgFieldId, orgFieldSource } of ddForms) {
+    const scan = await scanDDForMissingOrgs(ddForm, ddConfig, TENANT_ID, effectiveApplicantEmailFieldId, emailSource, effectiveOrgFieldId, orgFieldSource);
     log(`[dd scan] "${ddForm.name || ddForm.id}" (${ddForm.id}): ${scan.totalSubmissions} submission(s), ${scan.validCount} valid, ${scan.flagged.length} flagged`);
-    ddScans.push({ ddForm, ddConfig, effectiveApplicantEmailFieldId, emailSource, scan });
+    ddScans.push({ ddForm, ddConfig, effectiveApplicantEmailFieldId, emailSource, effectiveOrgFieldId, orgFieldSource, scan });
   }
   const allDDFlagged = ddScans.flatMap(s => s.scan.flagged);
 
@@ -1668,14 +1750,19 @@ async function main() {
     // How the email-field id was chosen for this DD form (configured /
     // label_match / core_field_mapping / type_email_fallback / unresolved*).
     'email_source',
+    // How the "Name of organisation" field id was chosen for this DD form
+    // (configured / label_match / type_organisation_dropdown / unresolved).
+    // Empty when no resolver chose a target.
+    'org_field_source',
     'current_invalid_org_field_value',
     'outcome',
     'resolved_organization_id',
     'resolved_organization_name',
     'application_submission_id',
-    // Predicts whether the apply step would also rewrite submission_data
-    // for this row (yes when the DD form has applicant_organization_name_field
-    // configured, no when it does not, blank for non-linkable outcomes).
+    // Predicts whether the apply step would also rewrite submission_data for
+    // this row. `yes` when the resolver picked a target field (configured,
+    // label_match or type_organisation_dropdown); `no` when no target field
+    // could be resolved on this DD form; blank for non-linkable outcomes.
     'submission_data_patched',
     'notes',
   ]);
@@ -1710,11 +1797,15 @@ async function main() {
         // unresolved*). Mirrors the dry-run CSV so apply artifacts are
         // self-contained for audit.
         'email_source',
+        // How the "Name of organisation" field id was chosen for this DD form
+        // (configured / label_match / type_organisation_dropdown / unresolved).
+        // Mirrors the dry-run CSV.
+        'org_field_source',
         'outcome',
         'organization_id',
         // yes -> the row's submission_data was rewritten alongside organization_id;
-        // no  -> only organization_id was set (DD form had no
-        //        applicant_organization_name_field configured);
+        // no  -> only organization_id was set (the resolver returned 'unresolved'
+        //        for this DD form — no configured / label / type-based target);
         // ''  -> no apply update happened (skipped or failed).
         'submission_data_patched',
         // Tie-resolution metadata: which application submission supplied the
