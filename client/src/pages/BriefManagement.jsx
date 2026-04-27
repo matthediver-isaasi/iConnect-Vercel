@@ -30,6 +30,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { toast } from "sonner";
 import {
   Search,
@@ -51,8 +59,13 @@ import {
   CheckSquare,
   Archive,
   ArchiveRestore,
+  Inbox,
+  ShieldCheck,
+  FileCheck2,
+  Image as ImageIcon,
+  Mail,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
@@ -113,6 +126,153 @@ function SortableHeader({ field, label, sortField, sortDir, onSort }) {
   );
 }
 
+const INBOX_EVENT_CONFIG = {
+  permission_submitted: {
+    label: "Permission form submitted",
+    icon: ShieldCheck,
+  },
+  copyright_submitted: {
+    label: "Copyright form submitted",
+    icon: FileCheck2,
+  },
+  files_uploaded: {
+    label: "Documents/images uploaded",
+    icon: ImageIcon,
+  },
+};
+
+function formatRelative(dateString) {
+  if (!dateString) return "";
+  try {
+    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+  } catch {
+    return "";
+  }
+}
+
+function InboxItemList({ items, isLoading, emptyMessage, onItemClick, onArchive, onUnarchive, pendingItemId }) {
+  if (isLoading) {
+    return (
+      <div className="px-4 py-3 space-y-3" data-testid="loading-inbox">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-start gap-3 p-3 rounded-md border">
+            <Skeleton className="w-9 h-9 rounded-md" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+            <Skeleton className="w-8 h-8 rounded-md" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (!items || items.length === 0) {
+    return (
+      <div className="px-6 py-12 text-center text-sm text-muted-foreground" data-testid="text-inbox-empty">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-full px-3 pb-3">
+      <div className="flex flex-col gap-2 pr-3">
+        {items.map((item) => {
+          const cfg = INBOX_EVENT_CONFIG[item.event_type] || { label: item.event_type, icon: FileText };
+          const Icon = cfg.icon;
+          const meta = item.metadata || {};
+          const fileCount = meta.file_count || 0;
+          const submitter = meta.submitter_name || meta.submitter_email || null;
+          const isUnread = !item.read_at;
+          const isPending = pendingItemId === item.id;
+
+          return (
+            <div
+              key={item.id}
+              className={`flex items-start gap-3 p-3 rounded-md border hover-elevate ${
+                isUnread ? "bg-primary/5 border-primary/30" : "bg-background"
+              }`}
+              data-testid={`inbox-item-${item.id}`}
+              data-unread={isUnread ? "true" : "false"}
+            >
+              <button
+                type="button"
+                onClick={() => onItemClick(item)}
+                className="flex-1 min-w-0 text-left flex items-start gap-3 -m-3 p-3 rounded-md"
+                data-testid={`button-inbox-item-${item.id}`}
+              >
+                <div className="mt-0.5">
+                  <Icon className={`w-4 h-4 ${isUnread ? "text-primary" : "text-muted-foreground"}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span
+                      className={`text-sm truncate ${isUnread ? "font-semibold" : "font-medium"}`}
+                      data-testid={`text-inbox-item-title-${item.id}`}
+                    >
+                      {item.brief_title || "Untitled brief"}
+                    </span>
+                    {isUnread && (
+                      <span
+                        className="inline-block w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0"
+                        aria-label="Unread"
+                      />
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {cfg.label}
+                    {fileCount > 0 && (
+                      <span> · {fileCount} {fileCount === 1 ? "file" : "files"}</span>
+                    )}
+                  </div>
+                  {submitter && (
+                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 truncate">
+                      <Mail className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{submitter}</span>
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground/70 mt-1">
+                    {formatRelative(item.created_at)}
+                  </div>
+                </div>
+              </button>
+              <div className="flex-shrink-0">
+                {onArchive && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={(e) => { e.stopPropagation(); onArchive(item); }}
+                    disabled={isPending}
+                    aria-label="Archive"
+                    data-testid={`button-archive-${item.id}`}
+                  >
+                    {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+                  </Button>
+                )}
+                {onUnarchive && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(item); }}
+                    disabled={isPending}
+                    aria-label="Restore from archive"
+                    data-testid={`button-unarchive-${item.id}`}
+                  >
+                    {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArchiveRestore className="w-4 h-4" />}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </ScrollArea>
+  );
+}
+
 function StatCard({ title, value, icon: Icon, color }) {
   return (
     <Card data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -167,6 +327,18 @@ export default function BriefManagementPage() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] = useState("");
   const [bulkProgress, setBulkProgress] = useState(null);
+
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [inboxFolder, setInboxFolder] = useState("inbox");
+  // Track the timestamp of the newest unread item at the moment the banner was
+  // dismissed. The banner re-shows when an item arrives that's newer than that
+  // timestamp, so genuinely new submissions resurface the banner even if the
+  // overall unread count has dropped (e.g. the user marked some as read or
+  // archived) and risen again. ISO string for stable session storage.
+  const [bannerDismissedNewestAt, setBannerDismissedNewestAt] = useState(() => {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem("brief-inbox-banner-dismissed-newest-at") || null;
+  });
 
   const emptyBrief = {
     title: "", deadline: "",
@@ -320,6 +492,104 @@ export default function BriefManagementPage() {
       toast.error("Failed to update brief");
     },
   });
+
+  const inboxQuery = useQuery({
+    queryKey: ["article-brief-inbox", "inbox"],
+    queryFn: async () => {
+      const res = await fetch("/api/article-briefs/inbox?folder=inbox", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load inbox");
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const archiveQuery = useQuery({
+    queryKey: ["article-brief-inbox", "archive"],
+    queryFn: async () => {
+      const res = await fetch("/api/article-briefs/inbox?folder=archive", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load archive");
+      return res.json();
+    },
+    enabled: inboxOpen && inboxFolder === "archive",
+    staleTime: 30_000,
+  });
+
+  const inboxItems = inboxQuery.data?.items || [];
+  const archiveItems = archiveQuery.data?.items || [];
+  const unreadCount = inboxQuery.data?.unread_count || 0;
+
+  // Newest unread item timestamp from the current poll. Items are returned
+  // sorted by created_at DESC, so the first unread row is the newest.
+  const newestUnreadAt = useMemo(() => {
+    for (const item of inboxItems) {
+      if (!item.read_at) return item.created_at || null;
+    }
+    return null;
+  }, [inboxItems]);
+
+  // Re-show the unread banner whenever the newest unread item is more recent
+  // than the timestamp captured at dismissal. Robust to the unread count
+  // dropping (after mark-read/archive) and later rising again with brand-new
+  // items.
+  useEffect(() => {
+    if (
+      bannerDismissedNewestAt != null &&
+      newestUnreadAt != null &&
+      newestUnreadAt > bannerDismissedNewestAt
+    ) {
+      setBannerDismissedNewestAt(null);
+      try {
+        window.sessionStorage?.removeItem("brief-inbox-banner-dismissed-newest-at");
+      } catch (_) { /* ignore storage failures */ }
+    }
+  }, [newestUnreadAt, bannerDismissedNewestAt]);
+
+  const inboxActionMutation = useMutation({
+    mutationFn: async ({ itemId, action }) => {
+      const res = await fetch(`/api/article-briefs/inbox/${itemId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update inbox item");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief-inbox"] });
+      if (vars?.action === "archive") {
+        toast.success("Inbox item archived");
+      } else if (vars?.action === "unarchive") {
+        toast.success("Inbox item restored");
+      }
+      // mark_read / mark_unread fire silently as part of normal navigation
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update inbox item");
+    },
+  });
+
+  const handleInboxItemClick = (item) => {
+    if (!item.read_at) {
+      inboxActionMutation.mutate({ itemId: item.id, action: "mark_read" });
+    }
+    setInboxOpen(false);
+    navigate(createPageUrl("BriefDetail") + "?id=" + item.article_brief_id);
+  };
+
+  const handleDismissBanner = () => {
+    const stamp = newestUnreadAt || new Date().toISOString();
+    setBannerDismissedNewestAt(stamp);
+    try {
+      window.sessionStorage?.setItem("brief-inbox-banner-dismissed-newest-at", stamp);
+    } catch {
+      // sessionStorage unavailable; ignore
+    }
+  };
 
   const stats = useMemo(() => {
     const active = briefs.filter((b) => b.status !== ARCHIVED_STATUS);
@@ -704,17 +974,75 @@ export default function BriefManagementPage() {
                 Article Briefs
               </h1>
             </div>
-            {canManage && (
-              <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
-                <Plus className="w-4 h-4 mr-2" />
-                New Brief
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                onClick={() => { setInboxFolder("inbox"); setInboxOpen(true); }}
+                data-testid="button-open-inbox"
+                aria-label={unreadCount > 0 ? `Inbox (${unreadCount} unread)` : "Inbox"}
+              >
+                <Inbox className="w-4 h-4 mr-2" />
+                Inbox
+                {unreadCount > 0 && (
+                  <Badge
+                    variant="default"
+                    className="ml-2 h-5 min-w-5 px-1.5"
+                    data-testid="badge-inbox-unread"
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </Badge>
+                )}
               </Button>
-            )}
+              {canManage && (
+                <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Brief
+                </Button>
+              )}
+            </div>
           </div>
           <p className="text-muted-foreground" data-testid="text-brief-count">
             {filteredAndSorted.length} {filteredAndSorted.length === 1 ? "brief" : "briefs"}
           </p>
         </div>
+
+        {unreadCount > 0 && (bannerDismissedNewestAt == null || (newestUnreadAt != null && newestUnreadAt > bannerDismissedNewestAt)) && (
+          <Card
+            className="mb-4 border-primary/40 bg-primary/5"
+            data-testid="banner-inbox-summary"
+          >
+            <CardContent className="py-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-sm">
+                  <Inbox className="w-4 h-4 text-primary" />
+                  <span data-testid="text-banner-summary">
+                    You have <span className="font-semibold">{unreadCount}</span>{" "}
+                    new {unreadCount === 1 ? "submission" : "submissions"} on your briefs.
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => { setInboxFolder("inbox"); setInboxOpen(true); }}
+                    data-testid="button-banner-review"
+                  >
+                    Review
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleDismissBanner}
+                    aria-label="Dismiss banner"
+                    data-testid="button-banner-dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-2 gap-4 mb-6">
           <StatCard title="Total" value={stats.total} icon={FileText} color="#6b7280" />
@@ -1372,6 +1700,68 @@ export default function BriefManagementPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={inboxOpen} onOpenChange={setInboxOpen}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col"
+          data-testid="sheet-inbox"
+        >
+          <SheetHeader className="px-6 pt-6 pb-3 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <Inbox className="w-5 h-5 text-muted-foreground" />
+              Brief Inbox
+            </SheetTitle>
+            <SheetDescription>
+              Case study submissions and uploads on your briefs.
+            </SheetDescription>
+          </SheetHeader>
+
+          <Tabs
+            value={inboxFolder}
+            onValueChange={setInboxFolder}
+            className="flex-1 flex flex-col min-h-0"
+          >
+            <div className="px-6 pt-3">
+              <TabsList data-testid="tabs-inbox-folder">
+                <TabsTrigger value="inbox" data-testid="tab-inbox">
+                  Inbox
+                  {unreadCount > 0 && (
+                    <Badge variant="default" className="ml-2 h-5 min-w-5 px-1.5">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="archive" data-testid="tab-archive">Archive</TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="inbox" className="flex-1 min-h-0 mt-3">
+              <InboxItemList
+                items={inboxItems}
+                isLoading={inboxQuery.isLoading}
+                emptyMessage="No new submissions. You'll see new case study permissions, copyrights, and uploads here."
+                onItemClick={handleInboxItemClick}
+                onArchive={(item) => inboxActionMutation.mutate({ itemId: item.id, action: "archive" })}
+                onUnarchive={null}
+                pendingItemId={inboxActionMutation.isPending ? inboxActionMutation.variables?.itemId : null}
+              />
+            </TabsContent>
+
+            <TabsContent value="archive" className="flex-1 min-h-0 mt-3">
+              <InboxItemList
+                items={archiveItems}
+                isLoading={archiveQuery.isLoading}
+                emptyMessage="Nothing archived yet."
+                onItemClick={handleInboxItemClick}
+                onArchive={null}
+                onUnarchive={(item) => inboxActionMutation.mutate({ itemId: item.id, action: "unarchive" })}
+                pendingItemId={inboxActionMutation.isPending ? inboxActionMutation.variables?.itemId : null}
+              />
+            </TabsContent>
+          </Tabs>
+        </SheetContent>
+      </Sheet>
 
       <AlertDialog open={!!briefToDelete} onOpenChange={(open) => !open && setBriefToDelete(null)}>
         <AlertDialogContent data-testid="dialog-delete-brief">

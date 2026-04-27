@@ -49,7 +49,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id')
+      .select('id, title, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -136,6 +136,100 @@ export default async function handler(req, res) {
               console.error('[Public Form Submission] Failed to link submission to brief:', briefUpdateError);
             } else {
               console.log('[Public Form Submission] Successfully linked submission to brief field', updateField, 'for brief:', brief_id);
+
+              // Emit a Brief Management inbox item (permission/copyright). Files
+              // attached to the submission ride along on metadata.files (not a
+              // separate files_uploaded item) so one event = one inbox row.
+              // Non-blocking: failures must not break the public submission.
+              try {
+                const eventType = updateField === 'case_study_submission_id'
+                  ? 'permission_submitted'
+                  : 'copyright_submitted';
+
+                const fields = form.fields || [];
+                let submitterEmailForInbox = null;
+                let submitterFirstNameForInbox = null;
+                let submitterLastNameForInbox = null;
+                const uploadedFiles = [];
+
+                for (const field of fields) {
+                  const value = submission_data?.[field.id];
+                  if (value === undefined || value === null || value === '') continue;
+
+                  if (field.type === 'email' || field.id?.toLowerCase().includes('email')) {
+                    if (!submitterEmailForInbox && typeof value === 'string') {
+                      submitterEmailForInbox = value;
+                    }
+                  }
+                  if (field.type === 'text') {
+                    const idLower = (field.id || '').toLowerCase();
+                    const labelLower = (field.label || '').toLowerCase();
+                    if (idLower.includes('first_name') || labelLower.includes('first name')) {
+                      if (!submitterFirstNameForInbox) submitterFirstNameForInbox = value;
+                    }
+                    if (idLower.includes('last_name') || labelLower.includes('last name')) {
+                      if (!submitterLastNameForInbox) submitterLastNameForInbox = value;
+                    }
+                  }
+                  if (field.type === 'file') {
+                    try {
+                      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+                      // Form file fields can be a single {file_url, file_name}
+                      // object or an array of them (multi-file uploads).
+                      const entries = Array.isArray(parsed) ? parsed : [parsed];
+                      for (const entry of entries) {
+                        if (entry && entry.file_url) {
+                          uploadedFiles.push({
+                            file_name: entry.file_name || null,
+                            file_url: entry.file_url,
+                            field_label: field.label || null,
+                          });
+                        }
+                      }
+                    } catch (parseErr) {
+                      // Non-JSON file value; ignore
+                    }
+                  }
+                }
+
+                const submitterName = [submitterFirstNameForInbox, submitterLastNameForInbox]
+                  .filter(Boolean)
+                  .join(' ')
+                  .trim() || null;
+
+                const inboxMetadata = {
+                  submission_id: submission.id,
+                  form_id,
+                  form_title: form.title || null,
+                  submitter_email: submitterEmailForInbox,
+                  submitter_name: submitterName,
+                  file_count: uploadedFiles.length,
+                };
+                if (uploadedFiles.length > 0) {
+                  inboxMetadata.files = uploadedFiles.slice(0, 10);
+                }
+
+                const { error: inboxInsertError } = await supabase
+                  .from('article_brief_inbox_item')
+                  .insert({
+                    tenant_id: tenantData.id,
+                    article_brief_id: brief_id,
+                    event_type: eventType,
+                    metadata: inboxMetadata,
+                  });
+
+                if (inboxInsertError) {
+                  if (inboxInsertError.code === '42P01' || /does not exist/i.test(inboxInsertError.message || '')) {
+                    console.warn('[Public Form Submission] article_brief_inbox_item table missing; skipping inbox creation');
+                  } else {
+                    console.error('[Public Form Submission] Failed to create inbox item:', inboxInsertError);
+                  }
+                } else {
+                  console.log('[Public Form Submission] Created inbox item for brief', brief_id, 'event:', eventType);
+                }
+              } catch (inboxError) {
+                console.error('[Public Form Submission] Error creating inbox item:', inboxError);
+              }
             }
           }
         }

@@ -108,6 +108,44 @@ export default async function handler(req, res) {
         tenant_id: brief.tenant_id,
       });
 
+    // Emit a Brief Management inbox item for this standalone provider upload
+    // (one inbox row per upload). Files arriving via a form submission are
+    // handled in api/public/form-submission.js. Non-blocking on failure.
+    try {
+      const { error: inboxInsertError } = await supabase
+        .from('article_brief_inbox_item')
+        .insert({
+          tenant_id: brief.tenant_id,
+          article_brief_id: brief.id,
+          event_type: 'files_uploaded',
+          metadata: {
+            source: 'provider',
+            submitter_name: providerName,
+            submitter_email: provider.email || null,
+            file_count: 1,
+            files: [{
+              file_name: file_name || null,
+              file_url,
+              field_label: null,
+            }],
+            version_number: inserted.version_number,
+            upload_id: inserted.id,
+          },
+        });
+
+      if (inboxInsertError) {
+        if (inboxInsertError.code === '42P01' || /does not exist/i.test(inboxInsertError.message || '')) {
+          console.warn('[CaseStudyUpload CreateUpload] article_brief_inbox_item table missing; skipping inbox creation');
+        } else {
+          console.error('[CaseStudyUpload CreateUpload] Failed to create inbox item:', inboxInsertError);
+        }
+      } else {
+        console.log('[CaseStudyUpload CreateUpload] Created inbox item for brief', brief.id, 'event: files_uploaded');
+      }
+    } catch (inboxError) {
+      console.error('[CaseStudyUpload CreateUpload] Error creating inbox item:', inboxError);
+    }
+
     return res.json({
       success: true,
       upload: inserted,

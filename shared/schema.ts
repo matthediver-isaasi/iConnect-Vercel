@@ -654,3 +654,27 @@ export const insertStageFieldMappingActionSchema = createInsertSchema(stageField
 
 export type InsertStageFieldMappingAction = z.infer<typeof insertStageFieldMappingActionSchema>;
 export type StageFieldMappingAction = typeof stageFieldMappingAction.$inferSelect;
+
+// Article Brief Inbox Item - tenant-scoped pseudo-inbox surfacing case study
+// permission/copyright submissions and document/image uploads against existing
+// briefs so editors can triage them from /BriefManagement without opening every
+// brief individually. Read/archive state is shared across the tenant in v1.
+// The inbox archive flag is independent of the brief lifecycle "archived" status.
+export const articleBriefInboxItem = pgTable("article_brief_inbox_item", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(), // References tenant.id
+  article_brief_id: varchar("article_brief_id").notNull(), // References article_brief.id
+  event_type: text("event_type").notNull(), // 'permission_submitted' | 'copyright_submitted' | 'files_uploaded'
+  metadata: jsonb("metadata").notNull().default({}),
+  read_at: timestamp("read_at"),
+  archived_at: timestamp("archived_at"),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertArticleBriefInboxItemSchema = createInsertSchema(articleBriefInboxItem).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertArticleBriefInboxItem = z.infer<typeof insertArticleBriefInboxItemSchema>;
+export type ArticleBriefInboxItem = typeof articleBriefInboxItem.$inferSelect;
