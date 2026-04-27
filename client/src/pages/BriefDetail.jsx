@@ -498,6 +498,21 @@ export default function BriefDetailPage() {
     },
   });
 
+  const setCaseStudyRequiredMutation = useMutation({
+    mutationFn: async (required) => {
+      return await base44.entities.ArticleBrief.update(briefId, {
+        case_study_required: !!required,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update case study requirement");
+    },
+  });
+
   const sendCopyrightFormMutation = useMutation({
     mutationFn: async ({ copyright_form_id }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-copyright-form`, {
@@ -540,6 +555,12 @@ export default function BriefDetailPage() {
       setCopyrightFormInitialized(true);
     }
   }, [brief, copyrightFormInitialized]);
+
+  useEffect(() => {
+    if (brief && brief.case_study_required === false && activeTab === "case-study") {
+      setActiveTab("overview");
+    }
+  }, [brief, activeTab]);
 
   const handleStartEdit = () => {
     const existingAttachments = Array.isArray(brief.attachments) ? brief.attachments : [];
@@ -842,7 +863,9 @@ export default function BriefDetailPage() {
               Review ({openComments.length})
             </TabsTrigger>
             <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
-            <TabsTrigger value="case-study" data-testid="tab-case-study">Case Study</TabsTrigger>
+            {brief?.case_study_required && (
+              <TabsTrigger value="case-study" data-testid="tab-case-study">Case Study</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -1236,7 +1259,39 @@ export default function BriefDetailPage() {
                 );
               };
 
+              const caseStudyRequired = !!brief.case_study_required;
+
               return (
+                <>
+                <Card className="mt-4" data-testid="card-brief-case-study-toggle">
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <BookOpen className="w-5 h-5" />
+                        Case Study
+                      </CardTitle>
+                      {canManage && (
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="toggle-case-study-required" className="text-sm">Case study</Label>
+                          <Switch
+                            id="toggle-case-study-required"
+                            checked={caseStudyRequired}
+                            disabled={setCaseStudyRequiredMutation.isPending}
+                            onCheckedChange={(v) => setCaseStudyRequiredMutation.mutate(!!v)}
+                            data-testid="switch-case-study-required"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground" data-testid="text-case-study-toggle-help">
+                      {caseStudyRequired
+                        ? "Case study is enabled for this brief — manage it on the Case Study tab."
+                        : "Case study is not required for this brief."}
+                    </p>
+                  </CardContent>
+                </Card>
                 <Card className="mt-4" data-testid="card-brief-copyright">
                   <CardHeader>
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1342,6 +1397,7 @@ export default function BriefDetailPage() {
                     </CardContent>
                   )}
                 </Card>
+                </>
               );
             })()}
           </TabsContent>
@@ -1558,6 +1614,7 @@ export default function BriefDetailPage() {
             </Card>
           </TabsContent>
 
+          {brief?.case_study_required && (
           <TabsContent value="case-study" className="mt-4">
             {(() => {
               const canEditCaseStudy = isWriter || canManage;
@@ -2097,6 +2154,7 @@ export default function BriefDetailPage() {
               );
             })()}
           </TabsContent>
+          )}
         </Tabs>
       </div>
 
