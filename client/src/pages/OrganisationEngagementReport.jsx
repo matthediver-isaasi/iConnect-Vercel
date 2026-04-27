@@ -6,19 +6,91 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Search, Download, Building2, Users, Activity,
   ChevronLeft, ChevronRight, Trophy, TrendingUp,
-  TrendingDown, Minus, ChevronDown, ChevronUp, User
+  TrendingDown, Minus, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { formatDistanceToNow } from "date-fns";
+import {
+  format, parseISO, formatDistanceToNow,
+  startOfWeek, endOfWeek, addWeeks,
+  startOfMonth, endOfMonth, addMonths,
+  startOfQuarter, endOfQuarter, addQuarters,
+  startOfYear,
+} from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+const PRESET_OPTIONS = [
+  { value: 'week', label: 'This week' },
+  { value: 'month', label: 'This month' },
+  { value: 'quarter', label: 'This quarter' },
+  { value: 'ytd', label: 'This Year-to-date' },
+  { value: 'custom', label: 'Custom date range' },
+];
+
+const PRESET_NOUN = {
+  week: 'week',
+  month: 'month',
+  quarter: 'quarter',
+  ytd: 'year-to-date',
+  custom: 'range',
+};
+
+function fmtIso(d) {
+  return format(d, 'yyyy-MM-dd');
+}
+
+function getCurrentRangeForPreset(preset) {
+  const now = new Date();
+  switch (preset) {
+    case 'month':
+      return { start: startOfMonth(now), end: endOfMonth(now) };
+    case 'quarter':
+      return { start: startOfQuarter(now), end: endOfQuarter(now) };
+    case 'ytd':
+      return { start: startOfYear(now), end: now };
+    case 'week':
+    default:
+      return {
+        start: startOfWeek(now, { weekStartsOn: 1 }),
+        end: endOfWeek(now, { weekStartsOn: 1 }),
+      };
+  }
+}
+
+function shiftRange(preset, currentStart, direction) {
+  switch (preset) {
+    case 'month': {
+      const next = addMonths(currentStart, direction);
+      return { start: startOfMonth(next), end: endOfMonth(next) };
+    }
+    case 'quarter': {
+      const next = addQuarters(currentStart, direction);
+      return { start: startOfQuarter(next), end: endOfQuarter(next) };
+    }
+    case 'week':
+    default: {
+      const next = addWeeks(currentStart, direction);
+      return {
+        start: startOfWeek(next, { weekStartsOn: 1 }),
+        end: endOfWeek(next, { weekStartsOn: 1 }),
+      };
+    }
+  }
+}
 
 export default function OrganisationEngagementReport() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [preset, setPreset] = useState('week');
+  const initialWeek = getCurrentRangeForPreset('week');
+  const [rangeStart, setRangeStart] = useState(initialWeek.start);
+  const [rangeEnd, setRangeEnd] = useState(initialWeek.end);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedOrg, setExpandedOrg] = useState(null);
 
@@ -32,10 +104,23 @@ export default function OrganisationEngagementReport() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
+  const supportsArrows = preset === 'week' || preset === 'month' || preset === 'quarter';
+
+  const isCurrentPeriod = useMemo(() => {
+    if (preset === 'custom') return false;
+    const current = getCurrentRangeForPreset(preset);
+    return fmtIso(rangeStart) === fmtIso(current.start) && fmtIso(rangeEnd) === fmtIso(current.end);
+  }, [preset, rangeStart, rangeEnd]);
+
+  const queryEnabled = preset !== 'custom' || (!!customStart && !!customEnd && customStart <= customEnd);
+
+  const queryStart = preset === 'custom' ? customStart : fmtIso(rangeStart);
+  const queryEnd = preset === 'custom' ? customEnd : fmtIso(rangeEnd);
+
   const { data: reportData, isLoading } = useQuery({
-    queryKey: ['engagement-report', weekOffset],
+    queryKey: ['engagement-report', queryStart, queryEnd],
     queryFn: async () => {
-      const url = `/api/reports/engagement-report?weekOffset=${weekOffset}`;
+      const url = `/api/reports/engagement-report?startDate=${encodeURIComponent(queryStart)}&endDate=${encodeURIComponent(queryEnd)}`;
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
         const errorData = await response.json();
@@ -43,13 +128,14 @@ export default function OrganisationEngagementReport() {
       }
       return response.json();
     },
+    enabled: queryEnabled && accessChecked,
     staleTime: 0,
     refetchOnMount: true,
   });
 
   const organizations = reportData?.organizations || [];
   const summary = reportData?.summary || {};
-  const week = reportData?.week || {};
+  const period = reportData?.period || reportData?.week || {};
 
   const filteredOrgs = useMemo(() => {
     if (!searchQuery) return organizations;
@@ -63,6 +149,34 @@ export default function OrganisationEngagementReport() {
     );
   }, [organizations, searchQuery]);
 
+  const handlePresetChange = (value) => {
+    setPreset(value);
+    setExpandedOrg(null);
+    if (value === 'custom') {
+      const fallbackStart = customStart || fmtIso(rangeStart);
+      const fallbackEnd = customEnd || fmtIso(rangeEnd);
+      setCustomStart(fallbackStart);
+      setCustomEnd(fallbackEnd);
+    } else {
+      const next = getCurrentRangeForPreset(value);
+      setRangeStart(next.start);
+      setRangeEnd(next.end);
+    }
+  };
+
+  const handleStep = (direction) => {
+    if (!supportsArrows) return;
+    const next = shiftRange(preset, rangeStart, direction);
+    setRangeStart(next.start);
+    setRangeEnd(next.end);
+  };
+
+  const canStepNext = useMemo(() => {
+    if (!supportsArrows) return false;
+    const current = getCurrentRangeForPreset(preset);
+    return rangeStart < current.start;
+  }, [supportsArrows, preset, rangeStart]);
+
   const handleExportCSV = () => {
     if (filteredOrgs.length === 0) return;
 
@@ -70,14 +184,14 @@ export default function OrganisationEngagementReport() {
       'Rank',
       'Organisation',
       'Total Members',
-      'Active Members (This Week)',
+      'Active Members (Selected Period)',
       'Engagement Rate %',
       'Trend',
       'Trend Change',
       'Member Name',
       'Member Email',
       'Last Activity',
-      'Active This Week'
+      'Active In Period'
     ];
 
     const rows = [];
@@ -85,6 +199,7 @@ export default function OrganisationEngagementReport() {
       for (let i = 0; i < org.members.length; i++) {
         const m = org.members[i];
         const isFirst = i === 0;
+        const isActiveInPeriod = m.isActiveThisPeriod ?? m.isActiveThisWeek;
         rows.push([
           isFirst ? org.rank : '',
           isFirst ? org.organizationName : '',
@@ -96,7 +211,7 @@ export default function OrganisationEngagementReport() {
           m.name,
           m.email || '',
           m.lastActivity ? format(parseISO(m.lastActivity), 'yyyy-MM-dd HH:mm') : 'Never',
-          m.isActiveThisWeek ? 'Yes' : 'No'
+          isActiveInPeriod ? 'Yes' : 'No'
         ]);
       }
     }
@@ -109,7 +224,7 @@ export default function OrganisationEngagementReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `engagement_report_${week.start || 'unknown'}_${week.end || 'unknown'}.csv`;
+    link.download = `engagement_report_${period.start || 'unknown'}_${period.end || 'unknown'}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -126,13 +241,17 @@ export default function OrganisationEngagementReport() {
     );
   }
 
+  const presetLabel = PRESET_OPTIONS.find(p => p.value === preset)?.label || '';
+  const periodNoun = PRESET_NOUN[preset] || 'period';
+  const stepNoun = preset === 'month' ? 'Month' : preset === 'quarter' ? 'Quarter' : 'Week';
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Organisation Engagement Report</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Weekly activity rankings based on member engagement
+            Activity rankings based on member engagement
           </p>
         </div>
         {filteredOrgs.length > 0 && (
@@ -150,32 +269,88 @@ export default function OrganisationEngagementReport() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setWeekOffset(w => w + 1)}
-              data-testid="button-prev-week"
-            >
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Previous Week
-            </Button>
-            <div className="text-center">
-              <p className="text-sm font-medium" data-testid="text-week-label">{week.label || 'Loading...'}</p>
-              {weekOffset === 0 && (
-                <p className="text-xs text-muted-foreground">Current week</p>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Select value={preset} onValueChange={handlePresetChange}>
+                  <SelectTrigger className="w-[200px]" data-testid="select-date-preset">
+                    <SelectValue placeholder="Select range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRESET_OPTIONS.map(opt => (
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value}
+                        data-testid={`option-preset-${opt.value}`}
+                      >
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {preset === 'custom' && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Input
+                      type="date"
+                      value={customStart}
+                      max={customEnd || undefined}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                      className="w-[160px]"
+                      data-testid="input-custom-start"
+                    />
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <Input
+                      type="date"
+                      value={customEnd}
+                      min={customStart || undefined}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                      className="w-[160px]"
+                      data-testid="input-custom-end"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {supportsArrows && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleStep(-1)}
+                    data-testid="button-prev-period"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous {stepNoun}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canStepNext}
+                    onClick={() => handleStep(1)}
+                    data-testid="button-next-period"
+                  >
+                    Next {stepNoun}
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={weekOffset <= 0}
-              onClick={() => setWeekOffset(w => Math.max(0, w - 1))}
-              data-testid="button-next-week"
-            >
-              Next Week
-              <ChevronRight className="w-4 h-4 ml-1" />
-            </Button>
+
+            <div className="flex items-center justify-center gap-2 flex-wrap text-center">
+              <p className="text-sm font-medium" data-testid="text-period-label">
+                {queryEnabled
+                  ? (period.label || 'Loading...')
+                  : 'Pick a start and end date'}
+              </p>
+              {isCurrentPeriod && queryEnabled && (
+                <Badge variant="secondary" data-testid="badge-current-period">
+                  Current {periodNoun}
+                </Badge>
+              )}
+              {!isCurrentPeriod && queryEnabled && preset !== 'custom' && (
+                <span className="text-xs text-muted-foreground">{presetLabel}</span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -186,7 +361,7 @@ export default function OrganisationEngagementReport() {
         </div>
       )}
 
-      {!isLoading && (
+      {!isLoading && queryEnabled && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card>
@@ -255,13 +430,14 @@ export default function OrganisationEngagementReport() {
             <CardContent>
               {filteredOrgs.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-data">
-                  {searchQuery ? 'No organisations match your search' : 'No engagement data for this week'}
+                  {searchQuery ? 'No organisations match your search' : 'No engagement data for the selected period'}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {filteredOrgs.map((org) => {
                     const isExpanded = expandedOrg === org.organizationId;
-                    const activeThisWeek = org.members.filter(m => m.isActiveThisWeek);
+                    const activeInPeriod = org.members.filter(m => m.isActiveThisPeriod ?? m.isActiveThisWeek);
+                    const inactiveInPeriod = org.members.filter(m => !(m.isActiveThisPeriod ?? m.isActiveThisWeek));
 
                     return (
                       <div key={org.organizationId} className="border rounded-md" data-testid={`card-org-${org.organizationId}`}>
@@ -335,11 +511,11 @@ export default function OrganisationEngagementReport() {
                               </span>
                             </div>
 
-                            {activeThisWeek.length > 0 && (
+                            {activeInPeriod.length > 0 && (
                               <div className="mb-3">
-                                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Active this week ({activeThisWeek.length})</p>
+                                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Active in this period ({activeInPeriod.length})</p>
                                 <div className="space-y-1.5">
-                                  {activeThisWeek.map(m => (
+                                  {activeInPeriod.map(m => (
                                     <div key={m.id} className="flex items-center gap-3 py-1.5" data-testid={`row-member-${m.id}`}>
                                       <Avatar className="w-7 h-7">
                                         <AvatarImage src={m.profilePhoto} alt={m.name} />
@@ -360,13 +536,13 @@ export default function OrganisationEngagementReport() {
                               </div>
                             )}
 
-                            {org.members.filter(m => !m.isActiveThisWeek).length > 0 && (
+                            {inactiveInPeriod.length > 0 && (
                               <div>
                                 <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
-                                  Inactive this week ({org.members.filter(m => !m.isActiveThisWeek).length})
+                                  Inactive in this period ({inactiveInPeriod.length})
                                 </p>
                                 <div className="space-y-1.5">
-                                  {org.members.filter(m => !m.isActiveThisWeek).map(m => (
+                                  {inactiveInPeriod.map(m => (
                                     <div key={m.id} className="flex items-center gap-3 py-1.5 opacity-60" data-testid={`row-member-inactive-${m.id}`}>
                                       <Avatar className="w-7 h-7">
                                         <AvatarImage src={m.profilePhoto} alt={m.name} />

@@ -1,6 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { startOfWeek, endOfWeek, subWeeks, format, parseISO } from 'date-fns';
+import {
+  startOfWeek, endOfWeek, subWeeks,
+  startOfDay, endOfDay,
+  format, parseISO, differenceInCalendarDays,
+  subDays,
+} from 'date-fns';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -18,16 +23,46 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
-    const { weekOffset = '0' } = req.query;
+    const { weekOffset = '0', startDate, endDate } = req.query;
 
-    const offset = parseInt(weekOffset, 10) || 0;
-    const now = new Date();
-    const targetDate = offset > 0 ? subWeeks(now, offset) : now;
-    const weekStart = startOfWeek(targetDate, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(targetDate, { weekStartsOn: 1 });
+    let periodStart;
+    let periodEnd;
 
-    const prevWeekStart = startOfWeek(subWeeks(targetDate, 1), { weekStartsOn: 1 });
-    const prevWeekEnd = endOfWeek(subWeeks(targetDate, 1), { weekStartsOn: 1 });
+    const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const hasStart = typeof startDate === 'string' && startDate.length > 0;
+    const hasEnd = typeof endDate === 'string' && endDate.length > 0;
+
+    if (hasStart !== hasEnd) {
+      return res.status(400).json({ error: 'Both startDate and endDate must be provided together' });
+    }
+
+    const hasCustomRange = hasStart && hasEnd;
+    if (hasCustomRange && (!isoDateRe.test(startDate) || !isoDateRe.test(endDate))) {
+      return res.status(400).json({ error: 'startDate and endDate must be in yyyy-MM-dd format' });
+    }
+
+    if (hasCustomRange) {
+      const parsedStart = parseISO(startDate);
+      const parsedEnd = parseISO(endDate);
+      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+        return res.status(400).json({ error: 'Invalid startDate or endDate' });
+      }
+      if (parsedStart > parsedEnd) {
+        return res.status(400).json({ error: 'startDate must be on or before endDate' });
+      }
+      periodStart = startOfDay(parsedStart);
+      periodEnd = endOfDay(parsedEnd);
+    } else {
+      const offset = parseInt(weekOffset, 10) || 0;
+      const now = new Date();
+      const targetDate = offset > 0 ? subWeeks(now, offset) : now;
+      periodStart = startOfWeek(targetDate, { weekStartsOn: 1 });
+      periodEnd = endOfWeek(targetDate, { weekStartsOn: 1 });
+    }
+
+    const periodLengthDays = differenceInCalendarDays(periodEnd, periodStart) + 1;
+    const prevPeriodEnd = endOfDay(subDays(periodStart, 1));
+    const prevPeriodStart = startOfDay(subDays(periodStart, periodLengthDays));
 
     const { data: members, error: membersError } = await supabase
       .from('member')
@@ -81,13 +116,13 @@ export default async function handler(req, res) {
       orgData.totalMembers++;
 
       const lastActivity = member.last_activity ? new Date(member.last_activity) : null;
-      const isActiveThisWeek = lastActivity && lastActivity >= weekStart && lastActivity <= weekEnd;
-      const isActivePrevWeek = lastActivity && lastActivity >= prevWeekStart && lastActivity <= prevWeekEnd;
+      const isActiveThisPeriod = lastActivity && lastActivity >= periodStart && lastActivity <= periodEnd;
+      const isActivePrevPeriod = lastActivity && lastActivity >= prevPeriodStart && lastActivity <= prevPeriodEnd;
 
-      if (isActiveThisWeek) {
+      if (isActiveThisPeriod) {
         orgData.activeMembers++;
       }
-      if (isActivePrevWeek) {
+      if (isActivePrevPeriod) {
         orgData.prevActiveMembers++;
       }
 
@@ -97,7 +132,8 @@ export default async function handler(req, res) {
         email: member.email,
         profilePhoto: member.profile_photo_url,
         lastActivity: member.last_activity,
-        isActiveThisWeek,
+        isActiveThisWeek: isActiveThisPeriod,
+        isActiveThisPeriod,
         loginEnabled: member.login_enabled !== false,
       });
     }
@@ -114,8 +150,8 @@ export default async function handler(req, res) {
       const trendDiff = org.activeMembers - org.prevActiveMembers;
 
       org.members.sort((a, b) => {
-        if (a.isActiveThisWeek && !b.isActiveThisWeek) return -1;
-        if (!a.isActiveThisWeek && b.isActiveThisWeek) return 1;
+        if (a.isActiveThisPeriod && !b.isActiveThisPeriod) return -1;
+        if (!a.isActiveThisPeriod && b.isActiveThisPeriod) return 1;
         const aDate = a.lastActivity ? new Date(a.lastActivity).getTime() : 0;
         const bDate = b.lastActivity ? new Date(b.lastActivity).getTime() : 0;
         return bDate - aDate;
@@ -148,6 +184,12 @@ export default async function handler(req, res) {
       ? orgList[0].organizationName
       : null;
 
+    const periodPayload = {
+      start: format(periodStart, 'yyyy-MM-dd'),
+      end: format(periodEnd, 'yyyy-MM-dd'),
+      label: `${format(periodStart, 'dd MMM yyyy')} - ${format(periodEnd, 'dd MMM yyyy')}`,
+    };
+
     return res.status(200).json({
       organizations: orgList,
       summary: {
@@ -158,11 +200,14 @@ export default async function handler(req, res) {
         overallEngagementRate,
         topOrganization: topOrg,
       },
+      period: {
+        ...periodPayload,
+        previousStart: format(prevPeriodStart, 'yyyy-MM-dd'),
+        previousEnd: format(prevPeriodEnd, 'yyyy-MM-dd'),
+      },
       week: {
-        start: format(weekStart, 'yyyy-MM-dd'),
-        end: format(weekEnd, 'yyyy-MM-dd'),
-        offset,
-        label: `${format(weekStart, 'dd MMM yyyy')} - ${format(weekEnd, 'dd MMM yyyy')}`,
+        ...periodPayload,
+        offset: hasCustomRange ? null : (parseInt(weekOffset, 10) || 0),
       },
       lastUpdated: new Date().toISOString(),
     });
