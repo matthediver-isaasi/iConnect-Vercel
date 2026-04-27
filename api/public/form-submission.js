@@ -49,7 +49,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, title, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -200,7 +200,7 @@ export default async function handler(req, res) {
                 const inboxMetadata = {
                   submission_id: submission.id,
                   form_id,
-                  form_title: form.title || null,
+                  form_title: form.name || null,
                   submitter_email: submitterEmailForInbox,
                   submitter_name: submitterName,
                   file_count: uploadedFiles.length,
