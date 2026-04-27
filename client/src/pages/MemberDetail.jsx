@@ -464,17 +464,29 @@ export default function MemberDetail() {
   const memberEmailLower = (member?.email || '').trim().toLowerCase();
 
   const unifiedBookings = useMemo(() => {
+    const buildAttendeeName = (b) => {
+      const first = (b?.attendee_first_name || '').trim();
+      const last = (b?.attendee_last_name || '').trim();
+      const full = `${first} ${last}`.trim();
+      return full || (b?.attendee_email || '').trim() || '';
+    };
+
     const simpleItems = (memberBookings || []).map(b => {
       const event = events.find(e => e.id === b.event_id);
       const isBuyer = !!(id && b.member_id && b.member_id === id);
       const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
       const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
+      const bookingDate = b.created_date || b.created_at || null;
       return {
         key: `simple-${b.id}`,
         id: b.id,
         source: 'simple',
         title: event?.title || 'Unknown Event',
-        date: b.created_date || null,
+        eventDate: event?.start_date || null,
+        bookingDate,
+        date: bookingDate,
+        attendeeName: buildAttendeeName(b),
+        ticketClassName: b.ticket_class_name || null,
         status: b.status || 'confirmed',
         isAttendeeOnly: !isBuyer && isAttendee,
       };
@@ -485,12 +497,17 @@ export default function MemberDetail() {
       const isBuyer = !!(id && b.member_id && b.member_id === id);
       const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
       const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
+      const bookingDate = b.created_at || null;
       return {
         key: `complex-${b.id}`,
         id: b.id,
         source: 'complex',
         title: ev?.title || 'Unknown Event',
-        date: b.created_at || null,
+        eventDate: ev?.start_date || null,
+        bookingDate,
+        date: bookingDate,
+        attendeeName: buildAttendeeName(b),
+        ticketClassName: b.ticket_class_name || null,
         status: b.status || 'confirmed',
         isAttendeeOnly: !isBuyer && isAttendee,
       };
@@ -1779,20 +1796,31 @@ export default function MemberDetail() {
                   {unifiedBookings.map(item => (
                     <div
                       key={item.key}
-                      className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg"
+                      className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg"
                       data-testid={`row-booking-${item.source}-${item.id}`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
                           <Calendar className="w-5 h-5 text-blue-600" />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1 space-y-0.5">
                           <p className="font-medium text-sm truncate" data-testid={`text-booking-title-${item.source}-${item.id}`}>
                             {item.title}
                           </p>
-                          <p className="text-xs text-slate-500">
-                            {item.date ? formatDate(item.date) : '—'}
-                          </p>
+                          {item.attendeeName && (
+                            <p className="text-xs text-slate-600 truncate" data-testid={`text-booking-attendee-${item.source}-${item.id}`}>
+                              Attendee: {item.attendeeName}
+                              {item.ticketClassName ? ` · ${item.ticketClassName}` : ''}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                            <span data-testid={`text-booking-event-date-${item.source}-${item.id}`}>
+                              Event: {item.eventDate ? formatDate(item.eventDate) : '—'}
+                            </span>
+                            <span data-testid={`text-booking-booked-on-${item.source}-${item.id}`}>
+                              Booked: {item.bookingDate ? formatDate(item.bookingDate) : '—'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
