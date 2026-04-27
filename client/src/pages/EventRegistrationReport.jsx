@@ -1175,27 +1175,137 @@ export default function EventRegistrationReport() {
                             );
                           }
 
-                          return group.attendees.map((attendee, idx) => {
+                          const visibleAttendeeCount = group.attendees.length;
+                          const bookerInVisible = !!group.booker && group.attendees.some(a => a.is_booker);
+                          const showBookerHeader = !!group.booker && !bookerInVisible;
+                          const groupRowCount = visibleAttendeeCount + (showBookerHeader ? 1 : 0);
+
+                          const rows = [];
+
+                          const renderEventCells = (keyAttendeeId) => (
+                            <>
+                              <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''} rowSpan={groupRowCount}>
+                                <div className="flex items-center gap-1">
+                                  {group.isComplexEvent && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                      </TooltipTrigger>
+                                      <TooltipContent>Complex event</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  <span className="truncate">{group.eventTitle || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount} data-testid={`text-internal-ref-${keyAttendeeId}`}>
+                                {group.internalReference ? (
+                                  <span className="text-xs font-mono">{group.internalReference}</span>
+                                ) : '-'}
+                              </td>
+                            </>
+                          );
+
+                          const renderPaymentCells = () => (
+                            <>
+                              <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
+                                {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                              </td>
+                              <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={groupRowCount}>
+                                {formatCurrency(gp.totalCost)}
+                              </td>
+                              <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
+                                {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
+                              </td>
+                              <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
+                                {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
+                                <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
+                                {gp.purchaseOrderNumber ? (
+                                  <span className="text-xs">{gp.purchaseOrderNumber}</span>
+                                ) : gp.poToFollow ? (
+                                  <span className="text-xs italic text-amber-600">To follow</span>
+                                ) : '-'}
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
+                                {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
+                              </td>
+                            </>
+                          );
+
+                          if (showBookerHeader) {
+                            const bookerName = `${group.booker.first_name || ''} ${group.booker.last_name || ''}`.trim();
+                            const headerKey = group.groupRef || group.attendees[0].id;
+                            rows.push(
+                              <tr
+                                key={`${headerKey}-booker-header`}
+                                className="border-t bg-muted/30"
+                                style={{ borderTopWidth: '2px' }}
+                                data-testid={`row-booker-header-${headerKey}`}
+                              >
+                                <td className="py-2 pr-1"></td>
+                                <td className="py-2 pr-3">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                      {group.attendeeCount}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                      Booker
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">
+                                      Booked by{' '}
+                                      <span className="font-medium text-foreground">
+                                        {bookerName || 'Unknown'}
+                                      </span>
+                                      {group.booker.email ? (
+                                        <span className="ml-1">({group.booker.email})</span>
+                                      ) : null}
+                                    </span>
+                                  </div>
+                                </td>
+                                {renderEventCells(headerKey)}
+                                <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap"></td>
+                                {renderPaymentCells()}
+                                <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
+                                {showAttendanceColumn && <td className="py-2"></td>}
+                              </tr>
+                            );
+                          }
+
+                          group.attendees.forEach((attendee, idx) => {
                             const isFirst = idx === 0;
                             const isLast = idx === group.attendees.length - 1;
+                            const isFirstRowInGroup = isFirst && !showBookerHeader;
+                            const renderGroupSpannedCells = isFirst && !showBookerHeader;
                             const orgName = organizations[attendee.organization_id] || null;
                             const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
 
-                            return (
+                            rows.push(
                               <tr
                                 key={attendee.id}
-                                className={`${isLast ? 'border-b' : ''} ${isFirst ? 'border-t' : ''}`}
-                                style={isFirst ? { borderTopWidth: '2px' } : undefined}
+                                className={`${isLast ? 'border-b' : ''} ${isFirstRowInGroup ? 'border-t' : ''}`}
+                                style={isFirstRowInGroup ? { borderTopWidth: '2px' } : undefined}
                                 data-testid={`row-booking-${attendee.id}`}
                               >
                                 <td className="py-2 pr-1">
                                   {renderActionIcons(attendee)}
                                 </td>
                                 <td className="py-2 pr-3">
-                                  <div className="flex items-center gap-2">
-                                    {isFirst && (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {isFirst && !showBookerHeader && (
                                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                                         {group.attendeeCount}
+                                      </Badge>
+                                    )}
+                                    {attendee.is_booker && group.isGroup && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-booker-${attendee.id}`}>
+                                        Booker
                                       </Badge>
                                     )}
                                     <div>
@@ -1206,28 +1316,7 @@ export default function EventRegistrationReport() {
                                     </div>
                                   </div>
                                 </td>
-                                {isFirst ? (
-                                  <>
-                                    <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''} rowSpan={group.attendeeCount}>
-                                      <div className="flex items-center gap-1">
-                                        {group.isComplexEvent && (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                            </TooltipTrigger>
-                                            <TooltipContent>Complex event</TooltipContent>
-                                          </Tooltip>
-                                        )}
-                                        <span className="truncate">{group.eventTitle || '-'}</span>
-                                      </div>
-                                    </td>
-                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount} data-testid={`text-internal-ref-${attendee.id}`}>
-                                      {group.internalReference ? (
-                                        <span className="text-xs font-mono">{group.internalReference}</span>
-                                      ) : '-'}
-                                    </td>
-                                  </>
-                                ) : null}
+                                {renderGroupSpannedCells ? renderEventCells(attendee.id) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
@@ -1238,35 +1327,7 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
-                                {isFirst ? (
-                                  <>
-                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
-                                    </td>
-                                    <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={group.attendeeCount}>
-                                      {formatCurrency(gp.totalCost)}
-                                    </td>
-                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
-                                    </td>
-                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
-                                    </td>
-                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
-                                    </td>
-                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      {gp.purchaseOrderNumber ? (
-                                        <span className="text-xs">{gp.purchaseOrderNumber}</span>
-                                      ) : gp.poToFollow ? (
-                                        <span className="text-xs italic text-amber-600">To follow</span>
-                                      ) : '-'}
-                                    </td>
-                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
-                                      {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
-                                    </td>
-                                  </>
-                                ) : null}
+                                {renderGroupSpannedCells ? renderPaymentCells() : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
                                     {attendee.status || 'unknown'}
@@ -1289,6 +1350,8 @@ export default function EventRegistrationReport() {
                               </tr>
                             );
                           });
+
+                          return rows;
                         })}
                       </tbody>
                       {filteredGroups.length > 0 && (

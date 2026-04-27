@@ -300,6 +300,83 @@ export default async function handler(req, res) {
         groupMap.get(groupKey).push(b);
       }
 
+      const groupBookerInfo = new Map();
+      const realGroupRefs = [...groupMap.keys()].filter(k => !k.startsWith('single_'));
+
+      if (realGroupRefs.length > 0) {
+        const { data: egbRows } = await supabase
+          .from('event_group_booking')
+          .select('booking_reference, booker_email, booker_first_name, booker_last_name')
+          .eq('tenant_id', tenantId)
+          .in('booking_reference', realGroupRefs);
+
+        if (egbRows) {
+          for (const row of egbRows) {
+            if (row.booking_reference && row.booker_email) {
+              groupBookerInfo.set(row.booking_reference, {
+                email: row.booker_email,
+                first_name: row.booker_first_name || null,
+                last_name: row.booker_last_name || null,
+                source: 'event_group_booking',
+              });
+            }
+          }
+        }
+      }
+
+      const memberIdsToLookup = new Set();
+      for (const [groupKey, members] of groupMap) {
+        if (groupBookerInfo.has(groupKey)) continue;
+        for (const b of members) {
+          if (b.member_id) memberIdsToLookup.add(b.member_id);
+        }
+      }
+
+      const memberInfoById = new Map();
+      if (memberIdsToLookup.size > 0) {
+        const { data: memberRows } = await supabase
+          .from('member')
+          .select('id, email, first_name, last_name')
+          .in('id', [...memberIdsToLookup]);
+        if (memberRows) {
+          for (const m of memberRows) {
+            memberInfoById.set(m.id, m);
+          }
+        }
+      }
+
+      for (const [groupKey, members] of groupMap) {
+        if (groupBookerInfo.has(groupKey)) continue;
+
+        const memberBooking = members.find(b => b.member_id && memberInfoById.has(b.member_id));
+        if (memberBooking) {
+          const m = memberInfoById.get(memberBooking.member_id);
+          if (m?.email) {
+            groupBookerInfo.set(groupKey, {
+              email: m.email,
+              first_name: m.first_name || null,
+              last_name: m.last_name || null,
+              source: 'member',
+            });
+            continue;
+          }
+        }
+
+        const earliest = [...members].sort((a, b) => {
+          const aT = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bT = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return aT - bT;
+        })[0];
+        if (earliest?.attendee_email) {
+          groupBookerInfo.set(groupKey, {
+            email: earliest.attendee_email,
+            first_name: earliest.attendee_first_name || null,
+            last_name: earliest.attendee_last_name || null,
+            source: 'earliest_attendee',
+          });
+        }
+      }
+
       let totalRevenue = 0;
       let totalVoucher = 0;
       let totalTrainingFund = 0;
@@ -310,6 +387,21 @@ export default async function handler(req, res) {
       const countByStatus = {};
 
       for (const [groupRef, members] of groupMap) {
+        const bookerInfo = groupBookerInfo.get(groupRef) || null;
+        const bookerEmailNorm = bookerInfo?.email ? bookerInfo.email.toLowerCase().trim() : null;
+
+        let bookerInAttendees = false;
+        if (bookerEmailNorm) {
+          const bookerIdx = members.findIndex(b => (b.attendee_email || '').toLowerCase().trim() === bookerEmailNorm);
+          if (bookerIdx >= 0) {
+            bookerInAttendees = true;
+            if (bookerIdx > 0) {
+              const [bookerMember] = members.splice(bookerIdx, 1);
+              members.unshift(bookerMember);
+            }
+          }
+        }
+
         const first = members[0];
         const isGroup = members.length > 1;
 
@@ -367,6 +459,12 @@ export default async function handler(req, res) {
             bookingReference: first.booking_reference,
           },
           hasZoom: eventInfo.has_zoom || false,
+          booker: bookerInfo ? {
+            email: bookerInfo.email,
+            first_name: bookerInfo.first_name,
+            last_name: bookerInfo.last_name,
+            in_attendees: bookerInAttendees,
+          } : null,
           attendees: members.map(b => {
             const tcInfo = b.ticket_class_id ? ticketClassMap[b.ticket_class_id] : null;
 
@@ -420,6 +518,10 @@ export default async function handler(req, res) {
               }
             }
 
+            const isBooker = bookerInAttendees && bookerEmailNorm
+              ? (b.attendee_email || '').toLowerCase().trim() === bookerEmailNorm
+              : false;
+
             return {
               id: b.id,
               attendee_first_name: b.attendee_first_name,
@@ -441,6 +543,7 @@ export default async function handler(req, res) {
               zoom_duration_minutes,
               attendance_by_session,
               third_party_consent: b.third_party_consent ?? null,
+              is_booker: isBooker,
             };
           }),
         });
