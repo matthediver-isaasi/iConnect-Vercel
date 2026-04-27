@@ -56,8 +56,11 @@ export default async function handler(req, res) {
     query = query.not('email', 'like', 'deleted_%@deleted.local');
 
     if (search && search.trim()) {
-      const searchTerm = `%${search.trim().toLowerCase()}%`;
-      query = query.or(`first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},mobile.ilike.${searchTerm},job_title.ilike.${searchTerm}`);
+      const tokens = search.trim().split(/\s+/).filter(Boolean);
+      for (const token of tokens) {
+        const pattern = `%${token.toLowerCase()}%`;
+        query = query.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern},mobile.ilike.${pattern},job_title.ilike.${pattern}`);
+      }
     }
 
     if (organizationId && organizationId !== 'all') {

@@ -19,21 +19,31 @@ export default async function handler(req, res) {
   const { tenantId } = tenantContext;
   const { q: query, limit = 10 } = req.query;
 
-  if (!query || query.length < 2) {
+  const normalized = (query || '').trim();
+  if (normalized.length < 2) {
     return res.json([]);
   }
 
   try {
-    // Search members by name or email using ilike for case-insensitive matching
-    const searchPattern = `%${query}%`;
-    
-    const { data: members, error } = await supabase
+    // Search members by name or email using ilike for case-insensitive matching.
+    // Multi-token queries require every token to match at least one column (AND of ORs).
+    const tokens = normalized.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return res.json([]);
+    }
+
+    let memberQuery = supabase
       .from('member')
       .select('id, first_name, last_name, email')
       .eq('tenant_id', tenantId)
-      .not('email', 'ilike', 'deleted_%@deleted.local')
-      .or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern},email.ilike.${searchPattern}`)
-      .limit(parseInt(limit, 10));
+      .not('email', 'ilike', 'deleted_%@deleted.local');
+
+    for (const token of tokens) {
+      const pattern = `%${token}%`;
+      memberQuery = memberQuery.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+    }
+
+    const { data: members, error } = await memberQuery.limit(parseInt(limit, 10));
 
     if (error) {
       console.error('[Member Search] Error:', error);
