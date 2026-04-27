@@ -352,15 +352,38 @@ export default function MemberDetail() {
 
   // Activity tab queries
   const { data: memberBookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ['member-detail-bookings', id],
+    queryKey: ['member-detail-bookings', id, member?.email],
     enabled: !!id && activeTab === 'activity',
     queryFn: async () => {
+      const memberEmail = (member?.email || '').trim();
       try {
-        const bookings = await base44.entities.Booking.list({ filter: { member_id: id } });
-        return (bookings || []).sort((a, b) =>
+        const queries = [
+          base44.entities.Booking.list({ filter: { member_id: id } })
+        ];
+        if (memberEmail) {
+          queries.push(
+            base44.entities.Booking.list({ filter: { attendee_email: { ilike: memberEmail } } })
+          );
+        }
+        const results = await Promise.all(queries.map(p => p.catch((err) => {
+          console.error('[MemberDetail] member-detail-bookings sub-query failed', err);
+          return [];
+        })));
+        const seen = new Set();
+        const merged = [];
+        for (const list of results) {
+          for (const b of (list || [])) {
+            if (b && b.id && !seen.has(b.id)) {
+              seen.add(b.id);
+              merged.push(b);
+            }
+          }
+        }
+        return merged.sort((a, b) =>
           new Date(b.created_date || 0) - new Date(a.created_date || 0)
         );
-      } catch {
+      } catch (err) {
+        console.error('[MemberDetail] member-detail-bookings query failed', err);
         return [];
       }
     }
@@ -380,7 +403,10 @@ export default function MemberDetail() {
             base44.entities.ComplexEventBooking.list({ filter: { attendee_email: { ilike: memberEmail } } })
           );
         }
-        const results = await Promise.all(queries.map(p => p.catch(() => [])));
+        const results = await Promise.all(queries.map(p => p.catch((err) => {
+          console.error('[MemberDetail] member-detail-complex-bookings sub-query failed', err);
+          return [];
+        })));
         const seen = new Set();
         const merged = [];
         for (const list of results) {
@@ -392,7 +418,8 @@ export default function MemberDetail() {
           }
         }
         return merged;
-      } catch {
+      } catch (err) {
+        console.error('[MemberDetail] member-detail-complex-bookings query failed', err);
         return [];
       }
     }
@@ -401,7 +428,14 @@ export default function MemberDetail() {
   const { data: events = [] } = useQuery({
     queryKey: ['events-for-member-detail'],
     enabled: activeTab === 'activity' && memberBookings.length > 0,
-    queryFn: () => base44.entities.Event.list()
+    queryFn: async () => {
+      try {
+        return await base44.entities.Event.list();
+      } catch (err) {
+        console.error('[MemberDetail] events-for-member-detail query failed', err);
+        return [];
+      }
+    }
   });
 
   const complexEventIds = useMemo(() => {
@@ -420,7 +454,8 @@ export default function MemberDetail() {
         return await base44.entities.ComplexEvent.list({
           filter: { id: { in: complexEventIds } }
         }) || [];
-      } catch {
+      } catch (err) {
+        console.error('[MemberDetail] complex-events-for-member-detail query failed', err);
         return [];
       }
     }
