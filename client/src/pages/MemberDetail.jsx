@@ -466,6 +466,9 @@ export default function MemberDetail() {
   const unifiedBookings = useMemo(() => {
     const simpleItems = (memberBookings || []).map(b => {
       const event = events.find(e => e.id === b.event_id);
+      const isBuyer = !!(id && b.member_id && b.member_id === id);
+      const attendeeEmail = (b.attendee_email || '').trim().toLowerCase();
+      const isAttendee = !!(memberEmailLower && attendeeEmail === memberEmailLower);
       return {
         key: `simple-${b.id}`,
         id: b.id,
@@ -473,7 +476,7 @@ export default function MemberDetail() {
         title: event?.title || 'Unknown Event',
         date: b.created_date || null,
         status: b.status || 'confirmed',
-        isAttendeeOnly: false,
+        isAttendeeOnly: !isBuyer && isAttendee,
       };
     });
 
