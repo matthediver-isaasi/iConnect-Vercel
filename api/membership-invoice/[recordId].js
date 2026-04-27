@@ -1,5 +1,5 @@
 import { getSessionMember } from '../_lib/session.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { fetchXeroInvoicePdf } from '../_lib/xero.js';
 import { supabase } from '../_lib/database.js';
 
@@ -32,11 +32,11 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });
     }
 
-    const isTenantAdmin = !!tenantContext?.tenantUserId;
+    const isAdmin = await hasAdminAccess(tenantContext);
     const memberOrganizationId = sessionMember?.organization_id || null;
     let record;
 
-    if (isTenantAdmin) {
+    if (isAdmin) {
       const { data, error } = await supabase
         .from('organisation_membership_history')
         .select('id, xero_invoice_id, xero_invoice_number, organization_id, tenant_id')
