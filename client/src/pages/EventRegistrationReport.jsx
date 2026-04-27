@@ -346,6 +346,40 @@ export default function EventRegistrationReport() {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
   }, [filteredGroups]);
 
+  const distinctEvents = useMemo(() => {
+    const seen = new Map();
+    for (const group of bookingGroups) {
+      if (!group.eventId || seen.has(group.eventId)) continue;
+      seen.set(group.eventId, {
+        eventId: group.eventId,
+        title: group.eventTitle || '',
+        isComplex: !!group.isComplexEvent,
+        startDate: group.eventStartDate || null,
+        endDate: group.eventEndDate || null,
+      });
+    }
+    return Array.from(seen.values());
+  }, [bookingGroups]);
+
+  const formatEventDateRange = (event) => {
+    if (!event?.startDate) return '';
+    let start;
+    try {
+      start = format(parseISO(event.startDate), 'dd MMM yyyy');
+    } catch {
+      return '';
+    }
+    if (event.isComplex && event.endDate) {
+      try {
+        const end = format(parseISO(event.endDate), 'dd MMM yyyy');
+        if (end !== start) return `${start} \u2013 ${end}`;
+      } catch {
+        return start;
+      }
+    }
+    return start;
+  };
+
   const filteredSummary = useMemo(() => {
     let totalRevenue = 0;
     let totalVoucher = 0;
@@ -828,6 +862,71 @@ export default function EventRegistrationReport() {
         <div className="flex items-center justify-center h-32" data-testid="loading-data">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
+      )}
+
+      {reportGenerated && !isLoading && distinctEvents.length > 0 && (
+        <Card data-testid="card-event-details">
+          <CardContent className="pt-4 pb-4">
+            {distinctEvents.length === 1 ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  {distinctEvents[0].isComplex && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Layers className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent>Complex event</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <h2 className="text-lg font-semibold" data-testid={`text-event-title-${distinctEvents[0].eventId}`}>
+                    {distinctEvents[0].title || 'Untitled event'}
+                  </h2>
+                </div>
+                {formatEventDateRange(distinctEvents[0]) && (
+                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5" data-testid={`text-event-date-${distinctEvents[0].eventId}`}>
+                    <Calendar className="w-3.5 h-3.5" />
+                    {formatEventDateRange(distinctEvents[0])}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {distinctEvents.length} events
+                </div>
+                <div className="space-y-1.5">
+                  {distinctEvents.map((event) => (
+                    <div
+                      key={event.eventId}
+                      className="flex items-center justify-between gap-3 flex-wrap"
+                      data-testid={`row-event-${event.eventId}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {event.isComplex && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                            </TooltipTrigger>
+                            <TooltipContent>Complex event</TooltipContent>
+                          </Tooltip>
+                        )}
+                        <span className="font-medium truncate" data-testid={`text-event-title-${event.eventId}`}>
+                          {event.title || 'Untitled event'}
+                        </span>
+                      </div>
+                      {formatEventDateRange(event) && (
+                        <span className="text-sm text-muted-foreground flex items-center gap-1.5 flex-shrink-0" data-testid={`text-event-date-${event.eventId}`}>
+                          <Calendar className="w-3.5 h-3.5" />
+                          {formatEventDateRange(event)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {reportGenerated && !isLoading && (

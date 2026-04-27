@@ -19,22 +19,44 @@ export default async function handler(req, res) {
     const { tenantId } = tenantContext;
     const { eventId, eventName, internalReference, dateFrom, dateTo, generate } = req.query;
 
-    const { data: regularEvents, error: eventsError } = await supabase
+    let { data: regularEvents, error: eventsError } = await supabase
       .from('event')
-      .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
+      .select('id, title, start_date, end_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
+
+    if (eventsError && /end_date/i.test(eventsError.message || '')) {
+      console.warn('[Event Registration Report] event.end_date column unavailable, retrying without it');
+      const fallback = await supabase
+        .from('event')
+        .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
+        .eq('tenant_id', tenantId)
+        .order('start_date', { ascending: false });
+      regularEvents = fallback.data;
+      eventsError = fallback.error;
+    }
 
     if (eventsError) {
       console.error('[Event Registration Report] Error fetching events:', eventsError);
       return res.status(500).json({ error: 'Failed to fetch events' });
     }
 
-    const { data: complexEvents, error: complexEventsError } = await supabase
+    let { data: complexEvents, error: complexEventsError } = await supabase
       .from('complex_event')
-      .select('id, title, start_date, status')
+      .select('id, title, start_date, end_date, status')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
+
+    if (complexEventsError && /end_date/i.test(complexEventsError.message || '')) {
+      console.warn('[Event Registration Report] complex_event.end_date column unavailable, retrying without it');
+      const fallback = await supabase
+        .from('complex_event')
+        .select('id, title, start_date, status')
+        .eq('tenant_id', tenantId)
+        .order('start_date', { ascending: false });
+      complexEvents = fallback.data;
+      complexEventsError = fallback.error;
+    }
 
     if (complexEventsError) {
       console.error('[Event Registration Report] Error fetching complex events:', complexEventsError);
@@ -106,7 +128,15 @@ export default async function handler(req, res) {
 
       const eventMap = {};
       for (const ev of allEvents) {
-        eventMap[ev.id] = { title: ev.title, internal_reference: ev.internal_reference, is_complex: ev.is_complex, source: ev.source, has_zoom: ev.has_zoom };
+        eventMap[ev.id] = {
+          title: ev.title,
+          internal_reference: ev.internal_reference,
+          is_complex: ev.is_complex,
+          source: ev.source,
+          has_zoom: ev.has_zoom,
+          start_date: ev.start_date || null,
+          end_date: ev.end_date || null,
+        };
       }
 
       let allBookings = [];
@@ -319,6 +349,8 @@ export default async function handler(req, res) {
           internalReference: eventInfo.internal_reference || '',
           eventId: first.event_id,
           isComplexEvent: eventInfo.is_complex || false,
+          eventStartDate: eventInfo.start_date || null,
+          eventEndDate: eventInfo.end_date || null,
           groupPayment: {
             ticketTotal: groupTicketTotal,
             totalCost: groupTotalCost,
