@@ -365,7 +365,7 @@ async function auditWorkflowsOff(tenantId) {
 async function fetchForm(formId, tenantId) {
   const { data: form, error } = await supabase
     .from('form')
-    .select('id, title, name, tenant_id, fields, entity_pipelines, field_mappings, application_level')
+    .select('id, name, tenant_id, fields, entity_pipelines, field_mappings, application_level')
     .eq('id', formId)
     .eq('tenant_id', tenantId)
     .single();
@@ -894,7 +894,7 @@ async function main() {
 
   // 3. Fetch form
   const form = await fetchForm(FORM_ID, TENANT_ID);
-  log(`[form] Loaded "${form.title || form.name || form.id}"`);
+  log(`[form] Loaded "${form.name || form.id}"`);
 
   const orgNameFieldId = resolveOrgNameSourceFieldId(form);
   if (!orgNameFieldId) {
