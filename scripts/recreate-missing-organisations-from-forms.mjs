@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Recreate missing organisations from form submissions
- * ====================================================
+ * Recreate missing organisations from form submissions (and re-link DD submissions)
+ * =================================================================================
  *
  * Who this is for:
  *   Admin / engineering only. Use this after a Zoho CRM <-> iConnect sync issue
@@ -9,14 +9,36 @@
  *   intact and can be reprocessed to recreate them.
  *
  * What it does:
- *   For a given tenant + form, finds every form_submission whose linked
- *   organisation no longer exists (NULL organization_id, dangling FK, or
- *   wrong-tenant org), reports them as a CSV (dry-run) and, with --apply,
- *   reprocesses each flagged submission through the SAME entity pipeline used
- *   by api/forms/process-application.js. Each flagged submission either:
- *     - creates a new organisation (and writes back form_submission.organization_id), or
- *     - links to an existing organisation whose name matches case-insensitively, or
- *     - fails (and is logged in the post-run CSV; the batch continues).
+ *   Step A — Application form (existing behaviour):
+ *     For a given tenant + form, finds every form_submission whose linked
+ *     organisation no longer exists (NULL organization_id, dangling FK, or
+ *     wrong-tenant org), reports them as a CSV (dry-run) and, with --apply,
+ *     reprocesses each flagged submission through the SAME entity pipeline used
+ *     by api/forms/process-application.js. Each flagged submission either:
+ *       - creates a new organisation (and writes back form_submission.organization_id), or
+ *       - links to an existing organisation whose name matches case-insensitively, or
+ *       - fails (and is logged in the post-run CSV; the batch continues).
+ *
+ *   Step B — Due Diligence submissions (NEW):
+ *     After the application form is processed, the script also scans every Due
+ *     Diligence form configured for the tenant (auto-discovered via
+ *     `form_due_diligence_config`) and finds DD submissions whose organisation
+ *     is missing/dangling/wrong-tenant. For each flagged DD submission it tries
+ *     to resolve a target organisation by joining on the applicant email shared
+ *     with the application form (most recent application submission wins on a
+ *     tie). With --apply it then updates `form_submission.organization_id` AND
+ *     overwrites the DD form's "Name of Organisation" field value inside
+ *     `submission_data` with the resolved organisation id (replacing the stale
+ *     invalid UUID), as a single update per submission so the row stays
+ *     consistent.
+ *     Two extra reports are written:
+ *       tmp/missing-dd-orgs-dry-run-<ts>.csv  (always)
+ *       tmp/missing-dd-orgs-apply-<ts>.csv    (only with --apply)
+ *     DD forms whose `applicant_organization_name_field` is NOT configured are
+ *     skipped with a warning. DD submissions whose applicant email does not
+ *     match any application submission, or whose matched application submission
+ *     has no valid organisation, are reported as `no_application_match` /
+ *     `application_org_unresolved` and the run continues.
  *
  * Workflow-off precondition:
  *   Reprocessing through process-application.js will trigger workflows for
@@ -37,10 +59,14 @@
  *   --form-id    3c4124e1-05c6-4423-88e1-a5f91045152b
  *
  * Usage:
- *   # Dry run (writes tmp/missing-orgs-dry-run-<ts>.csv, no DB changes):
+ *   # Dry run (no DB changes). Always writes both:
+ *   #   tmp/missing-orgs-dry-run-<ts>.csv         (Step A — applications)
+ *   #   tmp/missing-dd-orgs-dry-run-<ts>.csv      (Step B — DD submissions)
  *   node scripts/recreate-missing-organisations-from-forms.mjs
  *
- *   # Apply (writes tmp/missing-orgs-apply-<ts>.csv, reprocesses flagged rows):
+ *   # Apply. Writes the dry-run CSVs above plus:
+ *   #   tmp/missing-orgs-apply-<ts>.csv           (Step A — applications)
+ *   #   tmp/missing-dd-orgs-apply-<ts>.csv        (Step B — DD submissions)
  *   node scripts/recreate-missing-organisations-from-forms.mjs --apply
  *
  *   # Override (rare; only when explicitly directed):
@@ -564,7 +590,441 @@ async function buildFlaggedRows(form, tenantId, orgNameFieldId) {
     wouldMatchCount,
     wouldCreateCount: flagged.length - wouldMatchCount,
     flagged,
+    // Returned so the DD-linking step can build an email->org map without
+    // re-scanning the application form. `orgMap` only contains rows referenced
+    // by some application submission, but that is exactly what we need for
+    // valid (non-flagged) submissions.
+    submissions,
+    orgMap,
   };
+}
+
+// ---------------------------------------------------------------------------
+// DD-linking helpers (Step B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Auto-discover all Due Diligence forms for the tenant. Returns
+ *   [{ form, config }]
+ * for every form_due_diligence_config row whose joined `form` row exists for
+ * the same tenant AND has an `applicant_organization_name_field` configured
+ * (we have nowhere to write the resolved org id back to without it). Forms
+ * missing that field are skipped with a clear warning.
+ */
+async function discoverDDForms(tenantId) {
+  const { data: configs, error } = await supabase
+    .from('form_due_diligence_config')
+    .select('id, form_id, applicant_email_field, applicant_organization_name_field')
+    .eq('tenant_id', tenantId);
+  if (error) {
+    err('Failed to query form_due_diligence_config:', error.message);
+    process.exit(1);
+  }
+  if (!configs || configs.length === 0) {
+    log('[dd discovery] No form_due_diligence_config rows for tenant — nothing to scan.');
+    return [];
+  }
+
+  const formIds = Array.from(new Set(configs.map(c => c.form_id).filter(Boolean)));
+  const formMap = new Map();
+  if (formIds.length > 0) {
+    const { data: forms, error: formErr } = await supabase
+      .from('form')
+      .select('id, name, fields, tenant_id')
+      .in('id', formIds)
+      .eq('tenant_id', tenantId);
+    if (formErr) {
+      err('Failed to fetch DD forms:', formErr.message);
+      process.exit(1);
+    }
+    for (const f of forms || []) formMap.set(f.id, f);
+  }
+
+  const result = [];
+  for (const config of configs) {
+    const form = formMap.get(config.form_id);
+    if (!form) {
+      warn(`[dd discovery] DD config ${config.id} references form ${config.form_id} which is missing or belongs to a different tenant; skipping`);
+      continue;
+    }
+    if (!config.applicant_organization_name_field) {
+      warn(`[dd discovery] DD form "${form.name || form.id}" (${form.id}) has no applicant_organization_name_field configured; skipping (cannot patch submission_data without it)`);
+      continue;
+    }
+    result.push({ form, config });
+  }
+  log(`[dd discovery] ${result.length} DD form(s) eligible for re-linking (out of ${configs.length} config row(s))`);
+  return result;
+}
+
+/**
+ * Extract the applicant email for a DD submission. Prefer the configured
+ * `applicant_email_field` value inside submission_data; fall back to
+ * `submitted_by_email` on the submission row itself.
+ */
+function getDDApplicantEmail(submission, ddConfig) {
+  const data = submission.submission_data || {};
+  const fieldId = ddConfig.applicant_email_field;
+  if (fieldId) {
+    const v = data[fieldId];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  if (typeof submission.submitted_by_email === 'string' && submission.submitted_by_email.trim()) {
+    return submission.submitted_by_email.trim();
+  }
+  return null;
+}
+
+/**
+ * Read the current value of the DD form's "Name of Organisation" field on the
+ * submission. After the incident this typically holds an invalid org UUID.
+ * Returned as a string for reporting; objects/arrays are JSON-stringified.
+ */
+function getDDOrgFieldRawValue(submission, ddConfig) {
+  const data = submission.submission_data || {};
+  const fieldId = ddConfig.applicant_organization_name_field;
+  if (!fieldId) return null;
+  const v = data[fieldId];
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string') return v;
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+/**
+ * Scan one DD form for missing/dangling organisation links — same three checks
+ * the application-form scan uses. Returns flagged rows annotated with the
+ * applicant email and the current invalid org-field value.
+ */
+async function scanDDForMissingOrgs(ddForm, ddConfig, tenantId) {
+  const submissions = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('form_submission')
+      .select('id, created_date, submitted_by_email, organization_id, submission_data')
+      .eq('form_id', ddForm.id)
+      .eq('tenant_id', tenantId)
+      .order('created_date', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      err(`Failed to fetch DD form_submission rows for ${ddForm.id}:`, error.message);
+      process.exit(1);
+    }
+    if (!data || data.length === 0) break;
+    submissions.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const referencedOrgIds = Array.from(new Set(
+    submissions.map(s => s.organization_id).filter(Boolean)
+  ));
+  const orgMap = await fetchOrganisationsByIds(referencedOrgIds);
+
+  const flagged = [];
+  let validCount = 0;
+  for (const s of submissions) {
+    let reason = null;
+    if (!s.organization_id) {
+      reason = 'organization_id is NULL';
+    } else {
+      const org = orgMap.get(s.organization_id);
+      if (!org) {
+        reason = `organization_id ${s.organization_id} does not exist`;
+      } else if (org.tenant_id !== tenantId) {
+        reason = `organization belongs to a different tenant (${org.tenant_id})`;
+      }
+    }
+    if (!reason) {
+      validCount++;
+      continue;
+    }
+    flagged.push({
+      dd_form_id: ddForm.id,
+      dd_form_name: ddForm.name || '',
+      submission_id: s.id,
+      created_date: s.created_date,
+      applicant_email: getDDApplicantEmail(s, ddConfig) || '',
+      current_invalid_org_field_value: getDDOrgFieldRawValue(s, ddConfig) || '',
+      missing_reason: reason,
+      // Carried through so the apply step knows which key in submission_data
+      // to overwrite. Always identical for a given DD form, but per-row makes
+      // the apply loop simpler.
+      applicant_organization_name_field: ddConfig.applicant_organization_name_field,
+    });
+  }
+  return { totalSubmissions: submissions.length, validCount, flagged };
+}
+
+/**
+ * Build a map keyed by lowercased applicant email -> resolution metadata,
+ * derived from the application form's submissions. The "resolved" org id per
+ * application submission depends on mode:
+ *   - Always-valid submissions:    use their existing organization_id.
+ *   - Flagged-but-applied (apply): use the apply result's organization_id.
+ *   - Flagged-and-not-applied (dry-run): use the flagged row's
+ *     matched_existing_org_id when present (would-link path); CREATE-path
+ *     submissions stay unresolved in dry-run mode (we cannot guess what the
+ *     pipeline would invent), and DD rows pointing at them will be reported
+ *     as application_org_unresolved.
+ *
+ * When several application submissions share an email, the most recent one
+ * with a resolved org wins. The total count of matching submissions is kept
+ * so the dry-run CSV can record "picked most recent of N matching".
+ */
+function buildEmailToOrgMap({ submissions, flagged, applyResultsById, orgMap, tenantId, applyMode }) {
+  const flaggedById = new Map(flagged.map(f => [f.submission_id, f]));
+  const perEmail = new Map();
+
+  for (const s of submissions) {
+    const rawEmail = (s.submitted_by_email || '').trim();
+    if (!rawEmail) continue;
+    const email = rawEmail.toLowerCase();
+
+    let resolvedOrgId = null;
+    if (!flaggedById.has(s.id)) {
+      // Pre-existing valid submission. Org was confirmed tenant-owned during
+      // buildFlaggedRows, otherwise it would have been flagged.
+      const org = orgMap.get(s.organization_id);
+      if (org && org.tenant_id === tenantId) resolvedOrgId = org.id;
+    } else if (applyMode && applyResultsById) {
+      const r = applyResultsById.get(s.id);
+      if (r && (r.outcome === 'created' || r.outcome === 'linked_existing') && r.organization_id) {
+        resolvedOrgId = r.organization_id;
+      }
+    } else {
+      // Dry-run: only the would-link branch produces a known org id.
+      const f = flaggedById.get(s.id);
+      if (f && f.matched_existing_org_id) resolvedOrgId = f.matched_existing_org_id;
+    }
+
+    let bucket = perEmail.get(email);
+    if (!bucket) { bucket = []; perEmail.set(email, bucket); }
+    bucket.push({
+      submission_id: s.id,
+      created_date: s.created_date,
+      resolved_organization_id: resolvedOrgId,
+    });
+  }
+
+  const result = new Map();
+  for (const [email, entries] of perEmail) {
+    entries.sort((a, b) => {
+      const da = a.created_date ? new Date(a.created_date).getTime() : 0;
+      const db = b.created_date ? new Date(b.created_date).getTime() : 0;
+      return db - da;
+    });
+    const valid = entries.filter(e => e.resolved_organization_id);
+    if (valid.length === 0) {
+      result.set(email, {
+        organization_id: null,
+        application_submission_id: null,
+        total_application_matches: entries.length,
+        total_resolved_matches: 0,
+      });
+      continue;
+    }
+    const chosen = valid[0];
+    result.set(email, {
+      organization_id: chosen.resolved_organization_id,
+      application_submission_id: chosen.submission_id,
+      total_application_matches: entries.length,
+      total_resolved_matches: valid.length,
+    });
+  }
+  return result;
+}
+
+/**
+ * For each flagged DD row, look the applicant email up in the email->org map
+ * and assign one of: linkable, no_application_match, application_org_unresolved.
+ * Returns rows ready for the dry-run CSV (and the apply loop).
+ */
+function resolveDDFlagsAgainstMap(ddFlaggedRows, emailMap, orgNameMap) {
+  const out = [];
+  for (const row of ddFlaggedRows) {
+    const email = (row.applicant_email || '').trim().toLowerCase();
+    if (!email) {
+      out.push({
+        ...row,
+        outcome: 'no_application_match',
+        resolved_organization_id: '',
+        resolved_organization_name: '',
+        application_submission_id: '',
+        notes: 'DD submission has no applicant email (neither configured field nor submitted_by_email)',
+      });
+      continue;
+    }
+    const entry = emailMap.get(email);
+    if (!entry) {
+      out.push({
+        ...row,
+        outcome: 'no_application_match',
+        resolved_organization_id: '',
+        resolved_organization_name: '',
+        application_submission_id: '',
+        notes: '',
+      });
+      continue;
+    }
+    if (!entry.organization_id) {
+      out.push({
+        ...row,
+        outcome: 'application_org_unresolved',
+        resolved_organization_id: '',
+        resolved_organization_name: '',
+        application_submission_id: '',
+        notes: entry.total_application_matches > 1
+          ? `${entry.total_application_matches} matching application submission(s), none resolved to a valid organisation in this run`
+          : 'Matching application submission has no valid organisation in this run',
+      });
+      continue;
+    }
+    const notes = entry.total_application_matches > 1
+      ? `picked most recent of ${entry.total_application_matches} matching application submission(s) (${entry.total_resolved_matches} had a resolved org)`
+      : '';
+    out.push({
+      ...row,
+      outcome: 'linkable',
+      resolved_organization_id: entry.organization_id,
+      resolved_organization_name: orgNameMap.get(entry.organization_id) || '',
+      application_submission_id: entry.application_submission_id || '',
+      notes,
+    });
+  }
+  return out;
+}
+
+/**
+ * Apply DD linking: for each `linkable` row, re-verify the resolved org is
+ * still valid for the tenant, then update `form_submission.organization_id`
+ * AND patch the DD form's "Name of Organisation" key inside `submission_data`
+ * so it holds the resolved org id (replacing the stale invalid UUID). Both
+ * column updates happen in a SINGLE update per row so the row never lands in
+ * a partially-updated state. On any failure the row is left untouched and
+ * the run continues.
+ */
+async function applyDDLinking(resolvedDDRows, tenantId) {
+  const results = [];
+  let linkedCount = 0;
+  let noMatchCount = 0;
+  let unresolvedCount = 0;
+  let failedCount = 0;
+
+  for (const row of resolvedDDRows) {
+    // Carry the tie-resolution metadata from the dry-run pass into the apply
+    // CSV so the operator can audit which application submission was chosen
+    // (and why) without having to cross-reference the dry-run report.
+    const baseRecord = {
+      dd_form_id: row.dd_form_id,
+      submission_id: row.submission_id,
+      applicant_email: row.applicant_email,
+      application_submission_id: row.application_submission_id || '',
+      notes: row.notes || '',
+    };
+
+    if (row.outcome === 'no_application_match') {
+      noMatchCount++;
+      results.push({ ...baseRecord, outcome: 'no_application_match', organization_id: '', error: '' });
+      continue;
+    }
+    if (row.outcome === 'application_org_unresolved') {
+      unresolvedCount++;
+      results.push({ ...baseRecord, outcome: 'application_org_unresolved', organization_id: '', error: '' });
+      continue;
+    }
+
+    log(`\n[dd apply] Submission ${row.submission_id} (${row.applicant_email}) -> org ${row.resolved_organization_id} on form "${row.dd_form_name}"`);
+
+    // Re-verify resolved organisation still exists and is tenant-owned.
+    const { data: org, error: orgErr } = await supabase
+      .from('organization')
+      .select('id, tenant_id')
+      .eq('id', row.resolved_organization_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (orgErr || !org) {
+      const msg = `Resolved org ${row.resolved_organization_id} not found or wrong tenant: ${orgErr?.message || 'not found for tenant'}`;
+      err(`  -> FAILED: ${msg}`);
+      failedCount++;
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      continue;
+    }
+
+    // Re-fetch DD submission to get fresh submission_data for the patch.
+    const { data: sub, error: subErr } = await supabase
+      .from('form_submission')
+      .select('id, submission_data')
+      .eq('id', row.submission_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (subErr || !sub) {
+      const msg = `DD submission ${row.submission_id} not found for tenant: ${subErr?.message || 'not found'}`;
+      err(`  -> FAILED: ${msg}`);
+      failedCount++;
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      continue;
+    }
+
+    if (!row.applicant_organization_name_field) {
+      const msg = 'No applicant_organization_name_field on row (should have been filtered at discovery)';
+      err(`  -> FAILED: ${msg}`);
+      failedCount++;
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      continue;
+    }
+
+    const newSubmissionData = { ...(sub.submission_data || {}) };
+    newSubmissionData[row.applicant_organization_name_field] = row.resolved_organization_id;
+
+    const { error: updErr } = await supabase
+      .from('form_submission')
+      .update({
+        organization_id: row.resolved_organization_id,
+        submission_data: newSubmissionData,
+      })
+      .eq('id', row.submission_id)
+      .eq('tenant_id', tenantId);
+    if (updErr) {
+      const msg = `Failed to update form_submission: ${updErr.message}`;
+      err(`  -> FAILED: ${msg}`);
+      failedCount++;
+      results.push({ ...baseRecord, outcome: 'failed', organization_id: '', error: msg });
+      continue;
+    }
+
+    linkedCount++;
+    log(`  -> LINKED`);
+    results.push({ ...baseRecord, outcome: 'linked', organization_id: row.resolved_organization_id, error: '' });
+  }
+
+  return { results, linkedCount, noMatchCount, unresolvedCount, failedCount };
+}
+
+/**
+ * Bulk-fetch organisation names by id, tenant-scoped. Used to populate the
+ * `resolved_organization_name` column in the DD dry-run CSV.
+ */
+async function fetchTenantOrgNames(orgIds, tenantId) {
+  const map = new Map();
+  if (!orgIds.length) return map;
+  const ids = Array.from(new Set(orgIds));
+  const chunkSize = 500;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('organization')
+      .select('id, name')
+      .in('id', chunk)
+      .eq('tenant_id', tenantId);
+    if (error) {
+      err('Failed to fetch resolved organisation names:', error.message);
+      process.exit(1);
+    }
+    for (const o of data || []) map.set(o.id, o.name);
+  }
+  return map;
 }
 
 function printSummary(stats) {
@@ -883,17 +1343,20 @@ async function main() {
   log(`Key source:    ${supabaseKeySource}`);
   log(`Tenant id:     ${TENANT_ID}`);
   log(`Form id:       ${FORM_ID}`);
-  log(`Mode:          ${APPLY ? 'APPLY (will reprocess)' : 'DRY RUN (no changes)'}`);
+  log(`Mode:          ${APPLY ? 'APPLY (will reprocess + link)' : 'DRY RUN (no changes)'}`);
   log('');
 
   // 1. Pre-flight schema sanity check — abort loudly if we are pointed at a
   //    non-multi-tenant DB before touching any data.
   await assertMultiTenantSchema();
 
-  // 2. Pre-flight workflow audit (always runs, in both dry-run and apply mode)
+  // 2. Pre-flight workflow audit (always runs, in both dry-run and apply mode).
+  //    The DD-linking step does NOT trigger workflows itself (it only updates
+  //    columns on existing form_submission rows), but the application-form
+  //    apply step still does, so the audit remains a hard precondition.
   await auditWorkflowsOff(TENANT_ID);
 
-  // 3. Fetch form
+  // 3. Fetch application form
   const form = await fetchForm(FORM_ID, TENANT_ID);
   log(`[form] Loaded "${form.name || form.id}"`);
 
@@ -904,10 +1367,10 @@ async function main() {
     log(`[form] Organisation name source field id: ${orgNameFieldId}`);
   }
 
-  // 4. Build the missing-org report
+  // 4. Build the missing-org report for the application form
   const stats = await buildFlaggedRows(form, TENANT_ID, orgNameFieldId);
 
-  // 5. Always write the dry-run CSV
+  // 5. Always write the application-form dry-run CSV
   const ts = timestamp();
   const dryRunPath = path.join('tmp', `missing-orgs-dry-run-${ts}.csv`);
   writeCsv(dryRunPath, stats.flagged, [
@@ -924,38 +1387,139 @@ async function main() {
 
   printSummary(stats);
 
-  if (!APPLY) {
-    log('\nDry-run complete. Re-run with --apply to reprocess flagged submissions.');
-    return;
+  // 6. DD discovery + scan (always runs; needed to write the DD dry-run CSV)
+  log('\n=== Step B: Due Diligence form scan ===');
+  const ddForms = await discoverDDForms(TENANT_ID);
+  const ddScans = [];
+  for (const { form: ddForm, config: ddConfig } of ddForms) {
+    const scan = await scanDDForMissingOrgs(ddForm, ddConfig, TENANT_ID);
+    log(`[dd scan] "${ddForm.name || ddForm.id}" (${ddForm.id}): ${scan.totalSubmissions} submission(s), ${scan.validCount} valid, ${scan.flagged.length} flagged`);
+    ddScans.push({ ddForm, ddConfig, scan });
+  }
+  const allDDFlagged = ddScans.flatMap(s => s.scan.flagged);
+
+  // 7. Application-form apply path (only when --apply). DD apply runs after
+  //    this, so the DD email map is built from the *post-recreation* state.
+  let applyResult = null;
+  let applyPath = null;
+  let applyResultsById = null;
+  if (APPLY) {
+    if (stats.flagged.length === 0) {
+      log('\n[apply] Nothing to reprocess — no flagged application submissions.');
+    } else {
+      log('\n=== Apply: reprocessing flagged application submissions ===');
+      applyResult = await applyReprocessing(form, TENANT_ID, stats.flagged, orgNameFieldId);
+
+      applyPath = path.join('tmp', `missing-orgs-apply-${ts}.csv`);
+      writeCsv(applyPath, applyResult.results, [
+        'submission_id',
+        'applicant_email',
+        'extracted_org_name',
+        'outcome',
+        'organization_id',
+        'error',
+      ]);
+      log(`\n[csv] App apply report written: ${applyPath}`);
+
+      log('\n=== App apply summary ===');
+      log(`Created new organisations:  ${applyResult.createdCount}`);
+      log(`Linked to existing orgs:    ${applyResult.linkedCount}`);
+      log(`Failed:                     ${applyResult.failedCount}`);
+
+      applyResultsById = new Map(applyResult.results.map(r => [r.submission_id, r]));
+    }
   }
 
-  if (stats.flagged.length === 0) {
-    log('\nNothing to reprocess — no flagged submissions.');
-    return;
+  // 8. Build the email -> resolved-org map from the application-form state.
+  const emailMap = buildEmailToOrgMap({
+    submissions: stats.submissions,
+    flagged: stats.flagged,
+    applyResultsById,
+    orgMap: stats.orgMap,
+    tenantId: TENANT_ID,
+    applyMode: APPLY,
+  });
+  log(`\n[dd email map] Built map for ${emailMap.size} unique applicant email(s) from ${stats.submissions.length} application submission(s)`);
+
+  // 9. Resolve every flagged DD submission against the email map.
+  const resolvedOrgIds = new Set();
+  for (const entry of emailMap.values()) {
+    if (entry.organization_id) resolvedOrgIds.add(entry.organization_id);
   }
+  const orgNameMap = await fetchTenantOrgNames(Array.from(resolvedOrgIds), TENANT_ID);
+  const resolvedDD = resolveDDFlagsAgainstMap(allDDFlagged, emailMap, orgNameMap);
 
-  // 6. Apply path
-  log('\n=== Apply: reprocessing flagged submissions ===');
-  const applyResult = await applyReprocessing(form, TENANT_ID, stats.flagged, orgNameFieldId);
-
-  const applyPath = path.join('tmp', `missing-orgs-apply-${ts}.csv`);
-  writeCsv(applyPath, applyResult.results, [
+  // 10. Always write the DD dry-run CSV.
+  const ddDryRunPath = path.join('tmp', `missing-dd-orgs-dry-run-${ts}.csv`);
+  writeCsv(ddDryRunPath, resolvedDD, [
+    'dd_form_id',
+    'dd_form_name',
     'submission_id',
+    'created_date',
     'applicant_email',
-    'extracted_org_name',
+    'current_invalid_org_field_value',
     'outcome',
-    'organization_id',
-    'error',
+    'resolved_organization_id',
+    'resolved_organization_name',
+    'application_submission_id',
+    'notes',
   ]);
-  log(`\n[csv] Post-run report written: ${applyPath}`);
+  log(`[csv] DD dry-run report written: ${ddDryRunPath}`);
 
-  log('\n=== Apply summary ===');
-  log(`Created new organisations:  ${applyResult.createdCount}`);
-  log(`Linked to existing orgs:    ${applyResult.linkedCount}`);
-  log(`Failed:                     ${applyResult.failedCount}`);
+  const ddDryCounts = { linkable: 0, no_application_match: 0, application_org_unresolved: 0 };
+  for (const r of resolvedDD) ddDryCounts[r.outcome] = (ddDryCounts[r.outcome] || 0) + 1;
+  log('\n=== DD-linking dry-run summary ===');
+  log(`DD forms scanned:                       ${ddScans.length}`);
+  log(`Flagged DD submissions (across forms):  ${resolvedDD.length}`);
+  log(`  - linkable (would link):              ${ddDryCounts.linkable}`);
+  log(`  - no_application_match:               ${ddDryCounts.no_application_match}`);
+  log(`  - application_org_unresolved:         ${ddDryCounts.application_org_unresolved}`);
 
-  if (applyResult.failedCount > 0) {
-    err(`\n${applyResult.failedCount} submission(s) failed. See ${applyPath} for details.`);
+  // 11. DD apply path (only when --apply).
+  let ddApplyResult = null;
+  let ddApplyPath = null;
+  if (APPLY) {
+    if (resolvedDD.length === 0) {
+      log('\n[dd apply] Nothing to link — no flagged DD submissions.');
+    } else {
+      log('\n=== Apply: linking DD submissions ===');
+      ddApplyResult = await applyDDLinking(resolvedDD, TENANT_ID);
+
+      ddApplyPath = path.join('tmp', `missing-dd-orgs-apply-${ts}.csv`);
+      writeCsv(ddApplyPath, ddApplyResult.results, [
+        'dd_form_id',
+        'submission_id',
+        'applicant_email',
+        'outcome',
+        'organization_id',
+        // Tie-resolution metadata: which application submission supplied the
+        // resolved org id, and the human-readable note (e.g. "picked most
+        // recent of 3 matching application submission(s)") so an operator can
+        // audit the apply artifact directly without cross-referencing the
+        // dry-run CSV.
+        'application_submission_id',
+        'notes',
+        'error',
+      ]);
+      log(`\n[csv] DD apply report written: ${ddApplyPath}`);
+
+      log('\n=== DD apply summary ===');
+      log(`Linked:                       ${ddApplyResult.linkedCount}`);
+      log(`No application match:         ${ddApplyResult.noMatchCount}`);
+      log(`Application org unresolved:   ${ddApplyResult.unresolvedCount}`);
+      log(`Failed:                       ${ddApplyResult.failedCount}`);
+    }
+  } else {
+    log('\nDry-run complete. Re-run with --apply to reprocess application submissions and link DD submissions.');
+  }
+
+  // 12. Combined exit code. Both reports are already on disk by this point.
+  const appFailed = applyResult?.failedCount || 0;
+  const ddFailed = ddApplyResult?.failedCount || 0;
+  if (appFailed + ddFailed > 0) {
+    err('');
+    if (appFailed > 0) err(`${appFailed} application submission(s) failed. See ${applyPath} for details.`);
+    if (ddFailed > 0) err(`${ddFailed} DD submission(s) failed to link. See ${ddApplyPath} for details.`);
     process.exit(3);
   }
 }
