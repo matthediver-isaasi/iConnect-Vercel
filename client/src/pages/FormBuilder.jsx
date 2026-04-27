@@ -604,6 +604,22 @@ const VISIBILITY_OPERATORS = [
   { value: 'is_empty', label: 'Is empty' },
 ];
 
+const BOOLEAN_OPERATORS = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'not_equals', label: 'Does not equal' },
+];
+
+const BOOLEAN_VALUE_OPTIONS = [
+  { value: 'true', label: 'True' },
+  { value: 'false', label: 'False' },
+];
+
+const isBooleanOperatorAllowed = (operator) =>
+  BOOLEAN_OPERATORS.some(op => op.value === operator);
+
+const isBooleanValueAllowed = (value) =>
+  BOOLEAN_VALUE_OPTIONS.some(opt => opt.value === value);
+
 const RULE_TYPES = [
   { value: 'visibility', label: 'Show/Hide Fields', icon: Eye, description: 'Control field visibility' },
   { value: 'set_value', label: 'Set Field Value', icon: Edit2, description: 'Set a field value' },
@@ -697,12 +713,21 @@ function LogicRulesSection({
     return { actions: otherActions, migrated: true };
   };
 
+  // Build a compact signature of which fields are booleans so we re-run the
+  // boolean auto-correction step when a field's type changes.
+  const booleanFieldsSignature = (fields || [])
+    .filter(f => f && f.type === 'boolean')
+    .map(f => f.id)
+    .join('|');
+
   // Normalize and migrate rules on initial load or when rules change
   useEffect(() => {
     if (!visibilityRules || visibilityRules.length === 0) return;
     
-    // Use JSON comparison to detect new data (handles cached array references)
-    const currentJson = JSON.stringify(visibilityRules);
+    // Use JSON comparison to detect new data (handles cached array references).
+    // Include the boolean-fields signature so changing a field's type to/from
+    // boolean re-triggers the auto-correction below.
+    const currentJson = `${booleanFieldsSignature}::${JSON.stringify(visibilityRules)}`;
     if (lastMigratedJsonRef.current === currentJson) return;
     
     let needsUpdate = false;
@@ -779,7 +804,33 @@ function LogicRulesSection({
           conditions
         };
       }
-      
+
+      // Auto-correct conditions whose reference field is boolean but the saved
+      // operator/value is no longer valid for booleans. This keeps already-saved
+      // rules in a valid state when they're loaded into the editor.
+      if (normalizedRule.conditions && Array.isArray(normalizedRule.conditions)) {
+        let conditionsChanged = false;
+        const correctedConditions = normalizedRule.conditions.map(cond => {
+          if (!cond.field_id) return cond;
+          const refField = fields.find(f => f.id === cond.field_id);
+          if (!refField || refField.type !== 'boolean') return cond;
+          let updated = cond;
+          if (!isBooleanOperatorAllowed(cond.operator)) {
+            updated = { ...updated, operator: 'equals' };
+            conditionsChanged = true;
+          }
+          if (!isBooleanValueAllowed(updated.value)) {
+            updated = { ...updated, value: 'true' };
+            conditionsChanged = true;
+          }
+          return updated;
+        });
+        if (conditionsChanged) {
+          needsUpdate = true;
+          normalizedRule = { ...normalizedRule, conditions: correctedConditions };
+        }
+      }
+
       return normalizedRule;
     });
     
@@ -789,10 +840,10 @@ function LogicRulesSection({
     if (needsUpdate) {
       console.log('[FormBuilder] Migrating legacy visibility rules to new format');
       // Update the ref to the new JSON so we don't re-trigger
-      lastMigratedJsonRef.current = JSON.stringify(migratedRules);
+      lastMigratedJsonRef.current = `${booleanFieldsSignature}::${JSON.stringify(migratedRules)}`;
       onRulesChange(migratedRules);
     }
-  }, [visibilityRules, onRulesChange]);
+  }, [visibilityRules, onRulesChange, booleanFieldsSignature]);
 
   // Simple normalize for rendering - ensures default values exist
   // The actual migration is done in the useEffect above which persists the changes
@@ -876,7 +927,15 @@ function LogicRulesSection({
     if (field.type === 'image_buttons') {
       return (field.image_options || []).map(opt => ({ value: opt.value, label: opt.label || opt.value }));
     }
+    if (field.type === 'boolean') {
+      return BOOLEAN_VALUE_OPTIONS;
+    }
     return [];
+  };
+
+  const isBooleanReferenceField = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    return field?.type === 'boolean';
   };
 
   const addAction = (ruleId, actionType = 'visibility') => {
@@ -1466,8 +1525,13 @@ function LogicRulesSection({
                 {/* Conditions */}
                 <div className="space-y-2">
                   {conditions.map((condition, condIndex) => {
+                    const isBooleanRef = isBooleanReferenceField(condition.field_id);
                     const conditionOptions = getConditionFieldOptions(condition.field_id);
-                    const needsValueInput = condition.operator !== 'is_empty' && condition.operator !== 'not_empty';
+                    const operatorOptions = isBooleanRef ? BOOLEAN_OPERATORS : VISIBILITY_OPERATORS;
+                    // For booleans, only equals/not_equals are allowed and both need a value.
+                    const needsValueInput = isBooleanRef
+                      ? true
+                      : (condition.operator !== 'is_empty' && condition.operator !== 'not_empty');
                     
                     return (
                       <div key={condition.id} className="flex flex-wrap items-end gap-2 p-2 bg-white rounded border border-slate-200">
@@ -1483,7 +1547,17 @@ function LogicRulesSection({
                           <Select
                             value={condition.field_id || undefined}
                             onValueChange={(value) => {
-                              if (value) {
+                              if (!value) return;
+                              const newField = fields.find(f => f.id === value);
+                              if (newField?.type === 'boolean') {
+                                // Auto-correct: booleans only support equals/not_equals
+                                // and need a true/false value (default to "true").
+                                updateCondition(rule.id, condition.id, {
+                                  field_id: value,
+                                  operator: isBooleanOperatorAllowed(condition.operator) ? condition.operator : 'equals',
+                                  value: 'true',
+                                });
+                              } else {
                                 updateCondition(rule.id, condition.id, { field_id: value, value: '' });
                               }
                             }}
@@ -1511,7 +1585,7 @@ function LogicRulesSection({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {VISIBILITY_OPERATORS.map(op => (
+                              {operatorOptions.map(op => (
                                 <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
                               ))}
                             </SelectContent>

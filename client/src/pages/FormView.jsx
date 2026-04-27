@@ -852,17 +852,36 @@ export default function FormViewPage() {
 
   // Helper to evaluate a single condition
   const evaluateSingleCondition = (triggerValue, operator, value, debugInfo = {}) => {
+    // Normalize boolean trigger values so saved string comparison values like
+    // "true"/"false" (used by the FormBuilder boolean value picker) match the
+    // actual JS booleans stored in formValues. Only applied to equality
+    // operators; other field types are unaffected.
+    const isBooleanTrigger = typeof triggerValue === 'boolean';
+    const normalizeBooleanCompareValue = (v) => {
+      if (typeof v === 'boolean') return v;
+      if (typeof v === 'string') {
+        const lower = v.trim().toLowerCase();
+        if (lower === 'true') return true;
+        if (lower === 'false') return false;
+      }
+      return v;
+    };
+
     let result;
     switch (operator) {
       case 'equals':
-        if (Array.isArray(triggerValue)) {
+        if (isBooleanTrigger) {
+          result = triggerValue === normalizeBooleanCompareValue(value);
+        } else if (Array.isArray(triggerValue)) {
           result = triggerValue.includes(value);
         } else {
           result = triggerValue === value;
         }
         break;
       case 'not_equals':
-        if (Array.isArray(triggerValue)) {
+        if (isBooleanTrigger) {
+          result = triggerValue !== normalizeBooleanCompareValue(value);
+        } else if (Array.isArray(triggerValue)) {
           result = !triggerValue.includes(value);
         } else {
           result = triggerValue !== value;
