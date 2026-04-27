@@ -166,6 +166,7 @@ import FormBuilder from "./FormBuilder";
 import FormView from "./FormView";
 
 import EmbedForm from "./EmbedForm";
+import CaseStudyUpload from "./CaseStudyUpload";
 
 import EmbedResource from "./EmbedResource";
 
@@ -1052,6 +1053,8 @@ function StandaloneRoutes() {
             <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
             <Route path="/email-preferences" element={<EmailPreferences />} />
+            <Route path="/CaseStudyUpload" element={<CaseStudyUpload />} />
+            <Route path="/casestudyupload" element={<CaseStudyUpload />} />
         </Routes>
     );
 }
@@ -1127,7 +1130,7 @@ function AppRoutes() {
         return <SaasRoutes />;
     }
     
-    const standalonePages = ['/signup', '/register', '/email-preferences'];
+    const standalonePages = ['/signup', '/register', '/email-preferences', '/casestudyupload'];
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { sendEmail } from '../../_lib/emailService.js';
@@ -107,6 +108,9 @@ export default async function handler(req, res) {
     const permissionUrl = buildFormUrl(permissionForm.slug);
     const copyrightUrl = copyrightForm ? buildFormUrl(copyrightForm.slug) : null;
 
+    const uploadToken = crypto.randomBytes(32).toString('hex');
+    const uploadUrl = `${baseUrl}/CaseStudyUpload?token=${encodeURIComponent(uploadToken)}`;
+
     const renderButton = (url, label) => `
       <div style="margin-top: 16px;">
         <a href="${url}"
@@ -126,6 +130,7 @@ export default async function handler(req, res) {
         </div>
         ${renderButton(permissionUrl, 'Complete the Permission Form')}
         ${copyrightUrl ? renderButton(copyrightUrl, 'Complete the Copyright Assignment Form') : ''}
+        ${renderButton(uploadUrl, 'Upload Images & Documents')}
       </div>
     `;
 
@@ -156,6 +161,8 @@ export default async function handler(req, res) {
       case_study_copyright_form_id: copyright_form_id || null,
       case_study_copyright_form_sent_at: copyright_form_id ? now : null,
       case_study_copyright_submission_id: null,
+      case_study_upload_token: uploadToken,
+      case_study_upload_token_created_at: now,
     };
 
     const { error: updateError } = await supabase

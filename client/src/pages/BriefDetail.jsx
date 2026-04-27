@@ -259,6 +259,69 @@ export default function BriefDetailPage() {
     enabled: isAccessReady && !!caseStudyCopyrightFormId,
   });
 
+  const { data: caseStudyUploads = [], isLoading: caseStudyUploadsLoading } = useQuery({
+    queryKey: ["case-study-uploads", briefId],
+    queryFn: async () => {
+      return await apiRequest("GET", `/api/article-briefs/${briefId}/case-study-uploads`);
+    },
+    enabled: isAccessReady && !!briefId,
+  });
+
+  const [csUploadProgress, setCsUploadProgress] = useState(0);
+  const [csUploadingFile, setCsUploadingFile] = useState(false);
+  const [csUploadSelectedFile, setCsUploadSelectedFile] = useState(null);
+  const [csUploadNote, setCsUploadNote] = useState("");
+  const csUploadInputRef = useRef(null);
+
+  const csUploadMutation = useMutation({
+    mutationFn: async ({ file, note }) => {
+      setCsUploadingFile(true);
+      setCsUploadProgress(0);
+      try {
+        const result = await uploadFileWithProgress(file, {
+          type: UPLOAD_TYPES.ATTACHMENT,
+          entityId: briefId,
+          onProgress: setCsUploadProgress,
+        });
+        return await apiRequest("POST", `/api/article-briefs/${briefId}/case-study-uploads`, {
+          file_url: result.file_url,
+          storage_path: result.storage_path,
+          file_name: result.file_name,
+          file_size: result.file_size,
+          mime_type: result.mime_type,
+          note: note || null,
+        });
+      } finally {
+        setCsUploadingFile(false);
+        setCsUploadProgress(0);
+      }
+    },
+    onSuccess: () => {
+      toast.success("File uploaded");
+      setCsUploadSelectedFile(null);
+      setCsUploadNote("");
+      queryClient.invalidateQueries({ queryKey: ["case-study-uploads", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
+    },
+    onError: (err) => {
+      toast.error(err?.message || "Upload failed");
+    },
+  });
+
+  const csDeleteUploadMutation = useMutation({
+    mutationFn: async (uploadId) => {
+      return await apiRequest("DELETE", `/api/article-briefs/${briefId}/case-study-uploads/${uploadId}`);
+    },
+    onSuccess: () => {
+      toast.success("Upload deleted");
+      queryClient.invalidateQueries({ queryKey: ["case-study-uploads", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
+    },
+    onError: (err) => {
+      toast.error(err?.message || "Failed to delete upload");
+    },
+  });
+
   const referencedMemberIds = useMemo(() => {
     const ids = new Set();
     if (brief) {
@@ -1414,6 +1477,178 @@ export default function BriefDetailPage() {
                 );
               };
 
+              const handleCaseStudyFileSelect = (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setCsUploadSelectedFile(file);
+                if (e.target) e.target.value = "";
+              };
+
+              const handleCaseStudyUploadSubmit = () => {
+                if (!csUploadSelectedFile) {
+                  toast.error("Please choose a file first");
+                  return;
+                }
+                csUploadMutation.mutate({ file: csUploadSelectedFile, note: csUploadNote.trim() });
+              };
+
+              const formatBytes = (bytes) => {
+                if (bytes === null || bytes === undefined || bytes === "") return "";
+                const n = Number(bytes);
+                if (!Number.isFinite(n) || n < 0) return "";
+                if (n < 1024) return `${n} B`;
+                if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+                return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+              };
+
+              const renderCaseStudyUploads = () => {
+                const sorted = [...(caseStudyUploads || [])].sort((a, b) => (b.version_number || 0) - (a.version_number || 0));
+                return (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <FileUp className="w-5 h-5" />
+                        Case Study Uploads
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {canEditCaseStudy && (
+                        <div className="space-y-2 p-3 border rounded-md">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                              ref={csUploadInputRef}
+                              type="file"
+                              className="hidden"
+                              onChange={handleCaseStudyFileSelect}
+                              data-testid="input-case-study-upload-file"
+                            />
+                            <Button
+                              variant="outline"
+                              onClick={() => csUploadInputRef.current?.click()}
+                              disabled={csUploadingFile || csUploadMutation.isPending}
+                              data-testid="button-case-study-upload-choose"
+                            >
+                              <FileUp className="w-4 h-4" />
+                              {csUploadSelectedFile ? "Change file" : "Choose file"}
+                            </Button>
+                            {csUploadSelectedFile && (
+                              <span className="text-sm text-muted-foreground truncate" data-testid="text-case-study-upload-selected-name">
+                                {csUploadSelectedFile.name} ({formatBytes(csUploadSelectedFile.size)})
+                              </span>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="case-study-upload-note" className="text-xs text-muted-foreground">Note (optional)</Label>
+                            <Input
+                              id="case-study-upload-note"
+                              value={csUploadNote}
+                              onChange={(e) => setCsUploadNote(e.target.value)}
+                              placeholder="Add a short note about this upload"
+                              maxLength={500}
+                              disabled={csUploadingFile || csUploadMutation.isPending}
+                              data-testid="input-case-study-upload-note"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="default"
+                              onClick={handleCaseStudyUploadSubmit}
+                              disabled={!csUploadSelectedFile || csUploadingFile || csUploadMutation.isPending}
+                              data-testid="button-case-study-upload-submit"
+                            >
+                              <Upload className="w-4 h-4" />
+                              {csUploadingFile ? "Uploading..." : "Upload"}
+                            </Button>
+                          </div>
+                          {csUploadingFile && (
+                            <div className="space-y-1" data-testid="progress-case-study-upload">
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>Uploading...</span>
+                                <span>{csUploadProgress}%</span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                                <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${csUploadProgress}%` }} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {caseStudyUploadsLoading ? (
+                        <p className="text-sm text-muted-foreground" data-testid="text-case-study-uploads-loading">Loading uploads...</p>
+                      ) : sorted.length === 0 ? (
+                        <p className="text-sm text-muted-foreground" data-testid="text-case-study-uploads-empty">No case study files uploaded yet.</p>
+                      ) : (
+                        <div className="space-y-2" data-testid="list-case-study-uploads">
+                          {sorted.map((u) => {
+                            const uploaderLabel = u.source === "provider"
+                              ? `Provider — ${u.uploaded_by_provider_name || "Unknown"}`
+                              : (u.uploader ? `${u.uploader.first_name || ""} ${u.uploader.last_name || ""}`.trim() || u.uploader.email : "Team");
+                            return (
+                              <div
+                                key={u.id}
+                                className="flex items-start gap-3 p-3 border rounded-md"
+                                data-testid={`row-case-study-upload-${u.id}`}
+                              >
+                                <div className="flex-shrink-0 pt-0.5">
+                                  {u.mime_type && u.mime_type.startsWith("image/") ? (
+                                    <ImagePlus className="w-5 h-5 text-muted-foreground" />
+                                  ) : (
+                                    <FileUp className="w-5 h-5 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Badge variant="outline" data-testid={`text-case-study-upload-version-${u.id}`}>v{u.version_number}</Badge>
+                                    <Badge variant={u.source === "provider" ? "secondary" : "outline"} data-testid={`text-case-study-upload-source-${u.id}`}>
+                                      {u.source === "provider" ? "Provider" : "Team"}
+                                    </Badge>
+                                    <a
+                                      href={u.file_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm font-medium truncate hover:underline"
+                                      data-testid={`link-case-study-upload-file-${u.id}`}
+                                    >
+                                      {u.file_name || "Untitled"}
+                                    </a>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-2" data-testid={`text-case-study-upload-meta-${u.id}`}>
+                                    <span data-testid={`text-case-study-upload-uploader-${u.id}`}>{uploaderLabel}</span>
+                                    {u.file_size ? <span data-testid={`text-case-study-upload-size-${u.id}`}>· {formatBytes(u.file_size)}</span> : null}
+                                    {u.upload_date ? <span data-testid={`text-case-study-upload-date-${u.id}`}>· {(() => { try { return format(new Date(u.upload_date), "MMM d, yyyy h:mm a"); } catch { return ""; } })()}</span> : null}
+                                  </div>
+                                  {u.note && (
+                                    <div className="text-xs text-muted-foreground mt-1 italic whitespace-pre-wrap" data-testid={`text-case-study-upload-note-${u.id}`}>
+                                      {u.note}
+                                    </div>
+                                  )}
+                                </div>
+                                {canManage && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      if (window.confirm(`Delete v${u.version_number}?`)) {
+                                        csDeleteUploadMutation.mutate(u.id);
+                                      }
+                                    }}
+                                    disabled={csDeleteUploadMutation.isPending}
+                                    data-testid={`button-case-study-upload-delete-${u.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              };
+
               const renderAllSubmissions = () => {
                 const hasBoth = hasFormSubmission && hasCopyrightSubmission;
                 if (hasBoth) {
@@ -1499,6 +1734,7 @@ export default function BriefDetailPage() {
                 return (
                   <div className="space-y-4">
                     {renderProviderStatus()}
+                    {renderCaseStudyUploads()}
                     {renderAllSubmissions()}
                   </div>
                 );
@@ -1508,6 +1744,7 @@ export default function BriefDetailPage() {
                 return (
                   <div className="space-y-4">
                     {renderProviderStatus()}
+                    {renderCaseStudyUploads()}
                     {hasCopyrightSubmission && renderAllSubmissions()}
                     {hasLegacyContent && renderLegacyContent()}
                   </div>
@@ -1516,17 +1753,25 @@ export default function BriefDetailPage() {
 
               if (!canEditCaseStudy) {
                 if (hasLegacyContent) {
-                  return renderLegacyContent();
+                  return (
+                    <div className="space-y-4">
+                      {renderCaseStudyUploads()}
+                      {renderLegacyContent()}
+                    </div>
+                  );
                 }
                 return (
-                  <Card>
-                    <CardContent className="pt-6">
-                      <div className="text-center py-12" data-testid="text-no-case-study">
-                        <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
-                        <p className="text-sm text-muted-foreground">No case study has been created yet.</p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className="space-y-4">
+                    {renderCaseStudyUploads()}
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-center py-12" data-testid="text-no-case-study">
+                          <BookOpen className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                          <p className="text-sm text-muted-foreground">No case study has been created yet.</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
                 );
               }
 
@@ -1563,6 +1808,7 @@ export default function BriefDetailPage() {
               return (
                 <div className="space-y-4">
                   {hasFormSent && renderProviderStatus()}
+                  {renderCaseStudyUploads()}
                   {hasFormSent && hasCopyrightSubmission && !hasFormSubmission && renderAllSubmissions()}
 
                   <Card>
