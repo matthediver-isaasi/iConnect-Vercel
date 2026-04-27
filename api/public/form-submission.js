@@ -97,25 +97,47 @@ export default async function handler(req, res) {
 
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
 
-    // Link submission back to article_brief if brief_id context parameter is present
+    // Link submission back to article_brief if brief_id context parameter is present.
+    // The submitted form may be either the Permission form (case_study_form_id ->
+    // case_study_submission_id) or the optional Copyright Assignment form
+    // (case_study_copyright_form_id -> case_study_copyright_submission_id).
     if (brief_id) {
       try {
         console.log('[Public Form Submission] Linking submission to article_brief:', brief_id);
-        const { data: updatedBrief, error: briefUpdateError } = await supabase
+        const { data: matchingBrief, error: briefLookupError } = await supabase
           .from('article_brief')
-          .update({ case_study_submission_id: submission.id })
+          .select('id, case_study_form_id, case_study_copyright_form_id')
           .eq('id', brief_id)
           .eq('tenant_id', tenantData.id)
-          .eq('case_study_form_id', form_id)
-          .select('id')
           .maybeSingle();
 
-        if (briefUpdateError) {
-          console.error('[Public Form Submission] Failed to link submission to brief:', briefUpdateError);
-        } else if (!updatedBrief) {
-          console.warn('[Public Form Submission] No matching brief found for linking (brief_id:', brief_id, 'form_id:', form_id, ')');
+        if (briefLookupError) {
+          console.error('[Public Form Submission] Failed to look up brief for linking:', briefLookupError);
+        } else if (!matchingBrief) {
+          console.warn('[Public Form Submission] No matching brief found for linking (brief_id:', brief_id, ')');
         } else {
-          console.log('[Public Form Submission] Successfully linked submission to brief:', brief_id);
+          let updateField = null;
+          if (matchingBrief.case_study_form_id === form_id) {
+            updateField = 'case_study_submission_id';
+          } else if (matchingBrief.case_study_copyright_form_id === form_id) {
+            updateField = 'case_study_copyright_submission_id';
+          }
+
+          if (!updateField) {
+            console.warn('[Public Form Submission] Submitted form does not match any case study slot for brief (brief_id:', brief_id, 'form_id:', form_id, ')');
+          } else {
+            const { error: briefUpdateError } = await supabase
+              .from('article_brief')
+              .update({ [updateField]: submission.id })
+              .eq('id', brief_id)
+              .eq('tenant_id', tenantData.id);
+
+            if (briefUpdateError) {
+              console.error('[Public Form Submission] Failed to link submission to brief:', briefUpdateError);
+            } else {
+              console.log('[Public Form Submission] Successfully linked submission to brief field', updateField, 'for brief:', brief_id);
+            }
+          }
         }
       } catch (briefLinkError) {
         console.error('[Public Form Submission] Error linking submission to brief:', briefLinkError);

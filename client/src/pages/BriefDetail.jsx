@@ -153,6 +153,7 @@ export default function BriefDetailPage() {
 
   const [csProvider, setCsProvider] = useState({ first_name: "", last_name: "", email: "" });
   const [csSelectedFormId, setCsSelectedFormId] = useState("");
+  const [csSelectedCopyrightFormId, setCsSelectedCopyrightFormId] = useState("");
   const [csEmailContent, setCsEmailContent] = useState("");
   const [csFormInitialized, setCsFormInitialized] = useState(false);
 
@@ -219,6 +220,8 @@ export default function BriefDetailPage() {
 
   const caseStudySubmissionId = brief?.case_study_submission_id;
   const caseStudyFormId = brief?.case_study_form_id;
+  const caseStudyCopyrightSubmissionId = brief?.case_study_copyright_submission_id;
+  const caseStudyCopyrightFormId = brief?.case_study_copyright_form_id;
 
   const { data: caseStudySubmission } = useQuery({
     queryKey: ["case-study-submission", caseStudySubmissionId],
@@ -236,6 +239,24 @@ export default function BriefDetailPage() {
       return await base44.entities.Form.get(caseStudyFormId);
     },
     enabled: isAccessReady && !!caseStudyFormId,
+  });
+
+  const { data: caseStudyCopyrightSubmission } = useQuery({
+    queryKey: ["case-study-copyright-submission", caseStudyCopyrightSubmissionId],
+    queryFn: async () => {
+      if (!caseStudyCopyrightSubmissionId) return null;
+      return await base44.entities.FormSubmission.get(caseStudyCopyrightSubmissionId);
+    },
+    enabled: isAccessReady && !!caseStudyCopyrightSubmissionId,
+  });
+
+  const { data: caseStudyCopyrightForm } = useQuery({
+    queryKey: ["case-study-copyright-form", caseStudyCopyrightFormId],
+    queryFn: async () => {
+      if (!caseStudyCopyrightFormId) return null;
+      return await base44.entities.Form.get(caseStudyCopyrightFormId);
+    },
+    enabled: isAccessReady && !!caseStudyCopyrightFormId,
   });
 
   const referencedMemberIds = useMemo(() => {
@@ -371,17 +392,22 @@ export default function BriefDetailPage() {
   });
 
   const sendCaseStudyFormMutation = useMutation({
-    mutationFn: async ({ form_id, provider, email_content }) => {
+    mutationFn: async ({ form_id, copyright_form_id, provider, email_content }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-case-study-form`, {
         form_id,
+        copyright_form_id: copyright_form_id || null,
         provider,
         email_content,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
       queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
-      toast.success("Case study form link sent successfully");
+      toast.success(
+        variables?.copyright_form_id
+          ? "Case study form links sent successfully"
+          : "Case study form link sent successfully"
+      );
     },
     onError: (err) => {
       toast.error(err.message || "Failed to send case study form link");
@@ -401,6 +427,7 @@ export default function BriefDetailPage() {
         email: prov.email || "",
       });
       setCsSelectedFormId(brief.case_study_form_id || "");
+      setCsSelectedCopyrightFormId(brief.case_study_copyright_form_id || "");
       setCsEmailContent(brief.case_study_email_content || "");
       setCsFormInitialized(true);
     }
@@ -1222,13 +1249,15 @@ export default function BriefDetailPage() {
               const canEditCaseStudy = isWriter || canManage;
               const hasFormSubmission = !!brief.case_study_submission_id && !!caseStudySubmission;
               const hasFormSent = !!brief.case_study_form_sent_at;
+              const hasCopyrightFormConfigured = !!brief.case_study_copyright_form_id;
+              const hasCopyrightSubmission = !!brief.case_study_copyright_submission_id && !!caseStudyCopyrightSubmission;
               const hasLegacyContent = brief.case_study_content || (Array.isArray(brief.case_study_images) && brief.case_study_images.length > 0) || brief.case_study_permissions;
               const provider = brief.case_study_provider;
 
-              const renderSubmissionData = () => {
-                if (!caseStudySubmission?.submission_data) return null;
-                const fields = caseStudyForm?.fields || [];
-                const data = caseStudySubmission.submission_data;
+              const renderSubmissionDataFor = (submission, formMeta) => {
+                if (!submission?.submission_data) return null;
+                const fields = formMeta?.fields || [];
+                const data = submission.submission_data;
                 const fieldMap = {};
                 fields.forEach((f) => { fieldMap[f.id] = f; });
 
@@ -1315,17 +1344,36 @@ export default function BriefDetailPage() {
                 );
               };
 
-              const renderProviderStatus = () => {
+              const formatSentOn = (ts) => {
+                try { return format(new Date(ts), "MMM d, yyyy"); } catch { return ts; }
+              };
+
+              const renderFormStatusRow = ({ rowLabel, formName, sentAt, hasSubmission, testIdSuffix }) => {
                 let statusText = "Not sent";
                 let statusColor = "secondary";
-                if (hasFormSubmission) {
+                if (hasSubmission) {
                   statusText = "Submitted";
                   statusColor = "default";
-                } else if (hasFormSent) {
-                  statusText = `Sent on ${(() => { try { return format(new Date(brief.case_study_form_sent_at), "MMM d, yyyy"); } catch { return brief.case_study_form_sent_at; } })()}`;
+                } else if (sentAt) {
+                  statusText = `Sent on ${formatSentOn(sentAt)}`;
                   statusColor = "secondary";
                 }
+                return (
+                  <div className="flex flex-wrap items-center gap-3 py-2" data-testid={`row-cs-form-${testIdSuffix}`}>
+                    <div className="min-w-[140px]">
+                      <Label className="text-xs text-muted-foreground">{rowLabel}</Label>
+                      <p className="text-sm mt-0.5" data-testid={`text-cs-form-name-${testIdSuffix}`}>{formName || "—"}</p>
+                    </div>
+                    <Badge variant={statusColor} data-testid={`badge-cs-status-${testIdSuffix}`}>
+                      {hasSubmission && <CheckCircle className="w-3 h-3 mr-1" />}
+                      {!hasSubmission && sentAt && <Clock className="w-3 h-3 mr-1" />}
+                      {statusText}
+                    </Badge>
+                  </div>
+                );
+              };
 
+              const renderProviderStatus = () => {
                 return (
                   <Card>
                     <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="w-5 h-5" />Case Study Provider</CardTitle></CardHeader>
@@ -1343,26 +1391,60 @@ export default function BriefDetailPage() {
                             </div>
                           </>
                         )}
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Status</Label>
-                          <div className="mt-1">
-                            <Badge variant={statusColor} data-testid="badge-cs-status">
-                              {hasFormSubmission && <CheckCircle className="w-3 h-3 mr-1" />}
-                              {!hasFormSubmission && hasFormSent && <Clock className="w-3 h-3 mr-1" />}
-                              {statusText}
-                            </Badge>
-                          </div>
-                        </div>
-                        {caseStudyForm && (
-                          <div>
-                            <Label className="text-xs text-muted-foreground">Form</Label>
-                            <p className="text-sm mt-0.5" data-testid="text-cs-form-name">{caseStudyForm.name}</p>
-                          </div>
-                        )}
+                      </div>
+                      <Separator className="my-3" />
+                      <div className="space-y-1">
+                        {renderFormStatusRow({
+                          rowLabel: "Permission",
+                          formName: caseStudyForm?.name,
+                          sentAt: brief.case_study_form_sent_at,
+                          hasSubmission: hasFormSubmission,
+                          testIdSuffix: "permission",
+                        })}
+                        {hasCopyrightFormConfigured && renderFormStatusRow({
+                          rowLabel: "Copyright Assignment",
+                          formName: caseStudyCopyrightForm?.name,
+                          sentAt: brief.case_study_copyright_form_sent_at,
+                          hasSubmission: hasCopyrightSubmission,
+                          testIdSuffix: "copyright",
+                        })}
                       </div>
                     </CardContent>
                   </Card>
                 );
+              };
+
+              const renderAllSubmissions = () => {
+                const hasBoth = hasFormSubmission && hasCopyrightSubmission;
+                if (hasBoth) {
+                  return (
+                    <div className="space-y-6">
+                      <div className="space-y-2" data-testid="section-submission-permission">
+                        <h3 className="text-base font-semibold flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                          Permission Form Submission
+                          {caseStudyForm?.name && <span className="text-sm font-normal text-muted-foreground">— {caseStudyForm.name}</span>}
+                        </h3>
+                        {renderSubmissionDataFor(caseStudySubmission, caseStudyForm)}
+                      </div>
+                      <div className="space-y-2" data-testid="section-submission-copyright">
+                        <h3 className="text-base font-semibold flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                          Copyright Assignment Form Submission
+                          {caseStudyCopyrightForm?.name && <span className="text-sm font-normal text-muted-foreground">— {caseStudyCopyrightForm.name}</span>}
+                        </h3>
+                        {renderSubmissionDataFor(caseStudyCopyrightSubmission, caseStudyCopyrightForm)}
+                      </div>
+                    </div>
+                  );
+                }
+                if (hasFormSubmission) {
+                  return renderSubmissionDataFor(caseStudySubmission, caseStudyForm);
+                }
+                if (hasCopyrightSubmission) {
+                  return renderSubmissionDataFor(caseStudyCopyrightSubmission, caseStudyCopyrightForm);
+                }
+                return null;
               };
 
               const renderLegacyContent = () => {
@@ -1417,7 +1499,7 @@ export default function BriefDetailPage() {
                 return (
                   <div className="space-y-4">
                     {renderProviderStatus()}
-                    {renderSubmissionData()}
+                    {renderAllSubmissions()}
                   </div>
                 );
               }
@@ -1426,6 +1508,7 @@ export default function BriefDetailPage() {
                 return (
                   <div className="space-y-4">
                     {renderProviderStatus()}
+                    {hasCopyrightSubmission && renderAllSubmissions()}
                     {hasLegacyContent && renderLegacyContent()}
                   </div>
                 );
@@ -1453,7 +1536,11 @@ export default function BriefDetailPage() {
                   return;
                 }
                 if (!csSelectedFormId) {
-                  toast.error("Please select a form to send");
+                  toast.error("Please select a Permission Form to send");
+                  return;
+                }
+                if (csSelectedCopyrightFormId && csSelectedCopyrightFormId === csSelectedFormId) {
+                  toast.error("Permission and Copyright Assignment forms must be different");
                   return;
                 }
                 if (!csEmailContent.trim()) {
@@ -1462,17 +1549,24 @@ export default function BriefDetailPage() {
                 }
                 sendCaseStudyFormMutation.mutate({
                   form_id: csSelectedFormId,
+                  copyright_form_id: csSelectedCopyrightFormId || null,
                   provider: csProvider,
                   email_content: csEmailContent,
                 });
               };
 
+              const willSendBoth = !!csSelectedCopyrightFormId;
+              const sendButtonLabel = hasFormSent
+                ? (willSendBoth ? "Resend Form Links" : "Resend Form Link")
+                : (willSendBoth ? "Send Form Links" : "Send Form Link");
+
               return (
                 <div className="space-y-4">
                   {hasFormSent && renderProviderStatus()}
+                  {hasFormSent && hasCopyrightSubmission && !hasFormSubmission && renderAllSubmissions()}
 
                   <Card>
-                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="w-5 h-5" />{hasFormSent ? "Resend Form Link" : "Send Case Study Form"}</CardTitle></CardHeader>
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="w-5 h-5" />{hasFormSent ? "Resend Form Link(s)" : "Send Case Study Form(s)"}</CardTitle></CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
@@ -1508,7 +1602,7 @@ export default function BriefDetailPage() {
                         </div>
                       </div>
                       <div className="space-y-1">
-                        <Label>Form *</Label>
+                        <Label>Permission Form *</Label>
                         <Select value={csSelectedFormId || "none"} onValueChange={(v) => setCsSelectedFormId(v === "none" ? "" : v)}>
                           <SelectTrigger data-testid="select-cs-form"><SelectValue placeholder="Select a form..." /></SelectTrigger>
                           <SelectContent>
@@ -1520,11 +1614,24 @@ export default function BriefDetailPage() {
                         </Select>
                       </div>
                       <div className="space-y-1">
+                        <Label>Copyright Assignment Form</Label>
+                        <Select value={csSelectedCopyrightFormId || "none"} onValueChange={(v) => setCsSelectedCopyrightFormId(v === "none" ? "" : v)}>
+                          <SelectTrigger data-testid="select-cs-copyright-form"><SelectValue placeholder="None (optional)" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None (optional)</SelectItem>
+                            {availableForms.map((f) => (
+                              <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Optional. When selected, the email will include a second button for the recipient to also complete the Copyright Assignment Form.</p>
+                      </div>
+                      <div className="space-y-1">
                         <Label htmlFor="cs-email-body">Email Message *</Label>
                         <SimpleRichTextEditor
                           content={csEmailContent}
                           onChange={setCsEmailContent}
-                          placeholder="Write the email message to send along with the form link..."
+                          placeholder="Write the email message to send along with the form link(s)..."
                           className=""
                         />
                       </div>
@@ -1539,7 +1646,7 @@ export default function BriefDetailPage() {
                           ) : (
                             <Send className="w-4 h-4 mr-1" />
                           )}
-                          {hasFormSent ? "Resend Form Link" : "Send Form Link"}
+                          {sendButtonLabel}
                         </Button>
                       </div>
                     </CardContent>
