@@ -10,7 +10,7 @@
 -- This migration:
 --   (a) Backfills any existing rows where organization.created_at IS NULL
 --       using the best available historical timestamp:
---         1. Earliest member.created_at among members of that org.
+--         1. Earliest member.created_on among members of that org.
 --         2. Earliest form_submission.created_date for that org (matching
 --            either form_submission.organization_id or
 --            form_submission.created_organization_id).
@@ -24,10 +24,10 @@
 
 -- (a) Backfill NULL created_at values
 WITH best_member AS (
-  SELECT organization_id, MIN(created_at) AS earliest
+  SELECT organization_id, MIN(created_on) AS earliest
   FROM member
   WHERE organization_id IS NOT NULL
-    AND created_at IS NOT NULL
+    AND created_on IS NOT NULL
   GROUP BY organization_id
 ),
 best_submission AS (
