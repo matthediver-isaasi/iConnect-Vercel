@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   FileText, Image, FileSpreadsheet, File, Check, X, Clock, 
   Upload, Download, Send, Loader2, ChevronDown, ChevronUp, ExternalLink,
-  MessageSquare, History, Copy
+  MessageSquare, History, Copy, Globe
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from 'date-fns';
@@ -48,6 +48,31 @@ function getFileIcon(mimeType) {
 function canPreview(mimeType) {
   if (!mimeType) return false;
   return mimeType.startsWith('image/') || mimeType === 'application/pdf';
+}
+
+const PUBLIC_BUCKET = 'public-assets';
+
+function isPublicBucketUrl(fileUrl) {
+  if (!fileUrl || typeof fileUrl !== 'string') return false;
+  if (fileUrl.startsWith('/api/storage/secure-url')) {
+    try {
+      const qs = fileUrl.split('?')[1];
+      if (!qs) return false;
+      const params = new URLSearchParams(qs);
+      return params.get('bucket') === PUBLIC_BUCKET;
+    } catch {
+      return false;
+    }
+  }
+  if (fileUrl.startsWith('http')) {
+    try {
+      const u = new URL(fileUrl);
+      return /\/storage\/v1\/object\/public\/public-assets\//.test(u.pathname);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function getEmbeddableUrl(fileUrl) {
@@ -371,6 +396,57 @@ export default function DocumentDetailModal({
     addCommentMutation.mutate({ versionId, comment });
   }, [addCommentMutation]);
 
+  const autoTriggeredRef = useRef(new Set());
+  const autoTriggerErroredRef = useRef(new Set());
+
+  const ensurePublicUrlMutation = useMutation({
+    mutationFn: async ({ documentId }) => {
+      return await apiRequest('POST', '/api/due-diligence/documents/ensure-public-url', {
+        documentId
+      });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries(['submission-documents', formSubmissionId]);
+      queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
+      if (!variables?.silent) {
+        toast.success('Public URL generated');
+      }
+      onDocumentUpdated?.();
+    },
+    onError: (error, variables) => {
+      if (variables?.silent) {
+        // Auto-attempt failed; remember so we don't spin and let the user click Generate manually.
+        if (variables.documentId) {
+          autoTriggerErroredRef.current.add(variables.documentId);
+        }
+        console.error('[DocumentDetailModal] Auto public URL failed:', error?.message || error);
+        return;
+      }
+      toast.error(error.message || 'Failed to generate public URL');
+    }
+  });
+
+  function isRealSubmissionDocId(id) {
+    if (!id || typeof id !== 'string') return false;
+    if (id.startsWith('form-') || id.startsWith('empty-')) return false;
+    return true;
+  }
+
+  // Auto-derive public URL when the file is already in public-assets and no
+  // public_file_url has been persisted yet — the requirement is to show the
+  // URL immediately in that case (no Generate button needed).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!approvedVersion) return;
+    if (approvedVersion.public_file_url) return;
+    if (!isRealSubmissionDocId(approvedVersion.id)) return;
+    if (!isPublicBucketUrl(approvedVersion.file_url)) return;
+    if (autoTriggeredRef.current.has(approvedVersion.id)) return;
+    if (autoTriggerErroredRef.current.has(approvedVersion.id)) return;
+    autoTriggeredRef.current.add(approvedVersion.id);
+    ensurePublicUrlMutation.mutate({ documentId: approvedVersion.id, silent: true });
+  }, [isOpen, approvedVersion?.id, approvedVersion?.public_file_url, approvedVersion?.file_url, ensurePublicUrlMutation]);
+
   const handleSupersede = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -544,6 +620,97 @@ export default function DocumentDetailModal({
                         </a>
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {isRealSubmissionDocId(approvedVersion.id) && (
+                  <div className="text-sm flex-shrink-0 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-muted-foreground">Public URL:</span>
+                      {approvedVersion.public_file_url && (
+                        <span 
+                          className="text-xs text-muted-foreground"
+                          data-testid="text-public-url-char-count"
+                        >
+                          ({approvedVersion.public_file_url.length} chars)
+                        </span>
+                      )}
+                    </div>
+                    {approvedVersion.public_file_url ? (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Input
+                          readOnly
+                          value={approvedVersion.public_file_url}
+                          title={approvedVersion.public_file_url}
+                          className="font-mono text-xs flex-1 min-w-0 truncate"
+                          data-testid="input-document-public-url"
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(approvedVersion.public_file_url);
+                              toast.success('Public URL copied to clipboard');
+                            } catch (err) {
+                              toast.error('Failed to copy URL');
+                            }
+                          }}
+                          data-testid="button-copy-public-url"
+                          className="flex-shrink-0"
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy
+                        </Button>
+                        <Button
+                          variant="outline"
+                          asChild
+                          data-testid="link-open-public-url"
+                          className="flex-shrink-0"
+                        >
+                          <a
+                            href={approvedVersion.public_file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open in new tab"
+                          >
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            Open
+                          </a>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-0">
+                        {ensurePublicUrlMutation.isPending && autoTriggeredRef.current.has(approvedVersion.id) ? (
+                          <div
+                            className="flex items-center gap-2 text-xs text-muted-foreground"
+                            data-testid="status-public-url-loading"
+                          >
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Preparing public URL...
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            onClick={() => ensurePublicUrlMutation.mutate({ documentId: approvedVersion.id })}
+                            disabled={ensurePublicUrlMutation.isPending}
+                            data-testid="button-generate-public-url"
+                          >
+                            {ensurePublicUrlMutation.isPending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <Globe className="w-4 h-4 mr-2" />
+                                Generate public URL
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
