@@ -539,6 +539,20 @@ export function labelForRecord(category, record) {
       if (title && record.date) return `${title} — ${record.date}`;
       return title || record.id || 'Unnamed event';
     }
+    case 'Meetings & Bookings': {
+      const stem = record.type || record.title || 'Meeting';
+      const when = [record.date, record.time].filter(Boolean).join(' ');
+      const attendee = record.attendee_name || record.attendee_email;
+      const head = attendee ? `${stem} — ${attendee}` : stem;
+      return when ? `${head} (${when})` : head;
+    }
+    case 'Due Diligence': {
+      const head = record.form_name || 'Due diligence';
+      const ref = record.submission?.application_uid;
+      const status = record.status || record.stage;
+      const tail = [ref, status].filter(Boolean).join(' · ');
+      return tail ? `${head} — ${tail}` : head;
+    }
     default:
       return record.id || '';
   }

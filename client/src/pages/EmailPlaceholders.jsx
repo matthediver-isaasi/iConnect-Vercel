@@ -456,10 +456,14 @@ export default function EmailPlaceholders() {
   );
 
   // For the live-preview header summary: the picker categories that currently
-  // have an explicit (non-fixture) record selected.
+  // have an explicit (non-fixture) record selected AND are still visible
+  // after the active filters (so we don't advertise selections for sections
+  // the user has filtered out of view).
   const selectedSummaries = useMemo(() => {
+    const visibleCategories = new Set(Object.keys(grouped));
     const out = [];
     for (const category of RECORD_PICKER_CATEGORIES) {
+      if (!visibleCategories.has(category)) continue;
       const id = recordSelections[category];
       if (!id) continue;
       const record = findRecord(category, id);
@@ -467,7 +471,7 @@ export default function EmailPlaceholders() {
       out.push({ category, label: labelForRecord(category, record) });
     }
     return out;
-  }, [recordSelections, findRecord]);
+  }, [recordSelections, findRecord, grouped]);
 
   if (!accessChecked) {
     return (
