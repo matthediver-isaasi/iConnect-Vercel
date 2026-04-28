@@ -1,11 +1,13 @@
 // v2.1.0 - Added non-member guest booking support
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -207,7 +209,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const itemsPerPage = 25;
   
   const [showImportDialog, setShowImportDialog] = useState(false);
-  const [importEmailsText, setImportEmailsText] = useState("");
+  const [importRows, setImportRows] = useState([
+    { first_name: "", last_name: "", email: "", organization: "", job_title: "" },
+  ]);
+  const [importTicketClassId, setImportTicketClassId] = useState("");
+  const [importSendConfirmations, setImportSendConfirmations] = useState(true);
+  const [importTicketClasses, setImportTicketClasses] = useState([]);
   const [importResults, setImportResults] = useState(null);
 
   // Fetch bookings for this event when attendees modal is open
@@ -474,12 +481,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   });
 
   const importAttendeesMutation = useMutation({
-    mutationFn: async (emails) => {
+    mutationFn: async (payload) => {
       const response = await fetch(`/api/admin/events/${event.id}/attendees/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ emails })
+        body: JSON.stringify(payload)
       });
       if (!response.ok) {
         const err = await response.json();
@@ -488,10 +495,17 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       return response.json();
     },
     onSuccess: (data) => {
-      setImportResults(data.results);
+      const results = data.results || {};
+      setImportResults(results);
       queryClient.invalidateQueries({ queryKey: ['event-bookings', event.id] });
-      if (data.results.registered.length > 0) {
-        toast.success(`Successfully registered ${data.results.registered.length} attendee(s)`);
+      const memberCount = results.registeredMembers?.length || 0;
+      const guestCount = results.registeredGuests?.length || 0;
+      const total = memberCount + guestCount;
+      if (total > 0) {
+        toast.success(`Successfully registered ${total} attendee(s) (${memberCount} member${memberCount === 1 ? '' : 's'}, ${guestCount} guest${guestCount === 1 ? '' : 's'})`);
+      }
+      if ((results.errors?.length || 0) > 0) {
+        toast.error(`${results.errors.length} row(s) could not be imported`);
       }
     },
     onError: (error) => {
@@ -500,24 +514,117 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     }
   });
 
-  const handleImportClick = () => {
+  // Load ticket classes for the event from pricing_config (single events only).
+  // EventCard is only rendered for non-complex events.
+  const loadImportTicketClasses = () => {
+    try {
+      let pricingConfig = event.pricing_config;
+      if (typeof pricingConfig === 'string') {
+        try { pricingConfig = JSON.parse(pricingConfig); } catch { pricingConfig = null; }
+      }
+      const tcs = pricingConfig?.ticket_classes;
+      setImportTicketClasses(Array.isArray(tcs) ? tcs : []);
+    } catch (e) {
+      console.error('Failed to load ticket classes for import:', e);
+      setImportTicketClasses([]);
+    }
+  };
+
+  const resetImportState = () => {
     setImportResults(null);
-    setImportEmailsText("");
+    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
+    setImportTicketClassId("");
+    setImportSendConfirmations(true);
+    setImportTicketClasses([]);
+  };
+
+  const handleImportClick = () => {
+    resetImportState();
+    loadImportTicketClasses();
     setShowImportDialog(true);
   };
 
+  const isRowEmpty = (row) => {
+    const trim = (v) => (typeof v === 'string' ? v.trim() : '');
+    return (
+      !trim(row.first_name) &&
+      !trim(row.last_name) &&
+      !trim(row.email) &&
+      !trim(row.organization) &&
+      !trim(row.job_title)
+    );
+  };
+
+  const isValidEmail = (email) => {
+    if (!email) return false;
+    // Basic syntactic email check; backend does the authoritative validation.
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  };
+
+  const getRowError = (row) => {
+    if (isRowEmpty(row)) return null;
+    const email = (row.email || "").trim();
+    if (!email) return "Email is required";
+    if (!isValidEmail(email)) return "Invalid email address";
+    return null;
+  };
+
+  const importRowErrors = useMemo(() => importRows.map(getRowError), [importRows]);
+
+  const hasAnyEmail = useMemo(
+    () => importRows.some(r => (r.email || "").trim() && isValidEmail(r.email)),
+    [importRows]
+  );
+
+  const hasUnresolvedErrors = useMemo(
+    () => importRowErrors.some(e => e !== null),
+    [importRowErrors]
+  );
+
+  const updateImportRow = (index, field, value) => {
+    setImportRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
+  };
+
+  const addImportRow = () => {
+    setImportRows(prev => [...prev, { first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
+  };
+
+  const removeImportRow = (index) => {
+    setImportRows(prev => {
+      if (prev.length <= 1) {
+        // Never remove the last row — clear it instead.
+        return [{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }];
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const handleImportSubmit = () => {
-    const emails = importEmailsText
-      .split(/[\n,;]+/)
-      .map(e => e.trim())
-      .filter(e => e && e.includes('@'));
-    
-    if (emails.length === 0) {
-      toast.error('Please enter at least one valid email address');
+    if (hasUnresolvedErrors) {
+      toast.error('Please fix the highlighted row errors before importing.');
       return;
     }
-    
-    importAttendeesMutation.mutate(emails);
+
+    const rows = importRows
+      .filter(r => !isRowEmpty(r))
+      .map(r => ({
+        first_name: (r.first_name || "").trim(),
+        last_name: (r.last_name || "").trim(),
+        email: (r.email || "").trim(),
+        organization: (r.organization || "").trim(),
+        job_title: (r.job_title || "").trim(),
+      }));
+
+    if (rows.length === 0) {
+      toast.error('Please add at least one row with a valid email address.');
+      return;
+    }
+
+    importAttendeesMutation.mutate({
+      rows,
+      ticket_class_id: importTicketClassId || undefined,
+      send_confirmations: importSendConfirmations,
+    });
   };
 
   const handleDeleteClick = (e) => {
@@ -1098,47 +1205,208 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         <Dialog open={showImportDialog} onOpenChange={(open) => {
           setShowImportDialog(open);
           if (!open) {
-            setImportEmailsText("");
-            setImportResults(null);
+            resetImportState();
           }
         }}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Upload className="w-5 h-5 text-purple-600" />
                 Import Attendees
               </DialogTitle>
               <DialogDescription>
-                Paste email addresses to directly register members for this event. One email per line, or separated by commas.
+                Add attendees one row at a time. Emails matching an existing member become member bookings; any other email is added as a guest using the typed name, organization and job title.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="py-4">
-              <textarea
-                className="w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
-                placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"
-                value={importEmailsText}
-                onChange={(e) => setImportEmailsText(e.target.value)}
-                disabled={importAttendeesMutation.isPending}
-                data-testid="textarea-import-emails"
-              />
-              <p className="text-xs text-slate-500 mt-2">
-                Only existing members will be registered. Non-members will be listed in the results.
-              </p>
+            <div className="py-4 space-y-4">
+              {importTicketClasses.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="import-ticket-class">Ticket class</Label>
+                  <Select
+                    value={importTicketClassId || "__default__"}
+                    onValueChange={(v) => setImportTicketClassId(v === "__default__" ? "" : v)}
+                    disabled={importAttendeesMutation.isPending}
+                  >
+                    <SelectTrigger id="import-ticket-class" data-testid="select-import-ticket-class">
+                      <SelectValue placeholder="Select a ticket class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">No ticket class</SelectItem>
+                      {importTicketClasses.map(tc => {
+                        const isMembersOnly = tc.visibility_mode
+                          ? tc.visibility_mode === 'members_only'
+                          : tc.is_public === false;
+                        return (
+                          <SelectItem key={tc.id} value={String(tc.id)}>
+                            {tc.name || 'Ticket'}{isMembersOnly ? ' (members-only)' : ''}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Attendees</Label>
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[16%]">First name</TableHead>
+                        <TableHead className="w-[16%]">Last name</TableHead>
+                        <TableHead className="w-[24%]">Email *</TableHead>
+                        <TableHead className="w-[18%]">Organization</TableHead>
+                        <TableHead className="w-[18%]">Job title</TableHead>
+                        <TableHead className="w-[8%]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {importRows.map((row, index) => {
+                        const rowError = importRowErrors[index];
+                        return (
+                          <Fragment key={`row-${index}`}>
+                            <TableRow>
+                              <TableCell className="align-top p-2">
+                                <Input
+                                  value={row.first_name}
+                                  onChange={(e) => updateImportRow(index, 'first_name', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="Jane"
+                                  data-testid={`input-import-first-name-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
+                                <Input
+                                  value={row.last_name}
+                                  onChange={(e) => updateImportRow(index, 'last_name', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="Doe"
+                                  data-testid={`input-import-last-name-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
+                                <Input
+                                  type="email"
+                                  value={row.email}
+                                  onChange={(e) => updateImportRow(index, 'email', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="jane@example.com"
+                                  aria-invalid={rowError ? true : false}
+                                  className={rowError ? "border-red-500 focus-visible:ring-red-500" : ""}
+                                  data-testid={`input-import-email-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
+                                <Input
+                                  value={row.organization}
+                                  onChange={(e) => updateImportRow(index, 'organization', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="Acme Ltd"
+                                  data-testid={`input-import-organization-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
+                                <Input
+                                  value={row.job_title}
+                                  onChange={(e) => updateImportRow(index, 'job_title', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="Manager"
+                                  data-testid={`input-import-job-title-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => removeImportRow(index)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  aria-label="Remove row"
+                                  data-testid={`button-import-remove-row-${index}`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                            {rowError && (
+                              <TableRow>
+                                <TableCell colSpan={6} className="p-2 pt-0">
+                                  <p
+                                    className="text-xs text-red-600"
+                                    data-testid={`text-import-row-error-${index}`}
+                                  >
+                                    {rowError}
+                                  </p>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addImportRow}
+                    disabled={importAttendeesMutation.isPending}
+                    data-testid="button-import-add-row"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add row
+                  </Button>
+                  <p className="text-xs text-slate-500">
+                    Email is required per row. Other fields are used when the email isn't a member.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="import-send-confirmations"
+                  checked={importSendConfirmations}
+                  onCheckedChange={(v) => setImportSendConfirmations(v === true)}
+                  disabled={importAttendeesMutation.isPending}
+                  data-testid="checkbox-import-send-confirmations"
+                />
+                <div className="-mt-0.5">
+                  <Label
+                    htmlFor="import-send-confirmations"
+                    className="cursor-pointer"
+                  >
+                    Send confirmation emails now
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Sends the event's confirmation email to every newly-imported attendee (members and guests).
+                  </p>
+                </div>
+              </div>
             </div>
 
             {importResults && (
               <div className="space-y-3 py-2 border-t">
-                {importResults.registered.length > 0 && (
+                {(importResults.registeredMembers?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-green-700">Registered ({importResults.registered.length})</p>
-                      <p className="text-slate-600 text-xs mt-1">{importResults.registered.join(', ')}</p>
+                      <p className="font-medium text-green-700">Registered — Members ({importResults.registeredMembers.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{importResults.registeredMembers.join(', ')}</p>
                     </div>
                   </div>
                 )}
-                {importResults.alreadyRegistered.length > 0 && (
+                {(importResults.registeredGuests?.length || 0) > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-700">Registered — Guests ({importResults.registeredGuests.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{importResults.registeredGuests.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {(importResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
@@ -1147,23 +1415,46 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     </div>
                   </div>
                 )}
-                {importResults.notFound.length > 0 && (
+                {(importResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <XCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-red-700">Not Found ({importResults.notFound.length})</p>
-                      <p className="text-slate-600 text-xs mt-1">{importResults.notFound.join(', ')}</p>
+                      <p className="font-medium text-amber-700">Warnings ({importResults.warnings.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">
+                        {importResults.warnings.map(w => `${w.email}: ${w.reason}`).join('; ')}
+                      </p>
                     </div>
                   </div>
                 )}
-                {importResults.errors.length > 0 && (
+                {(importResults.errors?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-red-700">Errors ({importResults.errors.length})</p>
                       <p className="text-slate-600 text-xs mt-1">
-                        {importResults.errors.map(e => `${e.email}: ${e.error}`).join('; ')}
+                        {importResults.errors.map(e => {
+                          const prefix = e.row ? `Row ${e.row}` : (e.email || 'Row');
+                          return `${prefix}${e.email && e.row ? ` (${e.email})` : ''}: ${e.error}`;
+                        }).join('; ')}
                       </p>
+                    </div>
+                  </div>
+                )}
+                {importResults.sendConfirmations && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <Send className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-blue-700">
+                        Emails sent ({importResults.emailsSent?.length || 0})
+                        {(importResults.emailsFailed?.length || 0) > 0
+                          ? ` · failed (${importResults.emailsFailed.length})`
+                          : ''}
+                      </p>
+                      {(importResults.emailsFailed?.length || 0) > 0 && (
+                        <p className="text-slate-600 text-xs mt-1">
+                          Failed: {importResults.emailsFailed.map(f => `${f.email}: ${f.error}`).join('; ')}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1182,7 +1473,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {!importResults && (
                 <Button
                   onClick={handleImportSubmit}
-                  disabled={!importEmailsText.trim() || importAttendeesMutation.isPending}
+                  disabled={!hasAnyEmail || hasUnresolvedErrors || importAttendeesMutation.isPending}
                   data-testid="button-submit-import"
                 >
                   {importAttendeesMutation.isPending ? (
@@ -1199,7 +1490,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 <Button
                   onClick={() => {
                     setImportResults(null);
-                    setImportEmailsText("");
+                    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
                   }}
                   data-testid="button-import-more"
                 >
