@@ -26,6 +26,50 @@ const hasAssignableValue = (fieldName, value) => {
   return !isEmptyValue(value);
 };
 
+// Address-typed columns that should accept multi-line strings, not raw objects.
+// FormBuilder may collect a structured address (from a composite address field
+// or a future structured input) whose value is an object — coerce it into a
+// newline-joined string so it lands cleanly in the text column.
+const ADDRESS_LIKE_TARGETS = new Set(['invoicing_address', 'address']);
+
+const normalizeAddressValue = (value) => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .filter(p => p !== undefined && p !== null && String(p).trim() !== '')
+      .map(p => String(p))
+      .join('\n');
+  }
+  if (typeof value === 'object') {
+    // Try a known subfield order first, tolerate common naming variants.
+    const candidates = [
+      value.line1, value.address_line_1, value.line_1, value.street, value.address1,
+      value.line2, value.address_line_2, value.line_2, value.address2,
+      value.line3, value.address_line_3, value.line_3,
+      value.city, value.town,
+      value.state, value.region, value.county,
+      value.postcode, value.postal_code, value.zip,
+      value.country,
+    ];
+    let parts = candidates.filter(p => p !== undefined && p !== null && String(p).trim() !== '');
+    if (parts.length === 0) {
+      // Fallback: insertion order, primitives only (skip nested objects).
+      parts = Object.values(value)
+        .filter(p => p !== undefined && p !== null)
+        .filter(p => typeof p !== 'object')
+        .filter(p => String(p).trim() !== '');
+    }
+    return parts.map(p => String(p)).join('\n');
+  }
+  return String(value);
+};
+
+// Coerce values destined for address-like text columns. Other columns are
+// returned unchanged.
+const coerceAddressIfNeeded = (targetField, value) =>
+  ADDRESS_LIKE_TARGETS.has(targetField) ? normalizeAddressValue(value) : value;
+
 // Helper function to coerce values to boolean for boolean fields
 const coerceBooleanField = (fieldName, value) => {
   if (!BOOLEAN_CORE_FIELDS.includes(fieldName)) {
@@ -617,7 +661,7 @@ export default async function handler(req, res) {
               memberData[target_field] = coerceBooleanField(target_field, value);
             }
           } else if (target_entity === 'organization') {
-            orgData[target_field] = value;
+            orgData[target_field] = coerceAddressIfNeeded(target_field, value);
           }
         } else if (target_type === 'custom') {
           const prefField = prefFieldMap.get(target_field);
@@ -651,7 +695,7 @@ export default async function handler(req, res) {
               memberData[fieldName] = coerceBooleanField(fieldName, value);
             }
           } else if (entity === 'organization') {
-            orgData[fieldName] = value;
+            orgData[fieldName] = coerceAddressIfNeeded(fieldName, value);
           }
         }
 
@@ -743,8 +787,12 @@ export default async function handler(req, res) {
             const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
             // Use hasAssignableValue to allow boolean false/empty through for boolean fields
             if (hasAssignableValue(dbKey, value)) {
-              // Coerce boolean fields for member entities
-              dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, value) : value;
+              // Coerce boolean fields for member entities; for org address-like
+              // text columns, normalise object/array values to a multi-line string.
+              const coerced = targetEntity === 'member'
+                ? coerceBooleanField(dbKey, value)
+                : coerceAddressIfNeeded(dbKey, value);
+              dataObj[dbKey] = coerced;
             }
           } else if (mapping.target_type === 'custom') {
             // Custom field
@@ -802,8 +850,12 @@ export default async function handler(req, res) {
             const val = form_values[fieldId];
             // Use hasAssignableValue to allow boolean false/empty through for boolean fields
             if (hasAssignableValue(dbKey, val)) {
-              // Coerce boolean fields for member entities
-              dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, val) : val;
+              // Coerce boolean fields for member entities; coerce address-like
+              // values for org entities so object payloads land cleanly in text columns.
+              const coerced = targetEntity === 'member'
+                ? coerceBooleanField(dbKey, val)
+                : coerceAddressIfNeeded(dbKey, val);
+              dataObj[dbKey] = coerced;
             }
           }
         }
@@ -887,13 +939,25 @@ export default async function handler(req, res) {
       if (primaryOrgPipeline) {
         console.log('[AppProcessor] Primary org pipeline mappings:', JSON.stringify(primaryOrgPipeline.mappings, null, 2));
       }
+      // Maps the FormBuilder core-field key (UI-facing) to the actual organisation
+      // table column. Must include every key surfaced by the FormBuilder UI
+      // (ORG_CORE_FIELDS) — otherwise the legacy field_mappings object branch
+      // silently drops them, and the new pipeline mappings array path falls back
+      // to the raw target_field which can write to the wrong column or none at all.
       const orgCoreFieldMappings = {
         'name': 'name',
         'logo_url': 'logo_url',
-        'email': 'email',
         'phone': 'phone',
-        'website': 'website',
-        'address': 'address'
+        'invoicing_email': 'invoicing_email',
+        'invoicing_address': 'invoicing_address',
+        'website_url': 'website_url',
+        // Backward-compat aliases for forms saved with legacy keys.
+        // 'email' and 'address' remain on their own columns (both exist).
+        'email': 'email',
+        'address': 'address',
+        // 'website' was a legacy key that mapped to a non-existent column —
+        // route it to the modern website_url so older forms keep working.
+        'website': 'website_url',
       };
       
       processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings);
@@ -912,26 +976,103 @@ export default async function handler(req, res) {
     if (shouldProcessOrganization) {
       console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', prefill_organization_id);
       
-      // Find existing organization: by prefill_organization_id first, then by name
+      // Find existing organisation. Resolution order — first match wins:
+      //   1. prefill_organization_id (URL-prefilled / passed by caller)
+      //   2. The organisation_id already stamped on the form_submission row
+      //      (set by FormView when the submitter was authenticated/contextualised)
+      //   3. The organisation_id of the resolved member (prefill_member_id, or
+      //      tenant-scoped lookup by memberData.email) — useful when an
+      //      authenticated member submits a form with org core-field mappings
+      //      but no explicit organisation context was forwarded.
+      //   4. Case-insensitive name match against orgData.name.
+      // Each step uses .maybeSingle() so a missing row is treated as "not found"
+      // rather than an error (the previous .single() variants surfaced misleading
+      // errors and short-circuited the search).
       let existingOrg = null;
+      let orgResolutionMethod = null;
       
       if (prefill_organization_id) {
         const { data: foundOrg } = await supabase
           .from('organization')
           .select('*')
           .eq('id', prefill_organization_id)
-          .single();
-        existingOrg = foundOrg;
+          .maybeSingle();
+        if (foundOrg) {
+          existingOrg = foundOrg;
+          orgResolutionMethod = 'prefill_organization_id';
+        }
         console.log('[AppProcessor] Found org by prefill ID:', existingOrg?.id);
-      } else if (orgData.name) {
+      }
+      
+      if (!existingOrg && submission_id) {
+        const { data: subRow } = await supabase
+          .from('form_submission')
+          .select('organization_id')
+          .eq('id', submission_id)
+          .maybeSingle();
+        if (subRow?.organization_id) {
+          const { data: foundOrg } = await supabase
+            .from('organization')
+            .select('*')
+            .eq('id', subRow.organization_id)
+            .maybeSingle();
+          if (foundOrg) {
+            existingOrg = foundOrg;
+            orgResolutionMethod = 'form_submission.organization_id';
+            console.log('[AppProcessor] Found org via form_submission.organization_id:', existingOrg.id);
+          }
+        }
+      }
+      
+      if (!existingOrg) {
+        // Try via the resolved member (prefill_member_id, or by email within tenant).
+        let resolvedMember = null;
+        if (prefill_member_id) {
+          const { data: m } = await supabase
+            .from('member')
+            .select('id, organization_id')
+            .eq('id', prefill_member_id)
+            .maybeSingle();
+          resolvedMember = m;
+        } else if (memberData?.email) {
+          let q = supabase
+            .from('member')
+            .select('id, organization_id')
+            .ilike('email', memberData.email);
+          if (tenant_id) q = q.eq('tenant_id', tenant_id);
+          const { data: m } = await q.limit(1).maybeSingle();
+          resolvedMember = m;
+        }
+        if (resolvedMember?.organization_id) {
+          const { data: foundOrg } = await supabase
+            .from('organization')
+            .select('*')
+            .eq('id', resolvedMember.organization_id)
+            .maybeSingle();
+          if (foundOrg) {
+            existingOrg = foundOrg;
+            orgResolutionMethod = 'resolved_member.organization_id';
+            console.log('[AppProcessor] Found org via resolved member:', existingOrg.id);
+          }
+        }
+      }
+      
+      if (!existingOrg && orgData.name) {
         const { data: foundOrg } = await supabase
           .from('organization')
           .select('*')
           .ilike('name', orgData.name)
           .limit(1)
-          .single();
-        existingOrg = foundOrg;
+          .maybeSingle();
+        if (foundOrg) {
+          existingOrg = foundOrg;
+          orgResolutionMethod = 'org_name_match';
+        }
         console.log('[AppProcessor] Found org by name:', existingOrg?.id);
+      }
+      
+      if (existingOrg) {
+        console.log('[AppProcessor] Resolved existing org via:', orgResolutionMethod, '->', existingOrg.id);
       }
       
       if (existingOrg) {
@@ -949,7 +1090,9 @@ export default async function handler(req, res) {
             if (value === null) {
               orgUpdateData[key] = null;
             } else if (value !== undefined && value !== '') {
-              orgUpdateData[key] = value;
+              // Defence in depth: even if an upstream code path missed it, coerce
+              // address-like object values to a multi-line string before writing.
+              orgUpdateData[key] = coerceAddressIfNeeded(key, value);
             }
           }
           
@@ -976,10 +1119,22 @@ export default async function handler(req, res) {
           createdOrganizationId = existingOrg.id;
         }
       } else {
-        // Organization does not exist
+        // Organization does not exist via any of the resolution strategies above.
         if (orgAction === 'update') {
-          // Update mode but org doesn't exist - skip, but use prefill_organization_id if available
-          console.log('[AppProcessor] Organization not found, skipping update (update mode)');
+          // Update mode and we couldn't find an org to update — emit a high-signal
+          // diagnostic so this skip is observable in production logs (the
+          // form_submission row has no processing_notes column, so the log is the
+          // only surface). Includes everything we tried for postmortem.
+          console.warn('[AppProcessor] Organisation update SKIPPED — no existing org could be resolved.', {
+            submission_id: submission_id || null,
+            form_id: form_id || null,
+            tenant_id: tenant_id || null,
+            prefill_organization_id: prefill_organization_id || null,
+            prefill_member_id: prefill_member_id || null,
+            member_email_for_lookup: memberData?.email || null,
+            org_data_name: orgData.name || null,
+            org_data_keys: Object.keys(orgData),
+          });
           createdOrganizationId = prefill_organization_id || null;
         } else if (orgAction === 'create' || orgAction === 'upsert') {
           // Create new organization - require name
