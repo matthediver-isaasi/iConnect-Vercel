@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -534,8 +533,8 @@ export default function SignatoryDetailModal({
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 mt-4 min-h-0">
-          <div className="space-y-4 pr-4 overflow-hidden">
+        <div className="flex-1 mt-4 min-h-0 overflow-y-auto">
+          <div className="space-y-4 pr-4">
             {overrideSigner ? (
               <ManualContractOverrideForm
                 contractFormId={signatory?.contractFormId}
@@ -592,7 +591,7 @@ export default function SignatoryDetailModal({
               </>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
 
