@@ -379,7 +379,8 @@ export async function provisionTenant({
         name: tenantName,
         tenant_id: tenant.id,
         status: 'active',
-        is_primary: true
+        is_primary: true,
+        created_at: new Date().toISOString()
       })
       .select()
       .single();

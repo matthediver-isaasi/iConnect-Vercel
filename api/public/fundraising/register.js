@@ -232,7 +232,8 @@ export default async function handler(req, res) {
             .insert({
               tenant_id: tenant.id,
               name: organisation.name,
-              address: Object.keys(addressObj).length > 0 ? addressObj : null
+              address: Object.keys(addressObj).length > 0 ? addressObj : null,
+              created_at: new Date().toISOString()
             })
             .select('id')
             .single();

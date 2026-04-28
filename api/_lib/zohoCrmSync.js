@@ -3436,6 +3436,9 @@ async function importOneRecord(tenantId, entityType, mapping, zohoModule, zohoRe
   if (!entity) {
     // CREATE: only include fields with a non-empty Zoho value.
     const insertRow = { tenant_id: tenantId };
+    if (entityType === 'organization') {
+      insertRow.created_at = new Date().toISOString();
+    }
     if (zohoId) {
       insertRow.zoho_crm_id = zohoId;
       insertRow.zoho_crm_module = zohoModule;
