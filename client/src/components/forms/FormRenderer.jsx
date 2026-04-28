@@ -297,10 +297,11 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [] }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [] }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
+  const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
   
@@ -353,6 +354,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   const validateEmailDomain = (email) => {
     if (!field.validate_org_domain) {
       setDomainError('');
+      setDomainInfoMessage('');
       domainErrorRef.current = '';
       return;
     }
@@ -360,6 +362,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     if (!organizationInfo) {
       const err = 'Domain validation requires an organisation. Please ensure you are associated with an organisation.';
       setDomainError(err);
+      setDomainInfoMessage('');
       domainErrorRef.current = err;
       onValidityChange?.(field.id, false);
       return;
@@ -367,6 +370,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     
     if (!email) {
       setDomainError('');
+      setDomainInfoMessage('');
       domainErrorRef.current = '';
       onValidityChange?.(field.id, !emailFormatErrorRef.current);
       return;
@@ -375,6 +379,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     const emailParts = email.split('@');
     if (emailParts.length !== 2 || !emailParts[1]) {
       setDomainError('');
+      setDomainInfoMessage('');
       domainErrorRef.current = '';
       return;
     }
@@ -386,23 +391,47 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         if (d) allowedDomains.push(d.toLowerCase());
       });
     }
+
+    // Helper: when an org is selected and that org accepts guests, the domain
+    // restriction is bypassed with a friendly info message instead of an error.
+    const tryGuestBypass = () => {
+      if (!selectedOrgGuestAccess?.accepts_guests) return false;
+      let msg;
+      if (selectedOrgGuestAccess.unlimited) {
+        msg = "Your email isn't on this organisation's verified domain list — a guest account will be created with permanent access.";
+      } else {
+        const days = Number(selectedOrgGuestAccess.default_period_days);
+        if (!Number.isFinite(days) || days <= 0) return false;
+        msg = `Your email isn't on this organisation's verified domain list — a guest account will be created with ${days} day${days === 1 ? '' : 's'} of access.`;
+      }
+      setDomainError('');
+      setDomainInfoMessage(msg);
+      domainErrorRef.current = '';
+      onValidityChange?.(field.id, !emailFormatErrorRef.current);
+      return true;
+    };
     
     if (allowedDomains.length === 0) {
+      if (tryGuestBypass()) return;
       const err = 'No allowed domains configured for your organisation.';
       setDomainError(err);
+      setDomainInfoMessage('');
       domainErrorRef.current = err;
       onValidityChange?.(field.id, false);
       return;
     }
     
     if (!allowedDomains.includes(emailDomain)) {
+      if (tryGuestBypass()) return;
       const domainList = allowedDomains.join(', ');
       const err = `Email domain must be one of: ${domainList}`;
       setDomainError(err);
+      setDomainInfoMessage('');
       domainErrorRef.current = err;
       onValidityChange?.(field.id, false);
     } else {
       setDomainError('');
+      setDomainInfoMessage('');
       domainErrorRef.current = '';
       onValidityChange?.(field.id, !emailFormatErrorRef.current);
     }
@@ -489,7 +518,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     if (field.type === 'email') {
       validateEmailDomain(value);
     }
-  }, [field.validate_org_domain, organizationInfo?.verified_domains, value, field.type]);
+  }, [field.validate_org_domain, organizationInfo?.verified_domains, value, field.type, selectedOrgGuestAccess?.accepts_guests, selectedOrgGuestAccess?.unlimited, selectedOrgGuestAccess?.default_period_days]);
 
   const renderField = () => {
     // Handle auto-populated user fields
@@ -594,6 +623,11 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             {domainError && (
               <p className="text-xs text-amber-600" data-testid={`error-domain-${field.id}`}>
                 {domainError}
+              </p>
+            )}
+            {!domainError && domainInfoMessage && (
+              <p className="text-xs text-slate-600" data-testid={`info-domain-guest-${field.id}`}>
+                {domainInfoMessage}
               </p>
             )}
           </div>

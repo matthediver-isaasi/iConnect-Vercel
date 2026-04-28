@@ -505,6 +505,21 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return selectedOrg || prefillOrg || organizationInfo;
   }, [selectedOrg, prefillOrg, organizationInfo]);
 
+  // Effective guest-access info for the selected org (only set when an org is
+  // actually selected via the form's org dropdown or URL prefill). Used by
+  // FormRenderer to bypass the verified-domain check with a friendly message
+  // when the org accepts guests. Normalised to a stable shape so FormRenderer
+  // doesn't depend on the public endpoint's wire format.
+  const selectedOrgGuestAccess = useMemo(() => {
+    const ga = selectedOrg?.guest_access;
+    if (!ga) return null;
+    return {
+      accepts_guests: !!ga.enabled,
+      unlimited: !!ga.unlimited,
+      default_period_days: ga.period_days ?? null,
+    };
+  }, [selectedOrg]);
+
   // Reset prefill state and set_value tracking when form changes
   useEffect(() => {
     setCurrentPageIndex(0);
@@ -1874,6 +1889,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   onChange={(value) => handleFieldChange(currentField.id, value)}
                   memberInfo={memberInfo}
                   organizationInfo={effectiveOrganizationInfo}
+                  selectedOrgGuestAccess={selectedOrgGuestAccess}
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
                   autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
@@ -2013,6 +2029,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     onChange={(value) => handleFieldChange(field.id, value)}
                     memberInfo={memberInfo}
                     organizationInfo={effectiveOrganizationInfo}
+                    selectedOrgGuestAccess={selectedOrgGuestAccess}
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
                     allFormValues={formValues}
@@ -2036,6 +2053,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           onChange={(value) => handleFieldChange(field.id, value)}
                           memberInfo={memberInfo}
                           organizationInfo={effectiveOrganizationInfo}
+                          selectedOrgGuestAccess={selectedOrgGuestAccess}
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
                           allFormValues={formValues}
@@ -2059,6 +2077,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               onChange={(value) => handleFieldChange(field.id, value)}
                               memberInfo={memberInfo}
                               organizationInfo={effectiveOrganizationInfo}
+                              selectedOrgGuestAccess={selectedOrgGuestAccess}
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
                               allFormValues={formValues}
