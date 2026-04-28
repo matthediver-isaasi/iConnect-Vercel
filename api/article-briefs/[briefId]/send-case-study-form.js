@@ -3,6 +3,17 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { sendEmail } from '../../_lib/emailService.js';
 
+function applyBriefPlaceholders(input, vars) {
+  if (typeof input !== 'string' || !input) return input || '';
+  let out = input;
+  for (const [key, value] of Object.entries(vars)) {
+    const safe = value == null ? '' : String(value);
+    const re = new RegExp(`\\{\\{\\s*${key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*\\}\\}`, 'g');
+    out = out.replace(re, safe);
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -28,7 +39,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'briefId is required' });
     }
 
-    const { form_id, provider, email_content } = req.body;
+    const { form_id, provider, email_content, email_template_id } = req.body;
 
     if (!form_id) {
       return res.status(400).json({ error: 'form_id is required' });
@@ -36,7 +47,10 @@ export default async function handler(req, res) {
     if (!provider?.email || !provider?.first_name || !provider?.last_name) {
       return res.status(400).json({ error: 'Provider first_name, last_name, and email are required' });
     }
-    if (!email_content) {
+    // When a template is selected the template body is the message and free
+    // text is optional. Otherwise the legacy free-text editor is the source
+    // of truth and must be filled in.
+    if (!email_template_id && !email_content) {
       return res.status(400).json({ error: 'email_content is required' });
     }
 
@@ -71,6 +85,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Permission form does not have a slug configured' });
     }
 
+    // Optional email template lookup (tenant scoped, must be active)
+    let template = null;
+    if (email_template_id) {
+      const { data: tpl, error: tplError } = await supabase
+        .from('email_template')
+        .select('id, name, subject, body, from_email, reply_to, is_active')
+        .eq('id', email_template_id)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      if (tplError || !tpl) {
+        return res.status(400).json({ error: 'Selected email template not found' });
+      }
+      if (!tpl.is_active) {
+        return res.status(400).json({ error: 'Selected email template is not active' });
+      }
+      template = tpl;
+    }
+
     const { data: tenantRecord } = await supabase
       .from('tenant')
       .select('domain, slug')
@@ -86,6 +118,16 @@ export default async function handler(req, res) {
     const uploadToken = crypto.randomBytes(32).toString('hex');
     const uploadUrl = `${baseUrl}/CaseStudyUpload?token=${encodeURIComponent(uploadToken)}`;
 
+    const placeholderVars = {
+      'brief.title': brief.title || '',
+      'provider.first_name': provider.first_name || '',
+      'provider.last_name': provider.last_name || '',
+      'provider.email': provider.email || '',
+      'provider.full_name': [provider.first_name, provider.last_name].filter(Boolean).join(' ').trim(),
+      'form_url': permissionUrl,
+      'upload_url': uploadUrl,
+    };
+
     const renderButton = (url, label) => `
       <div style="margin-top: 16px;">
         <a href="${url}"
@@ -98,20 +140,30 @@ export default async function handler(req, res) {
       </p>
     `;
 
+    const bodyHtml = template
+      ? applyBriefPlaceholders(template.body || '', placeholderVars)
+      : email_content;
+
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="color: #333; font-size: 15px; line-height: 1.6;">
-          ${email_content}
+          ${bodyHtml}
         </div>
         ${renderButton(permissionUrl, 'Complete the Permission Form')}
         ${renderButton(uploadUrl, 'Upload Images & Documents')}
       </div>
     `;
 
+    const subject = template?.subject
+      ? applyBriefPlaceholders(template.subject, placeholderVars)
+      : `Case Study Form: ${brief.title || 'Article Brief'}`;
+
     const emailResult = await sendEmail({
       to: provider.email,
-      subject: `Case Study Form: ${brief.title || 'Article Brief'}`,
+      subject,
       html: emailHtml,
+      from: template?.from_email || undefined,
+      replyTo: template?.reply_to || undefined,
       tenantId: tenantCtx.tenantId,
       skipFooter: false,
     });
@@ -129,7 +181,8 @@ export default async function handler(req, res) {
         last_name: provider.last_name,
         email: provider.email,
       },
-      case_study_email_content: email_content,
+      case_study_email_content: email_content || null,
+      case_study_email_template_id: email_template_id || null,
       case_study_form_sent_at: now,
       case_study_submission_id: null,
       case_study_upload_token: uploadToken,

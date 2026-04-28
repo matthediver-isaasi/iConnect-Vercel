@@ -2,6 +2,17 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { sendEmail } from '../../_lib/emailService.js';
 
+function applyBriefPlaceholders(input, vars) {
+  if (typeof input !== 'string' || !input) return input || '';
+  let out = input;
+  for (const [key, value] of Object.entries(vars)) {
+    const safe = value == null ? '' : String(value);
+    const re = new RegExp(`\\{\\{\\s*${key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*\\}\\}`, 'g');
+    out = out.replace(re, safe);
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -26,7 +37,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'briefId is required' });
     }
 
-    const { copyright_form_id } = req.body || {};
+    const { copyright_form_id, email_template_id } = req.body || {};
     if (!copyright_form_id) {
       return res.status(400).json({ error: 'copyright_form_id is required' });
     }
@@ -64,6 +75,7 @@ export default async function handler(req, res) {
         .from('member')
         .select('first_name, last_name, email')
         .eq('id', brief.assigned_writer_id)
+        .eq('tenant_id', tenantCtx.tenantId)
         .single();
       if (mem) {
         writerEmail = mem.email || null;
@@ -98,6 +110,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Copyright Assignment form does not have a slug configured' });
     }
 
+    // Optional email template lookup (tenant scoped, must be active)
+    let template = null;
+    if (email_template_id) {
+      const { data: tpl, error: tplError } = await supabase
+        .from('email_template')
+        .select('id, name, subject, body, from_email, reply_to, is_active')
+        .eq('id', email_template_id)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      if (tplError || !tpl) {
+        return res.status(400).json({ error: 'Selected email template not found' });
+      }
+      if (!tpl.is_active) {
+        return res.status(400).json({ error: 'Selected email template is not active' });
+      }
+      template = tpl;
+    }
+
     const { data: tenantRecord } = await supabase
       .from('tenant')
       .select('domain, slug')
@@ -112,29 +142,56 @@ export default async function handler(req, res) {
 
     const writerName = [writerFirstName, writerLastName].filter(Boolean).join(' ').trim() || 'there';
 
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    const placeholderVars = {
+      'brief.title': brief.title || '',
+      'writer.first_name': writerFirstName || '',
+      'writer.last_name': writerLastName || '',
+      'writer.full_name': writerName,
+      'writer.email': writerEmail || '',
+      'form_url': formUrl,
+    };
+
+    const renderButton = (url, label) => `
+      <div style="margin-top: 16px;">
+        <a href="${url}"
+           style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: 500;">
+          ${label}
+        </a>
+      </div>
+      <p style="color: #888; font-size: 13px; margin-top: 8px;">
+        Or copy this link: <a href="${url}" style="color: #2563eb;">${url}</a>
+      </p>
+    `;
+
+    const defaultBody = `
         <div style="color: #333; font-size: 15px; line-height: 1.6;">
           <p>Hi ${writerName},</p>
           <p>Please complete the Copyright Assignment Form for the article brief
             "<strong>${brief.title || 'Article Brief'}</strong>".</p>
         </div>
-        <div style="margin-top: 16px;">
-          <a href="${formUrl}"
-             style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: 500;">
-            Complete the Copyright Assignment Form
-          </a>
-        </div>
-        <p style="color: #888; font-size: 13px; margin-top: 8px;">
-          Or copy this link: <a href="${formUrl}" style="color: #2563eb;">${formUrl}</a>
-        </p>
+    `;
+
+    const bodyHtml = template
+      ? `<div style="color: #333; font-size: 15px; line-height: 1.6;">${applyBriefPlaceholders(template.body || '', placeholderVars)}</div>`
+      : defaultBody;
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        ${bodyHtml}
+        ${renderButton(formUrl, 'Complete the Copyright Assignment Form')}
       </div>
     `;
 
+    const subject = template?.subject
+      ? applyBriefPlaceholders(template.subject, placeholderVars)
+      : `Copyright Assignment Form: ${brief.title || 'Article Brief'}`;
+
     const emailResult = await sendEmail({
       to: writerEmail,
-      subject: `Copyright Assignment Form: ${brief.title || 'Article Brief'}`,
+      subject,
       html: emailHtml,
+      from: template?.from_email || undefined,
+      replyTo: template?.reply_to || undefined,
       tenantId: tenantCtx.tenantId,
       skipFooter: false,
     });
@@ -157,6 +214,7 @@ export default async function handler(req, res) {
     const briefUpdate = {
       copyright_required: true,
       copyright_form_id,
+      copyright_email_template_id: email_template_id || null,
       copyright_form_sent_at: now,
     };
 

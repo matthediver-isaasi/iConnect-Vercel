@@ -275,9 +275,11 @@ export default function BriefDetailPage() {
   const [csProvider, setCsProvider] = useState({ first_name: "", last_name: "", email: "" });
   const [csSelectedFormId, setCsSelectedFormId] = useState("");
   const [csEmailContent, setCsEmailContent] = useState("");
+  const [csEmailTemplateId, setCsEmailTemplateId] = useState("");
   const [csFormInitialized, setCsFormInitialized] = useState(false);
 
   const [copyrightSelectedFormId, setCopyrightSelectedFormId] = useState("");
+  const [copyrightEmailTemplateId, setCopyrightEmailTemplateId] = useState("");
   const [copyrightFormInitialized, setCopyrightFormInitialized] = useState(false);
   const [copyrightConfirmOpen, setCopyrightConfirmOpen] = useState(false);
   const [copyrightDisableConfirmOpen, setCopyrightDisableConfirmOpen] = useState(false);
@@ -339,6 +341,14 @@ export default function BriefDetailPage() {
     queryFn: async () => {
       const allForms = await base44.entities.Form.list();
       return allForms.filter((f) => f.is_active && !f.is_contract && !f.require_authentication && !!f.slug);
+    },
+    enabled: isAccessReady,
+  });
+
+  const { data: availableEmailTemplates = [] } = useQuery({
+    queryKey: ["email-templates"],
+    queryFn: async () => {
+      return await base44.entities.EmailTemplate.list({ filter: { is_active: true } });
     },
     enabled: isAccessReady,
   });
@@ -580,11 +590,12 @@ export default function BriefDetailPage() {
   });
 
   const sendCaseStudyFormMutation = useMutation({
-    mutationFn: async ({ form_id, provider, email_content }) => {
+    mutationFn: async ({ form_id, provider, email_content, email_template_id }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-case-study-form`, {
         form_id,
         provider,
         email_content,
+        email_template_id: email_template_id || null,
       });
     },
     onSuccess: () => {
@@ -656,9 +667,10 @@ export default function BriefDetailPage() {
   });
 
   const sendCopyrightFormMutation = useMutation({
-    mutationFn: async ({ copyright_form_id }) => {
+    mutationFn: async ({ copyright_form_id, email_template_id }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-copyright-form`, {
         copyright_form_id,
+        email_template_id: email_template_id || null,
       });
     },
     onSuccess: () => {
@@ -687,6 +699,7 @@ export default function BriefDetailPage() {
       });
       setCsSelectedFormId(brief.case_study_form_id || "");
       setCsEmailContent(brief.case_study_email_content || "");
+      setCsEmailTemplateId(brief.case_study_email_template_id || "");
       setCsFormInitialized(true);
     }
   }, [brief, csFormInitialized]);
@@ -694,6 +707,7 @@ export default function BriefDetailPage() {
   useEffect(() => {
     if (brief && !copyrightFormInitialized) {
       setCopyrightSelectedFormId(brief.copyright_form_id || "");
+      setCopyrightEmailTemplateId(brief.copyright_email_template_id || "");
       setCopyrightFormInitialized(true);
     }
   }, [brief, copyrightFormInitialized]);
@@ -1444,20 +1458,44 @@ export default function BriefDetailPage() {
                         </div>
                       </div>
                       {canManage && (
-                        <div className="space-y-1">
-                          <Label>Copyright Assignment Form</Label>
-                          <Select
-                            value={copyrightSelectedFormId || "none"}
-                            onValueChange={(v) => setCopyrightSelectedFormId(v === "none" ? "" : v)}
-                          >
-                            <SelectTrigger data-testid="select-copyright-form"><SelectValue placeholder="Select a form..." /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Select a form...</SelectItem>
-                              {availableForms.map((f) => (
-                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <Label>Copyright Assignment Form</Label>
+                            <Select
+                              value={copyrightSelectedFormId || "none"}
+                              onValueChange={(v) => setCopyrightSelectedFormId(v === "none" ? "" : v)}
+                            >
+                              <SelectTrigger data-testid="select-copyright-form"><SelectValue placeholder="Select a form..." /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Select a form...</SelectItem>
+                                {availableForms.map((f) => (
+                                  <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Email Template</Label>
+                            <Select
+                              value={copyrightEmailTemplateId || "none"}
+                              onValueChange={(v) => setCopyrightEmailTemplateId(v === "none" ? "" : v)}
+                            >
+                              <SelectTrigger data-testid="select-copyright-email-template">
+                                <SelectValue placeholder="Use default message" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Use default message</SelectItem>
+                                {availableEmailTemplates.map((t) => (
+                                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                              {copyrightEmailTemplateId
+                                ? "The selected template's subject and body will be used. The form link is added automatically."
+                                : "Pick a template to override the default message."}
+                            </p>
+                          </div>
                         </div>
                       )}
                       {!canManage && copyrightForm?.name && (
@@ -2144,14 +2182,15 @@ export default function BriefDetailPage() {
                   toast.error("Please select a Permission Form to send");
                   return;
                 }
-                if (!csEmailContent.trim()) {
-                  toast.error("Please write an email message to accompany the form link");
+                if (!csEmailTemplateId && !csEmailContent.trim()) {
+                  toast.error("Please choose an email template or write an email message");
                   return;
                 }
                 sendCaseStudyFormMutation.mutate({
                   form_id: csSelectedFormId,
                   provider: csProvider,
                   email_content: csEmailContent,
+                  email_template_id: csEmailTemplateId,
                 });
               };
 
@@ -2211,14 +2250,35 @@ export default function BriefDetailPage() {
                         </Select>
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor="cs-email-body">Email Message *</Label>
-                        <SimpleRichTextEditor
-                          content={csEmailContent}
-                          onChange={setCsEmailContent}
-                          placeholder="Write the email message to send along with the form link..."
-                          className=""
-                        />
+                        <Label>Email Template</Label>
+                        <Select value={csEmailTemplateId || "none"} onValueChange={(v) => setCsEmailTemplateId(v === "none" ? "" : v)}>
+                          <SelectTrigger data-testid="select-cs-email-template">
+                            <SelectValue placeholder="Use the message below" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Use the message below</SelectItem>
+                            {availableEmailTemplates.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {csEmailTemplateId
+                            ? "The selected template's subject and body will be used. The form and upload links are added automatically."
+                            : "Pick a template to use its subject and body, or write a one-off message below."}
+                        </p>
                       </div>
+                      {!csEmailTemplateId && (
+                        <div className="space-y-1">
+                          <Label htmlFor="cs-email-body">Email Message *</Label>
+                          <SimpleRichTextEditor
+                            content={csEmailContent}
+                            onChange={setCsEmailContent}
+                            placeholder="Write the email message to send along with the form link..."
+                            className=""
+                          />
+                        </div>
+                      )}
                       <div className="flex justify-end">
                         <Button
                           onClick={handleSendCaseStudyForm}
@@ -2352,7 +2412,10 @@ export default function BriefDetailPage() {
               onClick={(e) => {
                 e.preventDefault();
                 if (!copyrightSelectedFormId) return;
-                sendCopyrightFormMutation.mutate({ copyright_form_id: copyrightSelectedFormId });
+                sendCopyrightFormMutation.mutate({
+                  copyright_form_id: copyrightSelectedFormId,
+                  email_template_id: copyrightEmailTemplateId,
+                });
               }}
               disabled={sendCopyrightFormMutation.isPending || !copyrightSelectedFormId}
               data-testid="button-confirm-copyright-send"

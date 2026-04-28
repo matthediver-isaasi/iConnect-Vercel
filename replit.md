@@ -5,7 +5,7 @@ This project is a multi-tenant SaaS platform for comprehensive membership manage
 Preferred communication style: Simple, everyday language.
 
 # System Architecture
-The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS, utilizing a custom "new-york" design system for a consistent and responsive user experience. The backend uses Express.js, PostgreSQL, and Drizzle ORM, with API endpoints deployed as Vercel serverless functions.
+The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS, utilizing a custom "new-york" design system. The backend uses Express.js, PostgreSQL, and Drizzle ORM, with API endpoints deployed as Vercel serverless functions.
 
 ## Multi-Tenant Architecture
 Data isolation is enforced across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id`. The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, facilitated by a tenant resolver for domain-to-tenant mapping.
@@ -15,7 +15,7 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 
 ## Key Features
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
--   **Content Management:** Features event/booking management, general content management, a dynamic page builder, custom forms with conditional logic and uniqueness validation, and blog posts. Forms support prefill from Member Data, Organisation Data, and Event Attendee (Booking), and a "Name Badge" page style for printing.
+-   **Content Management:** Features event/booking management, general content management, a dynamic page builder, custom forms with conditional logic and uniqueness validation, and blog posts.
 -   **Membership Payment:** Integrates Stripe for membership fees, supporting auto-submission, year 2 rollover logic, Xero invoice attachment, and configurable invoice address sourcing.
 -   **Communication:** Includes an email template system, communication preferences, and email campaigns with list-based targeting.
 -   **Workflow Automation:** Provides tenant-scoped workflows for automating actions.
@@ -26,39 +26,26 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **WordPress Sync:** iConnect articles sync to WordPress sites via a dedicated plugin and webhook system.
 -   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access, image attachments, and real-time subscriptions.
 -   **Membership Tier System:** Supports pricing based on organization or member attributes with historical versioning, pro-rata pricing, and cron-based renewals.
--   **Complex Events Module:** Multi-track events (conferences, courses) with separate entities for ComplexEvent, ComplexEventTrack, ComplexEventSession, and ComplexEventTicketClass. Ticket classes support track-based access control (linked to specific tracks or all tracks), early bird pricing, group tickets, VAT configuration, visibility modes, and role restrictions. Real-time ticket availability tracking mirrors the simple event pattern.
--   **Booking Cancellation Requests:** Members and admins can initiate cancellation requests for tickets or groups, which go through an admin review queue. Approved cancellations handle Stripe refunds and Xero credit note creation.
--   **Booking Transfer Requests:** Members and admins can initiate ticket transfer requests within the same organization, subject to admin review. Transfers update attendee details and Xero invoice line items where applicable. Supports public/guest ticket transfers via manual entry.
--   **Complex Event Sessions:** Multi-session (complex) events support individual sessions with per-session Zoom meeting/webinar integration. Each virtual/hybrid session can have its own Zoom link, host, and registration settings. Sessions are stored in the `complex_event_session` table. Booking confirmation auto-registers attendees for Zoom webinar sessions. Session schedules with join links (for booked attendees) are displayed on the public event detail page.
--   **Discount Codes:** Supports targeting discounts by organization, member, role, or member group, with per-member usage tracking. Discount codes can also be restricted to specific events.
--   **Zoom Attendance Tracking:** After Zoom meetings/webinars end, participant data is fetched from the Zoom Reports API and stored in `zoom_attendance` table. Participants are matched to bookings by email. The Event Registration Report shows an "Attended" column (Yes/Partial/No) with tooltips showing join/leave times and duration. CSV export includes attendance data. Admins can manually trigger "Sync Attendance" from the report. An auto-sync endpoint (`/api/zoom/attendance-auto-sync`) identifies ended meetings needing sync. Works for both standard events and complex event sessions.
--   **Event-Linked Resource Access:** Resources can be linked to one or more events (and optionally specific sessions within complex events). Only members with a confirmed booking for at least one linked event/session can see the resource. Session-level linking checks track access via ticket class. Admin form has a "Linked Events" section for managing links. Public API excludes event-linked resources. Uses `linked_events` JSONB column on resource table and `api/resources/check-event-access.js` endpoint.
--   **Organization Directory Type Filter:** Allows filtering visible organizations in the directory based on their type.
--   **CRM Tags:** Free-text tagging on Organisation and Member records (stored as `text[]` columns). Tag Management page supports four sections (Resources, Articles, Organisations, Members) with rename and delete for all tag types.
--   **Article Brief Settings:** Admin-configurable workflow stages, brief categories, and email notification toggles per tenant. Stored in `article_brief_settings` table (JSONB stages/categories, boolean notify flags). BriefManagement and BriefDetail pages read stages dynamically instead of using hardcoded STATUS_CONFIG. Category field uses a dropdown populated from configured categories. Email notifications are sent via Mailgun on key events (writer assigned, status changes, comments, version uploads).
--   **Case Study Uploads:** Article briefs accept versioned case-study image/document uploads from two sources: the team via the Case Study tab in BriefDetail, and the external provider via a public token-authenticated page at `/CaseStudyUpload?token=...`. Each Case Study email contains an "Upload Images & Documents" button alongside the Permission form. Files are stored in `article_brief_case_study_upload` with shared sequential `version_number` per brief, and every add/delete is recorded in `article_brief_activity`. The upload token (`case_study_upload_token` on `article_brief`) is regenerated on every send so any previous link is invalidated. Storage uses the private `private-uploads` bucket under `${tenantId}/article-briefs/${briefId}/case-study-uploads/`.
--   **Brief Copyright Assignment Form:** Brief-level workflow (separate from the case-study Permission form) for collecting a Copyright Assignment from the brief's writer. Editors toggle "Copyright form required" on the Overview tab; when on, they pick a form (`form` table) and click "Send to writer" to email a unique link to the writer's address (resolved from `member` for `assigned_writer_id` or `external_writer` for `external_writer_id`). Tracked on `article_brief` via `copyright_required`, `copyright_form_id`, `copyright_form_sent_at`, `copyright_submission_id`. Send endpoint: `POST /api/article-briefs/[briefId]/send-copyright-form`. The submitted form is linked back through `api/public/form-submission.js` (matches `copyright_form_id` → writes `copyright_submission_id`) and emits a `copyright_submitted` brief inbox item.
--   **Zoho Inbound Update Toast:** When an organisation or member is updated by an inbound Zoho sync (webhook or reconciliation cron), a toast appears on any open detail page for that exact record and the page's queries are auto-invalidated so the latest values appear in context. Powered by a Supabase realtime subscription on `zoho_crm_sync_log` filtered to the viewed record's `entity_id`, gated to `direction='inbound'` + `status='success'`. Implemented as a shared hook (`useZohoInboundUpdateNotifier`) that wraps the project's existing `useRealtimeSubscription`. The `zoho_crm_sync_log` table is published via `supabase_realtime` (added by `scripts/migrations/add-zoho-sync-log-to-realtime.mjs`). No changes to the inbound sync engine itself.
--   **External Writers:** Supports assigning external (non-member) writers to article briefs. External writers are managed on a dedicated `/ExternalWriters` page with CRUD operations, email uniqueness validation (against both external writers and members), and NDA document uploads. Brief creation/editing forms include a Member/External toggle for writer selection. External writer data stored in `external_writer` and `external_writer_document` tables. The `article_brief` table has an `external_writer_id` FK column. API endpoints: search (`/api/external-writers/search`), email validation (`/api/external-writers/validate-email`), document delete (`/api/external-writers/documents/[id]`). Entity mappings: `ExternalWriter`, `ExternalWriterDocument`.
--   **Brief Management Inbox:** Tenant-scoped pseudo-inbox on `/BriefManagement` that surfaces case-study Permission/Copyright form submissions (and the files attached to them) against existing briefs without forcing editors to open every brief. An inbox item is created from `api/public/form-submission.js` whenever a public submission is successfully linked back to a brief via `case_study_form_id` (Permission) or `copyright_form_id` (brief-level Copyright Assignment). Items are stored in `article_brief_inbox_item` (tenant + brief scoped, `event_type` of `permission_submitted | copyright_submitted | files_uploaded`, JSONB `metadata` with submitter info and file count, plus `read_at` / `archived_at`). Read/archive state is shared across the tenant in v1. The inbox archive flag is independent of the brief lifecycle "archived" status. UI: "Inbox" header button with unread badge, dismissible session-scoped banner above the stats, Sheet drawer with Inbox/Archive tabs; clicking an item marks it read and navigates to `BriefDetail`. Backed by `GET /api/article-briefs/inbox?folder=inbox|archive` (returns `{ items, unread_count }`) and `PATCH /api/article-briefs/inbox/[itemId]` (`action: mark_read | mark_unread | archive | unarchive`). Inbox query polls every 60s via TanStack Query.
+-   **Complex Events Module:** Multi-track events (conferences, courses) with separate entities for ComplexEvent, ComplexEventTrack, ComplexEventSession, and ComplexEventTicketClass.
+-   **Booking Cancellation and Transfer Requests:** Members and admins can initiate cancellation or transfer requests for tickets or groups, which go through an admin review queue.
+-   **Complex Event Sessions with Zoom Integration:** Multi-session events support individual sessions with per-session Zoom meeting/webinar integration, including auto-registration for attendees.
+-   **Discount Codes:** Supports targeting discounts by organization, member, role, or member group, with per-member usage tracking and event restrictions.
+-   **Zoom Attendance Tracking:** Fetches participant data from Zoom Reports API post-event, matches to bookings, and displays attendance status in reports with CSV export.
+-   **Event-Linked Resource Access:** Resources can be linked to events/sessions, restricting access to members with confirmed bookings.
+-   **Organization Directory Type Filter:** Allows filtering visible organizations based on their type.
+-   **CRM Tags:** Free-text tagging on Organisation and Member records with a tag management page.
+-   **Article Brief Management:** Admin-configurable workflow stages, brief categories, email notifications, and support for external writers.
+-   **Case Study Uploads:** Supports versioned image/document uploads for article briefs from internal teams and external providers via token-authenticated public pages.
+-   **Brief Copyright Assignment Form:** Workflow for collecting copyright assignment from writers, with configurable templates and tracking.
+-   **Brief Send Email Templates:** Allows editors to select tenant-scoped email templates for Case Study Permission form sends and Copyright Assignment sends, supporting placeholders.
+-   **Zoho Inbound Update Toast:** Provides real-time notifications via toast messages on detail pages when an organization or member record is updated by an inbound Zoho sync.
+-   **External Writers:** Dedicated management for external (non-member) writers for article briefs, including CRUD operations, email validation, and NDA document uploads.
+-   **Brief Management Inbox:** Tenant-scoped pseudo-inbox on `/BriefManagement` to surface case-study Permission/Copyright form submissions and attached files against existing briefs.
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.
 -   **Stripe:** Payment processing.
 -   **Xero:** Invoice generation.
--   **Microsoft Graph API:** Outlook email integration with background cron-based sync.
+-   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).
 -   **Zoho Campaigns:** Syncing member communication preferences.
-
-## Database Connection Instructions
-This project uses Supabase PostgreSQL databases. Direct psql commands and `execute_sql_tool` DO NOT WORK on Replit due to IPv6 connectivity issues.
-
-### Available Database Secrets
-| Secret | Database | Purpose |
-|--------|----------|---------|
-| SOURCE_DATABASE_URL | Legacy single-tenant Supabase | Original data source for migrations |
-| DEST_DATABASE_URL | New multi-tenant Supabase | Production destination database |
-| DEST_SUPABASE_KEY | New multi-tenant Supabase | Service role key for Supabase client |
-
-### How to Query the Database
-USE NODE.JS SCRIPTS with the Supabase client (`@supabase/supabase-js`) or a `pg` client with `DEST_DATABASE_URL`.
