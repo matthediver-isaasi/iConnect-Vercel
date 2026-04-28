@@ -404,6 +404,129 @@ export function resolvePlaceholderPreview(token, sampleData = FIXTURE_SAMPLE_DAT
 }
 
 /**
+ * Apply a per-section record override on top of the merged base sample.
+ * Returns a new sample bundle with the relevant slice replaced so that all
+ * placeholders in that section resolve against the picked record. Sections we
+ * don't recognise just return the unchanged base sample.
+ *
+ * Recognised categories:
+ *   - 'Member'                          -> { member, recipient_*, attendee }
+ *   - 'Organisation'                    -> { organization }
+ *   - 'Contracts'                       -> { contract }
+ *   - 'Event Confirmation & Reminder'   -> { event, booking, attendee }
+ *
+ * `record` shape per category:
+ *   - Member:        { id, first_name, last_name, full_name, email, phone }
+ *   - Organisation:  { id, name, invoicing_email, phone }
+ *   - Contracts:     { id, name?, days_since_sent?, signer: { ... } }
+ *   - Event:         { id, title, name, date, location, booking?, attendee? }
+ */
+export function buildCategorySample(baseSample, category, record) {
+  if (!record || !baseSample) return baseSample;
+  const out = { ...baseSample };
+  switch (category) {
+    case 'Member': {
+      out.member = { ...baseSample.member, ...record };
+      out.attendee = {
+        ...baseSample.attendee,
+        first_name: record.first_name ?? baseSample.attendee.first_name,
+        last_name: record.last_name ?? baseSample.attendee.last_name,
+        email: record.email ?? baseSample.attendee.email,
+      };
+      return out;
+    }
+    case 'Organisation': {
+      out.organization = { ...baseSample.organization, ...record };
+      return out;
+    }
+    case 'Contracts': {
+      const baseContract = baseSample.contract || {};
+      const baseSigner = baseContract.signer || {};
+      out.contract = {
+        ...baseContract,
+        ...record,
+        signer: { ...baseSigner, ...(record.signer || {}) },
+      };
+      return out;
+    }
+    case 'Event Confirmation & Reminder': {
+      out.event = {
+        ...baseSample.event,
+        id: record.id ?? baseSample.event.id,
+        title: record.title ?? baseSample.event.title,
+        name: record.name ?? record.title ?? baseSample.event.name,
+        date: record.date ?? baseSample.event.date,
+        location: record.location ?? baseSample.event.location,
+      };
+      // Reset booking/attendee whenever the event changes so we never silently
+      // carry placeholders forward from a different event. If the picked event
+      // has its own booking/attendee, use that; otherwise fall back to the
+      // built-in fixture values rather than the API's "most recent" booking.
+      out.booking = record.booking
+        ? { ...FIXTURE_SAMPLE_DATA.booking, ...record.booking }
+        : { ...FIXTURE_SAMPLE_DATA.booking };
+      out.attendee = record.attendee
+        ? { ...FIXTURE_SAMPLE_DATA.attendee, ...record.attendee }
+        : { ...FIXTURE_SAMPLE_DATA.attendee };
+      return out;
+    }
+    default:
+      return baseSample;
+  }
+}
+
+/**
+ * Sections that support per-record selection on the reference page.
+ * Other categories (Form Submissions, System & Links, Footer & Socials,
+ * Workflow Triggers & Invites) are tenant-wide / pattern-only and do not
+ * get a dropdown.
+ */
+export const RECORD_PICKER_CATEGORIES = [
+  'Member',
+  'Organisation',
+  'Contracts',
+  'Event Confirmation & Reminder',
+];
+
+/**
+ * The list field on the API response that drives each picker.
+ */
+export const CATEGORY_LIST_KEY = {
+  Member: 'members',
+  Organisation: 'organizations',
+  Contracts: 'contracts',
+  'Event Confirmation & Reminder': 'events',
+};
+
+/**
+ * Render a short label for a record in a category dropdown.
+ */
+export function labelForRecord(category, record) {
+  if (!record) return '';
+  switch (category) {
+    case 'Member': {
+      const name = record.full_name || [record.first_name, record.last_name].filter(Boolean).join(' ');
+      if (name && record.email && name !== record.email) return `${name} — ${record.email}`;
+      return name || record.email || record.id || 'Unnamed member';
+    }
+    case 'Organisation':
+      return record.name || record.id || 'Unnamed organisation';
+    case 'Contracts': {
+      const signer = record.signer?.full_name;
+      if (record.name && signer) return `${record.name} — ${signer}`;
+      return record.name || signer || record.id || 'Unnamed contract';
+    }
+    case 'Event Confirmation & Reminder': {
+      const title = record.title || record.name;
+      if (title && record.date) return `${title} — ${record.date}`;
+      return title || record.id || 'Unnamed event';
+    }
+    default:
+      return record.id || '';
+  }
+}
+
+/**
  * Build a small human-readable description of where the sample data came from.
  */
 export function describeSampleSources(sampleData) {

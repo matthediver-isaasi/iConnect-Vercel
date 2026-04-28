@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, Copy, Check, ListFilter, X, Code2, Mail, Eye } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Search,
+  Copy,
+  Check,
+  ListFilter,
+  X,
+  Code2,
+  Mail,
+  Eye,
+  ChevronRight,
+  ChevronsUpDown,
+  ChevronsDownUp,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -30,12 +54,41 @@ import {
   describeSampleSources,
   mergeSampleData,
   resolvePlaceholderPreview,
+  buildCategorySample,
+  labelForRecord,
+  RECORD_PICKER_CATEGORIES,
+  CATEGORY_LIST_KEY,
 } from "@/lib/emailPlaceholderPreview";
 
 const SYNTAX_LABEL = {
   [PLACEHOLDER_SYNTAX.CURLY]: "{{ \u2026 }}",
   [PLACEHOLDER_SYNTAX.BRACKET]: "[[ \u2026 ]]",
 };
+
+const FIXTURE_OPTION_VALUE = "__fixture__";
+const STORAGE_PREFIX = "iconnect.emailPlaceholders";
+
+function readStored(tenantId) {
+  if (!tenantId || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}.${tenantId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeStored(tenantId, value) {
+  if (!tenantId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${STORAGE_PREFIX}.${tenantId}`, JSON.stringify(value));
+  } catch {
+    // ignore quota / disabled storage
+  }
+}
 
 function CopyTokenButton({ token }) {
   const [copied, setCopied] = useState(false);
@@ -216,6 +269,57 @@ function MultiSelectFilter({ label, options, selected, onChange, testIdPrefix })
   );
 }
 
+function CategoryRecordPicker({ category, list, selectedId, onChange }) {
+  if (!list || list.length === 0) {
+    return (
+      <span
+        className="text-xs text-muted-foreground"
+        data-testid={`label-fixture-${category}`}
+      >
+        Using built-in sample
+      </span>
+    );
+  }
+  const value = selectedId || FIXTURE_OPTION_VALUE;
+  return (
+    <div
+      className="flex items-center gap-2"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="text-xs text-muted-foreground hidden sm:inline">Sample:</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger
+          className="h-8 w-[240px] max-w-[60vw]"
+          data-testid={`select-sample-${category}`}
+        >
+          <SelectValue placeholder="Built-in sample" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem
+            value={FIXTURE_OPTION_VALUE}
+            data-testid={`option-sample-${category}-fixture`}
+          >
+            Built-in sample
+          </SelectItem>
+          {list.map((record) => {
+            const id = String(record.id ?? "");
+            if (!id) return null;
+            return (
+              <SelectItem
+                key={id}
+                value={id}
+                data-testid={`option-sample-${category}-${id}`}
+              >
+                {labelForRecord(category, record)}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export default function EmailPlaceholders() {
   const navigate = useNavigate();
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -224,8 +328,15 @@ export default function EmailPlaceholders() {
   const [search, setSearch] = useState("");
   const [categories, setCategories] = useState([]);
   const [contexts, setContexts] = useState([]);
-  const [syntax, setSyntax] = useState("all"); // 'all' | 'curly' | 'bracket'
+  const [syntax, setSyntax] = useState("all");
   const [sampleData, setSampleData] = useState(FIXTURE_SAMPLE_DATA);
+  const [tenantId, setTenantId] = useState(null);
+  const [recordSelections, setRecordSelections] = useState({});
+  const [openSections, setOpenSections] = useState({});
+  // Track which tenant the in-memory selections were hydrated from. When the
+  // tenant id changes (e.g. cross-tenant navigation in a single SPA session)
+  // we must drop the previous tenant's prefs and reload from its own key.
+  const [hydratedTenantId, setHydratedTenantId] = useState(null);
 
   useEffect(() => {
     if (!isAccessReady) return;
@@ -248,8 +359,8 @@ export default function EmailPlaceholders() {
         const json = await res.json();
         if (cancelled) return;
         setSampleData(mergeSampleData(json));
+        if (json?.tenantId) setTenantId(json.tenantId);
       } catch (err) {
-        // Fall back to fixture; preview still works.
         console.warn("[EmailPlaceholders] Could not load sample data:", err);
       }
     })();
@@ -257,6 +368,30 @@ export default function EmailPlaceholders() {
       cancelled = true;
     };
   }, [accessChecked]);
+
+  // Hydrate per-tenant preferences when we first learn the tenant id and any
+  // time it changes (e.g. switching tenants in a single SPA session). When it
+  // changes we drop the previous tenant's selections before loading the new
+  // ones so nothing leaks across tenants.
+  useEffect(() => {
+    if (!tenantId || tenantId === hydratedTenantId) return;
+    const stored = readStored(tenantId);
+    setRecordSelections(
+      stored && typeof stored.recordSelections === "object" ? stored.recordSelections : {},
+    );
+    setOpenSections(
+      stored && typeof stored.openSections === "object" ? stored.openSections : {},
+    );
+    setHydratedTenantId(tenantId);
+  }, [tenantId, hydratedTenantId]);
+
+  // Persist preferences for the currently-hydrated tenant only. Skipping when
+  // the tenant id has not yet been hydrated avoids writing the previous
+  // tenant's state under the new tenant's storage key.
+  useEffect(() => {
+    if (!tenantId || tenantId !== hydratedTenantId) return;
+    writeStored(tenantId, { recordSelections, openSections });
+  }, [tenantId, hydratedTenantId, recordSelections, openSections]);
 
   const filtered = useMemo(() => {
     return filterPlaceholders(EMAIL_PLACEHOLDERS, {
@@ -271,7 +406,8 @@ export default function EmailPlaceholders() {
 
   const totalCount = EMAIL_PLACEHOLDERS.length;
   const filteredCount = filtered.length;
-  const hasActiveFilters = search.trim() !== "" || categories.length > 0 || contexts.length > 0 || syntax !== "all";
+  const hasActiveFilters =
+    search.trim() !== "" || categories.length > 0 || contexts.length > 0 || syntax !== "all";
 
   const clearAll = () => {
     setSearch("");
@@ -279,6 +415,45 @@ export default function EmailPlaceholders() {
     setContexts([]);
     setSyntax("all");
   };
+
+  const handleRecordChange = useCallback((category, value) => {
+    setRecordSelections((prev) => {
+      const next = { ...prev };
+      if (!value || value === FIXTURE_OPTION_VALUE) {
+        delete next[category];
+      } else {
+        next[category] = value;
+      }
+      return next;
+    });
+  }, []);
+
+  const setSectionOpen = useCallback((category, open) => {
+    setOpenSections((prev) => ({ ...prev, [category]: open }));
+  }, []);
+
+  const expandAll = () => {
+    const next = {};
+    for (const c of PLACEHOLDER_CATEGORIES) next[c] = true;
+    setOpenSections(next);
+  };
+
+  const collapseAll = () => {
+    const next = {};
+    for (const c of PLACEHOLDER_CATEGORIES) next[c] = false;
+    setOpenSections(next);
+  };
+
+  const findRecord = useCallback(
+    (category, id) => {
+      const listKey = CATEGORY_LIST_KEY[category];
+      if (!listKey) return null;
+      const list = sampleData?.[listKey];
+      if (!Array.isArray(list)) return null;
+      return list.find((r) => String(r.id) === String(id)) || null;
+    },
+    [sampleData],
+  );
 
   if (!accessChecked) {
     return (
@@ -319,7 +494,9 @@ export default function EmailPlaceholders() {
             <Eye className="w-4 h-4" /> Live preview
           </CardTitle>
           <CardDescription data-testid="text-sample-source">
-            Each placeholder below shows what it would resolve to. {describeSampleSources(sampleData)}
+            Each placeholder shows what it would resolve to. {describeSampleSources(sampleData)}{" "}
+            Use the dropdown in any section header to switch which record drives that section's
+            previews.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -400,9 +577,29 @@ export default function EmailPlaceholders() {
               </Button>
             )}
           </div>
-          <p className="text-sm text-muted-foreground" data-testid="text-result-count">
-            Showing {filteredCount} of {totalCount} placeholders
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground" data-testid="text-result-count">
+              Showing {filteredCount} of {totalCount} placeholders
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={expandAll}
+                data-testid="button-expand-all"
+              >
+                <ChevronsUpDown className="w-4 h-4 mr-2" /> Expand all
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={collapseAll}
+                data-testid="button-collapse-all"
+              >
+                <ChevronsDownUp className="w-4 h-4 mr-2" /> Collapse all
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -414,25 +611,68 @@ export default function EmailPlaceholders() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {grouped.map(({ category, items }) => (
-            <Card key={category} data-testid={`card-category-${category}`}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-lg">{category}</CardTitle>
-                  <Badge variant="outline">{items.length}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {items.map((p) => (
-                  <PlaceholderRow
-                    key={`${p.category}-${p.token}`}
-                    p={p}
-                    sampleData={sampleData}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          ))}
+          {grouped.map(({ category, items }) => {
+            const isOpen = openSections[category] ?? false;
+            const showsPicker = RECORD_PICKER_CATEGORIES.includes(category);
+            const listKey = CATEGORY_LIST_KEY[category];
+            const list = listKey ? sampleData?.[listKey] || [] : [];
+            const selectedId = recordSelections[category] || null;
+            const sectionRecord = selectedId ? findRecord(category, selectedId) : null;
+            const sectionSample = sectionRecord
+              ? buildCategorySample(sampleData, category, sectionRecord)
+              : sampleData;
+
+            return (
+              <Card key={category} data-testid={`card-category-${category}`}>
+                <Collapsible
+                  open={isOpen}
+                  onOpenChange={(open) => setSectionOpen(category, open)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md p-1 -m-1 hover-elevate"
+                          data-testid={`trigger-collapse-${category}`}
+                          aria-expanded={isOpen}
+                        >
+                          <ChevronRight
+                            className={`w-4 h-4 shrink-0 transition-transform ${
+                              isOpen ? "rotate-90" : ""
+                            }`}
+                          />
+                          <CardTitle className="text-lg">{category}</CardTitle>
+                          <Badge variant="outline" className="ml-1">
+                            {items.length}
+                          </Badge>
+                        </button>
+                      </CollapsibleTrigger>
+                      {showsPicker && (
+                        <CategoryRecordPicker
+                          category={category}
+                          list={list}
+                          selectedId={selectedId}
+                          onChange={(value) => handleRecordChange(category, value)}
+                        />
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CollapsibleContent>
+                    <CardContent className="space-y-2">
+                      {items.map((p) => (
+                        <PlaceholderRow
+                          key={`${p.category}-${p.token}`}
+                          p={p}
+                          sampleData={sectionSample}
+                        />
+                      ))}
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
