@@ -6,10 +6,14 @@
  *
  * Returns both:
  *   - Top-level "most recent of each" fields (member, organization, event,
- *     booking, contract) for backward compatibility / default view.
+ *     booking, contract, meeting, due_diligence) for backward compatibility /
+ *     default view.
  *   - Lists per kind (members[], organizations[], events[] with their most
- *     recent booking attached, contracts[]) — capped at ~25 most-recent rows
- *     so the page can offer a per-section record picker.
+ *     recent booking attached, contracts[], meetings[],
+ *     due_diligence_submissions[]) — capped at ~25 most-recent rows so the
+ *     page can offer a per-section record picker. Optional/may-not-exist
+ *     tables (meetings, due diligence) are wrapped in try/catch and resolve
+ *     to an empty array on error rather than failing the whole response.
  *
  * Auth: requires an authenticated context with admin access (tenant user or
  * member whose role has admin permissions). Non-admin members are rejected
@@ -30,6 +34,22 @@ function formatEventDate(iso) {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+}
+
+function formatDateTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return null;
@@ -122,6 +142,68 @@ function buildContract(ci) {
   return out;
 }
 
+function buildMeeting(req) {
+  if (!req) return null;
+  const tpl = req.meeting_template || {};
+  const attendeeName =
+    [req.recipient_first_name, req.recipient_last_name].filter(Boolean).join(' ') ||
+    req.recipient_email ||
+    'Attendee';
+  const dt = req.booked_at ? new Date(req.booked_at) : null;
+  const date = dt ? formatEventDate(req.booked_at) : null;
+  const time = dt
+    ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  const titleStem = tpl.name || 'Meeting';
+  return {
+    id: req.id,
+    type: tpl.name || 'Meeting',
+    duration: tpl.duration_minutes ? `${tpl.duration_minutes} minutes` : null,
+    title: `${titleStem} with ${attendeeName}`,
+    date,
+    time,
+    attendee_name: attendeeName,
+    attendee_email: req.recipient_email,
+  };
+}
+
+function buildDdSubmission(row) {
+  if (!row) return null;
+  const sub = row.form_submission || {};
+  const formName = sub.form?.name;
+  return {
+    id: row.id,
+    form_name: formName || 'Due Diligence Form',
+    status: row.workflow_status,
+    stage: row.workflow_status,
+    score: row.due_diligence_score,
+    risk_level: row.risk_level,
+    review_date: formatDateTime(row.reviewed_date),
+    reviewer: row.reviewed_by || null,
+    submission: {
+      id: row.form_submission_id,
+      application_uid: row.application_uid,
+      workflow_status: row.workflow_status,
+      due_diligence_score: row.due_diligence_score,
+      risk_level: row.risk_level,
+    },
+  };
+}
+
+async function fetchOptional(promise, label) {
+  try {
+    const res = await promise;
+    if (res?.error) {
+      console.warn(`[email-placeholder-samples] ${label} query error:`, res.error.message || res.error);
+      return [];
+    }
+    return Array.isArray(res?.data) ? res.data : [];
+  } catch (err) {
+    console.warn(`[email-placeholder-samples] ${label} threw:`, err?.message || err);
+    return [];
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -154,15 +236,22 @@ export default async function handler(req, res) {
     organizations: [],
     events: [],
     contracts: [],
+    meetings: [],
+    due_diligence_submissions: [],
   };
 
   try {
-    const [tenantRes, membersRes, orgsRes, eventsRes, contractsRes] = await Promise.all([
-      supabase
-        .from('tenant')
-        .select('id, name')
-        .eq('id', tenantId)
-        .maybeSingle(),
+    const [
+      tenantRes,
+      membersRes,
+      orgsRes,
+      eventsRes,
+      latestBookingRes,
+      contractsRes,
+      meetingsRows,
+      ddRows,
+    ] = await Promise.all([
+      supabase.from('tenant').select('id, name').eq('id', tenantId).maybeSingle(),
       supabase
         .from('member')
         .select('id, first_name, last_name, email, mobile, organization_id, created_on')
@@ -182,12 +271,47 @@ export default async function handler(req, res) {
         .eq('tenant_id', tenantId)
         .order('start_date', { ascending: false })
         .limit(LIST_LIMIT),
+      // Tenant-wide most recent booking (preserves original top-level field
+      // semantics that were independent of the events list).
+      supabase
+        .from('booking')
+        .select(
+          'id, booking_reference, attendee_first_name, attendee_last_name, attendee_email, ticket_class_name, event_id, event!inner(tenant_id)',
+        )
+        .eq('event.tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
       supabase
         .from('contract_instance')
         .select('id, sent_at, signers, form_id, form!inner(name, tenant_id)')
         .eq('form.tenant_id', tenantId)
         .order('sent_at', { ascending: false, nullsFirst: false })
         .limit(LIST_LIMIT),
+      // Optional tables — wrapped to never break the response.
+      fetchOptional(
+        supabase
+          .from('dd_meeting_request')
+          .select(
+            'id, recipient_email, recipient_first_name, recipient_last_name, booked_at, status, meeting_template:meeting_template_id(id, name, duration_minutes)',
+          )
+          .eq('tenant_id', tenantId)
+          .eq('status', 'booked')
+          .order('booked_at', { ascending: false, nullsFirst: false })
+          .limit(LIST_LIMIT),
+        'dd_meeting_request',
+      ),
+      fetchOptional(
+        supabase
+          .from('form_submission_due_diligence')
+          .select(
+            'id, form_submission_id, application_uid, workflow_status, due_diligence_score, risk_level, reviewed_by, reviewed_date, form_submission:form_submission_id(form:form_id(name))',
+          )
+          .eq('tenant_id', tenantId)
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .limit(LIST_LIMIT),
+        'form_submission_due_diligence',
+      ),
     ]);
 
     if (tenantRes?.data) {
@@ -246,13 +370,14 @@ export default async function handler(req, res) {
         location: firstEvent.location,
       };
       result.sources.event = firstEvent.title;
-      if (firstEvent.booking) {
-        result.booking = firstEvent.booking;
-        result.sources.booking = firstEvent.booking.reference || firstEvent.booking.id;
-      }
-      if (firstEvent.attendee) {
-        result.attendee = firstEvent.attendee;
-      }
+    }
+
+    if (latestBookingRes?.data) {
+      const lb = latestBookingRes.data;
+      result.booking = buildBooking(lb);
+      const att = buildAttendee(lb);
+      if (att) result.attendee = att;
+      result.sources.booking = lb.booking_reference || lb.id;
     }
 
     const contractRows = contractsRes?.data || [];
@@ -263,13 +388,29 @@ export default async function handler(req, res) {
       result.sources.contract = c.name || c.signer?.full_name || c.id;
     }
 
-    if (
-      Object.keys(result.sources).length === 0 &&
-      result.members.length === 0 &&
-      result.organizations.length === 0 &&
-      result.events.length === 0 &&
-      result.contracts.length === 0
-    ) {
+    if (meetingsRows.length > 0) {
+      result.meetings = meetingsRows.map(buildMeeting).filter(Boolean);
+      result.meeting = result.meetings[0];
+      result.sources.meeting = result.meeting.title;
+    }
+
+    if (ddRows.length > 0) {
+      result.due_diligence_submissions = ddRows.map(buildDdSubmission).filter(Boolean);
+      result.due_diligence = result.due_diligence_submissions[0];
+      result.sources.due_diligence =
+        result.due_diligence.form_name || result.due_diligence.id;
+    }
+
+    const hasAnyData =
+      Object.keys(result.sources).length > 0 ||
+      result.members.length > 0 ||
+      result.organizations.length > 0 ||
+      result.events.length > 0 ||
+      result.contracts.length > 0 ||
+      result.meetings.length > 0 ||
+      result.due_diligence_submissions.length > 0;
+
+    if (!hasAnyData) {
       return res.status(200).json({ source: 'fixture', tenantId });
     }
 

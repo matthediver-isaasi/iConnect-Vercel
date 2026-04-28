@@ -455,6 +455,20 @@ export default function EmailPlaceholders() {
     [sampleData],
   );
 
+  // For the live-preview header summary: the picker categories that currently
+  // have an explicit (non-fixture) record selected.
+  const selectedSummaries = useMemo(() => {
+    const out = [];
+    for (const category of RECORD_PICKER_CATEGORIES) {
+      const id = recordSelections[category];
+      if (!id) continue;
+      const record = findRecord(category, id);
+      if (!record) continue;
+      out.push({ category, label: labelForRecord(category, record) });
+    }
+    return out;
+  }, [recordSelections, findRecord]);
+
   if (!accessChecked) {
     return (
       <div className="p-6">
@@ -499,6 +513,28 @@ export default function EmailPlaceholders() {
             previews.
           </CardDescription>
         </CardHeader>
+        {selectedSummaries.length > 0 && (
+          <CardContent className="pt-0">
+            <div
+              className="flex flex-wrap items-center gap-2 text-xs"
+              data-testid="container-selected-records"
+            >
+              <span className="text-muted-foreground">Currently using:</span>
+              {selectedSummaries.map(({ category, label }) => (
+                <Badge
+                  key={category}
+                  variant="secondary"
+                  data-testid={`badge-selected-${category}`}
+                  className="max-w-[280px] truncate inline-block"
+                  title={`${category}: ${label}`}
+                >
+                  <span className="font-medium">{category}:</span>
+                  <span className="ml-1">{label}</span>
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       <Card data-testid="card-syntax-legend">

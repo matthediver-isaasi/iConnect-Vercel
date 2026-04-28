@@ -470,6 +470,20 @@ export function buildCategorySample(baseSample, category, record) {
         : { ...FIXTURE_SAMPLE_DATA.attendee };
       return out;
     }
+    case 'Meetings & Bookings': {
+      out.meeting = { ...baseSample.meeting, ...record };
+      return out;
+    }
+    case 'Due Diligence': {
+      const baseDd = baseSample.due_diligence || {};
+      const baseSub = baseDd.submission || {};
+      out.due_diligence = {
+        ...baseDd,
+        ...record,
+        submission: { ...baseSub, ...(record.submission || {}) },
+      };
+      return out;
+    }
     default:
       return baseSample;
   }
@@ -486,6 +500,8 @@ export const RECORD_PICKER_CATEGORIES = [
   'Organisation',
   'Contracts',
   'Event Confirmation & Reminder',
+  'Meetings & Bookings',
+  'Due Diligence',
 ];
 
 /**
@@ -496,6 +512,8 @@ export const CATEGORY_LIST_KEY = {
   Organisation: 'organizations',
   Contracts: 'contracts',
   'Event Confirmation & Reminder': 'events',
+  'Meetings & Bookings': 'meetings',
+  'Due Diligence': 'due_diligence_submissions',
 };
 
 /**
