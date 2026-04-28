@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   FileText, Image, FileSpreadsheet, File, Check, X, Clock, 
   Upload, Download, Send, Loader2, ChevronDown, ChevronUp, ExternalLink,
-  MessageSquare, History
+  MessageSquare, History, Copy
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from 'date-fns';
@@ -490,6 +490,62 @@ export default function DocumentDetailModal({
                     <span className="ml-2">{approvedVersion.mime_type || '--'}</span>
                   </div>
                 </div>
+
+                {approvedVersion.file_url && (
+                  <div className="text-sm flex-shrink-0 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-muted-foreground">URL:</span>
+                      <span 
+                        className="text-xs text-muted-foreground"
+                        data-testid="text-url-char-count"
+                      >
+                        ({approvedVersion.file_url.length} chars)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Input
+                        readOnly
+                        value={approvedVersion.file_url}
+                        title={approvedVersion.file_url}
+                        className="font-mono text-xs flex-1 min-w-0 truncate"
+                        data-testid="input-document-url"
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(approvedVersion.file_url);
+                            toast.success('URL copied to clipboard');
+                          } catch (err) {
+                            toast.error('Failed to copy URL');
+                          }
+                        }}
+                        data-testid="button-copy-url"
+                        className="flex-shrink-0"
+                      >
+                        <Copy className="w-4 h-4 mr-1" />
+                        Copy
+                      </Button>
+                      <Button
+                        variant="outline"
+                        asChild
+                        data-testid="link-open-url"
+                        className="flex-shrink-0"
+                      >
+                        <a
+                          href={approvedVersion.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="w-4 h-4 mr-1" />
+                          Open
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center bg-muted rounded-lg gap-4" style={{ height: '500px' }}>
