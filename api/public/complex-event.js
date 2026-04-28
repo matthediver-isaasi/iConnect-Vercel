@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
-      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only')
+      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids')
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
@@ -91,7 +91,8 @@ export default async function handler(req, res) {
         is_group_ticket: tc.is_group_ticket || false,
         group_size: tc.group_size || null,
         role_ids: tc.role_ids || [],
-        role_match_only: tc.role_match_only || false
+        role_match_only: tc.role_match_only || false,
+        member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : []
       }));
 
     res.json({

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
 import { Button } from "@/components/ui/button";
@@ -415,6 +416,21 @@ export default function EventDetailsPage() {
   
   // Get the user's role ID
   const userRoleId = memberRole?.id || currentMemberInfo?.role_id;
+
+  // Load the current member's group assignments so tickets that are
+  // restricted by member_group_ids can be matched on the frontend.
+  const { data: userMemberGroupIds = [] } = useQuery({
+    queryKey: ['member_group_assignment', currentMemberInfo?.id],
+    enabled: !!currentMemberInfo?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('member_group_assignment')
+        .select('group_id')
+        .eq('member_id', currentMemberInfo.id);
+      if (error || !Array.isArray(data)) return [];
+      return data.map(r => r.group_id).filter(Boolean);
+    }
+  });
   
   // One-off event pricing calculations - parse if it's a JSON string
   const pricingConfig = useMemo(() => {
@@ -470,6 +486,7 @@ export default function EventDetailsPage() {
         name: 'Standard Ticket',
         price: Number(pricingConfig.ticket_price) || 0,
         role_ids: [],
+        member_group_ids: [],
         is_default: true,
         visibility_mode: 'members_only', // Legacy tickets are members only
         role_match_only: false,
@@ -501,6 +518,7 @@ export default function EventDetailsPage() {
           name: String(tc.name || 'Ticket'),
           price: Number(tc.price) || 0,
           role_ids: Array.isArray(tc.role_ids) ? tc.role_ids : [],
+          member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
           is_default: Boolean(tc.is_default),
           visibility_mode: visibilityMode,
           role_match_only: Boolean(tc.role_match_only),
@@ -558,11 +576,20 @@ export default function EventDetailsPage() {
     }
     
     const visibilityMode = ticket.visibility_mode;
-    
+
     // For non-logged-in users
     if (!currentMemberInfo) {
       // Can only purchase public_only tickets (and members_and_public tickets)
-      return visibilityMode === 'public_only' || visibilityMode === 'members_and_public';
+      if (visibilityMode !== 'public_only' && visibilityMode !== 'members_and_public') {
+        return false;
+      }
+      // If the ticket is restricted to specific roles/groups, guests can never qualify
+      if (ticket.role_match_only) {
+        const ticketRoleIds = Array.isArray(ticket.role_ids) ? ticket.role_ids : [];
+        const ticketGroupIds = Array.isArray(ticket.member_group_ids) ? ticket.member_group_ids : [];
+        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
+      }
+      return true;
     }
     
     // For logged-in members
@@ -572,12 +599,17 @@ export default function EventDetailsPage() {
     // Members Only and Members & Public tickets:
     // If role_match_only is false, any logged-in member can purchase
     if (!ticket.role_match_only) return true;
-    
-    // If role_match_only is true, check if user's role is in the ticket's role_ids
-    // Empty role_ids means all roles (no restriction)
-    if (ticket.role_ids.length === 0) return true;
-    
-    return userRoleId && ticket.role_ids.includes(userRoleId);
+
+    const ticketRoleIds = Array.isArray(ticket.role_ids) ? ticket.role_ids : [];
+    const ticketGroupIds = Array.isArray(ticket.member_group_ids) ? ticket.member_group_ids : [];
+
+    // No restrictions configured -> all roles/groups allowed
+    if (ticketRoleIds.length === 0 && ticketGroupIds.length === 0) return true;
+
+    // OR logic: user can purchase if their role matches OR any of their groups match
+    const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+    const groupMatches = (userMemberGroupIds || []).some(g => ticketGroupIds.includes(g));
+    return roleMatches || groupMatches;
   };
   
   // Check if admin has enabled showing all tickets to guests
@@ -594,16 +626,20 @@ export default function EventDetailsPage() {
       return allNormalizedTickets.filter(tc => {
         // Public-only tickets are NOT visible to logged-in members
         if (tc.visibility_mode === 'public_only') return false;
-        
+
         // If role_match_only is false or not set, show the ticket
         if (!tc.role_match_only) return true;
-        
-        // If role_match_only is true, only show if user's role is in the ticket's role_ids
-        // Empty role_ids means all roles (no restriction)
-        if (tc.role_ids.length === 0) return true;
-        
-        // Check if user's role matches any of the ticket's role_ids
-        return userRoleId && tc.role_ids.includes(userRoleId);
+
+        const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+        const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+
+        // No restrictions configured -> visible to all roles/groups
+        if (ticketRoleIds.length === 0 && ticketGroupIds.length === 0) return true;
+
+        // OR logic: visible if user's role matches OR any of their groups match
+        const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+        const groupMatches = (userMemberGroupIds || []).some(g => ticketGroupIds.includes(g));
+        return roleMatches || groupMatches;
       });
     }
     
@@ -613,10 +649,20 @@ export default function EventDetailsPage() {
     }
     
     // Otherwise only show tickets that include public visibility
-    return allNormalizedTickets.filter(tc => 
-      tc.visibility_mode === 'members_and_public' || tc.visibility_mode === 'public_only'
-    );
-  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, allNormalizedTickets, allowGuestsToViewAllTickets]);
+    return allNormalizedTickets.filter(tc => {
+      if (tc.visibility_mode !== 'members_and_public' && tc.visibility_mode !== 'public_only') {
+        return false;
+      }
+      // Restricted tickets (role_match_only with non-empty roles/groups) are
+      // not visible to guests since guests can never satisfy a role/group rule.
+      if (tc.role_match_only) {
+        const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+        const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+        if (ticketRoleIds.length > 0 || ticketGroupIds.length > 0) return false;
+      }
+      return true;
+    });
+  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets]);
   
   // Auto-select first available PURCHASABLE ticket class
   // Also reset selection if currently selected ticket becomes non-purchasable
@@ -649,16 +695,24 @@ export default function EventDetailsPage() {
     return availableTicketClasses.find(tc => tc.id === selectedTicketClassId) || availableTicketClasses[0] || null;
   }, [availableTicketClasses, selectedTicketClassId]);
   
-  // Check if user can self-register based on selected ticket's role restrictions
+  // Check if user can self-register based on selected ticket's role/group restrictions.
+  // Mirrors the OR logic used by isTicketPurchasable / availableTicketClasses:
+  // a member qualifies if their role matches OR any of their member groups match.
   const canSelfRegister = useMemo(() => {
     if (!isOneOffEvent || !selectedTicketClass) return true; // Non-one-off events have no role restrictions
-    
-    const roleIds = selectedTicketClass.role_ids || [];
-    // If no role_ids specified (empty array), ticket is available to all roles
-    if (roleIds.length === 0) return true;
-    // Check if user's role is in the selected ticket's role_ids
-    return userRoleId && roleIds.includes(userRoleId);
-  }, [isOneOffEvent, selectedTicketClass, userRoleId]);
+
+    // Restrictions only apply when role_match_only is enabled
+    if (!selectedTicketClass.role_match_only) return true;
+
+    const roleIds = Array.isArray(selectedTicketClass.role_ids) ? selectedTicketClass.role_ids : [];
+    const groupIds = Array.isArray(selectedTicketClass.member_group_ids) ? selectedTicketClass.member_group_ids : [];
+    // Empty lists -> no restriction, available to all members
+    if (roleIds.length === 0 && groupIds.length === 0) return true;
+
+    const roleMatches = !!userRoleId && roleIds.includes(userRoleId);
+    const groupMatches = (userMemberGroupIds || []).some(g => groupIds.includes(g));
+    return roleMatches || groupMatches;
+  }, [isOneOffEvent, selectedTicketClass, userRoleId, userMemberGroupIds]);
   
   // Role-based permission checks for registration buttons
   const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');

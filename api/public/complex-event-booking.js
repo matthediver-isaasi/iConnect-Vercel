@@ -10,6 +10,11 @@ import {
   computeDiscountedPrice,
   recordDiscountCodeUsage
 } from '../_lib/complexEventPricing.js';
+import {
+  ticketHasAccessRestrictions,
+  isTicketAccessibleToMember,
+  getMemberGroupIdsForMember
+} from '../_lib/ticketAccess.js';
 import { getValidXeroAccessToken, findOrCreateXeroContact } from '../_lib/xero.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 
@@ -113,6 +118,16 @@ export default async function handler(req, res) {
     const hasTicketClasses = allTicketClasses.length > 0;
     const isMember = !!authenticatedMember;
 
+    // Cache the authenticated member's group assignments. Only loaded if any
+    // ticket in the booking is restricted by roles/groups.
+    let cachedMemberGroupIds = null;
+    const loadMemberGroupIds = async () => {
+      if (!isMember) return [];
+      if (cachedMemberGroupIds !== null) return cachedMemberGroupIds;
+      cachedMemberGroupIds = await getMemberGroupIdsForMember(supabase, authenticatedMember.id);
+      return cachedMemberGroupIds;
+    };
+
     let grandTotalMinor = 0;
     let unifiedCurrency = null;
     const resolvedItems = [];
@@ -129,6 +144,21 @@ export default async function handler(req, res) {
 
       if (ticketClass && !isTicketVisibleToUser(ticketClass, isMember)) {
         return res.status(403).json({ error: 'You do not have access to this ticket class' });
+      }
+
+      if (ticketClass && ticketHasAccessRestrictions(ticketClass)) {
+        if (!isMember) {
+          return res.status(403).json({ error: 'You do not have access to this ticket class' });
+        }
+        const memberGroupIds = await loadMemberGroupIds();
+        const allowed = isTicketAccessibleToMember({
+          ticketClass,
+          memberRoleId: authenticatedMember.role_id,
+          memberGroupIds
+        });
+        if (!allowed) {
+          return res.status(403).json({ error: 'You do not have access to this ticket class' });
+        }
       }
 
       const serverTicket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);

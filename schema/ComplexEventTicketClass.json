@@ -69,7 +69,13 @@
     },
     "role_match_only": {
       "type": "boolean",
-      "description": "When true and roles are set, ticket is hidden from non-matching users"
+      "description": "When true and roles or member groups are set, ticket is hidden from users who match neither"
+    },
+    "member_group_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Member group UUIDs that can purchase this ticket. Empty array means no group restriction. Combined with role_ids using OR logic."
     },
     "offer_type": {
       "type": "string",

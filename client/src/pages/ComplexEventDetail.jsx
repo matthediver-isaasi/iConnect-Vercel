@@ -22,6 +22,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { publicClient } from "@/api/publicClient";
+import { supabase } from "@/api/supabaseClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import { Link, useParams } from "react-router-dom";
@@ -1024,7 +1025,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, onBookingComplete, cart, setCart }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -1078,17 +1079,22 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
   const availableTicketClasses = useMemo(() => {
     return ticketClasses.filter(tc => {
       const vis = getTicketVisibility(tc);
+      const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+      const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+      const hasRestrictions = tc.role_match_only && (ticketRoleIds.length > 0 || ticketGroupIds.length > 0);
       if (isGuest) {
         if (vis === 'members_only') return false;
-        if (tc.role_match_only) return false;
+        // Guests can never satisfy a role/group restriction
+        if (hasRestrictions) return false;
         return true;
       }
       if (vis === 'public_only') return false;
-      if (!tc.role_match_only) return true;
-      if ((tc.role_ids || []).length === 0) return true;
-      return userRoleId && (tc.role_ids || []).includes(userRoleId);
+      if (!hasRestrictions) return true;
+      const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+      const groupMatches = (memberGroupIds || []).some(g => ticketGroupIds.includes(g));
+      return roleMatches || groupMatches;
     });
-  }, [ticketClasses, isGuest, userRoleId]);
+  }, [ticketClasses, isGuest, userRoleId, memberGroupIds]);
 
   const isTicketRestricted = (tc) => {
     const vis = getTicketVisibility(tc);
@@ -1473,6 +1479,21 @@ export default function ComplexEventDetail() {
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
   const [cart, setCart] = useState({});
 
+  // Load the current member's group assignments so tickets restricted by
+  // member_group_ids can be matched on the frontend (OR with role match).
+  const { data: userMemberGroupIds = [] } = useQuery({
+    queryKey: ['member_group_assignment', memberInfo?.id],
+    enabled: !!memberInfo?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('member_group_assignment')
+        .select('group_id')
+        .eq('member_id', memberInfo.id);
+      if (error || !Array.isArray(data)) return [];
+      return data.map(r => r.group_id).filter(Boolean);
+    }
+  });
+
   const routeParams = useParams();
   const urlParams = new URLSearchParams(window.location.search);
   const eventIdFromQuery = urlParams.get('id');
@@ -1583,15 +1604,20 @@ export default function ComplexEventDetail() {
 
     const visibleTickets = allTickets.filter(tc => {
       const vis = getVis(tc);
+      const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
+      const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
+      const hasRestrictions = tc.role_match_only && (ticketRoleIds.length > 0 || ticketGroupIds.length > 0);
       if (isGuest) {
         if (vis === 'members_only') return false;
-        if (tc.role_match_only) return false;
+        // Guests can never satisfy a role/group restriction
+        if (hasRestrictions) return false;
         return true;
       }
       if (vis === 'public_only') return false;
-      if (!tc.role_match_only) return true;
-      if ((tc.role_ids || []).length === 0) return true;
-      return userRoleId && (tc.role_ids || []).includes(userRoleId);
+      if (!hasRestrictions) return true;
+      const roleMatches = !!userRoleId && ticketRoleIds.includes(userRoleId);
+      const groupMatches = (userMemberGroupIds || []).some(g => ticketGroupIds.includes(g));
+      return roleMatches || groupMatches;
     });
 
     if (visibleTickets.length === 0) return null;
@@ -1616,7 +1642,7 @@ export default function ComplexEventDetail() {
     });
 
     return names;
-  }, [event, memberInfo]);
+  }, [event, memberInfo, userMemberGroupIds]);
 
   const filteredSessions = useMemo(() => {
     if (!accessibleTrackNames) return sessions;
@@ -1911,6 +1937,7 @@ export default function ComplexEventDetail() {
               sessions={sessions}
               memberInfo={memberInfo}
               organizationInfo={organizationInfo}
+              memberGroupIds={userMemberGroupIds}
               cart={cart}
               setCart={setCart}
               onBookingComplete={() => { setCart({}); }}

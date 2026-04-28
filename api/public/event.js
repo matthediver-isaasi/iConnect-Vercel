@@ -108,6 +108,7 @@ export default async function handler(req, res) {
         is_unlimited_tickets: tc.is_unlimited_tickets,
         role_match_only: tc.role_match_only || false,
         role_ids: tc.role_ids || [],
+        member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
         is_default: tc.is_default || false
       }));
 

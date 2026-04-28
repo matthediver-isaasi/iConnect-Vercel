@@ -9,6 +9,11 @@ import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
+import {
+  ticketHasAccessRestrictions,
+  isTicketAccessibleToMember,
+  getMemberGroupIdsForMember
+} from '../_lib/ticketAccess.js';
 
 // Helper: Get Stripe client for a tenant
 async function getStripeClient(tenantId, feature) {
@@ -1618,6 +1623,35 @@ const functionHandlers = {
       }
     } else {
       console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
+    }
+
+    // Enforce role/member-group ticket access restrictions for one-off events.
+    // Mirrors the complex-event booking guard so a ticket marked role_match_only
+    // is only purchasable by members whose role OR member group matches.
+    if (ticketClassId && event.pricing_config?.ticket_classes) {
+      const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
+      if (selectedTicketClass && ticketHasAccessRestrictions(selectedTicketClass)) {
+        if (isGuestBooking || !member) {
+          console.log('[createOneOffEventBooking] Blocking guest from restricted ticket:', ticketClassId);
+          return { success: false, error: 'You do not have access to this ticket class' };
+        }
+        const memberGroupIds = await getMemberGroupIdsForMember(supabase, member.id);
+        const allowed = isTicketAccessibleToMember({
+          ticketClass: selectedTicketClass,
+          memberRoleId: member.role_id,
+          memberGroupIds
+        });
+        if (!allowed) {
+          console.log('[createOneOffEventBooking] Member does not match ticket roles/groups:', {
+            memberId: member.id,
+            ticketClassId,
+            memberRoleId: member.role_id,
+            ticketRoleIds: selectedTicketClass.role_ids || [],
+            ticketGroupIds: selectedTicketClass.member_group_ids || []
+          });
+          return { success: false, error: 'You do not have access to this ticket class' };
+        }
+      }
     }
 
     // Verify Stripe payment if card payment was used

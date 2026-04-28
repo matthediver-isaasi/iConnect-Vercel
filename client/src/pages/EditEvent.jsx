@@ -84,9 +84,10 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   price: "",
   is_free: false, // When true, ticket is free (price = 0)
   role_ids: [],
+  member_group_ids: [],
   is_default: isDefault,
   visibility_mode: 'members_only', // 'members_only', 'members_and_public', or 'public_only'
-  role_match_only: false, // When true AND visibility includes members, ticket only shows if user's role matches role_ids
+  role_match_only: false, // When true AND visibility includes members, ticket only shows if user matches role_ids OR member_group_ids
   offer_type: "none",
   bogo_logic_type: "buy_x_get_y_free",
   bogo_buy_quantity: "",
@@ -301,6 +302,12 @@ export default function EditEvent() {
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
     queryKey: ['/api/entities/Role'],
     queryFn: () => base44.entities.Role.list({ sort: { name: 'asc' } })
+  });
+
+  // Fetch member groups for ticket class assignment
+  const { data: memberGroups = [], isLoading: loadingMemberGroups } = useQuery({
+    queryKey: ['/api/entities/MemberGroup'],
+    queryFn: () => base44.entities.MemberGroup.list({ filter: { is_active: true }, sort: { name: 'asc' } })
   });
 
   // Fetch speakers for event assignment
@@ -586,6 +593,17 @@ export default function EditEvent() {
     }));
   };
 
+  const toggleMemberGroupForTicket = (ticketId, groupId) => {
+    setTicketClasses(ticketClasses.map(t => {
+      if (t.id !== ticketId) return t;
+      const currentGroups = t.member_group_ids || [];
+      const newGroups = currentGroups.includes(groupId)
+        ? currentGroups.filter(id => id !== groupId)
+        : [...currentGroups, groupId];
+      return { ...t, member_group_ids: newGroups };
+    }));
+  };
+
   const toggleExpandTicket = (ticketId) => {
     setExpandedTickets(prev => ({
       ...prev,
@@ -844,6 +862,7 @@ export default function EditEvent() {
               price: priceValue !== null ? String(priceValue) : "",
               is_free: priceValue === 0,
               role_ids: tc.role_ids || [],
+              member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
               is_default: tc.is_default || false,
               visibility_mode: visibilityMode,
               role_match_only: tc.role_match_only || false,
@@ -888,6 +907,7 @@ export default function EditEvent() {
             price: legacyPrice !== null ? String(legacyPrice) : "",
             is_free: legacyPrice === 0,
             role_ids: [],
+            member_group_ids: [],
             is_default: true,
             visibility_mode: 'members_only',
             role_match_only: false,
@@ -1270,6 +1290,7 @@ export default function EditEvent() {
           name: ticket.name,
           price: parseFloat(ticket.price),
           role_ids: ticket.role_ids || [],
+          member_group_ids: ticket.member_group_ids || [],
           is_default: ticket.is_default || false,
           visibility_mode: ticket.visibility_mode || 'members_only',
           role_match_only: ticket.role_match_only || false,
@@ -2649,19 +2670,137 @@ export default function EditEvent() {
                             </div>
                           )}
 
-                          {/* Role Match Only Toggle - only show if roles are selected AND visibility includes members */}
-                          {(ticket.role_ids || []).length > 0 && ticket.visibility_mode !== 'public_only' && (
+                        </div>
+
+                        {/* Member Group Assignment */}
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-slate-500" />
+                            Available to Member Groups
+                          </Label>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Select which member groups can purchase this ticket. Combined with roles using OR logic. Leave empty for no group restriction.
+                          </p>
+
+                          {loadingMemberGroups ? (
+                            <div className="text-sm text-slate-500">Loading member groups...</div>
+                          ) : memberGroups.length === 0 ? (
+                            <div className="p-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-500">
+                              No member groups defined yet
+                            </div>
+                          ) : (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="w-full justify-between gap-2"
+                                  data-testid={`group-selector-trigger-${ticket.id}`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4" />
+                                    {(ticket.member_group_ids || []).length === 0 ? (
+                                      <span className="text-slate-500">No group restriction</span>
+                                    ) : (ticket.member_group_ids || []).length === 1 ? (
+                                      <span className="truncate max-w-[200px]">
+                                        {memberGroups.find(g => g.id === ticket.member_group_ids[0])?.name || 'Unknown'}
+                                      </span>
+                                    ) : (
+                                      <span>{(ticket.member_group_ids || []).length} groups selected</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {(ticket.member_group_ids || []).length > 0 && (
+                                      <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                                        {(ticket.member_group_ids || []).length}
+                                      </Badge>
+                                    )}
+                                    <ChevronDown className="w-4 h-4 opacity-50" />
+                                  </div>
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64 p-0" align="start">
+                                <div className="p-2 border-b border-slate-100">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm font-medium text-slate-700">Select member groups</span>
+                                    {(ticket.member_group_ids || []).length > 0 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-xs text-slate-500 hover:text-slate-700"
+                                        onClick={() => updateTicketClass(ticket.id, 'member_group_ids', [])}
+                                        data-testid={`group-clear-${ticket.id}`}
+                                      >
+                                        Clear all
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="max-h-[280px] overflow-y-auto p-1">
+                                  {memberGroups.map(group => {
+                                    const isSelected = (ticket.member_group_ids || []).includes(group.id);
+                                    return (
+                                      <button
+                                        key={group.id}
+                                        type="button"
+                                        className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                                          isSelected
+                                            ? "bg-slate-100 text-slate-900 font-medium"
+                                            : "text-slate-600 hover:bg-slate-50"
+                                        }`}
+                                        onClick={() => toggleMemberGroupForTicket(ticket.id, group.id)}
+                                        data-testid={`group-toggle-${ticket.id}-${group.id}`}
+                                      >
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                          isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                        }`}>
+                                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                                        </div>
+                                        <span className="truncate">{group.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+
+                          {(ticket.member_group_ids || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {(ticket.member_group_ids || []).map(groupId => {
+                                const group = memberGroups.find(g => g.id === groupId);
+                                return group ? (
+                                  <Badge
+                                    key={groupId}
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    {group.name}
+                                    <button
+                                      type="button"
+                                      className="ml-1 hover:text-slate-900"
+                                      onClick={() => toggleMemberGroupForTicket(ticket.id, groupId)}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </Badge>
+                                ) : null;
+                              })}
+                            </div>
+                          )}
+
+                          {/* Restrict-mode toggle: shown when roles OR groups selected AND visibility includes members */}
+                          {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
                             <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                               <div className="flex items-center gap-2">
                                 <Users className="h-4 w-4 text-amber-600" />
                                 <div>
                                   <Label htmlFor={`role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
-                                    Match only to user role
+                                    Restrict to selected roles / groups
                                   </Label>
                                   <p className="text-xs text-amber-600">
-                                    {ticket.role_match_only 
-                                      ? "Ticket is hidden from users whose role doesn't match" 
-                                      : "Ticket is visible to all users (role only affects who can register)"}
+                                    {ticket.role_match_only
+                                      ? "Ticket is hidden from users whose role and member groups don't match"
+                                      : "Ticket is visible to all users (selection only affects who can register)"}
                                   </p>
                                 </div>
                               </div>
