@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, Copy, Check, ListFilter, X, Code2, Mail } from "lucide-react";
+import { Search, Copy, Check, ListFilter, X, Code2, Mail, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -25,6 +25,12 @@ import {
   filterPlaceholders,
   groupPlaceholdersByCategory,
 } from "@/lib/emailPlaceholders";
+import {
+  FIXTURE_SAMPLE_DATA,
+  describeSampleSources,
+  mergeSampleData,
+  resolvePlaceholderPreview,
+} from "@/lib/emailPlaceholderPreview";
 
 const SYNTAX_LABEL = {
   [PLACEHOLDER_SYNTAX.CURLY]: "{{ \u2026 }}",
@@ -56,7 +62,52 @@ function CopyTokenButton({ token }) {
   );
 }
 
-function PlaceholderRow({ p }) {
+function PlaceholderPreview({ token, sampleData }) {
+  const preview = useMemo(
+    () => resolvePlaceholderPreview(token, sampleData),
+    [token, sampleData],
+  );
+  if (!preview) {
+    return (
+      <div
+        className="flex items-start gap-2 text-xs text-muted-foreground p-2 border border-dashed rounded-md"
+        data-testid={`preview-${token}`}
+      >
+        <Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+        <span>No live preview available for this token.</span>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex items-start gap-2 text-xs p-2 bg-muted/40 border rounded-md"
+      data-testid={`preview-${token}`}
+    >
+      <Eye className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-muted-foreground mb-1">
+          Resolves to {preview.kind === "html" ? "(HTML)" : preview.kind === "placeholder" ? "(example)" : ""}:
+        </div>
+        {preview.kind === "html" ? (
+          <div
+            className="text-sm break-words [&_a]:text-primary [&_a]:underline"
+            data-testid={`preview-html-${token}`}
+            dangerouslySetInnerHTML={{ __html: preview.value }}
+          />
+        ) : (
+          <div
+            className="text-sm break-words font-mono"
+            data-testid={`preview-value-${token}`}
+          >
+            {preview.value}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlaceholderRow({ p, sampleData }) {
   const syntaxVariant = p.syntax === PLACEHOLDER_SYNTAX.CURLY ? "default" : "secondary";
   return (
     <div
@@ -80,6 +131,7 @@ function PlaceholderRow({ p }) {
       <p className="text-sm text-foreground" data-testid={`text-description-${p.token}`}>
         {p.description}
       </p>
+      <PlaceholderPreview token={p.token} sampleData={sampleData} />
       {p.prerequisites && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium">Requires:</span> {p.prerequisites}
@@ -173,6 +225,7 @@ export default function EmailPlaceholders() {
   const [categories, setCategories] = useState([]);
   const [contexts, setContexts] = useState([]);
   const [syntax, setSyntax] = useState("all"); // 'all' | 'curly' | 'bracket'
+  const [sampleData, setSampleData] = useState(FIXTURE_SAMPLE_DATA);
 
   useEffect(() => {
     if (!isAccessReady) return;
@@ -182,6 +235,28 @@ export default function EmailPlaceholders() {
     }
     setAccessChecked(true);
   }, [isAccessReady, isFeatureExcluded, navigate]);
+
+  useEffect(() => {
+    if (!accessChecked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/email-placeholder-samples", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setSampleData(mergeSampleData(json));
+      } catch (err) {
+        // Fall back to fixture; preview still works.
+        console.warn("[EmailPlaceholders] Could not load sample data:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessChecked]);
 
   const filtered = useMemo(() => {
     return filterPlaceholders(EMAIL_PLACEHOLDERS, {
@@ -237,6 +312,17 @@ export default function EmailPlaceholders() {
           <Mail className="w-4 h-4 mr-2" /> Email Templates
         </Button>
       </div>
+
+      <Card data-testid="card-sample-data">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Eye className="w-4 h-4" /> Live preview
+          </CardTitle>
+          <CardDescription data-testid="text-sample-source">
+            Each placeholder below shows what it would resolve to. {describeSampleSources(sampleData)}
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
       <Card data-testid="card-syntax-legend">
         <CardHeader>
@@ -338,7 +424,11 @@ export default function EmailPlaceholders() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {items.map((p) => (
-                  <PlaceholderRow key={`${p.category}-${p.token}`} p={p} />
+                  <PlaceholderRow
+                    key={`${p.category}-${p.token}`}
+                    p={p}
+                    sampleData={sampleData}
+                  />
                 ))}
               </CardContent>
             </Card>
