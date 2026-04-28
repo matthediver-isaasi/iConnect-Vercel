@@ -301,11 +301,14 @@ export default async function handler(req, res) {
           .limit(LIST_LIMIT),
         'dd_meeting_request',
       ),
+      // No nested embed here — PostgREST relationship resolution can fail
+      // depending on FK metadata; we resolve form name in a second pass below
+      // so a missing relationship doesn't blank out the whole picker.
       fetchOptional(
         supabase
           .from('form_submission_due_diligence')
           .select(
-            'id, form_submission_id, application_uid, workflow_status, due_diligence_score, risk_level, reviewed_by, reviewed_date, form_submission:form_submission_id(form:form_id(name))',
+            'id, form_submission_id, application_uid, workflow_status, due_diligence_score, risk_level, reviewed_by, reviewed_date, updated_at',
           )
           .eq('tenant_id', tenantId)
           .order('updated_at', { ascending: false, nullsFirst: false })
@@ -395,7 +398,44 @@ export default async function handler(req, res) {
     }
 
     if (ddRows.length > 0) {
-      result.due_diligence_submissions = ddRows.map(buildDdSubmission).filter(Boolean);
+      // Resolve form name in two passes (form_submission -> form) so a missing
+      // PostgREST FK relationship doesn't blank the picker.
+      const submissionIds = Array.from(
+        new Set(ddRows.map((r) => r.form_submission_id).filter(Boolean)),
+      );
+      const submissionToForm = {};
+      const formIds = new Set();
+      if (submissionIds.length > 0) {
+        const subRows = await fetchOptional(
+          supabase
+            .from('form_submission')
+            .select('id, form_id')
+            .in('id', submissionIds),
+          'form_submission (for DD)',
+        );
+        for (const row of subRows) {
+          submissionToForm[row.id] = row.form_id;
+          if (row.form_id) formIds.add(row.form_id);
+        }
+      }
+      const formNameById = {};
+      if (formIds.size > 0) {
+        const formRows = await fetchOptional(
+          supabase.from('form').select('id, name').in('id', Array.from(formIds)),
+          'form (for DD)',
+        );
+        for (const row of formRows) formNameById[row.id] = row.name;
+      }
+      result.due_diligence_submissions = ddRows
+        .map((row) => {
+          const formId = submissionToForm[row.form_submission_id];
+          const enriched = {
+            ...row,
+            form_submission: { form: { name: formId ? formNameById[formId] : null } },
+          };
+          return buildDdSubmission(enriched);
+        })
+        .filter(Boolean);
       result.due_diligence = result.due_diligence_submissions[0];
       result.sources.due_diligence =
         result.due_diligence.form_name || result.due_diligence.id;
