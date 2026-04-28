@@ -58,6 +58,8 @@ import WorkflowManagement from "./WorkflowManagement";
 
 import EmailTemplateManagement from "./EmailTemplateManagement";
 
+import EmailPlaceholders from "./EmailPlaceholders";
+
 import MyTickets from "./MyTickets";
 
 import EventSettings from "./EventSettings";
@@ -430,6 +432,8 @@ const PAGES = {
     
     EmailTemplateManagement: EmailTemplateManagement,
     
+    EmailPlaceholders: EmailPlaceholders,
+    
     MyTickets: MyTickets,
     
     EventSettings: EventSettings,
@@ -768,6 +772,9 @@ function PagesContent() {
                 <Route path="/WorkflowManagement" element={<WorkflowManagement />} />
                 
                 <Route path="/EmailTemplateManagement" element={<EmailTemplateManagement />} />
+                
+                <Route path="/EmailPlaceholders" element={<EmailPlaceholders />} />
+                <Route path="/emailplaceholders" element={<EmailPlaceholders />} />
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
                 

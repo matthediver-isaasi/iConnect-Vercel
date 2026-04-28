@@ -550,6 +550,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Email Templates"
       },
       {
+        id: "communication.email-placeholders",
+        label: "Email Placeholders Reference"
+      },
+      {
         id: "communication.workflows",
         label: "Workflow Management"
       },
@@ -951,6 +955,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_FormBuilder": "forms.form-builder",
   "page_CustomFieldsAdmin": "admin.custom-fields",
   "page_EmailTemplateManagement": "communication.email-templates",
+  "page_EmailPlaceholders": "communication.email-placeholders",
   "page_CommunicationsManagement": "communication.management",
   "page_DynamicDirectoryManagement": "admin.dynamic-directories",
   "page_MemberGroupGuestManagement": "membership.member-groups-guests",

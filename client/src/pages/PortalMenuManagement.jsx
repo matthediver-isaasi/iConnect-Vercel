@@ -78,6 +78,7 @@ const builtInPages = [
   { value: "DynamicPage", label: "Dynamic Page" },
   { value: "EmailCampaignEdit", label: "Email Campaign Editor" },
   { value: "EmailTemplateManagement", label: "Email Templates" },
+  { value: "EmailPlaceholders", label: "Email Placeholders Reference" },
   { value: "EventDetails", label: "Event Details" },
   { value: "EventRegistrationReport", label: "Event Registration Report" },
   { value: "Events", label: "Events" },

@@ -473,6 +473,12 @@ const adminNavigationItems = [
     featureId: "page_TeamInviteSettings"
   },
   {
+    title: "Email Placeholders",
+    url: createPageUrl("EmailPlaceholders"),
+    icon: Mail,
+    featureId: "page_EmailPlaceholders"
+  },
+  {
     title: "Data Export",
     url: createPageUrl("DataExport"),
     icon: Download,

@@ -35,7 +35,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle, Send, Search, User } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle, Send, Search, User, BookOpen } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   Collapsible,
   CollapsibleContent,
@@ -652,10 +653,18 @@ export default function EmailTemplateManagement() {
               Create and manage reusable email templates for workflows and form submissions
             </p>
           </div>
-          <Button onClick={() => handleOpenEditor()} data-testid="button-create-template">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Template
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button asChild variant="outline" data-testid="button-placeholder-reference">
+              <Link to={createPageUrl("EmailPlaceholders")}>
+                <BookOpen className="w-4 h-4 mr-2" />
+                Placeholder Reference
+              </Link>
+            </Button>
+            <Button onClick={() => handleOpenEditor()} data-testid="button-create-template">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Template
+            </Button>
+          </div>
         </div>
 
         {/* Email Footer Section */}

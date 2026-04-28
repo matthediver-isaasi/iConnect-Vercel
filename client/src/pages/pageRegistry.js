@@ -104,6 +104,7 @@ export const PAGE_NAMES = [
   "DynamicDirectoryManagement",
   "DynamicDirectoryView",
   "EmailTemplateManagement",
+  "EmailPlaceholders",
   "WorkflowManagement",
   "OrganisationPreferences",
   "MemberPreferences",
