@@ -8,6 +8,7 @@ import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, Ma
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { Link } from "react-router-dom";
@@ -171,6 +172,9 @@ export default function EventsPage({
   const [showComplexImportDialog, setShowComplexImportDialog] = useState(false);
   const [complexImportEmailsText, setComplexImportEmailsText] = useState("");
   const [complexImportResults, setComplexImportResults] = useState(null);
+  const [complexImportTicketClassId, setComplexImportTicketClassId] = useState("");
+  const [complexImportSendConfirmations, setComplexImportSendConfirmations] = useState(true);
+  const [complexImportTicketClasses, setComplexImportTicketClasses] = useState([]);
 
   // Determine if tours should be shown for this user based on role setting
   const shouldShowTours = resolvedMemberRole?.show_tours !== false;
@@ -792,12 +796,12 @@ export default function EventsPage({
   };
 
   const complexImportAttendeesMutation = useMutation({
-    mutationFn: async (emails) => {
+    mutationFn: async ({ payload, clientParseErrors: _ }) => {
       const response = await fetch(`/api/admin/events/${complexAttendeesEvent.id}/attendees/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ emails })
+        body: JSON.stringify(payload)
       });
       if (!response.ok) {
         const err = await response.json();
@@ -805,11 +809,24 @@ export default function EventsPage({
       }
       return response.json();
     },
-    onSuccess: (data) => {
-      setComplexImportResults(data.results);
+    onSuccess: (data, variables) => {
+      const merged = { ...(data.results || {}) };
+      const clientErrors = (variables?.clientParseErrors || []).map(e => ({
+        row: e.row,
+        email: e.email || null,
+        error: e.reason,
+      }));
+      merged.errors = [...clientErrors, ...(merged.errors || [])];
+      setComplexImportResults(merged);
       queryClient.invalidateQueries({ queryKey: ['event-bookings', complexAttendeesEvent?.id] });
-      if (data.results.registered.length > 0) {
-        toast.success(`Successfully registered ${data.results.registered.length} attendee(s)`);
+      const memberCount = merged.registeredMembers?.length || 0;
+      const guestCount = merged.registeredGuests?.length || 0;
+      const total = memberCount + guestCount;
+      if (total > 0) {
+        toast.success(`Successfully registered ${total} attendee(s) (${memberCount} member${memberCount === 1 ? '' : 's'}, ${guestCount} guest${guestCount === 1 ? '' : 's'})`);
+      }
+      if (merged.errors.length > 0) {
+        toast.error(`${merged.errors.length} row(s) could not be imported`);
       }
     },
     onError: (error) => {
@@ -818,9 +835,38 @@ export default function EventsPage({
     }
   });
 
+  const loadComplexImportTicketClasses = async (event) => {
+    if (!event) {
+      setComplexImportTicketClasses([]);
+      return;
+    }
+    try {
+      if (event.is_complex) {
+        const tcs = await base44.entities.ComplexEventTicketClass.filter({ complex_event_id: event.id });
+        setComplexImportTicketClasses(Array.isArray(tcs) ? tcs : []);
+      } else {
+        let pricingConfig = event.pricing_config;
+        if (typeof pricingConfig === 'string') {
+          try { pricingConfig = JSON.parse(pricingConfig); } catch { pricingConfig = null; }
+        }
+        const tcs = pricingConfig?.ticket_classes;
+        setComplexImportTicketClasses(Array.isArray(tcs) ? tcs : []);
+      }
+    } catch (e) {
+      console.error('Failed to load ticket classes for import:', e);
+      setComplexImportTicketClasses([]);
+    }
+  };
+
   const handleComplexImportClick = () => {
     setComplexImportResults(null);
     setComplexImportEmailsText("");
+    setComplexImportTicketClassId("");
+    setComplexImportSendConfirmations(true);
+    setComplexImportTicketClasses([]);
+    if (complexAttendeesEvent) {
+      loadComplexImportTicketClasses(complexAttendeesEvent);
+    }
     setShowComplexImportDialog(true);
   };
 
@@ -855,16 +901,118 @@ export default function EventsPage({
     }
   });
 
+  const parseComplexImportCsv = (text) => {
+    const trimmed = (text || '').replace(/\r\n/g, '\n').trim();
+    if (!trimmed) return { rows: [], errors: [] };
+
+    const splitCsvLine = (line) => {
+      const out = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (ch === '"') { inQuotes = false; }
+          else { cur += ch; }
+        } else {
+          if (ch === '"') { inQuotes = true; }
+          else if (ch === ',') { out.push(cur); cur = ''; }
+          else { cur += ch; }
+        }
+      }
+      out.push(cur);
+      return out.map(s => s.trim());
+    };
+
+    const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const expectedHeaders = ['first_name', 'last_name', 'email', 'organization', 'job_title'];
+    let columnOrder = expectedHeaders;
+    let startIndex = 0;
+
+    const firstFields = splitCsvLine(lines[0]).map(s => s.toLowerCase());
+    const looksLikeHeader = firstFields.some(f => expectedHeaders.includes(f));
+    if (looksLikeHeader) {
+      columnOrder = firstFields.map(f => expectedHeaders.includes(f) ? f : null);
+      startIndex = 1;
+    }
+
+    const emailIndex = columnOrder.indexOf('email');
+    const rows = [];
+    const errors = [];
+    for (let i = startIndex; i < lines.length; i++) {
+      const rowNumber = i + 1;
+      const fields = splitCsvLine(lines[i]);
+      if (fields.length === 0 || fields.every(f => f === '')) continue;
+
+      // Single-column rows (no commas) are treated as just an email.
+      let row;
+      if (fields.length === 1 && !looksLikeHeader) {
+        row = { email: fields[0] };
+      } else {
+        row = {};
+        columnOrder.forEach((key, idx) => {
+          if (key) row[key] = fields[idx] || '';
+        });
+        if (emailIndex === -1 && fields[2]) {
+          row.email = fields[2];
+        }
+      }
+
+      const email = (row.email || '').trim();
+      if (!email) {
+        errors.push({ row: rowNumber, reason: 'Missing email' });
+        continue;
+      }
+      if (!email.includes('@')) {
+        errors.push({ row: rowNumber, reason: 'Invalid email', email });
+        continue;
+      }
+      rows.push({
+        first_name: (row.first_name || '').trim(),
+        last_name: (row.last_name || '').trim(),
+        email: email.trim().toLowerCase(),
+        organization: (row.organization || '').trim(),
+        job_title: (row.job_title || '').trim(),
+      });
+    }
+
+    return { rows, errors };
+  };
+
   const handleComplexImportSubmit = () => {
-    const emails = complexImportEmailsText
-      .split(/[\n,;]+/)
-      .map(e => e.trim())
-      .filter(e => e && e.includes('@'));
-    if (emails.length === 0) {
-      toast.error('Please enter at least one valid email address');
+    const { rows, errors } = parseComplexImportCsv(complexImportEmailsText);
+
+    if (rows.length === 0) {
+      if (errors.length === 0) {
+        toast.error('Please paste at least one row with a valid email address.');
+        return;
+      }
+      // Surface parse errors directly without an API call so the user can see
+      // exactly which rows were rejected and why.
+      setComplexImportResults({
+        registered: [],
+        registeredMembers: [],
+        registeredGuests: [],
+        alreadyRegistered: [],
+        warnings: [],
+        errors: errors.map(e => ({ row: e.row, email: e.email || null, error: e.reason })),
+        emailsSent: [],
+        emailsFailed: [],
+        sendConfirmations: complexImportSendConfirmations,
+      });
+      toast.error(`${errors.length} row(s) could not be parsed`);
       return;
     }
-    complexImportAttendeesMutation.mutate(emails);
+
+    complexImportAttendeesMutation.mutate({
+      payload: {
+        rows,
+        ticket_class_id: complexImportTicketClassId || undefined,
+        send_confirmations: complexImportSendConfirmations,
+      },
+      clientParseErrors: errors,
+    });
   };
 
   const handleComplexAttendeesClick = (e, event) => {
@@ -2150,45 +2298,112 @@ export default function EventsPage({
           if (!open) {
             setComplexImportEmailsText("");
             setComplexImportResults(null);
+            setComplexImportTicketClassId("");
+            setComplexImportSendConfirmations(true);
+            setComplexImportTicketClasses([]);
           }
         }}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Upload className="w-5 h-5 text-purple-600" />
                 Import Attendees
               </DialogTitle>
               <DialogDescription>
-                Paste email addresses to directly register members for this event. One email per line, or separated by commas.
+                Paste a CSV-style list to register both members and guests. Existing members are matched by email; any non-matching email is added as a guest using the supplied details.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="py-4">
-              <textarea
-                className="w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
-                placeholder={"email1@example.com\nemail2@example.com\nemail3@example.com"}
-                value={complexImportEmailsText}
-                onChange={(e) => setComplexImportEmailsText(e.target.value)}
-                disabled={complexImportAttendeesMutation.isPending}
-                data-testid="textarea-complex-import-emails"
-              />
-              <p className="text-xs text-slate-500 mt-2">
-                Only existing members will be registered. Non-members will be listed in the results.
-              </p>
+            <div className="py-4 space-y-4">
+              {complexImportTicketClasses.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="complex-import-ticket-class">Ticket class</Label>
+                  <Select
+                    value={complexImportTicketClassId || "__default__"}
+                    onValueChange={(v) => setComplexImportTicketClassId(v === "__default__" ? "" : v)}
+                    disabled={complexImportAttendeesMutation.isPending}
+                  >
+                    <SelectTrigger id="complex-import-ticket-class" data-testid="select-complex-import-ticket-class">
+                      <SelectValue placeholder="Select a ticket class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__">
+                        {complexAttendeesEvent?.is_complex ? 'Default (cheapest)' : 'No ticket class'}
+                      </SelectItem>
+                      {complexImportTicketClasses.map(tc => {
+                        const isMembersOnly = tc.visibility_mode
+                          ? tc.visibility_mode === 'members_only'
+                          : tc.is_public === false;
+                        return (
+                          <SelectItem key={tc.id} value={String(tc.id)}>
+                            {tc.name || 'Ticket'}{isMembersOnly ? ' (members-only)' : ''}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="complex-import-textarea">Attendees (CSV)</Label>
+                <textarea
+                  id="complex-import-textarea"
+                  className="mt-1.5 w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder={"first_name,last_name,email,organization,job_title\nJane,Doe,jane@example.com,Acme Ltd,Manager\nJohn,Smith,john@example.com,,"}
+                  value={complexImportEmailsText}
+                  onChange={(e) => setComplexImportEmailsText(e.target.value)}
+                  disabled={complexImportAttendeesMutation.isPending}
+                  data-testid="textarea-complex-import-emails"
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <code className="font-mono">first_name, last_name, email, organization, job_title</code>. A header row is supported. Only the email column is required; the rest is used for guests.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="complex-import-send-confirmations"
+                  checked={complexImportSendConfirmations}
+                  onCheckedChange={(v) => setComplexImportSendConfirmations(v === true)}
+                  disabled={complexImportAttendeesMutation.isPending}
+                  data-testid="checkbox-complex-import-send-confirmations"
+                />
+                <div className="-mt-0.5">
+                  <Label
+                    htmlFor="complex-import-send-confirmations"
+                    className="cursor-pointer"
+                  >
+                    Send confirmation emails now
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Sends the event's confirmation email to every newly-imported attendee (members and guests).
+                  </p>
+                </div>
+              </div>
             </div>
 
             {complexImportResults && (
               <div className="space-y-3 py-2 border-t">
-                {complexImportResults.registered.length > 0 && (
+                {(complexImportResults.registeredMembers?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-green-700">Registered ({complexImportResults.registered.length})</p>
-                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.registered.join(', ')}</p>
+                      <p className="font-medium text-green-700">Registered — Members ({complexImportResults.registeredMembers.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.registeredMembers.join(', ')}</p>
                     </div>
                   </div>
                 )}
-                {complexImportResults.alreadyRegistered.length > 0 && (
+                {(complexImportResults.registeredGuests?.length || 0) > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-700">Registered — Guests ({complexImportResults.registeredGuests.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.registeredGuests.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {(complexImportResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
@@ -2197,23 +2412,46 @@ export default function EventsPage({
                     </div>
                   </div>
                 )}
-                {complexImportResults.notFound.length > 0 && (
+                {(complexImportResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <XCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-red-700">Not Found ({complexImportResults.notFound.length})</p>
-                      <p className="text-slate-600 text-xs mt-1">{complexImportResults.notFound.join(', ')}</p>
+                      <p className="font-medium text-amber-700">Warnings ({complexImportResults.warnings.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">
+                        {complexImportResults.warnings.map(w => `${w.email}: ${w.reason}`).join('; ')}
+                      </p>
                     </div>
                   </div>
                 )}
-                {complexImportResults.errors.length > 0 && (
+                {(complexImportResults.errors?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
                     <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-red-700">Errors ({complexImportResults.errors.length})</p>
                       <p className="text-slate-600 text-xs mt-1">
-                        {complexImportResults.errors.map(e => `${e.email}: ${e.error}`).join('; ')}
+                        {complexImportResults.errors.map(e => {
+                          const prefix = e.row ? `Row ${e.row}` : (e.email || 'Row');
+                          return `${prefix}${e.email && e.row ? ` (${e.email})` : ''}: ${e.error}`;
+                        }).join('; ')}
                       </p>
+                    </div>
+                  </div>
+                )}
+                {complexImportResults.sendConfirmations && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <Send className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-blue-700">
+                        Emails sent ({complexImportResults.emailsSent?.length || 0})
+                        {(complexImportResults.emailsFailed?.length || 0) > 0
+                          ? ` · failed (${complexImportResults.emailsFailed.length})`
+                          : ''}
+                      </p>
+                      {(complexImportResults.emailsFailed?.length || 0) > 0 && (
+                        <p className="text-slate-600 text-xs mt-1">
+                          Failed: {complexImportResults.emailsFailed.map(f => `${f.email}: ${f.error}`).join('; ')}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
