@@ -22,6 +22,20 @@
         },
         "description": "Available program tickets by program name",
         "default": {}
+      },
+      "guest_access_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "True if this organisation accepts guest sign-ups (gated by tenant-level Guest Access master switch)"
+      },
+      "guest_access_period_days": {
+        "type": ["integer", "null"],
+        "description": "Per-org override for default guest access period in days; NULL means inherit tenant default (or no expiry when guest_access_unlimited is true)"
+      },
+      "guest_access_unlimited": {
+        "type": "boolean",
+        "default": false,
+        "description": "True if the org overrides the default to Unlimited (Permanent) guest access"
       }
     },
     "required": [

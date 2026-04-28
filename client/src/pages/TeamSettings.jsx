@@ -433,9 +433,10 @@ export default function TeamSettingsPage() {
                   Guest Access
                 </CardTitle>
                 <CardDescription>
-                  Allow members to join via a guest sign-up link even when their email
-                  domain isn't on your verified list. Each new guest is given a default
-                  access period that admins can adjust on the Team page.
+                  Master switch for the Guest Access feature across this tenant. When
+                  enabled, individual organisation admins can opt their org in to
+                  accepting guests from their /Team page. Orgs that don't override
+                  the period below will inherit it as their default.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -445,7 +446,8 @@ export default function TeamSettingsPage() {
                       Enable Guest Access
                     </Label>
                     <p className="text-sm text-slate-500 mt-0.5">
-                      When enabled, new guests can sign up and get the default access period below.
+                      Master switch — when off, no organisation can accept guests, even if they've
+                      opted in. When on, org admins can opt their org in from the /Team page.
                     </p>
                   </div>
                   <Switch
@@ -462,6 +464,9 @@ export default function TeamSettingsPage() {
                     <Label className="text-sm font-medium text-slate-700">
                       Default access period for new guests
                     </Label>
+                    <p className="text-xs text-slate-500 -mt-2">
+                      Applied to organisations that haven't overridden the period from their /Team page.
+                    </p>
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Input

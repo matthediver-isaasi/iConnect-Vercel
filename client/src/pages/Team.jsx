@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus, Link, Copy, Check, UserCheck, Infinity as InfinityIcon, AlertTriangle } from "lucide-react";
@@ -37,6 +38,14 @@ export default function TeamPage({ hasBanner }) {
   const [signupLinkCopied, setSignupLinkCopied] = useState(false);
   const [guestPopoverOpenId, setGuestPopoverOpenId] = useState(null);
   const [guestDaysInput, setGuestDaysInput] = useState('');
+  // Local edit state for the per-org Guest Access card. Mirrors the
+  // organisation row but lets the admin tweak the period without saving on
+  // every keystroke.
+  const [orgGuestForm, setOrgGuestForm] = useState({
+    enabled: false,
+    period_days: 30,
+    unlimited: false,
+  });
   const queryClient = useQueryClient();
 
 
@@ -263,6 +272,86 @@ export default function TeamPage({ hasBanner }) {
       return await base44.entities.Booking.list();
     }
   });
+
+  // Tenant master Guest Access setting — drives whether the per-org card is
+  // even visible. When the master switch is off, every org behaves as if
+  // guests are off regardless of the stored org settings.
+  const { data: tenantGuestAccess = null } = useQuery({
+    queryKey: ['tenant-guest-access-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'guest_access');
+      let value = { enabled: false, default_period_days: 30, unlimited: false };
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          const days = Number(parsed.default_period_days);
+          value = {
+            enabled: !!parsed.enabled,
+            default_period_days: Number.isFinite(days) && days > 0 ? days : 30,
+            unlimited: parsed.default_period_days === null || parsed.unlimited === true,
+          };
+        } catch {
+          // ignore
+        }
+      }
+      return value;
+    }
+  });
+
+  // Fetch the latest Organization row so the Guest Access card reflects what
+  // is persisted (rather than the cached organizationInfo from session).
+  const { data: orgRecord = null } = useQuery({
+    queryKey: ['organization-record', memberInfo?.organization_id],
+    queryFn: async () => {
+      if (!memberInfo?.organization_id) return null;
+      return await base44.entities.Organization.get(memberInfo.organization_id);
+    },
+    enabled: !!memberInfo?.organization_id,
+  });
+
+  useEffect(() => {
+    if (!orgRecord) return;
+    const orgDays = Number(orgRecord.guest_access_period_days);
+    const orgUnlimited = !!orgRecord.guest_access_unlimited;
+    const orgHasOverride = orgUnlimited || (Number.isFinite(orgDays) && orgDays > 0);
+    setOrgGuestForm({
+      enabled: !!orgRecord.guest_access_enabled,
+      // When the org has no override yet, prefill from the tenant default so
+      // the very first save persists the inherited value.
+      period_days: orgHasOverride && Number.isFinite(orgDays) && orgDays > 0
+        ? orgDays
+        : (tenantGuestAccess?.default_period_days || 30),
+      unlimited: orgHasOverride
+        ? orgUnlimited
+        : !!tenantGuestAccess?.unlimited,
+    });
+  }, [orgRecord, tenantGuestAccess?.default_period_days, tenantGuestAccess?.unlimited]);
+
+  // Update org guest access mutation
+  const updateOrgGuestAccessMutation = useMutation({
+    mutationFn: async (next) => {
+      if (!memberInfo?.organization_id) throw new Error('No organisation');
+      const payload = {
+        guest_access_enabled: !!next.enabled,
+        guest_access_unlimited: !!next.unlimited,
+        guest_access_period_days: next.unlimited ? null : Number(next.period_days),
+      };
+      return await base44.entities.Organization.update(memberInfo.organization_id, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization-record', memberInfo?.organization_id] });
+      toast.success('Guest Access updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update Guest Access: ' + (error?.message || ''));
+    }
+  });
+
+  const persistOrgGuestAccess = (next) => {
+    setOrgGuestForm(next);
+    updateOrgGuestAccessMutation.mutate(next);
+  };
 
   // Toggle login mutation
   const toggleLoginMutation = useMutation({
@@ -646,6 +735,93 @@ export default function TeamPage({ hasBanner }) {
                     </TooltipContent>
                   </Tooltip>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Org Guest Access Card */}
+          {tenantGuestAccess?.enabled && !isFeatureExcluded('element_TeamLoginAccessToggle') && (
+            <Card className="mb-6 border-slate-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserCheck className="w-5 h-5" />
+                  Guest Access
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-4 py-2">
+                  <div>
+                    <Label htmlFor="org_guest_access_enabled" className="text-base font-medium cursor-pointer">
+                      Allow guests to join this organisation
+                    </Label>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      When enabled, anyone signing up via the guest sign-up link can be added
+                      to this organisation, even if their email domain isn't on your verified list.
+                    </p>
+                  </div>
+                  <Switch
+                    id="org_guest_access_enabled"
+                    checked={orgGuestForm.enabled}
+                    onCheckedChange={(checked) => persistOrgGuestAccess({ ...orgGuestForm, enabled: checked })}
+                    disabled={updateOrgGuestAccessMutation.isPending}
+                    data-testid="toggle-org-guest-access-enabled"
+                  />
+                </div>
+
+                {orgGuestForm.enabled && (
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <Label className="text-sm font-medium text-slate-700">
+                      Default access period for new guests
+                    </Label>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={orgGuestForm.unlimited ? '' : orgGuestForm.period_days}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setOrgGuestForm(prev => ({
+                              ...prev,
+                              period_days: Number.isFinite(val) && val > 0 ? val : 1,
+                            }));
+                          }}
+                          onBlur={() => {
+                            if (!orgGuestForm.unlimited) {
+                              persistOrgGuestAccess(orgGuestForm);
+                            }
+                          }}
+                          disabled={orgGuestForm.unlimited || updateOrgGuestAccessMutation.isPending}
+                          className="w-28"
+                          data-testid="input-org-guest-default-days"
+                        />
+                        <span className="text-sm text-slate-600">days</span>
+                      </div>
+                      <label className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer">
+                        <Checkbox
+                          checked={orgGuestForm.unlimited}
+                          onCheckedChange={(checked) => {
+                            persistOrgGuestAccess({ ...orgGuestForm, unlimited: !!checked });
+                          }}
+                          disabled={updateOrgGuestAccessMutation.isPending}
+                          data-testid="checkbox-org-guest-unlimited"
+                        />
+                        <span className="text-sm text-slate-700 inline-flex items-center gap-1">
+                          <InfinityIcon className="w-4 h-4 text-slate-500" />
+                          Unlimited (Permanent)
+                        </span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Pre-filled from the tenant default
+                      ({tenantGuestAccess?.unlimited
+                        ? 'Unlimited'
+                        : `${tenantGuestAccess?.default_period_days || 30} days`}).
+                      Override it here for this organisation only.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
