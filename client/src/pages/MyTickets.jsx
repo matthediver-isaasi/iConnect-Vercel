@@ -59,24 +59,22 @@ export default function MyTicketsPage({ hasBanner }) {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  const { data: regularTickets = [], isLoading: loadingTickets } = useQuery({
-    queryKey: ['my-tickets', memberInfo?.id],
+  const { data: myTicketsData, isLoading: loadingMyTickets } = useQuery({
+    queryKey: ['my-attended-tickets', memberInfo?.id],
     queryFn: async () => {
-      if (!memberInfo?.id) return [];
-      return base44.entities.Booking.filter({ member_id: memberInfo.id });
-    },
-    enabled: !!memberInfo?.id,
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const { data: complexBookingsData, isLoading: loadingComplexTickets } = useQuery({
-    queryKey: ['my-complex-bookings', memberInfo?.id],
-    queryFn: async () => {
-      const response = await fetch('/api/complex-event-bookings', {
+      const response = await fetch('/api/my-tickets', {
         credentials: 'include',
       });
-      if (!response.ok) return { bookings: [], events: {}, sessions: {} };
+      if (!response.ok) {
+        return {
+          bookings: [],
+          events: [],
+          members: [],
+          complexBookings: [],
+          complexEvents: {},
+          complexSessions: {},
+        };
+      }
       return response.json();
     },
     enabled: !!memberInfo?.id,
@@ -84,13 +82,17 @@ export default function MyTicketsPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
-  const complexEventsMap = complexBookingsData?.events || {};
-  const complexSessionsMap = complexBookingsData?.sessions || {};
+  const regularTickets = myTicketsData?.bookings || [];
+  const events = myTicketsData?.events || [];
+  const members = myTicketsData?.members || [];
+  const complexEventsMap = myTicketsData?.complexEvents || {};
+  const complexSessionsMap = myTicketsData?.complexSessions || {};
+  const complexBookingsList = myTicketsData?.complexBookings || [];
 
   const myTickets = React.useMemo(() => {
     const regular = regularTickets.map(t => ({ ...t, _source: 'regular' }));
 
-    const complex = (complexBookingsData?.bookings || []).map(b => {
+    const complex = complexBookingsList.map(b => {
       const ce = complexEventsMap[b.event_id];
       return {
         ...b,
@@ -111,37 +113,7 @@ export default function MyTicketsPage({ hasBanner }) {
     });
 
     return [...regular, ...complex];
-  }, [regularTickets, complexBookingsData, complexEventsMap, complexSessionsMap]);
-
-  const eventIds = [...new Set(myTickets.filter(t => t._source !== 'complex').map(t => t.event_id).filter(Boolean))];
-  
-  const { data: events = [], isLoading: loadingEvents } = useQuery({
-    queryKey: ['events-for-tickets', eventIds],
-    queryFn: async () => {
-      if (eventIds.length === 0) return [];
-      return base44.entities.Event.list({
-        filter: { id: { in: eventIds } }
-      });
-    },
-    enabled: eventIds.length > 0,
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const memberIds = [...new Set(myTickets.filter(t => t._source !== 'complex').map(t => t.member_id).filter(Boolean))];
-  
-  const { data: members = [], isLoading: loadingMembers } = useQuery({
-    queryKey: ['members-for-tickets', memberIds],
-    queryFn: async () => {
-      if (memberIds.length === 0) return [];
-      return base44.entities.Member.list({
-        filter: { id: { in: memberIds } }
-      });
-    },
-    enabled: memberIds.length > 0,
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  }, [regularTickets, complexBookingsList, complexEventsMap, complexSessionsMap]);
 
   const { data: cancellationRequests = [] } = useQuery({
     queryKey: ['my-cancellation-requests'],
@@ -281,7 +253,7 @@ export default function MyTicketsPage({ hasBanner }) {
     );
   }
 
-  const isLoading = loadingTickets || loadingEvents || loadingMembers || loadingComplexTickets;
+  const isLoading = loadingMyTickets;
 
   const filteredAndSortedTickets = React.useMemo(() => {
     const ticketsWithEvents = myTickets.map(ticket => {
@@ -471,7 +443,7 @@ export default function MyTicketsPage({ hasBanner }) {
       setTermsAgreed(false);
       setDeadlinePassed(false);
       queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['my-attended-tickets'] });
     } catch (error) {
       console.error('Cancellation request error:', error);
       toast.error(error.message || 'Failed to submit cancellation request. Please try again.');
@@ -1015,7 +987,7 @@ export default function MyTicketsPage({ hasBanner }) {
         bookingSource={transferTarget?._source || 'regular'}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ['my-transfer-requests'] });
-          queryClient.invalidateQueries({ queryKey: ['my-complex-bookings'] });
+          queryClient.invalidateQueries({ queryKey: ['my-attended-tickets'] });
         }}
       />
     </div>
