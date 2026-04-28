@@ -321,6 +321,16 @@ export default async function handler(req, res) {
       result.tenant = { name: tenantRes.data.name };
     }
 
+    console.log(
+      '[email-placeholder-samples] tenant:', tenantId,
+      'members:', (membersRes?.data || []).length,
+      'orgs:', (orgsRes?.data || []).length,
+      'events:', (eventsRes?.data || []).length,
+      'contracts:', (contractsRes?.data || []).length,
+      'meetings:', meetingsRows.length,
+      'dd:', ddRows.length,
+    );
+
     const memberRows = membersRes?.data || [];
     if (memberRows.length > 0) {
       result.members = memberRows.map(buildMember).filter(Boolean);
