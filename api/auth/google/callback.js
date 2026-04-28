@@ -178,6 +178,26 @@ export default async function handler(req, res) {
       return res.redirect(buildErrorRedirect(tenantSlug, 'no_account', isProduction, `&email=${encodeURIComponent(email)}`));
     }
 
+    // Auto-disable expired guests
+    if (member.is_guest && member.guest_expires_at) {
+      const expiresAt = new Date(member.guest_expires_at);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+        if (member.login_enabled !== false) {
+          try {
+            await supabase
+              .from('member')
+              .update({ login_enabled: false })
+              .eq('id', member.id);
+          } catch (e) {
+            console.error('[Google OAuth Callback] Failed to auto-disable expired guest:', e);
+          }
+          member.login_enabled = false;
+        }
+        console.log('[Google OAuth Callback] Guest access expired for member:', member.id);
+        return res.redirect(buildErrorRedirect(tenantSlug, 'login_disabled', isProduction));
+      }
+    }
+
     if (member.login_enabled === false) {
       console.log('[Google OAuth Callback] Login disabled for member:', member.id);
       return res.redirect(buildErrorRedirect(tenantSlug, 'login_disabled', isProduction));

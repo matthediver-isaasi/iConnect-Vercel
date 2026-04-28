@@ -304,6 +304,31 @@ export default async function handler(req, res) {
       }
     }
 
+    // Auto-disable expired guests: if this member is a guest and their
+    // guest_expires_at is in the past, force login_enabled = false so a
+    // stale flag in the database can never let them back in.
+    if (member.is_guest && member.guest_expires_at) {
+      const expiresAt = new Date(member.guest_expires_at);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+        if (member.login_enabled !== false) {
+          try {
+            await supabase
+              .from('member')
+              .update({ login_enabled: false })
+              .eq('id', member.id);
+          } catch (e) {
+            console.error('[Auth Login] Failed to auto-disable expired guest:', e);
+          }
+          member.login_enabled = false;
+        }
+        console.log('[Auth Login] Guest access expired for member:', email);
+        return res.status(403).json({
+          success: false,
+          error: 'Your guest access has expired. Please contact an administrator to extend your access.'
+        });
+      }
+    }
+
     // Check if login is enabled for this member
     if (member.login_enabled === false) {
       console.log('[Auth Login] Login disabled for member:', email);

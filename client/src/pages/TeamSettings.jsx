@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Plus, Trash2, Wallet, Ticket } from "lucide-react";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Plus, Trash2, Wallet, Ticket, UserCheck, Infinity as InfinityIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -56,6 +56,12 @@ export default function TeamSettingsPage() {
     voucher_role_ids: []
   });
 
+  const [guestAccess, setGuestAccess] = useState({
+    enabled: false,
+    default_period_days: 30,
+    unlimited: false
+  });
+
   const { data: eligibleRolesData } = useQuery({
     queryKey: ['balances-eligible-roles'],
     queryFn: async () => {
@@ -83,6 +89,70 @@ export default function TeamSettingsPage() {
       setEligibleRoles(eligibleRolesData.value);
     }
   }, [eligibleRolesData]);
+
+  const { data: guestAccessData } = useQuery({
+    queryKey: ['guest-access-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'guest_access');
+      let value = { enabled: false, default_period_days: 30, unlimited: false };
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          const days = Number(parsed.default_period_days);
+          value = {
+            enabled: !!parsed.enabled,
+            default_period_days: Number.isFinite(days) && days > 0 ? days : 30,
+            unlimited: parsed.default_period_days === null || parsed.unlimited === true
+          };
+        } catch {
+          // ignore
+        }
+      }
+      return { record: setting || null, value };
+    },
+    staleTime: 0
+  });
+
+  useEffect(() => {
+    if (guestAccessData?.value) {
+      setGuestAccess(guestAccessData.value);
+    }
+  }, [guestAccessData]);
+
+  const updateGuestAccessMutation = useMutation({
+    mutationFn: async (newValue) => {
+      const payload = {
+        enabled: !!newValue.enabled,
+        default_period_days: newValue.unlimited ? null : Number(newValue.default_period_days),
+        unlimited: !!newValue.unlimited
+      };
+      const settingValue = JSON.stringify(payload);
+      const existing = guestAccessData?.record;
+      if (existing) {
+        return await base44.entities.SystemSettings.update(existing.id, {
+          setting_value: settingValue
+        });
+      }
+      return await base44.entities.SystemSettings.create({
+        setting_key: 'guest_access',
+        setting_value: settingValue,
+        description: 'Tenant-wide Guest Access configuration: enabled flag and default access period for new guests'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guest-access-settings'] });
+      toast.success('Guest Access settings updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update Guest Access settings: ' + error.message);
+    }
+  });
+
+  const persistGuestAccess = (next) => {
+    setGuestAccess(next);
+    updateGuestAccessMutation.mutate(next);
+  };
 
   const updateEligibleRolesMutation = useMutation({
     mutationFn: async (newValue) => {
@@ -356,6 +426,91 @@ export default function TeamSettingsPage() {
           </Card>
         ) : (
           <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserCheck className="w-5 h-5" />
+                  Guest Access
+                </CardTitle>
+                <CardDescription>
+                  Allow members to join via a guest sign-up link even when their email
+                  domain isn't on your verified list. Each new guest is given a default
+                  access period that admins can adjust on the Team page.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <Label htmlFor="guest_access_enabled" className="text-base font-medium cursor-pointer">
+                      Enable Guest Access
+                    </Label>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      When enabled, new guests can sign up and get the default access period below.
+                    </p>
+                  </div>
+                  <Switch
+                    id="guest_access_enabled"
+                    checked={guestAccess.enabled}
+                    onCheckedChange={(checked) => persistGuestAccess({ ...guestAccess, enabled: checked })}
+                    disabled={updateGuestAccessMutation.isPending}
+                    data-testid="toggle-guest-access-enabled"
+                  />
+                </div>
+
+                {guestAccess.enabled && (
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <Label className="text-sm font-medium text-slate-700">
+                      Default access period for new guests
+                    </Label>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={guestAccess.unlimited ? '' : guestAccess.default_period_days}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setGuestAccess(prev => ({
+                              ...prev,
+                              default_period_days: Number.isFinite(val) && val > 0 ? val : 1
+                            }));
+                          }}
+                          onBlur={() => {
+                            if (!guestAccess.unlimited) {
+                              persistGuestAccess(guestAccess);
+                            }
+                          }}
+                          disabled={guestAccess.unlimited || updateGuestAccessMutation.isPending}
+                          className="w-28"
+                          data-testid="input-guest-default-days"
+                        />
+                        <span className="text-sm text-slate-600">days</span>
+                      </div>
+                      <label className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer">
+                        <Checkbox
+                          checked={guestAccess.unlimited}
+                          onCheckedChange={(checked) => {
+                            persistGuestAccess({ ...guestAccess, unlimited: !!checked });
+                          }}
+                          disabled={updateGuestAccessMutation.isPending}
+                          data-testid="checkbox-guest-unlimited"
+                        />
+                        <span className="text-sm text-slate-700 inline-flex items-center gap-1">
+                          <InfinityIcon className="w-4 h-4 text-slate-500" />
+                          Unlimited (Permanent)
+                        </span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      This is the default applied to new guests only. Admins can extend or shorten an
+                      individual guest's access from the Team page, including beyond this default.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
