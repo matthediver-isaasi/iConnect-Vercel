@@ -61,7 +61,23 @@ export default async function handler(req, res) {
     }
 
     const targetSigner = signers[signerIndex];
-    if (!targetSigner.signed) {
+
+    let isVirtuallySigned = false;
+    if (!targetSigner.signed && !targetSigner.demoted_at) {
+      const { data: instanceSubmissions } = await supabase
+        .from('form_submission')
+        .select('id, submission_data')
+        .eq('contract_instance_id', contractInstance.id);
+
+      const targetEmailLower = (targetSigner.email || '').toLowerCase();
+      isVirtuallySigned = (instanceSubmissions || []).some(sub => {
+        if (!sub.submission_data) return false;
+        const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
+        return subEmail && subEmail === targetEmailLower;
+      });
+    }
+
+    if (!targetSigner.signed && !isVirtuallySigned) {
       return res.status(400).json({ error: 'This signer is not currently a winner' });
     }
 
