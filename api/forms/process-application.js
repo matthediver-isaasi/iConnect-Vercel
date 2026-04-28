@@ -98,6 +98,105 @@ const applyTransformation = (value, transformation) => {
   }
 };
 
+// Helper function to load an organisation's verified email domains.
+// Mirrors the behaviour of api/public/organisation/[id]/domains.js so the
+// frontend's domain check and the backend's guest-stamping stay in sync.
+const loadOrgVerifiedDomains = async (supabaseClient, organizationId) => {
+  if (!organizationId) return [];
+
+  const { data: fieldDef, error: fieldError } = await supabaseClient
+    .from('preference_field')
+    .select('id')
+    .eq('name', 'verified_domains')
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true)
+    .single();
+
+  if (fieldError || !fieldDef) return [];
+
+  const { data: fieldValue, error: valueError } = await supabaseClient
+    .from('organization_preference_value')
+    .select('value')
+    .eq('organization_id', organizationId)
+    .eq('field_id', fieldDef.id)
+    .single();
+
+  if (valueError || !fieldValue?.value) return [];
+
+  const val = fieldValue.value;
+  let domains = [];
+  if (Array.isArray(val)) {
+    domains = val.filter(Boolean);
+  } else if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      domains = Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+    } catch {
+      domains = val.split(',').map(d => d.trim()).filter(Boolean);
+    }
+  }
+  return domains.map(d => String(d).toLowerCase()).filter(Boolean);
+};
+
+// Helper to extract the lowercase domain portion of an email address.
+const extractEmailDomain = (email) => {
+  if (!email || typeof email !== 'string') return '';
+  const parts = email.split('@');
+  if (parts.length !== 2 || !parts[1]) return '';
+  return parts[1].trim().toLowerCase();
+};
+
+// Helper function to compute the guest-stamp fields for a brand-new member.
+// Returns { is_guest, guest_expires_at } when the org has guest access on
+// AND the member's email domain isn't on the org's verified domain list.
+// Returns null when no guest stamping should be applied (domain matches,
+// guest access disabled, or org/email missing).
+const resolveGuestStampForNewMember = async (supabaseClient, organizationId, email) => {
+  if (!organizationId || !email) return null;
+  const emailDomain = extractEmailDomain(email);
+  if (!emailDomain) return null;
+
+  // Fetch the per-org guest access settings. Tolerate databases without the
+  // optional columns (returns 42703) so existing flows keep working.
+  let org = null;
+  {
+    const { data, error } = await supabaseClient
+      .from('organization')
+      .select('id, guest_access_enabled, guest_access_period_days, guest_access_unlimited')
+      .eq('id', organizationId)
+      .single();
+    if (error) {
+      if (error.code === '42703') {
+        // Guest access columns aren't on this database — nothing to stamp.
+        return null;
+      }
+      console.error('[AppProcessor] Failed to load org for guest check:', error);
+      return null;
+    }
+    org = data;
+  }
+
+  if (!org?.guest_access_enabled) return null;
+
+  const verifiedDomains = await loadOrgVerifiedDomains(supabaseClient, organizationId);
+  if (verifiedDomains.includes(emailDomain)) return null;
+
+  if (org.guest_access_unlimited) {
+    return { is_guest: true, guest_expires_at: null };
+  }
+
+  const days = Number(org.guest_access_period_days);
+  if (!Number.isFinite(days) || days <= 0) {
+    // Guest access is enabled but no period is configured — fall back to a
+    // permanent guest so the member is still flagged correctly.
+    return { is_guest: true, guest_expires_at: null };
+  }
+
+  const expires = new Date();
+  expires.setUTCDate(expires.getUTCDate() + days);
+  return { is_guest: true, guest_expires_at: expires.toISOString() };
+};
+
 // Helper function to check role capacity for per-organization limits
 const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
   console.log('[checkRoleCapacity] Checking capacity for role:', roleId, 'org:', organizationId);
@@ -1141,6 +1240,25 @@ export default async function handler(req, res) {
           // Add mobile and landline if provided
           if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
           if (memberData.landline) memberInsertData.landline = memberData.landline;
+
+          // Domain bypass guest flag: when the member's email domain doesn't
+          // match the org's verified domains AND the org has Guest Access on,
+          // stamp is_guest + guest_expires_at so the team card surfaces this
+          // member under Guest Access. No-op for matching domains or when
+          // guest access is disabled — preserving existing behaviour.
+          const guestStamp = await resolveGuestStampForNewMember(
+            supabase,
+            orgIdForNewMember,
+            memberData.email
+          );
+          if (guestStamp) {
+            memberInsertData.is_guest = guestStamp.is_guest;
+            memberInsertData.guest_expires_at = guestStamp.guest_expires_at;
+            console.log('[AppProcessor] Domain mismatch with guest access enabled — stamping member as guest:', {
+              organization_id: orgIdForNewMember,
+              guest_expires_at: guestStamp.guest_expires_at,
+            });
+          }
           
           // Determine effective role_id from multiple sources:
           // 1. Pipeline config role_id (memberData.role_id)
