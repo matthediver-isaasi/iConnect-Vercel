@@ -124,12 +124,22 @@ export async function runWidgetConfig(config, tenantId) {
     });
   }
 
+  // Identify which of the custom fields touched by this widget are
+  // list-typed (multi-pick picklists). The measure and filter paths use
+  // this to apply list-aware semantics — count_distinct flattens every
+  // element across rows, and filters match when ANY element satisfies
+  // the predicate. Group-by deliberately keeps first-element semantics
+  // (see task #620 — out of scope here).
+  const listFieldIds = await resolveListFieldIds(source, tenantId, customFieldsNeeded);
+
   // Apply custom-field filters in JS.
   const customFilters = (config.filters || []).filter(f => f.fieldKind === 'custom');
   if (customFilters.length > 0) {
     workingRows = workingRows.filter(row => {
       const prefs = prefMap.get(row.id) || {};
-      return customFilters.every(f => matchFilter(prefs[f.fieldId], f, lmicCodes));
+      return customFilters.every(f =>
+        matchFilter(prefs[f.fieldId], f, lmicCodes, listFieldIds.has(f.fieldId)),
+      );
     });
   }
 
@@ -154,6 +164,21 @@ export async function runWidgetConfig(config, tenantId) {
         );
       }
     : row => valueFor(row, measure, prefMap);
+  // When the measure is `count_distinct` over a list-typed custom field
+  // (multi-pick picklist), every element in every row's list contributes
+  // to the distinct set — not just each row's first element. All other
+  // aggregators (count, sum, avg, min, max) keep their per-row scalar
+  // contract by going through `measureValueOf`.
+  const isListMeasureCD = measure.aggregator === 'count_distinct'
+    && measure.fieldKind === 'custom'
+    && !!measure.fieldId
+    && listFieldIds.has(measure.fieldId);
+  const pushMeasureValues = isListMeasureCD
+    ? (target, row) => {
+        const raw = (prefMap.get(row.id) || {})[measure.fieldId];
+        for (const v of toList(raw)) target.push(v);
+      }
+    : (target, row) => target.push(measureValueOf(row));
   const groupKeyOf = groupBy
     ? row => normaliseKey(valueFor(row, groupBy, prefMap))
     : null;
@@ -170,7 +195,9 @@ export async function runWidgetConfig(config, tenantId) {
 
   // No grouping — single value (count, sum, etc.).
   if (!groupBy && !timeBucket) {
-    const value = aggregate(workingRows.map(measureValueOf), measure.aggregator);
+    const values = [];
+    for (const row of workingRows) pushMeasureValues(values, row);
+    const value = aggregate(values, measure.aggregator);
     return {
       type: 'scalar',
       total: workingRows.length,
@@ -185,7 +212,7 @@ export async function runWidgetConfig(config, tenantId) {
     workingRows.forEach(row => {
       const key = groupKeyOf(row);
       if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(measureValueOf(row));
+      pushMeasureValues(buckets.get(key), row);
     });
     const grouped = Array.from(buckets.entries())
       .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
@@ -210,7 +237,7 @@ export async function runWidgetConfig(config, tenantId) {
     const key = timeKeyOf(row);
     if (!key) return;
     if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(measureValueOf(row));
+    pushMeasureValues(buckets.get(key), row);
   });
   const sortedKeys = Array.from(buckets.keys()).sort();
   if (sortedKeys.length > MAX_BUCKETS) {
@@ -461,6 +488,46 @@ function extractPrimitive(value) {
   return value;
 }
 
+// Flatten a hydrated preference value into a plain array of primitives.
+// Used by the list-aware paths (count_distinct expansion + filter "any
+// element matches" semantics) so a multi-pick custom field contributes
+// every selection rather than only the first. Empty / missing inputs
+// produce []. A scalar input is wrapped into a single-element array so
+// callers can treat list and non-list values uniformly when needed.
+function toList(value) {
+  if (value === null || value === undefined || value === '') return [];
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const item of value) {
+      if (item === null || item === undefined || item === '') continue;
+      const v = (typeof item === 'object' && 'value' in item) ? item.value : item;
+      if (v === null || v === undefined || v === '') continue;
+      out.push(v);
+    }
+    return out;
+  }
+  if (typeof value === 'object' && 'value' in value) {
+    const v = value.value;
+    return v === null || v === undefined || v === '' ? [] : [v];
+  }
+  return [value];
+}
+
+// Look up which of the custom field ids referenced by this widget are
+// list-typed. We re-read the full custom-field catalogue for the source
+// (cheap, single round-trip) rather than caching across calls because
+// admins can flip a field's type and we want widgets to reflect that
+// without a server restart.
+async function resolveListFieldIds(source, tenantId, neededIds) {
+  if (!neededIds || neededIds.size === 0) return new Set();
+  const fields = await getCustomFieldsForSource(source, tenantId);
+  const out = new Set();
+  for (const f of fields) {
+    if (f.type === 'list' && neededIds.has(f.id)) out.add(f.id);
+  }
+  return out;
+}
+
 function normaliseKey(value) {
   if (value === null || value === undefined || value === '') return 'Unspecified';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
@@ -533,7 +600,42 @@ function compare(value, filterValue, op) {
   }
 }
 
-function matchFilter(rawValue, filter, lmicCodes) {
+function matchFilter(rawValue, filter, lmicCodes, isList = false) {
+  // List-typed (multi-pick) custom fields: a row qualifies when ANY
+  // element of the list satisfies the predicate (for `lmic`, `eq`,
+  // `neq`, `in`, `contains`). `is_null` becomes "list is missing or
+  // empty"; `is_not_null` is the inverse. Ordered comparisons
+  // (`gt`/`gte`/`lt`/`lte`) aren't meaningful on multi-pick picklists,
+  // so they fall through to the scalar (first-element) path.
+  if (isList) {
+    const elements = toList(rawValue);
+    switch (filter.operator) {
+      case 'is_null': return elements.length === 0;
+      case 'is_not_null': return elements.length > 0;
+      case 'lmic': {
+        const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+        if (codes.length === 0) return false;
+        return elements.some(v => codes.includes(String(v ?? '').trim().toUpperCase()));
+      }
+      case 'eq':
+        return elements.some(v => String(v ?? '') === String(filter.value ?? ''));
+      case 'neq':
+        return elements.some(v => String(v ?? '') !== String(filter.value ?? ''));
+      case 'in': {
+        if (!Array.isArray(filter.value)) return false;
+        const want = filter.value.map(String);
+        return elements.some(v => want.includes(String(v ?? '')));
+      }
+      case 'contains': {
+        if (filter.value === null || filter.value === undefined || filter.value === '') return true;
+        const needle = String(filter.value).toLowerCase();
+        return elements.some(v => String(v ?? '').toLowerCase().includes(needle));
+      }
+      default:
+        // Fall through to scalar path for ordered comparisons.
+        break;
+    }
+  }
   const value = extractPrimitive(rawValue);
   switch (filter.operator) {
     case 'lmic': {
