@@ -7,6 +7,7 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import DashboardWidgetBuilder from "@/components/dashboard/DashboardWidgetBuilder";
 
 export default function DashboardPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
@@ -78,6 +79,9 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Dynamic widget builder (renders nothing for users with no widgets and no manage permissions) */}
+      <DashboardWidgetBuilder />
+
       {/* Hero Section */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-16 px-4 md:px-8">
         <div className="max-w-7xl mx-auto">
