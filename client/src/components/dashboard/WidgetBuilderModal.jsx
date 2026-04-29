@@ -103,13 +103,14 @@ const TENANT_LIST_OPERATORS = [
 ];
 
 // A field is considered country-shaped (and so eligible for the LMIC
-// operator) when its name or label contains "country". This deliberately
-// matches both the system `country` column and any custom country
-// preference field admins may have created.
+// operator) when its name or label contains "country" or the plural
+// "countries". This deliberately matches both the system `country`
+// column, single-pick custom country preference fields, and plural
+// list-typed fields like `countries_of_operation`.
 function isCountryField(option) {
   if (!option) return false;
   const haystack = `${option.field || ""} ${option.label || ""}`.toLowerCase();
-  return haystack.includes("country");
+  return haystack.includes("country") || haystack.includes("countries");
 }
 
 const COLOUR_OPTIONS = [
