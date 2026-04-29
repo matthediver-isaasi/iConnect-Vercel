@@ -20,6 +20,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -237,9 +238,9 @@ function WidgetBody({ widget, payload }) {
     case "bar":
       return <BarBody payload={payload} widget={widget} />;
     case "pie":
-      return <PieBody payload={payload} donut={false} />;
+      return <PieBody payload={payload} donut={false} widget={widget} />;
     case "donut":
-      return <PieBody payload={payload} donut={true} />;
+      return <PieBody payload={payload} donut={true} widget={widget} />;
     case "line":
       return <LineBody payload={payload} widget={widget} />;
     default:
@@ -277,27 +278,47 @@ function BarBody({ payload, widget }) {
   const rows = payload.rows || [];
   const colour = pickColour(widget);
   const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
+  const total = useMemo(
+    () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
+    [rows],
+  );
   if (rows.length === 0) {
     return <EmptyChart />;
   }
   return (
-    <ChartContainer config={config} className="h-56 w-full">
-      <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-        <CartesianGrid vertical={false} strokeDasharray="3 3" />
-        <XAxis
-          dataKey="key"
-          tickLine={false}
-          axisLine={false}
-          interval={0}
-          angle={-25}
-          textAnchor="end"
-          height={50}
-        />
-        <YAxis tickLine={false} axisLine={false} width={40} />
-        <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="value" fill={colour} radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ChartContainer>
+    <div className="flex flex-1 flex-col gap-2">
+      <ChartContainer config={config} className="h-44 w-full">
+        <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis
+            dataKey="key"
+            tickLine={false}
+            axisLine={false}
+            interval={0}
+            angle={-25}
+            textAnchor="end"
+            height={50}
+          />
+          <YAxis tickLine={false} axisLine={false} width={40} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Bar dataKey="value" fill={colour} radius={[4, 4, 0, 0]}>
+            <LabelList
+              dataKey="value"
+              position="top"
+              className="fill-foreground"
+              fontSize={11}
+              formatter={(v) => formatNumber(v)}
+            />
+          </Bar>
+        </BarChart>
+      </ChartContainer>
+      <p
+        className="text-right text-xs text-muted-foreground"
+        data-testid={`widget-total-${widget.id}`}
+      >
+        Total: {formatNumber(total)}
+      </p>
+    </div>
   );
 }
 
@@ -325,7 +346,7 @@ function LineBody({ payload, widget }) {
   );
 }
 
-function PieBody({ payload, donut }) {
+function PieBody({ payload, donut, widget }) {
   const rows = payload.rows || [];
   const config = useMemo(() => {
     const built = {};
@@ -337,28 +358,74 @@ function PieBody({ payload, donut }) {
     });
     return built;
   }, [rows]);
+  const total = useMemo(
+    () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
+    [rows],
+  );
   if (rows.length === 0) return <EmptyChart />;
   return (
-    <ChartContainer config={config} className="h-56 w-full">
-      <PieChart>
-        <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
-        <Pie
-          data={rows}
-          dataKey="value"
-          nameKey="key"
-          innerRadius={donut ? 50 : 0}
-          outerRadius={80}
-          paddingAngle={donut ? 2 : 0}
-        >
-          {rows.map((row, idx) => (
-            <Cell
+    <div className="flex flex-1 flex-col gap-2">
+      <ChartContainer config={config} className="h-40 w-full">
+        <PieChart>
+          <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
+          <Pie
+            data={rows}
+            dataKey="value"
+            nameKey="key"
+            innerRadius={donut ? 50 : 0}
+            outerRadius={80}
+            paddingAngle={donut ? 2 : 0}
+          >
+            {rows.map((row, idx) => (
+              <Cell
+                key={row.key}
+                fill={CHART_COLOURS[idx % CHART_COLOURS.length]}
+              />
+            ))}
+          </Pie>
+        </PieChart>
+      </ChartContainer>
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-x-3 gap-y-1",
+          (widget?.width === "half" || widget?.width === "full") &&
+            "sm:grid-cols-2",
+        )}
+        data-testid={widget ? `widget-legend-${widget.id}` : undefined}
+      >
+        {rows.map((row, idx) => {
+          const value = Number(row.value) || 0;
+          const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+          return (
+            <div
               key={row.key}
-              fill={CHART_COLOURS[idx % CHART_COLOURS.length]}
-            />
-          ))}
-        </Pie>
-      </PieChart>
-    </ChartContainer>
+              className="flex min-w-0 items-center gap-2 text-xs"
+              title={row.key}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{
+                  backgroundColor: CHART_COLOURS[idx % CHART_COLOURS.length],
+                }}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {row.key}
+              </span>
+              <span className="shrink-0 tabular-nums text-foreground">
+                {formatNumber(value)}
+                <span className="ml-1 text-muted-foreground">({pct}%)</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p
+        className="text-right text-xs text-muted-foreground"
+        data-testid={widget ? `widget-total-${widget.id}` : undefined}
+      >
+        Total: {formatNumber(total)}
+      </p>
+    </div>
   );
 }
 
