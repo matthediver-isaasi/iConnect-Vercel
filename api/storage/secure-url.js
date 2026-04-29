@@ -61,9 +61,19 @@ export default async function handler(req, res) {
   try {
     // Get tenant context - REQUIRED for private file access
     const tenantContext = await getTenantContext(req);
-    
+
     if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
-      return res.status(401).json({ 
+      // If this request is being followed in a browser tab (redirect=true,
+      // e.g. a clickable link from an exported CSV), bounce the user to the
+      // login page with a return-to back at this same URL so they can sign
+      // in and then receive the file. For programmatic API callers (no
+      // redirect flag), keep the existing JSON 401 behaviour.
+      if (req.query.redirect === 'true') {
+        const originalUrl = req.originalUrl || req.url || '/';
+        const loginUrl = `/login?returnTo=${encodeURIComponent(originalUrl)}`;
+        return res.redirect(302, loginUrl);
+      }
+      return res.status(401).json({
         error: 'Authentication required',
         message: 'You must be logged in to access private files'
       });

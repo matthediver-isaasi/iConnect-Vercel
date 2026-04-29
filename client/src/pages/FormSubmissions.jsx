@@ -114,6 +114,21 @@ export default function FormSubmissionsPage() {
     return map;
   }, [forms]);
 
+  // Used by CSV export to resolve organisation_dropdown UUIDs to names.
+  const { data: organisationsForExport = [] } = useQuery({
+    queryKey: ['organizations-for-form-submissions-export'],
+    queryFn: async () => await base44.entities.Organization.list(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const organisationNamesById = useMemo(() => {
+    const map = {};
+    organisationsForExport.forEach(org => {
+      if (org && org.id) map[org.id] = org.name || '';
+    });
+    return map;
+  }, [organisationsForExport]);
+
   const resolveFormName = (submission) => {
     return submission.form_name || formsById[submission.form_id]?.name || 'Unknown Form';
   };
@@ -447,7 +462,46 @@ export default function FormSubmissionsPage() {
     const selectedOptions = exportFieldOptions.filter(f => selectedExportFields.includes(f.key));
     const headers = selectedOptions.map(f => f.label);
 
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+    const resolveOrgName = (orgId) => {
+      if (orgId == null || orgId === '') return '';
+      const id = String(orgId);
+      return organisationNamesById[id] || id;
+    };
+
+    const buildFileUrl = (raw) => {
+      if (raw == null || raw === '') return '';
+      let parsed = raw;
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try { parsed = JSON.parse(trimmed); } catch { parsed = trimmed; }
+        } else {
+          // Legacy plain-string value: just a URL.
+          return trimmed;
+        }
+      }
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => buildFileUrl(item)).filter(Boolean).join(', ');
+      }
+      if (parsed && typeof parsed === 'object') {
+        const bucket = parsed.bucket;
+        const storagePath = parsed.storage_path;
+        if (bucket && storagePath) {
+          return `${origin}/api/storage/secure-url?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(storagePath)}&redirect=true`;
+        }
+        if (parsed.file_url) return String(parsed.file_url);
+        return '';
+      }
+      return '';
+    };
+
     const rows = filteredSubmissions.map(submission => {
+      const form = formsById[submission.form_id];
+      const fieldDefsById = {};
+      (form?.fields || []).forEach(f => { if (f && f.id) fieldDefsById[f.id] = f; });
+
       return selectedOptions.map(field => {
         switch (field.key) {
           case '__form_name':
@@ -463,6 +517,21 @@ export default function FormSubmissionsPage() {
           default: {
             const val = submission.submission_data?.[field.key];
             if (val == null) return '';
+            const fieldDef = fieldDefsById[field.key];
+            const fieldType = fieldDef?.type;
+
+            if (fieldType === 'organisation_dropdown') {
+              if (Array.isArray(val)) return val.map(resolveOrgName).join(', ');
+              return resolveOrgName(val);
+            }
+
+            if (fieldType === 'file') {
+              if (Array.isArray(val)) {
+                return val.map(buildFileUrl).filter(Boolean).join(', ');
+              }
+              return buildFileUrl(val);
+            }
+
             if (Array.isArray(val)) return val.join(', ');
             return String(val);
           }
