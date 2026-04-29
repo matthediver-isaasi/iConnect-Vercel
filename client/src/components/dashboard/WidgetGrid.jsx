@@ -16,7 +16,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import WidgetCard from "./WidgetCard";
 
-function SortableWidget({ widget, canEdit, onEdit, onDelete, onResize }) {
+function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResize }) {
   const {
     attributes,
     listeners,
@@ -38,6 +38,7 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onResize }) {
         dragHandleProps={canEdit ? { ...attributes, ...listeners } : null}
         onEdit={onEdit}
         onDelete={onDelete}
+        onDuplicate={onDuplicate}
         onResize={onResize}
       />
     </div>
@@ -50,6 +51,7 @@ export default function WidgetGrid({
   onReorder,
   onEdit,
   onDelete,
+  onDuplicate,
   onResize,
 }) {
   const sensors = useSensors(
@@ -82,6 +84,7 @@ export default function WidgetGrid({
               canEdit={canEdit}
               onEdit={onEdit}
               onDelete={onDelete}
+              onDuplicate={onDuplicate}
               onResize={onResize}
             />
           ))}

@@ -167,6 +167,7 @@ export default function WidgetBuilderModal({
   onClose,
   onSave,
   initialWidget = null,
+  prefillWidget = null,
   defaultScope = "personal",
   canSaveShared = false,
   canSavePersonal = true,
@@ -177,22 +178,26 @@ export default function WidgetBuilderModal({
   const [previewError, setPreviewError] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Reset draft whenever the modal opens.
+  // Reset draft whenever the modal opens. `prefillWidget` (used by
+  // Duplicate) seeds a brand-new draft from another widget's config without
+  // flipping the modal into "edit" mode — only `initialWidget` controls
+  // that. If both are provided, `initialWidget` wins.
   useEffect(() => {
     if (!open) return;
-    if (initialWidget) {
+    const seed = initialWidget || prefillWidget;
+    if (seed) {
       setDraft({
-        title: initialWidget.title,
-        widget_type: initialWidget.widget_type,
-        width: initialWidget.width || "third",
-        scope: initialWidget.scope,
+        title: seed.title,
+        widget_type: seed.widget_type,
+        width: seed.width || "third",
+        scope: seed.scope,
         config: {
-          source: initialWidget.config?.source || "organization",
-          color: initialWidget.config?.color || "default",
-          measure: initialWidget.config?.measure || cloneDraft(DEFAULT_DRAFT).config.measure,
-          groupBy: initialWidget.config?.groupBy || null,
-          timeBucket: initialWidget.config?.timeBucket || null,
-          filters: initialWidget.config?.filters || [],
+          source: seed.config?.source || "organization",
+          color: seed.config?.color || "default",
+          measure: seed.config?.measure || cloneDraft(DEFAULT_DRAFT).config.measure,
+          groupBy: seed.config?.groupBy || null,
+          timeBucket: seed.config?.timeBucket || null,
+          filters: seed.config?.filters || [],
         },
       });
     } else {
@@ -203,7 +208,7 @@ export default function WidgetBuilderModal({
     }
     setPreviewData(null);
     setPreviewError(null);
-  }, [open, initialWidget, defaultScope, canSaveShared]);
+  }, [open, initialWidget, prefillWidget, defaultScope, canSaveShared]);
 
   const { data: sourcesPayload } = useQuery({
     queryKey: ["/api/dashboard/sources"],

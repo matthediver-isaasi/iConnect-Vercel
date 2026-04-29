@@ -30,6 +30,7 @@ export default function DashboardWidgetBuilder() {
   const qc = useQueryClient();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingWidget, setEditingWidget] = useState(null);
+  const [prefillWidget, setPrefillWidget] = useState(null);
   const [defaultScope, setDefaultScope] = useState("personal");
   const [pendingDelete, setPendingDelete] = useState(null);
 
@@ -71,6 +72,7 @@ export default function DashboardWidgetBuilder() {
       if (!variables?.__resizeId) {
         setBuilderOpen(false);
         setEditingWidget(null);
+        setPrefillWidget(null);
         toast({ title: editingWidget ? "Widget updated" : "Widget created" });
       }
     },
@@ -141,7 +143,31 @@ export default function DashboardWidgetBuilder() {
 
   const openBuilder = (scope, widget = null) => {
     setEditingWidget(widget);
+    setPrefillWidget(null);
     setDefaultScope(scope);
+    setBuilderOpen(true);
+  };
+
+  const handleDuplicate = widget => {
+    if (!widget) return;
+    const cloneConfig = (() => {
+      try {
+        return typeof structuredClone === "function"
+          ? structuredClone(widget.config || {})
+          : JSON.parse(JSON.stringify(widget.config || {}));
+      } catch {
+        return JSON.parse(JSON.stringify(widget.config || {}));
+      }
+    })();
+    setEditingWidget(null);
+    setPrefillWidget({
+      title: `${widget.title || "Untitled widget"} (copy)`,
+      widget_type: widget.widget_type,
+      width: widget.width || "third",
+      scope: widget.scope,
+      config: cloneConfig,
+    });
+    setDefaultScope(widget.scope || "personal");
     setBuilderOpen(true);
   };
 
@@ -206,6 +232,7 @@ export default function DashboardWidgetBuilder() {
             onReorder={next => handleReorder("shared", next)}
             onEdit={w => openBuilder("shared", w)}
             onDelete={w => setPendingDelete(w)}
+            onDuplicate={handleDuplicate}
             onResize={(w, nextWidth) => handleResize(w)(nextWidth)}
             testId="zone-shared"
           />
@@ -243,6 +270,7 @@ export default function DashboardWidgetBuilder() {
             onReorder={next => handleReorder("personal", next)}
             onEdit={w => openBuilder("personal", w)}
             onDelete={w => setPendingDelete(w)}
+            onDuplicate={handleDuplicate}
             onResize={(w, nextWidth) => handleResize(w)(nextWidth)}
             testId="zone-personal"
           />
@@ -254,9 +282,11 @@ export default function DashboardWidgetBuilder() {
         onClose={() => {
           setBuilderOpen(false);
           setEditingWidget(null);
+          setPrefillWidget(null);
         }}
         onSave={payload => saveMutation.mutate(payload)}
         initialWidget={editingWidget}
+        prefillWidget={prefillWidget}
         defaultScope={defaultScope}
         canSaveShared={permissions.manageShared}
         canSavePersonal={permissions.managePersonal}
@@ -379,6 +409,7 @@ function WidgetZone({
   onReorder,
   onEdit,
   onDelete,
+  onDuplicate,
   onResize,
   testId,
 }) {
@@ -413,6 +444,7 @@ function WidgetZone({
       onReorder={onReorder}
       onEdit={onEdit}
       onDelete={onDelete}
+      onDuplicate={onDuplicate}
       onResize={onResize}
     />
   );

@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
+  Copy,
   GripVertical,
   MoreVertical,
   PencilLine,
@@ -96,6 +97,7 @@ export default function WidgetCard({
   dragHandleProps = null,
   onEdit,
   onDelete,
+  onDuplicate,
   onResize,
 }) {
   const widthClass = WIDTH_CLASS[widget.width] || WIDTH_CLASS.third;
@@ -182,6 +184,15 @@ export default function WidgetCard({
                 <PencilLine className="mr-2 h-4 w-4" />
                 Edit widget
               </DropdownMenuItem>
+              {onDuplicate && (
+                <DropdownMenuItem
+                  onSelect={() => onDuplicate?.(widget)}
+                  data-testid={`menuitem-duplicate-widget-${widget.id}`}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Duplicate widget
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() => onDelete?.(widget)}
