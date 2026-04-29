@@ -59,6 +59,7 @@ const WIDGET_TYPES = [
 ];
 
 const WIDTHS = [
+  { value: "fifth", label: "1/5" },
   { value: "third", label: "1/3" },
   { value: "half", label: "1/2" },
   { value: "full", label: "Full" },
@@ -66,6 +67,7 @@ const WIDTHS = [
 
 const AGGREGATORS = [
   { value: "count", label: "Count" },
+  { value: "count_distinct", label: "Count distinct" },
   { value: "sum", label: "Sum" },
   { value: "avg", label: "Average" },
   { value: "min", label: "Minimum" },
@@ -92,6 +94,23 @@ const FILTER_OPERATORS = [
   { value: "is_null", label: "is empty" },
   { value: "is_not_null", label: "is not empty" },
 ];
+
+// Operators that operate on the saved tenant value list rather than a
+// user-entered value — currently just "LMIC only", which expands at
+// query time to `country IN (tenant LMIC list)`.
+const TENANT_LIST_OPERATORS = [
+  { value: "lmic", label: "LMIC only (tenant list)" },
+];
+
+// A field is considered country-shaped (and so eligible for the LMIC
+// operator) when its name or label contains "country". This deliberately
+// matches both the system `country` column and any custom country
+// preference field admins may have created.
+function isCountryField(option) {
+  if (!option) return false;
+  const haystack = `${option.field || ""} ${option.label || ""}`.toLowerCase();
+  return haystack.includes("country");
+}
 
 const COLOUR_OPTIONS = [
   { value: "default", label: "Default", swatch: "hsl(var(--chart-1))" },
@@ -274,6 +293,8 @@ export default function WidgetBuilderModal({
     }));
   };
 
+  // Only plain "count" allows a null field; count_distinct and the
+  // numeric aggregators all require one.
   const requireMeasureField = draft.config.measure.aggregator !== "count";
 
   // Derived validation: surfaces inline errors and gates the Save button so
@@ -283,7 +304,9 @@ export default function WidgetBuilderModal({
     if (!draft.title.trim()) errs.push("Add a widget title.");
     if (!draft.config.source) errs.push("Choose a data source.");
     if (requireMeasureField && !draft.config.measure.field && !draft.config.measure.fieldId) {
-      errs.push(`${draft.config.measure.aggregator} needs a numeric field.`);
+      const agg = draft.config.measure.aggregator;
+      const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
+      errs.push(`${agg} ${reqText}.`);
     }
     if (draft.config.groupBy && draft.config.timeBucket?.field) {
       errs.push("Pick either group-by or a time bucket, not both.");
@@ -306,7 +329,7 @@ export default function WidgetBuilderModal({
           : String(f.value || "").split(",").map(s => s.trim()).filter(Boolean);
         if (list.length === 0) errs.push(`Filter ${i + 1}: list cannot be empty.`);
       } else if (
-        !["is_null", "is_not_null"].includes(f.operator) &&
+        !["is_null", "is_not_null", "lmic"].includes(f.operator) &&
         (f.value === null || f.value === undefined || f.value === "")
       ) {
         errs.push(`Filter ${i + 1}: enter a value.`);
@@ -565,7 +588,14 @@ export default function WidgetBuilderModal({
                   </SelectTrigger>
                   <SelectContent>
                     {fieldOptions
-                      .filter(opt => (requireMeasureField ? opt.aggregatable : true))
+                      .filter(opt => {
+                        // count / count_distinct accept any field type
+                        // (e.g. count_distinct on country); numeric
+                        // aggregators are restricted to aggregatable fields.
+                        const agg = draft.config.measure.aggregator;
+                        if (agg === 'count' || agg === 'count_distinct') return true;
+                        return opt.aggregatable;
+                      })
                       .map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
@@ -617,11 +647,19 @@ export default function WidgetBuilderModal({
               <div className="space-y-2">
                 <Label>Time bucket — date field</Label>
                 <Select
-                  value={
-                    draft.config.timeBucket?.field
-                      ? `system:${draft.config.timeBucket.field}`
-                      : "__none__"
-                  }
+                  value={(() => {
+                    // Re-derive the option key (system:<name> or
+                    // custom:<id>) from the saved config so existing
+                    // widgets — including seeded ones that bucket on
+                    // a custom date field like member.go_live —
+                    // prefill correctly when re-opened in the builder.
+                    const tb = draft.config.timeBucket;
+                    if (!tb?.field && !tb?.fieldId) return "__none__";
+                    if (tb.fieldKind === "custom" && tb.fieldId) {
+                      return `custom:${tb.fieldId}`;
+                    }
+                    return `system:${tb.field}`;
+                  })()}
                   onValueChange={value => {
                     if (value === "__none__") {
                       updateConfig({ timeBucket: null });
@@ -631,7 +669,13 @@ export default function WidgetBuilderModal({
                     if (!opt) return;
                     updateConfig({
                       timeBucket: {
-                        field: opt.field,
+                        // Persist all three keys so the engine can
+                        // hydrate via the preference store for custom
+                        // date fields and read directly off the row
+                        // for system date columns.
+                        field: opt.field || opt.fieldId,
+                        fieldKind: opt.fieldKind,
+                        fieldId: opt.fieldId,
                         granularity: draft.config.timeBucket?.granularity || "month",
                       },
                       groupBy: null,
@@ -644,7 +688,7 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     <SelectItem value="__none__">No bucket</SelectItem>
                     {fieldOptions
-                      .filter(opt => opt.fieldKind === "system" && opt.type === "date")
+                      .filter(opt => opt.type === "date")
                       .map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
@@ -736,7 +780,16 @@ export default function WidgetBuilderModal({
                       </Select>
                       <Select
                         value={filter.operator}
-                        onValueChange={value => updateFilter(idx, { operator: value })}
+                        onValueChange={value => {
+                          // Tenant-list operators (e.g. LMIC) ignore the
+                          // user-entered value, so clear it on switch to
+                          // avoid stale values being re-sent on save.
+                          const patch = { operator: value };
+                          if (TENANT_LIST_OPERATORS.some(o => o.value === value)) {
+                            patch.value = null;
+                          }
+                          updateFilter(idx, patch);
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -747,9 +800,15 @@ export default function WidgetBuilderModal({
                               {op.label}
                             </SelectItem>
                           ))}
+                          {isCountryField(opt) &&
+                            TENANT_LIST_OPERATORS.map(op => (
+                              <SelectItem key={op.value} value={op.value}>
+                                {op.label}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
-                      {!["is_null", "is_not_null"].includes(filter.operator) ? (
+                      {!["is_null", "is_not_null", "lmic"].includes(filter.operator) ? (
                         <Input
                           value={
                             Array.isArray(filter.value)

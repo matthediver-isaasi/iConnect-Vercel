@@ -327,6 +327,7 @@ import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
 import AdminBranding from "./admin/AdminBranding";
+import AdminLmicCountries from "./admin/AdminLmicCountries";
 import AdminDomains from "./admin/AdminDomains";
 import AdminTeam from "./admin/AdminTeam";
 import AdminEmailLogs from "./admin/AdminEmailLogs";
@@ -1074,6 +1075,7 @@ function AdminRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin/email-logs" element={<AdminEmailLogs />} />
@@ -1112,6 +1114,7 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/lmic-countries" element={<AdminLmicCountries />} />
             <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin/email-logs" element={<AdminEmailLogs />} />

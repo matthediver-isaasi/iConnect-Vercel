@@ -235,6 +235,13 @@ export default function AdminDashboard() {
       icon: Plug,
       href: "/admin/integrations",
       color: "text-orange-400"
+    },
+    {
+      title: "LMIC Country List",
+      description: "Curate countries flagged as low/middle income for dashboard filtering",
+      icon: Globe,
+      href: "/admin/lmic-countries",
+      color: "text-emerald-400"
     }
   ];
 

@@ -64,6 +64,11 @@ const CHART_COLOURS = [
 ];
 
 const WIDTH_CLASS = {
+  // `fifth` is col-span-2 on a 12-col grid → five cards per row, used
+  // for the top-row KPI stat cards in the GFI default dashboard. The
+  // 5×2 = 10-col footprint leaves a 2-col gutter on the right which the
+  // CSS grid distributes evenly between cards via the parent gap.
+  fifth: "md:col-span-2",
   third: "md:col-span-4",
   half: "md:col-span-6",
   full: "md:col-span-12",
@@ -81,8 +86,8 @@ function formatNumber(value) {
   return Number(value).toFixed(2);
 }
 
-const NEXT_WIDTH = { third: "half", half: "full", full: "third" };
-const WIDTH_LABEL = { third: "1/3", half: "1/2", full: "Full" };
+const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
+const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
 export default function WidgetCard({
   widget,

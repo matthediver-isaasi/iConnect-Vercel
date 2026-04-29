@@ -722,6 +722,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Dashboard"
       },
       {
+        id: "system.lmic-countries",
+        label: "LMIC Country List"
+      },
+      {
         id: "dashboard.view",
         label: "Dashboard Builder",
         features: [

@@ -24,6 +24,10 @@ export const DASHBOARD_SOURCES = {
       { name: 'id', label: 'ID', type: 'id' },
       { name: 'name', label: 'Name', type: 'text' },
       { name: 'domain', label: 'Domain', type: 'text' },
+      // `country` is exposed so the LMIC filter operator and the
+      // count_distinct(country) measure used by seeded widgets can be
+      // configured from the builder against organization.country.
+      { name: 'country', label: 'Country', type: 'text' },
       { name: 'created_at', label: 'Created at', type: 'date' },
       { name: 'last_synced', label: 'Last synced', type: 'date' },
       { name: 'training_fund_balance', label: 'Training fund balance', type: 'number', aggregatable: true },

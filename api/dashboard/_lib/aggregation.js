@@ -41,7 +41,8 @@ export async function runWidgetConfig(config, tenantId) {
     throw new Error('Choose either group-by or time-bucket, not both');
   }
 
-  // Reject numeric aggregators against non-numeric fields up front. This
+  // count and count_distinct accept any field type; numeric aggregators
+  // require a numeric field. Reject mismatches up front. This
   // prevents silent string coercion that would otherwise return zero or NaN.
   if (NUMERIC_AGGREGATORS.has(measure.aggregator)) {
     if (!measure.field && !measure.fieldId) {
@@ -64,10 +65,21 @@ export async function runWidgetConfig(config, tenantId) {
     systemColumns.add(measure.field);
   }
   if (groupBy?.kind === 'system') systemColumns.add(groupBy.field);
-  if (timeBucket?.field) systemColumns.add(timeBucket.field);
+  // Custom-field timeBucket (e.g. organisation.go_live) does NOT add to the
+  // system column set — its value is hydrated via the preference store
+  // below, not the base row.
+  if (timeBucket?.field && timeBucket.fieldKind !== 'custom') {
+    systemColumns.add(timeBucket.field);
+  }
   (config.filters || []).forEach(f => {
     if (f.fieldKind === 'system' && f.field) systemColumns.add(f.field);
   });
+
+  // Resolve any `lmic` operator filters into concrete IN-lists by loading
+  // the tenant's saved LMIC country codes once per query. Doing this at
+  // query time (rather than baking the codes into the widget config)
+  // means LMIC settings edits are reflected in widget output immediately.
+  const lmicCodes = needsLmicResolution(config) ? await loadTenantLmicCodes(tenantId) : null;
 
   // Fetch base rows (tenant scoped + system filters applied directly).
   // Supabase enforces a per-request row cap (default 1000), so we paginate
@@ -81,7 +93,7 @@ export async function runWidgetConfig(config, tenantId) {
     const to = Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1);
     let q = supabase.from(source.table).select(selectColumns);
     q = tenantFilter(q, tenantId);
-    q = applySystemFilters(q, systemFilters);
+    q = applySystemFilters(q, systemFilters, lmicCodes);
     const { data: page, error } = await q.range(from, to);
     if (error) {
       throw new Error(`Source query failed: ${error.message}`);
@@ -117,17 +129,43 @@ export async function runWidgetConfig(config, tenantId) {
   if (customFilters.length > 0) {
     workingRows = workingRows.filter(row => {
       const prefs = prefMap.get(row.id) || {};
-      return customFilters.every(f => matchFilter(prefs[f.fieldId], f));
+      return customFilters.every(f => matchFilter(prefs[f.fieldId], f, lmicCodes));
     });
   }
 
-  // Resolve a value for each row (used by sum/avg/min/max + as group key).
-  const measureValueOf = row => valueFor(row, measure, prefMap);
+  // Resolve a value for each row. When measure.additionalFields is set
+  // (e.g. children_impacted_direct + children_impacted_indirect) the
+  // per-row value is the numeric sum of the primary field's value plus
+  // every additional field's value — non-numeric / missing values are
+  // coerced to 0 so a row with only one of the two fields populated
+  // still contributes its known portion.
+  const additional = Array.isArray(measure.additionalFields) ? measure.additionalFields : [];
+  const toNum = v => {
+    if (v === null || v === undefined || v === '') return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const measureValueOf = additional.length > 0
+    ? row => {
+        const primary = toNum(valueFor(row, measure, prefMap));
+        return additional.reduce(
+          (sum, ref) => sum + toNum(valueFor(row, ref, prefMap)),
+          primary,
+        );
+      }
+    : row => valueFor(row, measure, prefMap);
   const groupKeyOf = groupBy
     ? row => normaliseKey(valueFor(row, groupBy, prefMap))
     : null;
+  // timeBucket on a custom date field reads through the preference map; for
+  // system date columns it reads the value directly off the base row.
   const timeKeyOf = timeBucket
-    ? row => bucketTimestamp(row[timeBucket.field], timeBucket.granularity)
+    ? row => {
+        const raw = timeBucket.fieldKind === 'custom'
+          ? extractPrimitive((prefMap.get(row.id) || {})[timeBucket.fieldId])
+          : row[timeBucket.field];
+        return bucketTimestamp(raw, timeBucket.granularity);
+      }
     : null;
 
   // No grouping — single value (count, sum, etc.).
@@ -190,6 +228,63 @@ export async function runWidgetConfig(config, tenantId) {
   };
 }
 
+function needsLmicResolution(config) {
+  return (config.filters || []).some(f => f.operator === 'lmic');
+}
+
+async function loadTenantLmicCodes(tenantId) {
+  let q = supabase.from('tenant_lmic_country').select('country_code');
+  q = tenantId ? q.eq('tenant_id', tenantId) : q.is('tenant_id', null);
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Dashboard Aggregation] Failed to load LMIC codes:', error.message);
+    return [];
+  }
+  const codes = (data || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
+  if (codes.length > 0 || !tenantId) return codes;
+  // No rows: distinguish "never initialised" from "admin saved empty list"
+  // via the tenant_lmic_seed marker. Only the never-initialised case
+  // triggers a lazy seed of the World Bank defaults; an intentionally
+  // empty list is left empty (the lmic operator will then resolve to
+  // "match nothing", which is the correct semantic).
+  const { data: seedRow, error: seedErr } = await supabase
+    .from('tenant_lmic_seed')
+    .select('tenant_id')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (seedErr) {
+    console.warn('[Dashboard Aggregation] LMIC seed marker lookup warning:', seedErr.message);
+  }
+  if (seedRow) return [];
+  try {
+    const { WORLD_BANK_LMIC_ISO2 } = await import('../../../shared/lmicCountries.js');
+    const rows = WORLD_BANK_LMIC_ISO2.map(code => ({ tenant_id: tenantId, country_code: code }));
+    const { error: insertErr } = await supabase
+      .from('tenant_lmic_country')
+      .insert(rows);
+    if (insertErr) {
+      // Most likely a race with another request that just seeded the
+      // same tenant — re-read and use whatever is now there.
+      console.warn('[Dashboard Aggregation] LMIC seed insert warning:', insertErr.message);
+      const { data: after } = await supabase
+        .from('tenant_lmic_country')
+        .select('country_code')
+        .eq('tenant_id', tenantId);
+      return (after || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
+    }
+    const { error: markErr } = await supabase
+      .from('tenant_lmic_seed')
+      .upsert({ tenant_id: tenantId }, { onConflict: 'tenant_id' });
+    if (markErr) {
+      console.warn('[Dashboard Aggregation] LMIC seed marker upsert warning:', markErr.message);
+    }
+    return [...WORLD_BANK_LMIC_ISO2];
+  } catch (err) {
+    console.error('[Dashboard Aggregation] LMIC seed failed:', err.message || err);
+    return [];
+  }
+}
+
 async function resolveFieldType(source, ref, tenantId) {
   if (ref.fieldKind === 'system' && ref.field) {
     const def = (source.systemFields || []).find(f => f.name === ref.field);
@@ -207,24 +302,47 @@ async function resolveFieldType(source, ref, tenantId) {
 
 function normaliseMeasure(raw) {
   if (!raw) {
-    return { aggregator: 'count', field: null, fieldKind: null, fieldId: null };
+    return { aggregator: 'count', field: null, fieldKind: null, fieldId: null, additionalFields: [] };
   }
   const aggregator = (raw.aggregator || 'count').toLowerCase();
-  if (!['count', 'sum', 'avg', 'min', 'max'].includes(aggregator)) {
+  // Keep this allow-list in sync with measureSchema in validation.js.
+  if (!['count', 'count_distinct', 'sum', 'avg', 'min', 'max'].includes(aggregator)) {
     throw new Error(`Unsupported aggregator: ${aggregator}`);
   }
+  // additionalFields lets a single measure sum across multiple fields
+  // per row before the aggregator runs across rows (e.g. children_impacted
+  // = direct + indirect). Drop entries that lack a field reference so a
+  // malformed config can't crash the engine.
+  const additionalFields = Array.isArray(raw.additionalFields)
+    ? raw.additionalFields
+        .filter(f => f && (f.field || f.fieldId))
+        .map(f => ({
+          field: f.field || null,
+          fieldKind: f.fieldKind || null,
+          fieldId: f.fieldId || null,
+        }))
+    : [];
   return {
     aggregator,
     field: raw.field || null,
     fieldKind: raw.fieldKind || null,
     fieldId: raw.fieldId || null,
+    additionalFields,
   };
 }
 
-function applySystemFilters(query, filters) {
+function applySystemFilters(query, filters, lmicCodes) {
   for (const f of filters) {
     if (!f.field) continue;
     switch (f.operator) {
+      case 'lmic': {
+        // LMIC operator expands to "field IN (tenant codes)". We treat an
+        // empty list as "match nothing" — returning every row would be a
+        // surprising no-op when the tenant has cleared their LMIC list.
+        const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+        query = query.in(f.field, codes.length > 0 ? codes : ['__never__']);
+        break;
+      }
       case 'eq':
         query = query.eq(f.field, f.value);
         break;
@@ -269,8 +387,15 @@ function collectCustomFieldIds(config) {
   if (config.measure?.fieldKind === 'custom' && config.measure.fieldId) {
     ids.add(config.measure.fieldId);
   }
+  // additionalFields entries (multi-field sum) also need hydration.
+  (config.measure?.additionalFields || []).forEach(ref => {
+    if (ref.fieldKind === 'custom' && ref.fieldId) ids.add(ref.fieldId);
+  });
   if (config.groupBy?.kind === 'custom' && config.groupBy.fieldId) {
     ids.add(config.groupBy.fieldId);
+  }
+  if (config.timeBucket?.fieldKind === 'custom' && config.timeBucket.fieldId) {
+    ids.add(config.timeBucket.fieldId);
   }
   (config.filters || []).forEach(f => {
     if (f.fieldKind === 'custom' && f.fieldId) ids.add(f.fieldId);
@@ -346,6 +471,20 @@ function aggregate(values, aggregator) {
   if (aggregator === 'count') {
     return values.length;
   }
+  if (aggregator === 'count_distinct') {
+    // Distinct count over non-empty values. Stringification keeps the
+    // semantics consistent across system columns (which can return any
+    // primitive) and custom preference values (which often arrive as
+    // already-string JSONB extractions).
+    const seen = new Set();
+    for (const v of values) {
+      if (v === null || v === undefined) continue;
+      const s = String(v).trim();
+      if (s === '') continue;
+      seen.add(s.toUpperCase());
+    }
+    return seen.size;
+  }
   const numeric = values
     .map(v => (v === null || v === undefined || v === '' ? null : Number(v)))
     .filter(v => v !== null && !Number.isNaN(v));
@@ -359,15 +498,56 @@ function aggregate(values, aggregator) {
   }
 }
 
-function matchFilter(rawValue, filter) {
+// Coerce a value for ordered comparison. ISO-style date strings compare
+// by their parsed timestamp so a custom date field filter like
+// `go_live >= '2026-01-01T00:00:00.000Z'` works correctly — a previous
+// implementation used Number() on both sides which produced NaN and
+// silently dropped every row.
+function toComparable(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    // Detect anything that looks like a date string (full ISO or
+    // calendar date) before falling back to numeric coercion.
+    if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
+      const t = Date.parse(v);
+      if (!Number.isNaN(t)) return t;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function compare(value, filterValue, op) {
+  const a = toComparable(value);
+  const b = toComparable(filterValue);
+  if (a === null || b === null) return false;
+  switch (op) {
+    case 'gt': return a > b;
+    case 'gte': return a >= b;
+    case 'lt': return a < b;
+    case 'lte': return a <= b;
+    default: return false;
+  }
+}
+
+function matchFilter(rawValue, filter, lmicCodes) {
   const value = extractPrimitive(rawValue);
   switch (filter.operator) {
+    case 'lmic': {
+      const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
+      if (codes.length === 0) return false;
+      const v = String(value ?? '').trim().toUpperCase();
+      return codes.includes(v);
+    }
     case 'eq': return String(value ?? '') === String(filter.value ?? '');
     case 'neq': return String(value ?? '') !== String(filter.value ?? '');
-    case 'gt': return Number(value) > Number(filter.value);
-    case 'gte': return Number(value) >= Number(filter.value);
-    case 'lt': return Number(value) < Number(filter.value);
-    case 'lte': return Number(value) <= Number(filter.value);
+    case 'gt': return compare(value, filter.value, 'gt');
+    case 'gte': return compare(value, filter.value, 'gte');
+    case 'lt': return compare(value, filter.value, 'lt');
+    case 'lte': return compare(value, filter.value, 'lte');
     case 'in':
       if (!Array.isArray(filter.value)) return false;
       return filter.value.map(String).includes(String(value ?? ''));
