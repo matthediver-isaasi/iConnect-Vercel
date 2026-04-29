@@ -1,0 +1,366 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  AlertTriangle,
+  GripVertical,
+  MoreVertical,
+  PencilLine,
+  Trash2,
+  Maximize2,
+} from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+const COLOUR_MAP = {
+  default: "hsl(var(--chart-1))",
+  emerald: "hsl(var(--chart-2))",
+  amber: "hsl(var(--chart-3))",
+  violet: "hsl(var(--chart-4))",
+  rose: "hsl(var(--chart-5))",
+};
+
+function pickColour(widget) {
+  return COLOUR_MAP[widget?.config?.color] || COLOUR_MAP.default;
+}
+
+const CHART_COLOURS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+];
+
+const WIDTH_CLASS = {
+  third: "md:col-span-4",
+  half: "md:col-span-6",
+  full: "md:col-span-12",
+};
+
+function formatNumber(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  if (Math.abs(value) >= 1000) {
+    return new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+      notation: "compact",
+    }).format(value);
+  }
+  if (Number.isInteger(value)) return value.toLocaleString();
+  return Number(value).toFixed(2);
+}
+
+const NEXT_WIDTH = { third: "half", half: "full", full: "third" };
+const WIDTH_LABEL = { third: "1/3", half: "1/2", full: "Full" };
+
+export default function WidgetCard({
+  widget,
+  canEdit = false,
+  dragHandleProps = null,
+  onEdit,
+  onDelete,
+  onResize,
+}) {
+  const widthClass = WIDTH_CLASS[widget.width] || WIDTH_CLASS.third;
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["/api/dashboard/widgets", widget.id, "data"],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/widgets/${widget.id}/data`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      return res.json();
+    },
+  });
+
+  return (
+    <Card
+      data-testid={`widget-card-${widget.id}`}
+      className={cn("col-span-12", widthClass, "flex flex-col")}
+    >
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {dragHandleProps && (
+            <button
+              type="button"
+              aria-label="Drag widget"
+              data-testid={`button-drag-widget-${widget.id}`}
+              className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
+              {...dragHandleProps}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
+          <CardTitle
+            className="truncate text-base"
+            data-testid={`text-widget-title-${widget.id}`}
+            title={widget.title}
+          >
+            {widget.title}
+          </CardTitle>
+        </div>
+        {canEdit && onResize && (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label={`Resize widget (currently ${WIDTH_LABEL[widget.width] || "1/3"})`}
+                  data-testid={`button-widget-resize-${widget.id}`}
+                  onClick={() => onResize(widget, NEXT_WIDTH[widget.width] || "third")}
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Resize · now {WIDTH_LABEL[widget.width] || "1/3"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {canEdit && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Widget actions"
+                data-testid={`button-widget-menu-${widget.id}`}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => onEdit?.(widget)}
+                data-testid={`menuitem-edit-widget-${widget.id}`}
+              >
+                <PencilLine className="mr-2 h-4 w-4" />
+                Edit widget
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => onDelete?.(widget)}
+                className="text-destructive focus:text-destructive"
+                data-testid={`menuitem-delete-widget-${widget.id}`}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete widget
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
+        {isLoading && (
+          <div className="space-y-2" data-testid={`widget-loading-${widget.id}`}>
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        )}
+        {isError && (
+          <div
+            className="flex flex-1 flex-col items-start justify-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            data-testid={`widget-error-${widget.id}`}
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Failed to load widget</span>
+            </div>
+            <p className="text-xs text-destructive/80">{error?.message}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              data-testid={`button-retry-widget-${widget.id}`}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+        {!isLoading && !isError && data && (
+          <WidgetBody widget={widget} payload={data.data} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WidgetBody({ widget, payload }) {
+  if (!payload) return null;
+  switch (widget.widget_type) {
+    case "stat":
+      return <StatBody widget={widget} payload={payload} />;
+    case "bar":
+      return <BarBody payload={payload} widget={widget} />;
+    case "pie":
+      return <PieBody payload={payload} donut={false} />;
+    case "donut":
+      return <PieBody payload={payload} donut={true} />;
+    case "line":
+      return <LineBody payload={payload} widget={widget} />;
+    default:
+      return (
+        <p className="text-sm text-muted-foreground">
+          Unsupported widget type: {widget.widget_type}
+        </p>
+      );
+  }
+}
+
+function StatBody({ widget, payload }) {
+  const value = payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
+  const aggregator = widget.config?.measure?.aggregator || "count";
+  return (
+    <div className="flex flex-1 flex-col justify-center gap-1">
+      <p
+        className="text-3xl font-semibold tracking-tight"
+        data-testid={`stat-value-${widget.id}`}
+      >
+        {formatNumber(value)}
+      </p>
+      <p className="text-xs uppercase text-muted-foreground">
+        {aggregator} · {payload.total ?? 0} record{payload.total === 1 ? "" : "s"}
+      </p>
+    </div>
+  );
+}
+
+function chartConfig() {
+  return { value: { label: "Value", color: CHART_COLOURS[0] } };
+}
+
+function BarBody({ payload, widget }) {
+  const rows = payload.rows || [];
+  const colour = pickColour(widget);
+  const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
+  if (rows.length === 0) {
+    return <EmptyChart />;
+  }
+  return (
+    <ChartContainer config={config} className="h-56 w-full">
+      <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+        <XAxis
+          dataKey="key"
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          angle={-25}
+          textAnchor="end"
+          height={50}
+        />
+        <YAxis tickLine={false} axisLine={false} width={40} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <Bar dataKey="value" fill={colour} radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+function LineBody({ payload, widget }) {
+  const rows = payload.rows || [];
+  const colour = pickColour(widget);
+  const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
+  if (rows.length === 0) return <EmptyChart />;
+  return (
+    <ChartContainer config={config} className="h-56 w-full">
+      <LineChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+        <XAxis dataKey="key" tickLine={false} axisLine={false} />
+        <YAxis tickLine={false} axisLine={false} width={40} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={colour}
+          strokeWidth={2}
+          dot={false}
+        />
+      </LineChart>
+    </ChartContainer>
+  );
+}
+
+function PieBody({ payload, donut }) {
+  const rows = payload.rows || [];
+  const config = useMemo(() => {
+    const built = {};
+    rows.forEach((row, idx) => {
+      built[row.key] = {
+        label: row.key,
+        color: CHART_COLOURS[idx % CHART_COLOURS.length],
+      };
+    });
+    return built;
+  }, [rows]);
+  if (rows.length === 0) return <EmptyChart />;
+  return (
+    <ChartContainer config={config} className="h-56 w-full">
+      <PieChart>
+        <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
+        <Pie
+          data={rows}
+          dataKey="value"
+          nameKey="key"
+          innerRadius={donut ? 50 : 0}
+          outerRadius={80}
+          paddingAngle={donut ? 2 : 0}
+        >
+          {rows.map((row, idx) => (
+            <Cell
+              key={row.key}
+              fill={CHART_COLOURS[idx % CHART_COLOURS.length]}
+            />
+          ))}
+        </Pie>
+      </PieChart>
+    </ChartContainer>
+  );
+}
+
+function EmptyChart() {
+  return (
+    <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+      No data yet.
+    </div>
+  );
+}

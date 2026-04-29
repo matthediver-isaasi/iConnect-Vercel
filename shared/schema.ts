@@ -678,3 +678,32 @@ export const insertArticleBriefInboxItemSchema = createInsertSchema(articleBrief
 
 export type InsertArticleBriefInboxItem = z.infer<typeof insertArticleBriefInboxItemSchema>;
 export type ArticleBriefInboxItem = typeof articleBriefInboxItem.$inferSelect;
+
+// Dashboard widget builder (task #606)
+// Personal widgets are scoped to a single owning member; shared widgets are
+// visible to every member of the tenant. The DB enforces the owner/scope
+// invariant via a check constraint.
+export const dashboardWidget = pgTable("dashboard_widget", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Nullable to support personal widgets created outside a tenant context.
+  tenant_id: varchar("tenant_id"),
+  scope: varchar("scope", { length: 20 }).notNull(),
+  owner_member_id: varchar("owner_member_id"),
+  title: text("title").notNull(),
+  widget_type: varchar("widget_type", { length: 20 }).notNull(),
+  width: varchar("width", { length: 10 }).notNull().default('third'),
+  config: jsonb("config").notNull().default({}),
+  display_order: integer("display_order").notNull().default(0),
+  created_by: varchar("created_by"),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertDashboardWidgetSchema = createInsertSchema(dashboardWidget).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertDashboardWidget = z.infer<typeof insertDashboardWidgetSchema>;
+export type DashboardWidget = typeof dashboardWidget.$inferSelect;

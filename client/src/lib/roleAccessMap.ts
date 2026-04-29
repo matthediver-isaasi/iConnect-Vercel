@@ -722,6 +722,14 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Dashboard"
       },
       {
+        id: "dashboard.view",
+        label: "Dashboard Builder",
+        features: [
+          { id: "dashboard.shared-widgets.manage", label: "Manage Shared Widgets" },
+          { id: "dashboard.personal-widgets.manage", label: "Manage Personal Widgets" }
+        ]
+      },
+      {
         id: "system.news-ticker",
         label: "News Ticker Bar",
         features: [
@@ -868,6 +876,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_admin_MemberPreferences": "membership.member-field-permissions",
   "page_Dashboard": "system.dashboard",
+  "page_ReportsDashboard": "dashboard.view",
+  "page_admin_ReportsDashboard": "dashboard.view",
   "page_EventDetails": "events.event-details",
   "page_ArticleEditor": "content.article-editor",
   "page_ArticleView": "content.articles",
