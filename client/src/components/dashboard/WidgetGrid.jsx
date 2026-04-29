@@ -1,8 +1,11 @@
+import { useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   KeyboardSensor,
   closestCenter,
+  defaultDropAnimationSideEffects,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -28,7 +31,7 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResi
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.65 : 1,
+    opacity: isDragging ? 0.4 : 1,
   };
   return (
     <div ref={setNodeRef} style={style} className="contents">
@@ -45,6 +48,12 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResi
   );
 }
 
+const dropAnimation = {
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: { active: { opacity: "0.4" } },
+  }),
+};
+
 export default function WidgetGrid({
   widgets,
   canEdit = false,
@@ -60,8 +69,15 @@ export default function WidgetGrid({
   );
 
   const ids = widgets.map(w => w.id);
+  const [activeId, setActiveId] = useState(null);
+  const activeWidget = activeId ? widgets.find(w => w.id === activeId) : null;
+
+  const handleDragStart = event => {
+    setActiveId(event.active.id);
+  };
 
   const handleDragEnd = event => {
+    setActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = widgets.findIndex(w => w.id === active.id);
@@ -70,8 +86,16 @@ export default function WidgetGrid({
     onReorder?.(arrayMove(widgets, oldIndex, newIndex));
   };
 
+  const handleDragCancel = () => setActiveId(null);
+
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       <SortableContext items={ids} strategy={rectSortingStrategy}>
         <div
           className="grid grid-cols-12 gap-4"
@@ -90,6 +114,16 @@ export default function WidgetGrid({
           ))}
         </div>
       </SortableContext>
+      <DragOverlay dropAnimation={dropAnimation} zIndex={50}>
+        {activeWidget ? (
+          <div
+            className="pointer-events-none cursor-grabbing rounded-md shadow-lg ring-2 ring-primary/30"
+            data-testid="widget-drag-overlay"
+          >
+            <WidgetCard widget={activeWidget} canEdit={false} />
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
