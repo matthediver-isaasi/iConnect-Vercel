@@ -17,7 +17,15 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { cn } from "@/lib/utils";
 import WidgetCard from "./WidgetCard";
+
+const WIDTH_CLASS = {
+  fifth: "md:col-span-2",
+  third: "md:col-span-4",
+  half: "md:col-span-6",
+  full: "md:col-span-12",
+};
 
 function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResize }) {
   const {
@@ -33,8 +41,13 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResi
     transition,
     opacity: isDragging ? 0.4 : 1,
   };
+  const widthClass = WIDTH_CLASS[widget.width] || WIDTH_CLASS.third;
   return (
-    <div ref={setNodeRef} style={style} className="contents">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("col-span-12", widthClass, "flex")}
+    >
       <WidgetCard
         widget={widget}
         canEdit={canEdit}
@@ -117,7 +130,7 @@ export default function WidgetGrid({
       <DragOverlay dropAnimation={dropAnimation} zIndex={50}>
         {activeWidget ? (
           <div
-            className="pointer-events-none cursor-grabbing rounded-md shadow-lg ring-2 ring-primary/30"
+            className="pointer-events-none flex h-full w-full cursor-grabbing rounded-md shadow-lg ring-2 ring-primary/30"
             data-testid="widget-drag-overlay"
           >
             <WidgetCard widget={activeWidget} canEdit={false} />
