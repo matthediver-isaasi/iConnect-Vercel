@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
+import { resolveCountryToIso2 } from '../../../shared/countries.js';
 
 const MAX_BUCKETS = 50;
 const MAX_GROUPS = 20;
@@ -173,10 +174,35 @@ export async function runWidgetConfig(config, tenantId) {
     && measure.fieldKind === 'custom'
     && !!measure.fieldId
     && listFieldIds.has(measure.fieldId);
+  // When the same list-typed field is being both LMIC-filtered AND
+  // count-distinct'd, normalise each contributed element through the
+  // shared name->code resolver and only keep elements that resolve to a
+  // tenant LMIC code. This makes the distinct count operate on ISO-2
+  // codes rather than raw stored strings, so:
+  //   - non-LMIC elements in a row that passed the filter (because some
+  //     OTHER element matched) don't get counted; and
+  //   - mixed storage like `["Kenya"]` and `["KE"]` across rows collapses
+  //     to one distinct entry instead of two.
+  const lmicFilterOnMeasure = isListMeasureCD
+    && Array.isArray(lmicCodes)
+    && lmicCodes.length > 0
+    && (config.filters || []).some(
+        f => f.operator === 'lmic'
+          && f.fieldKind === 'custom'
+          && f.fieldId === measure.fieldId,
+      );
+  const lmicCodeSet = lmicFilterOnMeasure ? new Set(lmicCodes) : null;
   const pushMeasureValues = isListMeasureCD
     ? (target, row) => {
         const raw = (prefMap.get(row.id) || {})[measure.fieldId];
-        for (const v of toList(raw)) target.push(v);
+        for (const v of toList(raw)) {
+          if (lmicCodeSet) {
+            const code = resolveCountryToIso2(v);
+            if (code !== null && lmicCodeSet.has(code)) target.push(code);
+          } else {
+            target.push(v);
+          }
+        }
       }
     : (target, row) => target.push(measureValueOf(row));
   const groupKeyOf = groupBy
@@ -615,7 +641,14 @@ function matchFilter(rawValue, filter, lmicCodes, isList = false) {
       case 'lmic': {
         const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
         if (codes.length === 0) return false;
-        return elements.some(v => codes.includes(String(v ?? '').trim().toUpperCase()));
+        // Stored values may be ISO-2 codes (system `country` column) or
+        // free-text country names (custom multi-pick fields). Normalise
+        // each element through the shared name->code resolver before
+        // checking membership; unresolved values simply don't match.
+        return elements.some(v => {
+          const code = resolveCountryToIso2(v);
+          return code !== null && codes.includes(code);
+        });
       }
       case 'eq':
         return elements.some(v => String(v ?? '') === String(filter.value ?? ''));
@@ -641,8 +674,12 @@ function matchFilter(rawValue, filter, lmicCodes, isList = false) {
     case 'lmic': {
       const codes = Array.isArray(lmicCodes) ? lmicCodes : [];
       if (codes.length === 0) return false;
-      const v = String(value ?? '').trim().toUpperCase();
-      return codes.includes(v);
+      // Resolve through the shared name->code helper so free-text custom
+      // country fields (storing names like "Kenya") match alongside the
+      // system `country` column (storing ISO-2 codes like "KE"). Values
+      // that don't resolve to a known country don't match.
+      const code = resolveCountryToIso2(value);
+      return code !== null && codes.includes(code);
     }
     case 'eq': return String(value ?? '') === String(filter.value ?? '');
     case 'neq': return String(value ?? '') !== String(filter.value ?? '');
