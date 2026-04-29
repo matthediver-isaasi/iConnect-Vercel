@@ -270,12 +270,31 @@ export default function DueDiligenceDashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAccessReady, memberInfo } = useMemberAccess();
-  
+
+  // Read drill-through filters from URL (?status=verified&riskLevel=high&formId=...&reviewer=...&outstandingDays=10)
+  const initialUrlFilters = useMemo(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        status: params.get('status') || undefined,
+        riskLevel: params.get('riskLevel') || undefined,
+        formId: params.get('formId') || undefined,
+        reviewer: params.get('reviewer') || undefined,
+        outstandingDays: params.get('outstandingDays') || undefined,
+      };
+    } catch {
+      return {};
+    }
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [riskFilter, setRiskFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialUrlFilters.status || 'all');
+  const [riskFilter, setRiskFilter] = useState(initialUrlFilters.riskLevel || 'all');
   const [ownerFilter, setOwnerFilter] = useState('all');
-  const [selectedFormId, setSelectedFormId] = useState('all');
+  const [selectedFormId, setSelectedFormId] = useState(initialUrlFilters.formId || 'all');
+  const [outstandingDaysFilter] = useState(initialUrlFilters.outstandingDays || '');
+  const [reviewerUrlFilter] = useState(initialUrlFilters.reviewer || '');
   
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
@@ -438,6 +457,26 @@ export default function DueDiligenceDashboardPage() {
       }
     }
 
+    // Drill-through: only show submissions older than N days in their current stage
+    if (outstandingDaysFilter) {
+      const minDays = parseInt(outstandingDaysFilter, 10);
+      if (!Number.isNaN(minDays) && minDays > 0) {
+        const now = Date.now();
+        filtered = filtered.filter((sub) => {
+          const enteredAtRaw = sub.current_stage_entered_at || sub.updated_at || sub.created_at;
+          if (!enteredAtRaw) return false;
+          const ageDays = (now - new Date(enteredAtRaw).getTime()) / 86_400_000;
+          return ageDays >= minDays;
+        });
+      }
+    }
+
+    // Drill-through: filter by reviewer email
+    if (reviewerUrlFilter) {
+      const target = reviewerUrlFilter.toLowerCase();
+      filtered = filtered.filter((sub) => (sub.reviewed_by || '').toLowerCase() === target);
+    }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(sub => {
@@ -461,7 +500,7 @@ export default function DueDiligenceDashboardPage() {
     }
 
     return filtered;
-  }, [submissions, searchQuery, ownerFilter, cardReferenceFieldByFormId]);
+  }, [submissions, searchQuery, ownerFilter, cardReferenceFieldByFormId, outstandingDaysFilter, reviewerUrlFilter]);
 
   // Derive available stages based on selected form
   const availableStages = useMemo(() => {
@@ -522,9 +561,24 @@ export default function DueDiligenceDashboardPage() {
     }));
   }, [riskLevelsByFormId, normalizeRiskLevelName]);
 
+  // When initialised from a URL drill-through (status/risk/outstandingDays
+  // present without an explicit formId), preserve those filters even though
+  // selectedFormId starts as 'all'. The reset effects below skip their first
+  // run in that case so the deep link stays intact until the user changes
+  // the form selector themselves.
+  const hasUrlDrillThroughRef = useRef(
+    Boolean(initialUrlFilters.status || initialUrlFilters.riskLevel || initialUrlFilters.outstandingDays)
+  );
+  const skipNextStatusResetRef = useRef(hasUrlDrillThroughRef.current);
+  const skipNextRiskResetRef = useRef(hasUrlDrillThroughRef.current);
+
   // Reset status filter when form changes to 'all' or current stage is not in the new form's stages
   useEffect(() => {
     if (selectedFormId === 'all') {
+      if (skipNextStatusResetRef.current) {
+        skipNextStatusResetRef.current = false;
+        return;
+      }
       // Disable stage filtering when "All Forms" is selected
       setStatusFilter('all');
     } else if (statusFilter !== 'all') {
@@ -545,6 +599,10 @@ export default function DueDiligenceDashboardPage() {
   // Reset risk filter when form changes to 'all' or current level is not in the new form's levels
   useEffect(() => {
     if (selectedFormId === 'all') {
+      if (skipNextRiskResetRef.current) {
+        skipNextRiskResetRef.current = false;
+        return;
+      }
       // Disable risk filtering when "All Forms" is selected
       setRiskFilter('all');
     } else if (riskFilter !== 'all') {

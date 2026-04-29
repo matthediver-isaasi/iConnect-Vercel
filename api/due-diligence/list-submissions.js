@@ -1,6 +1,50 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { canonicalizeKey, findCurrentStageEnteredAt } from '../reports/_ddReportHelpers.js';
+
+/**
+ * Reports cards link out to this endpoint with canonical status keys
+ * (e.g. `in-review`, `verified`, `dd-meet-attended`, `held`, `approved`,
+ * `rejected`, `new`, `incomplete`). Each tenant's workflow_status however is
+ * a tenant-configurable stage_id. Translate canonical -> { all equivalent
+ * stored representations } so the dashboard cohort matches regardless of
+ * whether the row stores a stage UUID or a label.
+ */
+async function resolveStatusValues(status, formId, tenantId) {
+  if (!status) return null;
+  const rawCanonical = canonicalizeKey(status);
+  const candidates = new Set([status]);
+  // Common label spellings derived from the canonical key.
+  candidates.add(rawCanonical);
+  candidates.add(rawCanonical.replace(/\s+/g, '-'));
+  candidates.add(rawCanonical.replace(/\s+/g, '_'));
+  candidates.add(
+    rawCanonical
+      .split(' ')
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(' ')
+  );
+  try {
+    let cfgQuery = supabase
+      .from('form_due_diligence_config')
+      .select('form_id, workflow_stages')
+      .eq('tenant_id', tenantId);
+    if (formId) cfgQuery = cfgQuery.eq('form_id', formId);
+    const { data: configs } = await cfgQuery;
+    (configs || []).forEach((cfg) => {
+      const stages = cfg.workflow_stages || [];
+      stages.forEach((stage) => {
+        if (canonicalizeKey(stage.label) === rawCanonical && stage.id) {
+          candidates.add(stage.id);
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[DD List] Stage id resolution error:', err);
+  }
+  return Array.from(candidates).filter(Boolean);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -40,6 +84,7 @@ export default async function handler(req, res) {
         reviewed_date,
         created_at,
         updated_at,
+        history_log,
         original_form_values,
         archived_at,
         archived_reason,
@@ -66,7 +111,12 @@ export default async function handler(req, res) {
     }
 
     if (status) {
-      query = query.eq('workflow_status', status);
+      const resolvedStatuses = await resolveStatusValues(status, formId, tenantCtx.tenantId);
+      if (resolvedStatuses && resolvedStatuses.length > 0) {
+        query = query.in('workflow_status', resolvedStatuses);
+      } else {
+        query = query.eq('workflow_status', status);
+      }
     }
 
     if (riskLevel) {
@@ -87,6 +137,22 @@ export default async function handler(req, res) {
         s => s.form_submission?.form_id === formId
       );
     }
+
+    // Compute current_stage_entered_at from history_log so the dashboard's
+    // outstanding-days drill-through is accurate (falls back to updated_at /
+    // created_at when no transition is logged).
+    filteredSubmissions = filteredSubmissions.map((sub) => {
+      const log = Array.isArray(sub.history_log)
+        ? sub.history_log
+        : (sub.history_log
+            ? (() => { try { return JSON.parse(sub.history_log); } catch { return []; } })()
+            : []);
+      const enteredAt = findCurrentStageEnteredAt(log, sub.workflow_status, sub.updated_at || sub.created_at);
+      return {
+        ...sub,
+        current_stage_entered_at: enteredAt ? enteredAt.toISOString() : null,
+      };
+    });
 
     // Collect all organization IDs from submissions
     const orgIds = [...new Set(

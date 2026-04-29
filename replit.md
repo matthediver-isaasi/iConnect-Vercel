@@ -41,6 +41,7 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **Zoho Inbound Update Toast:** Provides real-time notifications via toast messages on detail pages when an organization or member record is updated by an inbound Zoho sync.
 -   **External Writers:** Dedicated management for external (non-member) writers for article briefs, including CRUD operations, email validation, and NDA document uploads.
 -   **Brief Management Inbox:** Tenant-scoped pseudo-inbox on `/BriefManagement` to surface case-study Permission/Copyright form submissions and attached files against existing briefs.
+-   **Due Diligence Reports:** Per-form analytics page (`/DueDiligenceReports`) with 4 cards (Application Funnel, Verification, DD Meetings, Decisions) sourcing `workflow_status`/score/risk from `form_submission_due_diligence` and deriving stage-transition timestamps from `history_log`. Supports form selector, period filters incl. custom date range, per-card SLA inputs, drill-through links to `DueDiligenceDashboard` (status/riskLevel/reviewer/outstandingDays URL params), CSV export per card, and a Funnel/Bar chart toggle. Includes monthly throughput, risk-level distribution, score-vs-outcome, reviewer breakdown, per-document stats, and real meeting metrics (booked/cancelled/no-show/rescheduled/lead-time) sourced from `dd_meeting_request` + `agent_booking`.
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.

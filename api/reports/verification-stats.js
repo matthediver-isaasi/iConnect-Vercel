@@ -1,45 +1,41 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import {
+  parseFilters,
+  buildRangePredicate,
+  getPeriodBounds,
+  buildStageMaps,
+  mkMatchers,
+  getVerifiedAt,
+  findCurrentStageEnteredAt,
+  findActorForFirstTransition,
+  CANONICAL,
+  canonicalizeKey,
+} from './_ddReportHelpers.js';
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  if (!supabase) {
-    return res.status(500).json({ error: 'Database not configured' });
-  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (!supabase) return res.status(500).json({ error: 'Database not configured' });
 
   try {
     const tenantContext = await getTenantContext(req);
-    if (!tenantContext?.tenantId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
+    if (!tenantContext?.tenantId) return res.status(401).json({ error: 'Unauthorized' });
     const { tenantId } = tenantContext;
     const now = new Date();
-
-    const { formId } = req.query;
+    const filters = parseFilters(req.query);
+    const inFilterRange = buildRangePredicate(filters, now);
+    const slaThresholdDays = Math.max(0, parseInt(req.query.slaDays, 10) || 0);
 
     let formsQuery = supabase
       .from('form_due_diligence_config')
       .select('form_id, workflow_stages')
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
-
-    if (formId) {
-      formsQuery = formsQuery.eq('form_id', formId);
-    }
-
+    if (filters.formId) formsQuery = formsQuery.eq('form_id', filters.formId);
     const { data: ddConfigs, error: configError } = await formsQuery;
+    if (configError) return res.status(500).json({ error: 'Failed to fetch configuration' });
 
-    if (configError) {
-      console.error('Error fetching DD configs:', configError);
-      return res.status(500).json({ error: 'Failed to fetch configuration' });
-    }
-
-    const formIds = ddConfigs?.map(c => c.form_id) || [];
-    
+    const formIds = ddConfigs?.map((c) => c.form_id) || [];
     if (formIds.length === 0) {
       return res.status(200).json({
         totalVerified: 0,
@@ -49,186 +45,231 @@ export default async function handler(req, res) {
         verifiedThisPeriod: {},
         turnaroundBreakdown: [],
         outstandingByAge: [],
-        lastUpdated: now.toISOString()
+        monthlyTrend: [],
+        perDocumentStats: { byStatus: [], byField: [], averageTurnaroundDays: 0, totalDocuments: 0 },
+        reviewerBreakdown: [],
+        lastUpdated: now.toISOString(),
       });
     }
 
-    const canonicalizeKey = (str) => {
-      if (!str) return '';
-      return str
-        .toLowerCase()
-        .trim()
-        .replace(/[-_\s]+/g, ' ')
-        .replace(/\s+/g, ' ');
-    };
+    const { stageMaps } = buildStageMaps(ddConfigs);
+    const matchers = mkMatchers(stageMaps);
 
-    const verifiedCanonical = canonicalizeKey('Verified');
-    const inReviewCanonical = canonicalizeKey('In Review');
-    const newCanonical = canonicalizeKey('New');
+    // Use form_submission_due_diligence as the source of truth for workflow_status
+    const { data: ddRows, error: ddErr } = await supabase
+      .from('form_submission_due_diligence')
+      .select('id, form_submission_id, workflow_status, history_log, created_at, archived_at, reviewed_by')
+      .eq('tenant_id', tenantId)
+      .is('archived_at', null);
+    if (ddErr) return res.status(500).json({ error: 'Failed to fetch DD submissions' });
 
-    const verifiedStageIds = new Set();
-    const preVerifiedStageIds = new Set();
+    const fsIds = (ddRows || []).map((r) => r.form_submission_id).filter(Boolean);
+    const fsMap = {};
+    if (fsIds.length > 0) {
+      const { data: fsList } = await supabase
+        .from('form_submission')
+        .select('id, form_id, created_at')
+        .in('id', fsIds);
+      (fsList || []).forEach((fs) => { fsMap[fs.id] = fs; });
+    }
 
-    ddConfigs.forEach(config => {
-      const stages = config.workflow_stages || [];
-      stages.forEach(stage => {
-        const canonical = canonicalizeKey(stage.label);
-        if (canonical === verifiedCanonical) {
-          verifiedStageIds.add(stage.id);
-        }
-        if (canonical === inReviewCanonical || canonical === newCanonical) {
-          preVerifiedStageIds.add(stage.id);
-        }
-      });
+    const enriched = (ddRows || [])
+      .map((r) => {
+        const fs = fsMap[r.form_submission_id];
+        if (!fs || !formIds.includes(fs.form_id)) return null;
+        return { ...r, _formId: fs.form_id, _submissionCreatedAt: fs.created_at || r.created_at };
+      })
+      .filter(Boolean);
+
+    // Verified vs outstanding (current state)
+    const verifiedSubs = enriched.filter((r) => matchers.isVerified(r.workflow_status));
+    const outstandingSubs = enriched.filter((r) =>
+      matchers.isInReview(r.workflow_status) || matchers.isNew(r.workflow_status) || !r.workflow_status,
+    );
+
+    // Verified-at timestamp from history_log; reject those falling outside filter window.
+    const verifiedWithTime = verifiedSubs
+      .map((r) => ({ row: r, at: getVerifiedAt(r, matchers) }))
+      .filter((x) => x.at && inFilterRange(x.at));
+
+    // Outstanding cohort filters by history-derived stage-entry timestamp so
+    // the period filter reflects when each item *entered* its current
+    // outstanding stage rather than when its underlying form was submitted.
+    // Falls back to submission creation date when no transition is logged so
+    // legacy data still surfaces.
+    const outstandingFiltered = outstandingSubs.filter((r) => {
+      const at = findCurrentStageEnteredAt(r.history_log, r.workflow_status, r._submissionCreatedAt);
+      return at ? inFilterRange(at) : false;
     });
 
-    const { data: allSubmissions, error: submissionsError } = await supabase
-      .from('form_submission')
-      .select('id, form_id, workflow_status, created_at, updated_at')
-      .eq('tenant_id', tenantId)
-      .in('form_id', formIds);
-
-    if (submissionsError) {
-      console.error('Error fetching submissions:', submissionsError);
-      return res.status(500).json({ error: 'Failed to fetch submissions' });
-    }
-
-    const isVerifiedStatus = (status) => {
-      if (!status) return false;
-      const canonical = canonicalizeKey(status);
-      if (canonical === verifiedCanonical) return true;
-      return verifiedStageIds.has(status);
-    };
-
-    const isPreVerifiedStatus = (status) => {
-      if (!status) return true;
-      const canonical = canonicalizeKey(status);
-      if (canonical === inReviewCanonical || canonical === newCanonical) return true;
-      return preVerifiedStageIds.has(status);
-    };
-
-    const verifiedSubmissions = allSubmissions?.filter(s => isVerifiedStatus(s.workflow_status)) || [];
-    const outstandingSubmissions = allSubmissions?.filter(s => isPreVerifiedStatus(s.workflow_status)) || [];
-
-    const totalVerified = verifiedSubmissions.length;
-    const outstandingVerifications = outstandingSubmissions.length;
+    const totalVerified = verifiedWithTime.length;
+    const outstandingVerifications = outstandingFiltered.length;
 
     let totalTurnaroundMs = 0;
     const turnaroundDaysArray = [];
-
-    verifiedSubmissions.forEach(sub => {
-      const created = new Date(sub.created_at);
-      const updated = new Date(sub.updated_at);
-      const turnaroundMs = updated.getTime() - created.getTime();
-      const turnaroundDays = turnaroundMs / (1000 * 60 * 60 * 24);
-      totalTurnaroundMs += turnaroundMs;
-      turnaroundDaysArray.push(turnaroundDays);
+    verifiedWithTime.forEach(({ row, at }) => {
+      const created = new Date(row._submissionCreatedAt);
+      const ms = at - created;
+      if (ms >= 0) {
+        totalTurnaroundMs += ms;
+        turnaroundDaysArray.push(ms / 86_400_000);
+      }
     });
-
     const averageTurnaroundMs = totalVerified > 0 ? totalTurnaroundMs / totalVerified : 0;
-    const averageTurnaroundDays = averageTurnaroundMs / (1000 * 60 * 60 * 24);
-    const averageTurnaroundHours = averageTurnaroundMs / (1000 * 60 * 60);
+    const averageTurnaroundDays = averageTurnaroundMs / 86_400_000;
+    const averageTurnaroundHours = averageTurnaroundMs / 3_600_000;
 
     const turnaroundRanges = [
       { range: '0-2 days', min: 0, max: 2 },
       { range: '3-5 days', min: 3, max: 5 },
       { range: '6-10 days', min: 6, max: 10 },
-      { range: '11+ days', min: 11, max: Infinity }
+      { range: '11+ days', min: 11, max: Infinity },
     ];
 
-    const turnaroundBreakdown = turnaroundRanges.map(r => {
-      const count = turnaroundDaysArray.filter(d => d >= r.min && d <= r.max).length;
+    const turnaroundBreakdown = turnaroundRanges.map((r) => {
+      const count = turnaroundDaysArray.filter((d) => d >= r.min && d <= r.max).length;
       return {
         range: r.range,
         count,
-        percentage: totalVerified > 0 ? Math.round((count / totalVerified) * 100) : 0
+        percentage: totalVerified > 0 ? Math.round((count / totalVerified) * 100) : 0,
       };
     });
 
-    const outstandingAgeArray = outstandingSubmissions.map(sub => {
-      const created = new Date(sub.created_at);
-      const ageMs = now.getTime() - created.getTime();
-      return ageMs / (1000 * 60 * 60 * 24);
+    // Outstanding age = age since entering the *current* stage (history-driven).
+    const outstandingAgeArray = outstandingFiltered.map((r) => {
+      const enteredAt = findCurrentStageEnteredAt(r.history_log, r.workflow_status, r._submissionCreatedAt);
+      const age = (now - enteredAt) / 86_400_000;
+      return age;
     });
-
-    const outstandingByAge = turnaroundRanges.map(r => {
-      const count = outstandingAgeArray.filter(d => d >= r.min && d <= r.max).length;
+    const outstandingByAge = turnaroundRanges.map((r) => {
+      const count = outstandingAgeArray.filter((d) => d >= r.min && d <= r.max).length;
       return {
         range: r.range,
         count,
-        percentage: outstandingVerifications > 0 ? Math.round((count / outstandingVerifications) * 100) : 0
+        percentage: outstandingVerifications > 0 ? Math.round((count / outstandingVerifications) * 100) : 0,
       };
     });
 
-    const getPeriodBounds = (periodKey) => {
-      const start = new Date(now);
-      const prevStart = new Date(now);
-      const prevEnd = new Date(now);
-
-      switch (periodKey) {
-        case 'week':
-          start.setDate(now.getDate() - 7);
-          prevStart.setDate(now.getDate() - 14);
-          prevEnd.setDate(now.getDate() - 7);
-          break;
-        case 'month':
-          start.setMonth(now.getMonth() - 1);
-          prevStart.setMonth(now.getMonth() - 2);
-          prevEnd.setMonth(now.getMonth() - 1);
-          break;
-        case 'quarter':
-          start.setMonth(now.getMonth() - 3);
-          prevStart.setMonth(now.getMonth() - 6);
-          prevEnd.setMonth(now.getMonth() - 3);
-          break;
-        case 'year':
-          start.setFullYear(now.getFullYear() - 1);
-          prevStart.setFullYear(now.getFullYear() - 2);
-          prevEnd.setFullYear(now.getFullYear() - 1);
-          break;
-        default:
-          return { start: null, prevStart: null, prevEnd: null };
-      }
-
-      return { start, prevStart, prevEnd };
-    };
-
+    // Period stats (verified counts vs prior period)
     const periods = ['week', 'month', 'quarter', 'year', 'all'];
     const verifiedThisPeriod = {};
+    const allVerifiedWithTime = verifiedSubs
+      .map((r) => ({ row: r, at: getVerifiedAt(r, matchers) }))
+      .filter((x) => !!x.at);
 
-    periods.forEach(periodKey => {
-      if (periodKey === 'all') {
-        verifiedThisPeriod[periodKey] = {
-          current: totalVerified,
+    periods.forEach((p) => {
+      if (p === 'all') {
+        verifiedThisPeriod[p] = {
+          current: allVerifiedWithTime.length,
           previous: null,
           change: null,
-          changeDirection: null
+          changeDirection: null,
         };
         return;
       }
-
-      const { start, prevStart, prevEnd } = getPeriodBounds(periodKey);
-
-      const current = verifiedSubmissions.filter(s => {
-        const updated = new Date(s.updated_at);
-        return updated >= start && updated <= now;
-      }).length;
-
-      const previous = verifiedSubmissions.filter(s => {
-        const updated = new Date(s.updated_at);
-        return updated >= prevStart && updated < prevEnd;
-      }).length;
-
+      const { start, prevStart, prevEnd } = getPeriodBounds(p, now);
+      const current = allVerifiedWithTime.filter(({ at }) => at >= start && at <= now).length;
+      const previous = allVerifiedWithTime.filter(({ at }) => at >= prevStart && at < prevEnd).length;
       const change = previous > 0 ? Math.round(((current - previous) / previous) * 100) : (current > 0 ? 100 : 0);
-      const changeDirection = current >= previous ? 'up' : 'down';
-
-      verifiedThisPeriod[periodKey] = {
+      verifiedThisPeriod[p] = {
         current,
         previous,
         change: Math.abs(change),
-        changeDirection
+        changeDirection: current >= previous ? 'up' : 'down',
       };
     });
+
+    // Custom range entry uses the active filter window; no comparison.
+    if (filters.period === 'custom') {
+      const currentCustom = allVerifiedWithTime.filter(({ at }) => inFilterRange(at)).length;
+      verifiedThisPeriod.custom = {
+        current: currentCustom,
+        previous: null,
+        change: null,
+        changeDirection: null,
+      };
+    }
+
+    // ---- Monthly throughput (last 6 months) ----
+    const monthlyTrend = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      const monthLabel = monthStart.toLocaleString('default', { month: 'short' });
+      const verifiedCount = allVerifiedWithTime.filter(({ at }) => at >= monthStart && at <= monthEnd).length;
+      const submittedCount = enriched.filter((r) => {
+        const c = new Date(r._submissionCreatedAt);
+        return c >= monthStart && c <= monthEnd;
+      }).length;
+      monthlyTrend.push({ month: monthLabel, verified: verifiedCount, submitted: submittedCount });
+    }
+
+    // ---- Reviewer breakdown ----
+    const reviewerCounts = new Map();
+    verifiedWithTime.forEach(({ row, at }) => {
+      const actor = findActorForFirstTransition(row.history_log, (canonical) => canonical === CANONICAL.verified || matchers.isVerified(canonical))
+        || row.reviewed_by
+        || 'Unknown';
+      const created = new Date(row._submissionCreatedAt);
+      const ms = at - created;
+      const cur = reviewerCounts.get(actor) || { reviewer: actor, verifiedCount: 0, totalMs: 0 };
+      cur.verifiedCount += 1;
+      cur.totalMs += Math.max(0, ms);
+      reviewerCounts.set(actor, cur);
+    });
+    const reviewerBreakdown = Array.from(reviewerCounts.values())
+      .map((r) => ({
+        reviewer: r.reviewer,
+        verifiedCount: r.verifiedCount,
+        averageTurnaroundDays: r.verifiedCount > 0 ? Math.round((r.totalMs / r.verifiedCount / 86_400_000) * 10) / 10 : 0,
+      }))
+      .sort((a, b) => b.verifiedCount - a.verifiedCount);
+
+    // ---- Per-document stats (only for the form-filtered submissions) ----
+    let perDocumentStats = { byStatus: [], byField: [], averageTurnaroundDays: 0, totalDocuments: 0 };
+    const filteredFsIds = enriched.map((r) => r.form_submission_id).filter(Boolean);
+    if (filteredFsIds.length > 0) {
+      const { data: docs } = await supabase
+        .from('submission_document')
+        .select('id, form_submission_id, field_name, status, status_changed_at, status_changed_by, created_at')
+        .eq('tenant_id', tenantId)
+        .in('form_submission_id', filteredFsIds)
+        .eq('is_current_version', true);
+      const filteredDocs = (docs || []).filter((d) => inFilterRange(d.created_at || d.status_changed_at));
+      const totalDocuments = filteredDocs.length;
+      const statusCounts = { pending: 0, approved: 0, rejected: 0, aged: 0 };
+      const turnarounds = [];
+      const byFieldMap = new Map();
+      filteredDocs.forEach((d) => {
+        statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
+        if (d.status_changed_at && d.created_at && (d.status === 'approved' || d.status === 'rejected')) {
+          const ms = new Date(d.status_changed_at) - new Date(d.created_at);
+          if (ms >= 0) turnarounds.push(ms / 86_400_000);
+        }
+        const fieldKey = d.field_name || 'Unknown';
+        const fc = byFieldMap.get(fieldKey) || { field: fieldKey, total: 0, approved: 0, rejected: 0, pending: 0, aged: 0 };
+        fc.total += 1;
+        fc[d.status] = (fc[d.status] || 0) + 1;
+        byFieldMap.set(fieldKey, fc);
+      });
+      const avgTurnaround = turnarounds.length > 0
+        ? Math.round((turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length) * 10) / 10
+        : 0;
+      const byStatus = Object.entries(statusCounts).map(([status, count]) => ({
+        status,
+        count,
+        percentage: totalDocuments > 0 ? Math.round((count / totalDocuments) * 100) : 0,
+      }));
+      const byField = Array.from(byFieldMap.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+      perDocumentStats = { byStatus, byField, averageTurnaroundDays: avgTurnaround, totalDocuments };
+    }
+
+    // ---- SLA breaches: outstanding items still in their stage longer than threshold ----
+    const slaBreachedCount = slaThresholdDays > 0
+      ? outstandingAgeArray.filter((d) => d > slaThresholdDays).length
+      : 0;
 
     return res.status(200).json({
       totalVerified,
@@ -238,11 +279,15 @@ export default async function handler(req, res) {
       verifiedThisPeriod,
       turnaroundBreakdown,
       outstandingByAge,
-      lastUpdated: now.toISOString()
+      monthlyTrend,
+      perDocumentStats,
+      reviewerBreakdown,
+      slaBreaches: { thresholdDays: slaThresholdDays, breachedCount: slaBreachedCount },
+      filtersApplied: filters,
+      lastUpdated: now.toISOString(),
     });
-
   } catch (error) {
-    console.error('Error in verification-stats:', error);
+    console.error('[verification-stats] fatal', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
