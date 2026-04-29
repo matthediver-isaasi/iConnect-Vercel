@@ -134,6 +134,27 @@ async function ensurePreferenceFields() {
       .eq('name', spec.name)
       .maybeSingle();
     if (lookupErr) throw lookupErr;
+    if (!existing) {
+      // The (tenant_id, name) unique constraint ignores entity_scope, so a
+      // tenant that already defined `name` at a different scope (e.g. GFI's
+      // organization.go_live blocking member.go_live) can't have a same-named
+      // field created at our requested scope. In that case we skip both the
+      // field creation and any widget that depends on it — better than
+      // overwriting the tenant's existing data.
+      const { data: clash, error: clashErr } = await supabase
+        .from('preference_field')
+        .select('id, entity_scope')
+        .eq('tenant_id', TENANT_ID)
+        .eq('name', spec.name)
+        .maybeSingle();
+      if (clashErr) throw clashErr;
+      if (clash) {
+        console.log(
+          `  ! ${spec.entity_scope}.${spec.name} skipped — same name already exists at scope ${clash.entity_scope}; widgets needing this field will be skipped`,
+        );
+        continue;
+      }
+    }
     if (existing) {
       ids[`${spec.entity_scope}.${spec.name}`] = existing.id;
       // For dropdown fields make sure every required option exists,
@@ -431,6 +452,25 @@ function buildWidgets(fieldIds) {
   ];
 }
 
+function widgetReferencesUndefinedFieldId(widget) {
+  // Walks the config and returns true if any embedded fieldId is null/undefined
+  // for a non-system field — meaning the underlying preference_field couldn't
+  // be ensured for this tenant, so seeding the widget would produce broken
+  // results. (System fields legitimately have fieldId=null.)
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return false;
+    if (Array.isArray(node)) return node.some(visit);
+    if ('fieldKind' in node && node.fieldKind && node.fieldKind !== 'system') {
+      if (node.fieldId == null) return true;
+    }
+    if ('kind' in node && node.kind && node.kind !== 'system') {
+      if (node.fieldId == null) return true;
+    }
+    return Object.values(node).some(visit);
+  };
+  return visit(widget.config);
+}
+
 async function seedWidgets(widgets) {
   const { data: existing, error: existingErr } = await supabase
     .from('dashboard_widget')
@@ -440,7 +480,20 @@ async function seedWidgets(widgets) {
   if (existingErr) throw existingErr;
   const existingTitles = new Set((existing || []).map(w => w.title));
 
-  const toInsert = widgets
+  // Partition once so we don't re-evaluate the predicate twice and so the
+  // final summary can distinguish "nothing to do" from "skipped due to
+  // missing fields".
+  const seedable = [];
+  const skipped = [];
+  for (const w of widgets) {
+    if (widgetReferencesUndefinedFieldId(w)) skipped.push(w);
+    else seedable.push(w);
+  }
+  for (const w of skipped) {
+    console.log(`  ! "${w.title}" skipped — required preference_field is missing for this tenant`);
+  }
+
+  const toInsert = seedable
     .filter(w => !existingTitles.has(w.title))
     .map(w => ({
       tenant_id: TENANT_ID,
@@ -455,7 +508,13 @@ async function seedWidgets(widgets) {
     }));
 
   if (toInsert.length === 0) {
-    console.log('  ✓ all widgets already present');
+    if (skipped.length > 0 && seedable.length === 0) {
+      console.log('  ✓ no seedable widgets for this tenant (all default widgets skipped above)');
+    } else if (skipped.length > 0) {
+      console.log(`  ✓ all ${seedable.length} seedable widget(s) already present (${skipped.length} skipped above)`);
+    } else {
+      console.log('  ✓ all widgets already present');
+    }
     return;
   }
   const { error: insertErr } = await supabase.from('dashboard_widget').insert(toInsert);
