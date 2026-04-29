@@ -129,6 +129,114 @@ export default function FormSubmissionsPage() {
     return map;
   }, [organisationsForExport]);
 
+  // Used by CSV export to resolve communication_preferences category IDs to names.
+  const { data: communicationCategoriesForExport = [] } = useQuery({
+    queryKey: ['communication-categories-for-form-submissions-export'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.CommunicationCategory.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const communicationCategoryNamesById = useMemo(() => {
+    const map = {};
+    communicationCategoriesForExport.forEach(cat => {
+      if (cat && cat.id) map[cat.id] = cat.name || '';
+    });
+    return map;
+  }, [communicationCategoriesForExport]);
+
+  // Used by CSV export to resolve custom_field option values to their labels.
+  const { data: customFieldsForExport = [] } = useQuery({
+    queryKey: ['preference-fields-for-form-submissions-export'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.PreferenceField.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const customFieldDefById = useMemo(() => {
+    const map = {};
+    customFieldsForExport.forEach(cf => {
+      if (cf && cf.id) map[cf.id] = cf;
+    });
+    return map;
+  }, [customFieldsForExport]);
+
+  // Used by CSV export to resolve member ID dropdowns to readable names.
+  const { data: membersForExport = [] } = useQuery({
+    queryKey: ['members-for-form-submissions-export'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.Member.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const memberNamesById = useMemo(() => {
+    const map = {};
+    membersForExport.forEach(m => {
+      if (!m || !m.id) return;
+      const name = (m.full_name || `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || '').trim();
+      map[m.id] = name;
+    });
+    return map;
+  }, [membersForExport]);
+
+  // Used by CSV export to resolve role ID dropdowns to readable names.
+  const { data: rolesForExport = [] } = useQuery({
+    queryKey: ['roles-for-form-submissions-export'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.Role.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const roleNamesById = useMemo(() => {
+    const map = {};
+    rolesForExport.forEach(r => {
+      if (r && r.id) map[r.id] = r.name || r.label || '';
+    });
+    return map;
+  }, [rolesForExport]);
+
+  // Used by CSV export to resolve ResourceCategory IDs to names (for any field
+  // that stores a category ID rather than the subcategory label).
+  const { data: resourceCategoriesForExport = [] } = useQuery({
+    queryKey: ['resource-categories-for-form-submissions-export'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.ResourceCategory.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const resourceCategoryNamesById = useMemo(() => {
+    const map = {};
+    resourceCategoriesForExport.forEach(c => {
+      if (c && c.id) map[c.id] = c.name || '';
+    });
+    return map;
+  }, [resourceCategoriesForExport]);
+
   const resolveFormName = (submission) => {
     return submission.form_name || formsById[submission.form_id]?.name || 'Unknown Form';
   };
@@ -470,6 +578,68 @@ export default function FormSubmissionsPage() {
       return organisationNamesById[id] || id;
     };
 
+    const resolveMemberName = (memberId) => {
+      if (memberId == null || memberId === '') return '';
+      const id = String(memberId);
+      return memberNamesById[id] || id;
+    };
+
+    const resolveRoleName = (roleId) => {
+      if (roleId == null || roleId === '') return '';
+      const id = String(roleId);
+      return roleNamesById[id] || id;
+    };
+
+    const resolveResourceCategoryLabel = (raw) => {
+      if (raw == null || raw === '') return '';
+      const key = String(raw);
+      // Field stores either a category UUID or the (already-readable) subcategory
+      // label string. Look up by ID first; fall through to the raw value when no
+      // match is found so existing label-based storage remains untouched.
+      return resourceCategoryNamesById[key] || key;
+    };
+
+    const resolveCommunicationPreferences = (val) => {
+      if (val == null || typeof val !== 'object' || Array.isArray(val)) {
+        return val == null ? '' : String(val);
+      }
+      const subscribedNames = Object.entries(val)
+        .filter(([, isSubscribed]) => isSubscribed === true)
+        .map(([categoryId]) => communicationCategoryNamesById[categoryId] || categoryId);
+      return subscribedNames.join(', ');
+    };
+
+    const resolveImageButtonLabel = (val, fieldDef) => {
+      if (val == null || val === '') return '';
+      const options = Array.isArray(fieldDef?.image_options) ? fieldDef.image_options : [];
+      const match = options.find(opt => opt && opt.value === val);
+      return match?.label || String(val);
+    };
+
+    const resolveCustomFieldValue = (val, fieldDef) => {
+      if (val == null || val === '') return '';
+      const customFieldId = fieldDef?.custom_field_id;
+      const customDef = customFieldId ? customFieldDefById[customFieldId] : null;
+      const options = Array.isArray(customDef?.options) ? customDef.options : [];
+      const lookupLabel = (raw) => {
+        if (raw == null || raw === '') return '';
+        const match = options.find(opt => {
+          if (!opt) return false;
+          const optValue = opt.value != null ? opt.value : opt.label;
+          return optValue === raw;
+        });
+        return match?.label || String(raw);
+      };
+      if (Array.isArray(val)) {
+        return val.map(lookupLabel).filter(Boolean).join(', ');
+      }
+      if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+      // For non-option-based custom fields (text, date, etc.), options will be empty so we
+      // fall through to returning the raw value.
+      if (options.length === 0) return String(val);
+      return lookupLabel(val);
+    };
+
     const buildFileUrl = (raw) => {
       if (raw == null || raw === '') return '';
       let parsed = raw;
@@ -523,6 +693,36 @@ export default function FormSubmissionsPage() {
             if (fieldType === 'organisation_dropdown') {
               if (Array.isArray(val)) return val.map(resolveOrgName).join(', ');
               return resolveOrgName(val);
+            }
+
+            if (fieldType === 'member_dropdown') {
+              if (Array.isArray(val)) return val.map(resolveMemberName).join(', ');
+              return resolveMemberName(val);
+            }
+
+            if (fieldType === 'role_dropdown') {
+              if (Array.isArray(val)) return val.map(resolveRoleName).join(', ');
+              return resolveRoleName(val);
+            }
+
+            if (fieldType === 'category_dropdown' || fieldType === 'category_multiselect') {
+              if (Array.isArray(val)) return val.map(resolveResourceCategoryLabel).join(', ');
+              return resolveResourceCategoryLabel(val);
+            }
+
+            if (fieldType === 'communication_preferences') {
+              return resolveCommunicationPreferences(val);
+            }
+
+            if (fieldType === 'image_buttons') {
+              if (Array.isArray(val)) {
+                return val.map(v => resolveImageButtonLabel(v, fieldDef)).join(', ');
+              }
+              return resolveImageButtonLabel(val, fieldDef);
+            }
+
+            if (fieldType === 'custom_field') {
+              return resolveCustomFieldValue(val, fieldDef);
             }
 
             if (fieldType === 'file') {
