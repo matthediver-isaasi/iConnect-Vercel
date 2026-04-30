@@ -145,16 +145,45 @@ const applyTransformation = (value, transformation) => {
 // Helper function to load an organisation's verified email domains.
 // Mirrors the behaviour of api/public/organisation/[id]/domains.js so the
 // frontend's domain check and the backend's guest-stamping stay in sync.
-const loadOrgVerifiedDomains = async (supabaseClient, organizationId) => {
+//
+// preference_field is tenant-scoped, so when the caller already knows the
+// org's tenant_id it MUST be passed in — otherwise the lookup would either
+// fail with PGRST116 (multi-row from .single()) or pick the wrong tenant's
+// field_id and silently return an empty domain list. When tenantId is
+// omitted we look it up from the organization row, tolerating databases
+// without the tenant_id column (42703) by falling back to the unscoped
+// query; the maybeSingle() + early-return-on-error guard below means a
+// multi-row fallback safely collapses to [] instead of crashing.
+const loadOrgVerifiedDomains = async (supabaseClient, organizationId, tenantId) => {
   if (!organizationId) return [];
 
-  const { data: fieldDef, error: fieldError } = await supabaseClient
+  let resolvedTenantId = tenantId || null;
+  if (!resolvedTenantId) {
+    const { data: orgRow, error: orgErr } = await supabaseClient
+      .from('organization')
+      .select('tenant_id')
+      .eq('id', organizationId)
+      .maybeSingle();
+    if (!orgErr && orgRow?.tenant_id) {
+      resolvedTenantId = orgRow.tenant_id;
+    }
+    // If the column doesn't exist (42703) or the row has a NULL tenant_id we
+    // proceed without a tenant filter — the maybeSingle() fallback below
+    // ensures we no longer crash on multi-row results.
+  }
+
+  let fieldDefQuery = supabaseClient
     .from('preference_field')
     .select('id')
     .eq('name', 'verified_domains')
     .eq('entity_scope', 'organization')
-    .eq('is_active', true)
-    .single();
+    .eq('is_active', true);
+
+  if (resolvedTenantId) {
+    fieldDefQuery = fieldDefQuery.eq('tenant_id', resolvedTenantId);
+  }
+
+  const { data: fieldDef, error: fieldError } = await fieldDefQuery.maybeSingle();
 
   if (fieldError || !fieldDef) return [];
 
@@ -163,7 +192,7 @@ const loadOrgVerifiedDomains = async (supabaseClient, organizationId) => {
     .select('value')
     .eq('organization_id', organizationId)
     .eq('field_id', fieldDef.id)
-    .single();
+    .maybeSingle();
 
   if (valueError || !fieldValue?.value) return [];
 
@@ -200,13 +229,15 @@ const resolveGuestStampForNewMember = async (supabaseClient, organizationId, ema
   const emailDomain = extractEmailDomain(email);
   if (!emailDomain) return null;
 
-  // Fetch the per-org guest access settings. Tolerate databases without the
-  // optional columns (returns 42703) so existing flows keep working.
+  // Fetch the per-org guest access settings, including tenant_id so the
+  // verified-domains lookup below stays tenant-scoped. Tolerate databases
+  // without the optional columns (returns 42703) so existing flows keep
+  // working.
   let org = null;
   {
     const { data, error } = await supabaseClient
       .from('organization')
-      .select('id, guest_access_enabled, guest_access_period_days, guest_access_unlimited')
+      .select('id, tenant_id, guest_access_enabled, guest_access_period_days, guest_access_unlimited')
       .eq('id', organizationId)
       .single();
     if (error) {
@@ -222,7 +253,7 @@ const resolveGuestStampForNewMember = async (supabaseClient, organizationId, ema
 
   if (!org?.guest_access_enabled) return null;
 
-  const verifiedDomains = await loadOrgVerifiedDomains(supabaseClient, organizationId);
+  const verifiedDomains = await loadOrgVerifiedDomains(supabaseClient, organizationId, org.tenant_id);
   if (verifiedDomains.includes(emailDomain)) return null;
 
   if (org.guest_access_unlimited) {

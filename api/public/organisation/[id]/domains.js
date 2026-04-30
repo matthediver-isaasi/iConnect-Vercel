@@ -58,14 +58,29 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Organisation not found' });
     }
 
-    // Find the verified_domains custom field definition
-    const { data: fieldDef, error: fieldError } = await supabase
+    // Find the verified_domains custom field definition. preference_field is
+    // tenant-scoped, so when we know the org's tenant_id we MUST filter by it
+    // — otherwise multiple tenants with their own verified_domains field would
+    // collide on the lookup (PGRST116 from .single()) and silently return an
+    // empty domain list, or pick the wrong tenant's field_id and resolve to
+    // nothing on the follow-up value lookup.
+    let fieldDefQuery = supabase
       .from('preference_field')
       .select('id')
       .eq('name', 'verified_domains')
       .eq('entity_scope', 'organization')
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
+
+    if (org.tenant_id) {
+      fieldDefQuery = fieldDefQuery.eq('tenant_id', org.tenant_id);
+    }
+
+    // Use maybeSingle() so a zero-row result returns null+no-error (instead
+    // of PGRST116). On the legacy fallback path (where the org row didn't
+    // expose tenant_id) a multi-row result still surfaces as an error, but
+    // the `if (fieldDef && !fieldError)` guard below safely collapses that
+    // to "no domains configured" rather than crashing the request.
+    const { data: fieldDef, error: fieldError } = await fieldDefQuery.maybeSingle();
 
     let verifiedDomains = [];
 
@@ -76,7 +91,7 @@ export default async function handler(req, res) {
         .select('value')
         .eq('organization_id', id)
         .eq('field_id', fieldDef.id)
-        .single();
+        .maybeSingle();
 
       if (fieldValue && !valueError && fieldValue.value) {
         const val = fieldValue.value;
