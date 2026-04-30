@@ -336,53 +336,83 @@ export default async function handler(req, res) {
     }
 
     if (!member.role_id) {
-      const { data: allRoles } = await supabase.from('role').select('*');
-      
-      // Check for role segmentation
-      const { data: segmentationSettings } = await supabase
-        .from('system_settings')
-        .select('*')
-        .eq('setting_key', 'role_segmentation_field_id')
-        .single();
-      
-      let defaultRole = null;
-      const segmentationFieldId = segmentationSettings?.setting_value;
-      
-      if (segmentationFieldId && member.organization_id) {
-        // Get the organization's segment value
-        const { data: orgPrefValue } = await supabase
-          .from('organization_preference_value')
-          .select('value')
-          .eq('organization_id', member.organization_id)
-          .eq('field_id', segmentationFieldId)
-          .single();
-        
-        const orgSegmentValue = orgPrefValue?.value;
-        
-        if (orgSegmentValue) {
-          // Find a default role that matches this segment value
-          defaultRole = allRoles?.find((r) => 
-            r.is_default === true && 
-            r.segment_values && 
-            Array.isArray(r.segment_values) && 
-            r.segment_values.includes(orgSegmentValue)
-          );
+      // Tenant-scope every lookup in this default-role fallback so a member
+      // can never be assigned a role from a different tenant. If the member
+      // has no tenant_id, leave role_id as NULL rather than guessing.
+      if (!member.tenant_id) {
+        console.warn('[Auth Login] Member has no tenant_id and no role_id; leaving role_id NULL:', member.id);
+      } else {
+        const { data: tenantRoles } = await supabase
+          .from('role')
+          .select('*')
+          .eq('tenant_id', member.tenant_id);
+
+        // Check for role segmentation (tenant-scoped — system_settings is per-tenant)
+        const { data: segmentationSettings } = await supabase
+          .from('system_settings')
+          .select('*')
+          .eq('setting_key', 'role_segmentation_field_id')
+          .eq('tenant_id', member.tenant_id)
+          .maybeSingle();
+
+        let defaultRole = null;
+        const segmentationFieldId = segmentationSettings?.setting_value;
+
+        if (segmentationFieldId && member.organization_id) {
+          // Get the organization's segment value
+          const { data: orgPrefValue } = await supabase
+            .from('organization_preference_value')
+            .select('value')
+            .eq('organization_id', member.organization_id)
+            .eq('field_id', segmentationFieldId)
+            .maybeSingle();
+
+          const orgSegmentValue = orgPrefValue?.value;
+
+          if (orgSegmentValue) {
+            // Find a default role that matches this segment value
+            defaultRole = tenantRoles?.find((r) =>
+              r.is_default === true &&
+              r.segment_values &&
+              Array.isArray(r.segment_values) &&
+              r.segment_values.includes(orgSegmentValue)
+            );
+          }
         }
-      }
-      
-      // Fallback to any default role or a role named 'Member' if no segmented match
-      if (!defaultRole) {
-        const memberRole = allRoles?.find((r) => r.name === 'Member');
-        const anyDefaultRole = allRoles?.find((r) => r.is_default === true);
-        defaultRole = memberRole || anyDefaultRole;
-      }
-      
-      if (defaultRole) {
-        await supabase
-          .from('member')
-          .update({ role_id: defaultRole.id })
-          .eq('id', member.id);
-        member.role_id = defaultRole.id;
+
+        // Fallback to the tenant's `is_default = true` role (or the legacy
+        // tenant-scoped default_role_id system_settings value). Never pick
+        // a role by literal name.
+        if (!defaultRole) {
+          defaultRole = tenantRoles?.find((r) => r.is_default === true) || null;
+        }
+
+        if (!defaultRole) {
+          const { data: legacyDefaultSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'default_role_id')
+            .eq('tenant_id', member.tenant_id)
+            .maybeSingle();
+
+          const legacyDefaultRoleId = legacyDefaultSetting?.setting_value;
+          if (legacyDefaultRoleId) {
+            defaultRole = tenantRoles?.find((r) => r.id === legacyDefaultRoleId) || null;
+          }
+        }
+
+        if (defaultRole) {
+          await supabase
+            .from('member')
+            .update({ role_id: defaultRole.id })
+            .eq('id', member.id);
+          member.role_id = defaultRole.id;
+        } else {
+          console.warn('[Auth Login] No default role found for tenant; leaving role_id NULL:', {
+            member_id: member.id,
+            tenant_id: member.tenant_id,
+          });
+        }
       }
     }
 

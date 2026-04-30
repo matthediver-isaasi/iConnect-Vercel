@@ -637,9 +637,20 @@ export default function MembersListPage() {
           <div className="flex flex-wrap gap-1">
             {memberRoles.slice(0, 2).map((roleId, idx) => {
               const role = roles.find(r => r.id === roleId);
+              if (!role && roleId) {
+                // Role not in this tenant's loaded role list — surface a clear
+                // "Unknown role" badge and warn so cross-tenant role leaks
+                // (see task-647) become visible rather than rendering a raw
+                // UUID. Never expose the offending UUID in the UI.
+                console.warn('[MembersList] Unknown role on member', {
+                  role_id: roleId,
+                  member_id: member.id,
+                  tenant_id: member.tenant_id,
+                });
+              }
               return (
                 <Badge key={idx} variant="outline" className="text-xs">
-                  {role?.name || roleId}
+                  {role?.name || 'Unknown role'}
                 </Badge>
               );
             })}

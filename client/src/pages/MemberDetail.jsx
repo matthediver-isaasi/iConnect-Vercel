@@ -854,7 +854,22 @@ export default function MemberDetail() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
   const getOrganization = () => organizations.find(o => o.id === member?.organization_id);
-  const getRoleName = (roleId) => roles.find(r => r.id === roleId)?.name || roleId;
+  const getRoleName = (roleId) => {
+    const role = roles.find(r => r.id === roleId);
+    if (role) return role.name;
+    // Role not in this tenant's loaded role list — surface a clear "Unknown
+    // role" label and emit a console.warn so cross-tenant role leaks (see
+    // task-647) become visible immediately instead of being hidden behind a
+    // raw UUID render. Never expose the offending UUID in the UI.
+    if (roleId) {
+      console.warn('[MemberDetail] Unknown role on member', {
+        role_id: roleId,
+        member_id: member?.id,
+        tenant_id: member?.tenant_id,
+      });
+    }
+    return 'Unknown role';
+  };
 
   // Category helpers
   const isSubcategorySelected = (categoryId, subcategoryName) => {

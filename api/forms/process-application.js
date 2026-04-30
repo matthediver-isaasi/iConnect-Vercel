@@ -14,6 +14,45 @@ const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
 // Helper function to check if a value is "empty" (undefined, null, or empty string)
 const isEmptyValue = (value) => value === undefined || value === null || value === '';
 
+// Cross-tenant guard: verify a role belongs to the same tenant as the member
+// it is about to be written onto. Returns { ok: true } when the role is in
+// the expected tenant. Returns { ok: false, message } on mismatch / missing
+// role / lookup failure. Returns { ok: true, skipped: true } when either id
+// is missing — the caller is responsible for deciding whether to proceed.
+//
+// Treat mismatches as a hard internal error (FormBuilder is supposed to only
+// surface roles from the current tenant, so this branch should never fire in
+// normal operation; if it does, the form's pipeline / conditional logic is
+// referencing a stale cross-tenant role and we must not silently corrupt
+// member.role_id).
+const validateRoleTenant = async (supabaseClient, roleId, expectedTenantId) => {
+  if (!roleId || !expectedTenantId) {
+    return { ok: true, skipped: true };
+  }
+  const { data: role, error } = await supabaseClient
+    .from('role')
+    .select('id, tenant_id')
+    .eq('id', roleId)
+    .maybeSingle();
+  if (error) {
+    console.error('[AppProcessor] Role tenant lookup failed:', { roleId, error });
+    return { ok: false, message: `Failed to validate role tenant: ${error.message}` };
+  }
+  if (!role) {
+    console.error('[AppProcessor] Role not found during tenant validation:', { roleId });
+    return { ok: false, message: `Configured role does not exist` };
+  }
+  if (role.tenant_id !== expectedTenantId) {
+    console.error('[AppProcessor] Cross-tenant role write blocked:', {
+      role_id: roleId,
+      role_tenant_id: role.tenant_id,
+      expected_tenant_id: expectedTenantId,
+    });
+    return { ok: false, message: 'Configured role does not belong to this tenant' };
+  }
+  return { ok: true };
+};
+
 // Helper function to check if a field has a usable value for assignment
 // For boolean fields, we ALWAYS assign (even undefined means false - toggle was off)
 const hasAssignableValue = (fieldName, value) => {
@@ -1302,7 +1341,21 @@ export default async function handler(req, res) {
             role_id_param: role_id, 
             effectiveRoleIdForUpdate 
           });
-          
+
+          // Cross-tenant guard: if a real role_id is about to be written to an
+          // existing member, verify it belongs to that member's tenant. Hard
+          // fail on mismatch — never silently corrupt member.role_id.
+          if (effectiveRoleIdForUpdate) {
+            const memberTenantForCheck = existingMember.tenant_id || tenant_id || null;
+            const tenantCheck = await validateRoleTenant(supabase, effectiveRoleIdForUpdate, memberTenantForCheck);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
+
           // Check capacity when:
           // 1. Role is being changed (different role_id)
           // 2. Organization is being changed AND member has/will have a role with max_members
@@ -1458,9 +1511,22 @@ export default async function handler(req, res) {
           
           // Add role_id if we have one from any source
           if (effectiveRoleId !== undefined) {
+            // Cross-tenant guard: a non-null role_id about to be written onto
+            // a brand-new member must belong to that member's tenant. Hard
+            // fail on mismatch — see validateRoleTenant rationale.
+            if (effectiveRoleId) {
+              const tenantCheck = await validateRoleTenant(supabase, effectiveRoleId, memberInsertData.tenant_id || tenant_id || null);
+              if (!tenantCheck.ok) {
+                return res.status(500).json({
+                  error: tenantCheck.message,
+                  code: 'ROLE_TENANT_MISMATCH'
+                });
+              }
+            }
+
             memberInsertData.role_id = effectiveRoleId;
             console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId);
-            
+
             // Check role capacity before inserting member (per-organization)
             if (effectiveRoleId !== null) {
               const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleId, orgIdForNewMember);
@@ -2137,10 +2203,12 @@ export default async function handler(req, res) {
         } : null;
         
         if (!existingMemberId) {
-          // Check if member exists in database (scoped to tenant)
+          // Check if member exists in database (scoped to tenant). Also fetch
+          // tenant_id so the cross-tenant role guard below has the member's
+          // authoritative tenant when validating any pipeline-supplied role.
           let existingMemberQuery = supabase
             .from('member')
-            .select('id, role_id, organization_id')
+            .select('id, role_id, organization_id, tenant_id')
             .ilike('email', normalizedEmail);
           
           if (tenant_id) {
@@ -2162,6 +2230,20 @@ export default async function handler(req, res) {
         
         if (existingMemberId) {
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
+
+          // Cross-tenant guard: if the additional-member pipeline carries a
+          // real role_id, verify it belongs to this member's tenant before
+          // writing it. Hard fail on mismatch — see validateRoleTenant.
+          if (additionalMemberData.role_id) {
+            const memberTenantForCheck = existingMemberRecord?.tenant_id || tenant_id || null;
+            const tenantCheck = await validateRoleTenant(supabase, additionalMemberData.role_id, memberTenantForCheck);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
           
           // Resolve organization_id: prefer the UUID from the org pipeline, fall back to prefill
           // The raw form value in additionalMemberData.organization_id may be a name string, not a UUID
@@ -2281,6 +2363,19 @@ export default async function handler(req, res) {
             newMemberData.tenant_id = tenant_id;
           }
           
+          // Cross-tenant guard: a non-null role_id about to be written onto
+          // this brand-new additional member must belong to its tenant. Hard
+          // fail on mismatch — see validateRoleTenant.
+          if (newMemberData.role_id) {
+            const tenantCheck = await validateRoleTenant(supabase, newMemberData.role_id, newMemberData.tenant_id || tenant_id || null);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
+
           // Check role capacity before creating additional member (per-organization)
           if (newMemberData.role_id && newMemberData.role_id !== null) {
             const capacityCheck = await checkRoleCapacity(supabase, newMemberData.role_id, additionalOrgId);

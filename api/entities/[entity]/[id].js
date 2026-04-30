@@ -853,58 +853,86 @@ export default async function handler(req, res) {
       
       // Check if Role has members assigned - if so, reassign them to default role before deletion
       if (entity === 'Role') {
-        // Protect system roles from deletion
-        const { data: roleToDelete } = await supabase
+        // Look up the role being deleted (need tenant_id so reassignment stays
+        // tenant-scoped — never read or write member rows from another tenant).
+        const { data: roleToDelete, error: roleLookupError } = await supabase
           .from('role')
-          .select('name, is_system')
+          .select('name, is_system, tenant_id')
           .eq('id', id)
-          .single();
-        
-        if (roleToDelete?.is_system === true) {
+          .maybeSingle();
+
+        if (roleLookupError) {
+          console.error('[Role Delete] Error looking up role:', roleLookupError);
+          return res.status(500).json({ error: 'Failed to look up role for deletion' });
+        }
+
+        if (!roleToDelete) {
+          return res.status(404).json({ error: 'Role not found' });
+        }
+
+        if (roleToDelete.is_system === true) {
           return res.status(403).json({ error: 'System roles cannot be deleted' });
         }
 
+        const roleTenantId = roleToDelete.tenant_id;
+
+        // Refuse to delete a role with no tenant_id: every reassignment query
+        // below must be tenant-scoped, and an unscoped fallback would be a
+        // cross-tenant write hazard. Tenant-owned roles always have tenant_id.
+        if (!roleTenantId) {
+          console.error('[Role Delete] Refusing to delete role with no tenant_id:', id);
+          return res.status(400).json({
+            error: 'Cannot delete this role: role has no tenant_id, so members cannot be safely reassigned.'
+          });
+        }
+
+        // Count only members in the same tenant as the role being deleted.
         const { count: memberCount, error: countError } = await supabase
           .from('member')
           .select('*', { count: 'exact', head: true })
-          .eq('role_id', id);
+          .eq('role_id', id)
+          .eq('tenant_id', roleTenantId);
 
         if (countError) {
           console.error('[Role Delete] Error counting members:', countError);
         } else if (memberCount && memberCount > 0) {
-          console.log(`[Role Delete] Role ${id} has ${memberCount} members assigned, will reassign to default role`);
-          
-          // Find the default role
-          const { data: allRoles, error: rolesError } = await supabase
+          console.log(`[Role Delete] Role ${id} (tenant ${roleTenantId}) has ${memberCount} members assigned, will reassign`);
+
+          // Find the default role within the SAME tenant — never another tenant's default.
+          let fallbackRoleId = null;
+          const { data: tenantRoles, error: rolesError } = await supabase
             .from('role')
-            .select('id, name, is_default');
-          
+            .select('id, name, is_default')
+            .eq('tenant_id', roleTenantId);
+
           if (rolesError) {
-            console.error('[Role Delete] Error fetching roles:', rolesError);
+            console.error('[Role Delete] Error fetching tenant roles:', rolesError);
             return res.status(500).json({ error: 'Failed to fetch roles for reassignment' });
           }
-          
-          const defaultRole = allRoles?.find(r => r.is_default === true && r.id !== id);
-          
-          if (!defaultRole) {
-            console.error('[Role Delete] No default role found for reassignment');
-            return res.status(400).json({ 
-              error: 'Cannot delete this role: no default role available for member reassignment. Please mark another role as default first.'
-            });
+
+          const defaultRole = tenantRoles?.find(r => r.is_default === true && r.id !== id);
+          if (defaultRole) {
+            fallbackRoleId = defaultRole.id;
+            console.log(`[Role Delete] Resolved tenant default role for reassignment: ${defaultRole.name} (${defaultRole.id})`);
+          } else {
+            console.warn(`[Role Delete] No default role in tenant ${roleTenantId}; affected members will be set to role_id=NULL`);
           }
-          
-          // Reassign all members from this role to the default role
+
+          // Reassign affected members. WHERE is scoped to the same tenant in
+          // addition to the role_id filter, so cross-tenant members are never
+          // touched even if role_id were ever non-unique.
           const { error: reassignError } = await supabase
             .from('member')
-            .update({ role_id: defaultRole.id })
-            .eq('role_id', id);
-          
+            .update({ role_id: fallbackRoleId })
+            .eq('role_id', id)
+            .eq('tenant_id', roleTenantId);
+
           if (reassignError) {
             console.error('[Role Delete] Error reassigning members:', reassignError);
-            return res.status(500).json({ error: 'Failed to reassign members to default role' });
+            return res.status(500).json({ error: 'Failed to reassign members from deleted role' });
           }
-          
-          console.log(`[Role Delete] Reassigned ${memberCount} members from role ${id} to default role ${defaultRole.name} (${defaultRole.id})`);
+
+          console.log(`[Role Delete] Reassigned ${memberCount} members from role ${id} to ${fallbackRoleId ?? 'NULL'} within tenant ${roleTenantId}`);
         }
 
         const roleFkDeleteTables = [
