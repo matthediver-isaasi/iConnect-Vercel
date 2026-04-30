@@ -20,6 +20,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+
+const HIDE_PAID_STORAGE_KEY = 'pendingPOReport.hidePaidInvoices';
 
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Sun' },
@@ -50,6 +53,25 @@ export default function PendingPurchaseOrdersReport() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState(null);
+  const [hidePaidInvoices, setHidePaidInvoices] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(HIDE_PAID_STORAGE_KEY);
+      if (stored === null) return true;
+      return stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(HIDE_PAID_STORAGE_KEY, String(hidePaidInvoices));
+    } catch {
+      // ignore storage errors (e.g. private mode)
+    }
+  }, [hidePaidInvoices]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -164,6 +186,10 @@ export default function PendingPurchaseOrdersReport() {
   const filteredAndSortedData = useMemo(() => {
     let filtered = [...pendingPORecords];
 
+    if (hidePaidInvoices && xeroCheckPerformed) {
+      filtered = filtered.filter(r => r.xero_status !== 'PAID');
+    }
+
     if (selectedSource !== 'all') {
       filtered = filtered.filter(r => r.source_type === selectedSource);
     }
@@ -207,12 +233,12 @@ export default function PendingPurchaseOrdersReport() {
     });
 
     return filtered;
-  }, [pendingPORecords, organizations, searchQuery, selectedSource, sortBy]);
+  }, [pendingPORecords, organizations, searchQuery, selectedSource, sortBy, hidePaidInvoices, xeroCheckPerformed]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedSource, sortBy]);
+  }, [searchQuery, selectedSource, sortBy, hidePaidInvoices, xeroCheckPerformed]);
 
   const totalPages = Math.ceil(filteredAndSortedData.length / ITEMS_PER_PAGE);
   const paginatedData = useMemo(() => {
@@ -622,6 +648,18 @@ export default function PendingPurchaseOrdersReport() {
                 <SelectItem value="invoice_desc">Invoice # Z-A</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="hide-paid-invoices"
+                checked={hidePaidInvoices && xeroCheckPerformed}
+                onCheckedChange={setHidePaidInvoices}
+                disabled={!xeroCheckPerformed}
+                data-testid="switch-hide-paid"
+              />
+              <Label htmlFor="hide-paid-invoices" className="text-sm whitespace-nowrap cursor-pointer">
+                Hide paid invoices
+              </Label>
+            </div>
           </div>
 
           {filteredAndSortedData.length === 0 ? (
