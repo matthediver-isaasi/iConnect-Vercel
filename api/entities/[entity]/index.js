@@ -416,6 +416,13 @@ export default async function handler(req, res) {
           
           // Use the allowsTenantWideAccess flag computed earlier in the access pre-check
           if (tenantCtx.allowsTenantWideAccess) {
+            // SECURITY: tenant-wide access REQUIRES an effective tenant_id. Without it the
+            // organization!inner(tenant_id) join below would degrade to filtering by NULL,
+            // which would expose rows belonging to orgs with no tenant. Block instead.
+            if (!tenantCtx.effectiveTenantId) {
+              console.error(`[Entity GET] SECURITY: ${entity} tenant-wide access requested without effectiveTenantId, blocking`);
+              return res.status(403).json({ error: 'Invalid tenant context - please log out and log in again' });
+            }
             // Allow cross-org access within tenant for:
             // - OrganizationPreferenceValue: viewing org details
             // - Booking with event_id filter: viewing event attendees (access controlled by RBAC)
@@ -529,8 +536,14 @@ export default async function handler(req, res) {
           // Organization entity: filter by tenant_id to show all orgs in tenant
           // Or fall back to showing only the member's own org if tenant_id not set
           console.log('[Entity GET] Organization query - tenantCtx.tenantId:', tenantCtx.tenantId, 'type:', typeof tenantCtx.tenantId, 'organizationId:', tenantCtx.organizationId, 'isTenantAdmin:', isTenantAdmin);
-          if (tenantCtx.tenantId) {
-            query = query.eq('tenant_id', tenantCtx.tenantId);
+          // SECURITY: Prefer effectiveTenantId so admins/members with a resolvable tenant
+          // always get a hard tenant_id filter, not a single-org fallback.
+          const orgTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+          if (orgTenantId) {
+            query = query.eq('tenant_id', orgTenantId);
+            // Use orgTenantId for downstream tenant-scoped lookups (system_settings, preference_field, etc.)
+            // so behaviour stays correct when only effectiveTenantId (resolved from organizationId) is available.
+            const orgScopeTenantId = orgTenantId;
             
             // Check if user is fetching their own organization specifically (by ID filter)
             // If so, skip directory filtering - users should always be able to see their own org
@@ -575,7 +588,7 @@ export default async function handler(req, res) {
               const { data: statusSetting } = await supabase
                 .from('system_settings')
                 .select('setting_value')
-                .eq('tenant_id', tenantCtx.tenantId)
+                .eq('tenant_id', orgScopeTenantId)
                 .eq('setting_key', 'org_directory_allowed_application_statuses')
                 .single();
               
@@ -587,7 +600,7 @@ export default async function handler(req, res) {
                     const { data: statusField } = await supabase
                       .from('preference_field')
                       .select('id')
-                      .eq('tenant_id', tenantCtx.tenantId)
+                      .eq('tenant_id', orgScopeTenantId)
                       .eq('name', 'application_status')
                       .eq('entity_scope', 'organization')
                       .single();
@@ -599,7 +612,7 @@ export default async function handler(req, res) {
                         .from('organization_preference_value')
                         .select('organization_id, value, organization!inner(tenant_id)')
                         .eq('field_id', statusField.id)
-                        .eq('organization.tenant_id', tenantCtx.tenantId);
+                        .eq('organization.tenant_id', orgScopeTenantId);
                       
                       // Filter to orgs with allowed status values
                       const allowedOrgIds = (matchingOrgValues || [])
@@ -649,7 +662,7 @@ export default async function handler(req, res) {
               const { data: excludedSetting } = await supabase
                 .from('system_settings')
                 .select('setting_value')
-                .eq('tenant_id', tenantCtx.tenantId)
+                .eq('tenant_id', orgScopeTenantId)
                 .eq('setting_key', 'org_directory_excluded_orgs')
                 .single();
               
@@ -676,9 +689,14 @@ export default async function handler(req, res) {
                 }
               }
             }
-          } else {
+          } else if (tenantCtx.organizationId) {
+            // SECURITY: We have an org but no tenant_id available - restrict strictly to user's own org
             console.log('[Entity GET] Organization - FALLBACK to single org id:', tenantCtx.organizationId);
             query = query.eq('id', tenantCtx.organizationId);
+          } else {
+            // SECURITY: No tenant_id and no organization_id - block instead of returning unfiltered rows
+            console.error('[Entity GET] SECURITY: Organization request without tenant_id or organization_id, blocking');
+            return res.status(403).json({ error: 'Invalid tenant context - please log out and log in again' });
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities filter by tenant_id (or organization_id during migration)

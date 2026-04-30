@@ -10,6 +10,8 @@ The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shad
 ## Multi-Tenant Architecture
 Data isolation is enforced across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id`. The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, facilitated by a tenant resolver for domain-to-tenant mapping.
 
+The shared entity API (`api/entities/[entity]/index.js`) hard-fails any TENANT- or ORGANIZATION-scoped request that arrives without a usable tenant context: TENANT entities (e.g. `PreferenceField`, `Role`, `Organization`) require `tenantCtx.tenantId`; ORGANIZATION entities that grant tenant-wide read access (e.g. `OrganizationPreferenceValue` joined via `organization!inner(tenant_id)`) require `tenantCtx.effectiveTenantId`. Without these the handler returns 403 instead of degrading to an unscoped query - this prevents the cross-tenant leak observed in the `/organisations` and `/members` filter sidebars (task-631). The matching regression guard lives at `scripts/audit-cross-tenant-crm-leaks.mjs` and the one-off data repair at `scripts/migrations/repair-cross-tenant-preference-leaks.sql`.
+
 ## Identity and Access Management
 A unified identity system manages user authentication, multi-tenant ownership, and organization memberships, including per-tenant password isolation, Google OAuth, and feature-based role management for granular control over UI visibility, backend access, and field access.
 
