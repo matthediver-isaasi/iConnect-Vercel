@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const HIDE_PAID_STORAGE_KEY = 'pendingPOReport.hidePaidInvoices';
 
@@ -35,6 +36,7 @@ const DAYS_OF_WEEK = [
 ];
 
 const ITEMS_PER_PAGE = 20;
+const BULK_SEND_CONCURRENCY = 4;
 
 export default function PendingPurchaseOrdersReport() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -53,6 +55,10 @@ export default function PendingPurchaseOrdersReport() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState(null);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [failedKeys, setFailedKeys] = useState(() => new Set());
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [hidePaidInvoices, setHidePaidInvoices] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -240,6 +246,69 @@ export default function PendingPurchaseOrdersReport() {
     setCurrentPage(1);
   }, [searchQuery, selectedSource, sortBy, hidePaidInvoices, xeroCheckPerformed]);
 
+  // Reset selection when filter set changes meaningfully
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setFailedKeys(new Set());
+  }, [searchQuery, selectedSource, hidePaidInvoices, xeroCheckPerformed]);
+
+  const getRecordKey = (record) => `${record.entityType}-${record.id}`;
+
+  const filteredKeys = useMemo(
+    () => filteredAndSortedData.map(getRecordKey),
+    [filteredAndSortedData]
+  );
+
+  const selectedFilteredCount = useMemo(
+    () => filteredKeys.reduce((acc, k) => acc + (selectedKeys.has(k) ? 1 : 0), 0),
+    [filteredKeys, selectedKeys]
+  );
+
+  const allFilteredSelected =
+    filteredKeys.length > 0 && selectedFilteredCount === filteredKeys.length;
+  const someFilteredSelected =
+    selectedFilteredCount > 0 && selectedFilteredCount < filteredKeys.length;
+
+  const isSelected = (record) => selectedKeys.has(getRecordKey(record));
+
+  const toggleOne = (record) => {
+    const key = getRecordKey(record);
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setFailedKeys(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const toggleAllFiltered = () => {
+    if (allFilteredSelected) {
+      // Deselect every filtered key (preserve any keys outside the current filter, which shouldn't exist normally)
+      setSelectedKeys(prev => {
+        const next = new Set(prev);
+        for (const k of filteredKeys) next.delete(k);
+        return next;
+      });
+    } else {
+      setSelectedKeys(prev => {
+        const next = new Set(prev);
+        for (const k of filteredKeys) next.add(k);
+        return next;
+      });
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedKeys(new Set());
+    setFailedKeys(new Set());
+  };
+
   const totalPages = Math.ceil(filteredAndSortedData.length / ITEMS_PER_PAGE);
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -370,6 +439,31 @@ export default function PendingPurchaseOrdersReport() {
     }
   };
 
+  const sendReminderRequest = async (record, templateId) => {
+    const response = await fetch('/api/pending-purchase-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        action: 'send_reminder',
+        recordId: record.id,
+        entityType: record.entityType,
+        emailTemplateId: templateId,
+      }),
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Failed to send reminder';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // ignore JSON parse errors
+      }
+      throw new Error(errorMessage);
+    }
+  };
+
   const handleSendReminder = async (record) => {
     if (!selectedTemplateId) {
       toast({
@@ -383,25 +477,9 @@ export default function PendingPurchaseOrdersReport() {
 
     const recordKey = `${record.entityType}-${record.id}`;
     setSendingReminderId(recordKey);
-    
+
     try {
-      const response = await fetch('/api/pending-purchase-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          action: 'send_reminder',
-          recordId: record.id,
-          entityType: record.entityType,
-          emailTemplateId: selectedTemplateId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send reminder');
-      }
-
+      await sendReminderRequest(record, selectedTemplateId);
       const orgName = organizations[record.organization_id] || 'the organisation';
       toast({
         title: "Reminder Sent",
@@ -416,6 +494,75 @@ export default function PendingPurchaseOrdersReport() {
     } finally {
       setSendingReminderId(null);
     }
+  };
+
+  const handleBulkSendReminders = async () => {
+    if (selectedKeys.size === 0) return;
+
+    if (!selectedTemplateId) {
+      toast({
+        title: "No Template Selected",
+        description: "Please select an email template in the Reminder Settings first.",
+        variant: "destructive",
+      });
+      setSettingsOpen(true);
+      return;
+    }
+
+    const selectedRecords = filteredAndSortedData.filter(r => selectedKeys.has(getRecordKey(r)));
+    if (selectedRecords.length === 0) return;
+
+    setBulkSending(true);
+    setFailedKeys(new Set());
+    setBulkProgress({ done: 0, total: selectedRecords.length });
+
+    let successCount = 0;
+    const newFailedKeys = new Set();
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < selectedRecords.length) {
+        const idx = cursor++;
+        const record = selectedRecords[idx];
+        try {
+          await sendReminderRequest(record, selectedTemplateId);
+          successCount++;
+        } catch (err) {
+          newFailedKeys.add(getRecordKey(record));
+        } finally {
+          setBulkProgress(prev => ({ done: prev.done + 1, total: prev.total }));
+        }
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(BULK_SEND_CONCURRENCY, selectedRecords.length) },
+      () => worker()
+    );
+    await Promise.all(workers);
+
+    const failureCount = newFailedKeys.size;
+
+    if (failureCount === 0) {
+      toast({
+        title: "Reminders Sent",
+        description: `Successfully sent ${successCount} reminder${successCount !== 1 ? 's' : ''}.`,
+      });
+      setSelectedKeys(new Set());
+      setFailedKeys(new Set());
+    } else {
+      toast({
+        title: "Reminders Sent with Errors",
+        description: `${successCount} sent, ${failureCount} failed. Failed rows remain selected — you can retry them.`,
+        variant: "destructive",
+      });
+      // Keep only failed rows selected for retry
+      setSelectedKeys(new Set(newFailedKeys));
+      setFailedKeys(newFailedKeys);
+    }
+
+    setBulkSending(false);
+    setBulkProgress({ done: 0, total: 0 });
   };
 
   const handleSavePO = () => {
@@ -669,19 +816,108 @@ export default function PendingPurchaseOrdersReport() {
               <p className="text-muted-foreground">No invoices are waiting for purchase orders.</p>
             </div>
           ) : (
+            <>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4 p-3 border rounded-md bg-muted/30">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="select-all-filtered"
+                      checked={
+                        allFilteredSelected
+                          ? true
+                          : someFilteredSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={toggleAllFiltered}
+                      disabled={bulkSending || filteredKeys.length === 0}
+                      data-testid="checkbox-select-all-filtered"
+                    />
+                    <Label
+                      htmlFor="select-all-filtered"
+                      className="text-sm cursor-pointer whitespace-nowrap"
+                    >
+                      Select all (all pages)
+                    </Label>
+                  </div>
+                  <span
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-selection-count"
+                  >
+                    {selectedFilteredCount} of {filteredKeys.length} selected
+                  </span>
+                  {selectedFilteredCount > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearSelection}
+                      disabled={bulkSending}
+                      data-testid="button-clear-selection"
+                    >
+                      Clear selection
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {bulkSending && (
+                    <span
+                      className="text-sm text-muted-foreground"
+                      data-testid="text-bulk-progress"
+                    >
+                      Sending {bulkProgress.done} of {bulkProgress.total}…
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    onClick={handleBulkSendReminders}
+                    disabled={selectedFilteredCount === 0 || bulkSending}
+                    data-testid="button-bulk-send-reminders"
+                  >
+                    {bulkSending ? (
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    {bulkSending
+                      ? 'Sending...'
+                      : `Send Reminders to Selected${selectedFilteredCount > 0 ? ` (${selectedFilteredCount})` : ''}`}
+                  </Button>
+                </div>
+              </div>
+              <p
+                className="text-xs text-muted-foreground mb-3 flex items-center gap-1"
+                data-testid="text-recipient-helper"
+              >
+                <Info className="h-3 w-3" />
+                Reminders are sent to the organisation's primary contact. If no
+                primary contact is set, the booker receives the reminder instead.
+              </p>
             <div className="space-y-3">
               {paginatedData.map((record) => {
                 const orgName = organizations[record.organization_id] || 'Unknown Organisation';
                 const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
                 const recordKey = `${record.entityType}-${record.id}`;
+                const rowSelected = isSelected(record);
+                const rowFailed = failedKeys.has(recordKey);
                 return (
                   <div
                     key={recordKey}
-                    className="border rounded-lg p-4 hover-elevate"
+                    className={`border rounded-lg p-4 hover-elevate ${rowFailed ? 'border-destructive' : ''}`}
                     data-testid={`card-record-${recordKey}`}
                   >
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="flex-1 space-y-2">
+                      <div className="flex items-start gap-3 flex-1">
+                        <Checkbox
+                          checked={rowSelected}
+                          onCheckedChange={() => toggleOne(record)}
+                          disabled={bulkSending}
+                          aria-label={`Select ${orgName}`}
+                          data-testid={`checkbox-po-${record.entityType}-${record.id}`}
+                          className="mt-1"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Building2 className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium" data-testid={`text-org-name-${record.id}`}>
@@ -731,6 +967,16 @@ export default function PendingPurchaseOrdersReport() {
                             Booked by: {record.member_email}
                           </div>
                         )}
+                        {rowFailed && (
+                          <div
+                            className="text-xs text-destructive flex items-center gap-1"
+                            data-testid={`text-bulk-error-${record.id}`}
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                            Last bulk send failed — try again.
+                          </div>
+                        )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {record.xero_invoice_pdf_uri && (
@@ -771,6 +1017,7 @@ export default function PendingPurchaseOrdersReport() {
                 );
               })}
             </div>
+            </>
           )}
 
           {totalPages > 1 && (
