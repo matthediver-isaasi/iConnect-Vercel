@@ -156,6 +156,16 @@ async function createRolesFromTemplates(tenantId) {
   const superAdminTemplate = roleTemplates.find(r => r.name === 'Super Admin');
   const memberTemplate = roleTemplates.find(r => r.name === 'Member');
 
+  // events.pending-purchase-orders is admin-only and off-by-default for the
+  // Member role; Super Admin must always retain access.
+  const PENDING_PO_KEY = 'events.pending-purchase-orders';
+  const memberExcludedBase = memberTemplate?.excluded_features || ['admin.*'];
+  const memberExcluded = memberExcludedBase.includes(PENDING_PO_KEY)
+    ? memberExcludedBase
+    : [...memberExcludedBase, PENDING_PO_KEY];
+  const superAdminExcluded = (superAdminTemplate?.excluded_features || [])
+    .filter(key => key !== PENDING_PO_KEY);
+
   const { data: adminRole, error: roleError } = await supabase
     .from('role')
     .insert({
@@ -163,7 +173,7 @@ async function createRolesFromTemplates(tenantId) {
       tenant_id: tenantId,
       is_default: false,
       is_system: true,
-      excluded_features: superAdminTemplate?.excluded_features || [],
+      excluded_features: superAdminExcluded,
       default_landing_page: superAdminTemplate?.default_landing_page || 'Dashboard'
     })
     .select()
@@ -197,7 +207,7 @@ async function createRolesFromTemplates(tenantId) {
       tenant_id: tenantId,
       is_default: true,
       is_system: memberTemplate?.is_system || false,
-      excluded_features: memberTemplate?.excluded_features || ['admin.*'],
+      excluded_features: memberExcluded,
       default_landing_page: memberTemplate?.default_landing_page || 'Preferences'
     })
     .select()

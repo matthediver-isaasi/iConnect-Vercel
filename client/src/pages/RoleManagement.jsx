@@ -416,7 +416,7 @@ export default function RoleManagementPage() {
     setEditingRole({
       name: "",
       description: "",
-      excluded_features: [],
+      excluded_features: ['events.pending-purchase-orders'],
       is_default: false,
       show_tours: true,
       show_bookmarks: true,
