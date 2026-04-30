@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Save, Settings, Search, Building, Filter } from "lucide-react";
+import { Save, Settings, Search, Building, Filter, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -27,6 +27,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
   const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
+  const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -42,6 +43,16 @@ export default function OrganisationDirectorySettingsPage() {
   const { data: organizations = [] } = useQuery({
     queryKey: ['all-organizations'],
     queryFn: () => base44.entities.Organization.list('name')
+  });
+
+  // Fetch all roles for the reverse card multi-select
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles-for-org-directory-settings'],
+    queryFn: async () => {
+      const allRoles = await base44.entities.Role.list();
+      return (allRoles || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    },
+    staleTime: 5 * 60 * 1000
   });
 
   // Fetch organization custom fields to get application_status options
@@ -115,6 +126,7 @@ export default function OrganisationDirectorySettingsPage() {
       const excludedOrgsSetting = allSettings.find((s) => s.setting_key === 'org_directory_excluded_orgs');
       const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
       const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
+      const reverseCardRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_reverse_card_role_ids');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -125,7 +137,8 @@ export default function OrganisationDirectorySettingsPage() {
         cardsPerRow: cardsPerRowSetting,
         excludedOrgs: excludedOrgsSetting,
         allowedStatuses: allowedStatusesSetting,
-        visibleOrgTypes: visibleOrgTypesSetting
+        visibleOrgTypes: visibleOrgTypesSetting,
+        reverseCardRoles: reverseCardRolesSetting
       };
     },
     refetchOnMount: true
@@ -175,6 +188,14 @@ export default function OrganisationDirectorySettingsPage() {
         setVisibleOrgTypes(Array.isArray(types) ? types : []);
       } catch {
         setVisibleOrgTypes([]);
+      }
+    }
+    if (settings?.reverseCardRoles) {
+      try {
+        const ids = JSON.parse(settings.reverseCardRoles.setting_value);
+        setReverseCardRoleIds(Array.isArray(ids) ? ids : []);
+      } catch {
+        setReverseCardRoleIds([]);
       }
     }
   }, [settings]);
@@ -333,6 +354,19 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'List of organisation type values that allow an organisation to appear in the directory'
         });
       }
+
+      // Save reverse card role IDs setting
+      if (settings?.reverseCardRoles) {
+        await base44.entities.SystemSettings.update(settings.reverseCardRoles.id, {
+          setting_value: JSON.stringify(reverseCardRoleIds)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_reverse_card_role_ids',
+          setting_value: JSON.stringify(reverseCardRoleIds),
+          description: 'List of role IDs whose members are listed on the reverse of organisation directory cards'
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
@@ -365,6 +399,14 @@ export default function OrganisationDirectorySettingsPage() {
       prev.includes(typeValue)
         ? prev.filter((t) => t !== typeValue)
         : [...prev, typeValue]
+    );
+  };
+
+  const toggleReverseCardRole = (roleId) => {
+    setReverseCardRoleIds((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId]
     );
   };
 
@@ -670,6 +712,64 @@ export default function OrganisationDirectorySettingsPage() {
             </CardContent>
           </Card>
         )}
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Reverse card member roles
+            </CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Members holding any of the selected roles will be listed as contacts on the reverse of each organisation's card.
+              If no roles are selected, the contacts section will not appear.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {roles.length === 0 ? (
+              <p className="text-sm text-slate-500">No roles found.</p>
+            ) : (
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+                data-testid="select-reverse-card-roles"
+              >
+                {roles.map((role) => {
+                  const isChecked = reverseCardRoleIds.includes(role.id);
+                  return (
+                    <label
+                      key={role.id}
+                      className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover-elevate"
+                      data-testid={`checkbox-reverse-card-role-${role.id}`}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleReverseCardRole(role.id)}
+                      />
+                      <span className="text-sm font-medium text-slate-700 truncate">{role.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {reverseCardRoleIds.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {reverseCardRoleIds.length} role{reverseCardRoleIds.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
+
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-reverse-card-roles"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="border-slate-200 shadow-sm mt-6">
           <CardHeader>

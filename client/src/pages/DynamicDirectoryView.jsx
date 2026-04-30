@@ -112,7 +112,7 @@ export default function DynamicDirectoryView() {
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => base44.entities.Role.list(),
-    enabled: !!directory && directory.entity_type === 'member',
+    enabled: !!directory && (directory.entity_type === 'member' || directory.entity_type === 'organization'),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -175,6 +175,7 @@ export default function DynamicDirectoryView() {
       const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
+      const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
 
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -185,6 +186,16 @@ export default function DynamicDirectoryView() {
         }
       }
 
+      let reverseCardRoleIds = [];
+      if (reverseCardRolesSetting) {
+        try {
+          const parsed = JSON.parse(reverseCardRolesSetting.setting_value);
+          reverseCardRoleIds = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          reverseCardRoleIds = [];
+        }
+      }
+
       return {
         showLogo: logoSetting?.setting_value !== 'false',
         showTitle: titleSetting?.setting_value !== 'false',
@@ -192,7 +203,8 @@ export default function DynamicDirectoryView() {
         showMemberCount: memberCountSetting?.setting_value !== 'false',
         showNameTooltip: nameTooltipSetting?.setting_value === 'true',
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
-        excludedOrgIds: excludedOrgIds
+        excludedOrgIds: excludedOrgIds,
+        reverseCardRoleIds: reverseCardRoleIds
       };
     },
     enabled: !!directory && directory.entity_type === 'organization',
@@ -460,6 +472,52 @@ export default function DynamicDirectoryView() {
     });
     return counts;
   }, [allOrgMembersForCount]);
+
+  // Build the grouped contacts list for the currently selected organisation's reverse-card dialog.
+  // Members are grouped by role in the order admins selected those roles; within each role they
+  // are sorted alphabetically by last name then first name.
+  const reverseCardContactGroups = useMemo(() => {
+    const roleIds = orgDisplaySettings?.reverseCardRoleIds || [];
+    if (!selectedOrg || roleIds.length === 0 || allOrgMembersForCount.length === 0) {
+      return [];
+    }
+    const orgMembers = allOrgMembersForCount.filter(
+      (m) =>
+        m.organization_id === selectedOrg.id &&
+        m.email &&
+        m.role_id &&
+        roleIds.includes(m.role_id) &&
+        !isDeletedMember(m)
+    );
+    if (orgMembers.length === 0) return [];
+
+    const sortMembers = (a, b) => {
+      const lastA = (a.last_name || '').toLowerCase();
+      const lastB = (b.last_name || '').toLowerCase();
+      if (lastA !== lastB) return lastA.localeCompare(lastB);
+      return (a.first_name || '').toLowerCase().localeCompare((b.first_name || '').toLowerCase());
+    };
+
+    return roleIds
+      .map((roleId) => {
+        const role = roles.find((r) => r.id === roleId);
+        const groupMembers = orgMembers
+          .filter((m) => m.role_id === roleId)
+          .sort(sortMembers);
+        return { roleId, role, members: groupMembers };
+      })
+      .filter((g) => g.members.length > 0);
+  }, [orgDisplaySettings?.reverseCardRoleIds, selectedOrg, allOrgMembersForCount, roles]);
+
+  const handleCopyMemberEmail = async (email) => {
+    if (!email) return;
+    try {
+      await navigator.clipboard.writeText(email);
+      toast.success('Email copied to clipboard');
+    } catch {
+      toast.error('Failed to copy email');
+    }
+  };
 
   const memberStats = useMemo(() => {
     const stats = {};
@@ -978,6 +1036,85 @@ export default function DynamicDirectoryView() {
                 <Users className="w-4 h-4" />
                 <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
               </div>
+              {reverseCardContactGroups.length > 0 && (
+                <div className="space-y-3 pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-blue-600" />
+                    <h4 className="font-medium text-slate-900">Contacts</h4>
+                  </div>
+                  <div className="space-y-4">
+                    {reverseCardContactGroups.map((group) => (
+                      <div key={group.roleId} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                            {group.role?.name || 'Role'}
+                          </Badge>
+                        </div>
+                        <div className="space-y-2">
+                          {group.members.map((member) => {
+                            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unnamed member';
+                            const initials = `${(member.first_name || '').charAt(0)}${(member.last_name || '').charAt(0)}`.toUpperCase() || '?';
+                            return (
+                              <div
+                                key={member.id}
+                                className="flex items-center gap-3 p-2 rounded-lg bg-slate-50"
+                                data-testid={`row-contact-member-${member.id}`}
+                              >
+                                <div className="flex-shrink-0">
+                                  {member.profile_photo_url ? (
+                                    <img
+                                      src={member.profile_photo_url}
+                                      alt={fullName}
+                                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
+                                      {initials}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    className="text-sm font-medium text-slate-900 truncate"
+                                    data-testid={`text-contact-name-${member.id}`}
+                                  >
+                                    {fullName}
+                                  </p>
+                                  {member.job_title && (
+                                    <p className="text-xs text-slate-600 truncate">{member.job_title}</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <Button
+                                    size="sm"
+                                    asChild
+                                    className="bg-blue-600 hover:bg-blue-700 gap-1.5"
+                                    data-testid={`button-email-member-${member.id}`}
+                                  >
+                                    <a href={`mailto:${member.email}`}>
+                                      <Mail className="w-3.5 h-3.5" />
+                                      Email
+                                    </a>
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    onClick={() => handleCopyMemberEmail(member.email)}
+                                    aria-label={`Copy email for ${fullName}`}
+                                    data-testid={`button-copy-email-${member.id}`}
+                                  >
+                                    <Copy className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {orgCustomFields.length > 0 && (
                 <div className="space-y-3 pt-2 border-t">
                   <div className="flex items-center gap-2">
