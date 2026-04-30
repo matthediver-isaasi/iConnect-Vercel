@@ -427,6 +427,7 @@ export default function EventRegistrationReport() {
     const headers = [
       'Event',
       'Complex Event',
+      'Event Date',
       'Internal Reference',
       'Booking Group',
       'Name',
@@ -465,6 +466,11 @@ export default function EventRegistrationReport() {
         rows.push([
           group.eventTitle || '',
           group.isComplexEvent ? 'Yes' : 'No',
+          formatEventDateRange({
+            startDate: group.eventStartDate,
+            endDate: group.eventEndDate,
+            isComplex: group.isComplexEvent,
+          }),
           group.internalReference || '',
           group.isGroup ? (group.groupRef || 'Group') : '',
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
