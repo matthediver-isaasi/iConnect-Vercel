@@ -438,6 +438,46 @@ export async function updateXeroInvoiceReference(appTenantId, invoiceId, referen
   };
 }
 
+/**
+ * Push a PO number into the matching Xero invoice's Reference field, swallow
+ * any Xero failure (so the local database update is not undone), and return
+ * a uniform shape every PO entry point can forward back to the client.
+ *
+ * @param {Object} args
+ * @param {string} args.appTenantId          Application tenant id used to look up the Xero token.
+ * @param {string|null} args.xeroInvoiceId   Xero invoice id (skipped when falsy).
+ * @param {string} args.purchaseOrderNumber  Trimmed PO number to push.
+ * @param {string} [args.contextLabel]       Logging label.
+ * @returns {Promise<{xeroUpdated: boolean, xeroError: string|null, skipped?: boolean}>}
+ */
+export async function pushPurchaseOrderToXero({
+  appTenantId,
+  xeroInvoiceId,
+  purchaseOrderNumber,
+  contextLabel = 'PO sync'
+}) {
+  if (!xeroInvoiceId) {
+    console.log(`[${contextLabel}] PO saved locally but no xero_invoice_id present — skipping Xero push`);
+    return { xeroUpdated: false, xeroError: null, skipped: true };
+  }
+
+  if (!appTenantId) {
+    const msg = 'Cannot determine tenant for Xero token lookup';
+    console.error(`[${contextLabel}] Xero reference update FAILED for invoice ${xeroInvoiceId}: ${msg}`);
+    return { xeroUpdated: false, xeroError: msg };
+  }
+
+  try {
+    await updateXeroInvoiceReference(appTenantId, xeroInvoiceId, purchaseOrderNumber);
+    console.log(`[${contextLabel}] Xero reference updated for invoice ${xeroInvoiceId} -> "${purchaseOrderNumber}"`);
+    return { xeroUpdated: true, xeroError: null };
+  } catch (xeroErr) {
+    const errMsg = xeroErr?.message || 'Unknown Xero error';
+    console.error(`[${contextLabel}] Xero reference update FAILED for invoice ${xeroInvoiceId}: ${errMsg}`);
+    return { xeroUpdated: false, xeroError: errMsg };
+  }
+}
+
 export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   

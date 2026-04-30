@@ -7,6 +7,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
+import { pushPurchaseOrderToXero } from '../_lib/xero.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import {
@@ -5236,95 +5237,90 @@ const functionHandlers = {
       throw new Error('Missing required parameter: bookingGroupReference');
     }
 
-    if (!purchaseOrderNumber) {
+    if (!purchaseOrderNumber || !String(purchaseOrderNumber).trim()) {
       throw new Error('Missing required parameter: purchaseOrderNumber');
     }
 
-    // First, get the booking to find the Xero invoice ID and verify ownership
-    const { data: booking, error: fetchError } = await supabase
+    const trimmedPo = String(purchaseOrderNumber).trim();
+
+    // Verify the caller owns a row in this group; that row's tenant is then
+    // used to scope every subsequent read/write.
+    const { data: ownerRow, error: ownerError } = await supabase
       .from('booking')
-      .select('xero_invoice_id, xero_invoice_number, member_id')
+      .select('id, member_id, tenant_id')
       .eq('booking_group_reference', bookingGroupReference)
-      .not('xero_invoice_id', 'is', null)
+      .eq('member_id', memberId)
       .limit(1)
       .maybeSingle();
 
-    if (fetchError) {
-      throw new Error(`Failed to fetch booking: ${fetchError.message}`);
+    if (ownerError) {
+      throw new Error(`Failed to fetch booking: ${ownerError.message}`);
     }
 
-    if (!booking || !booking.xero_invoice_id) {
-      throw new Error('No Xero invoice found for this booking');
-    }
-
-    // Verify ownership - the authenticated member must own this booking
-    if (booking.member_id !== memberId) {
+    if (!ownerRow) {
       throw new Error('Not authorized to update this booking');
     }
 
-    // Get member's tenant_id for Xero token lookup
-    const { data: memberData } = await supabase
-      .from('member')
-      .select('tenant_id')
-      .eq('id', memberId)
-      .single();
-    
-    if (!memberData?.tenant_id) {
-      throw new Error('Cannot determine tenant for Xero invoice update');
+    // Scope the invoice lookup by the verified owner row's tenant so the
+    // group reference can never resolve to another tenant's invoice.
+    let invoiceLookup = supabase
+      .from('booking')
+      .select('xero_invoice_id, xero_invoice_number, tenant_id')
+      .eq('booking_group_reference', bookingGroupReference)
+      .not('xero_invoice_id', 'is', null);
+
+    if (ownerRow.tenant_id) {
+      invoiceLookup = invoiceLookup.eq('tenant_id', ownerRow.tenant_id);
     }
 
-    // Get valid Xero token
-    const { accessToken, tenantId } = await getValidXeroAccessToken(memberData.tenant_id);
+    const { data: invoiceRow } = await invoiceLookup.limit(1).maybeSingle();
 
-    // Update the invoice reference in Xero using POST to the specific invoice
-    const updatePayload = {
-      Invoices: [{
-        InvoiceID: booking.xero_invoice_id,
-        Reference: purchaseOrderNumber
-      }]
-    };
-
-    console.log('[updateXeroInvoicePO] Updating invoice reference in Xero:', booking.xero_invoice_id, 'with PO:', purchaseOrderNumber);
-
-    const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'xero-tenant-id': tenantId,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(updatePayload)
-    });
-
-    const updateData = await updateResponse.json();
-
-    if (!updateResponse.ok || !updateData.Invoices || updateData.Invoices.length === 0) {
-      throw new Error(`Failed to update invoice reference: ${JSON.stringify(updateData)}`);
-    }
-
-    const updatedInvoice = updateData.Invoices[0];
-    console.log('[updateXeroInvoicePO] Invoice reference updated in Xero:', updatedInvoice.InvoiceNumber);
-
-    // Update booking records with PO number (PDF is fetched on-demand from Xero)
-    const { error: updateError } = await supabase
+    // Save locally first so the user's edit survives a Xero outage.
+    let updateQuery = supabase
       .from('booking')
       .update({
-        purchase_order_number: purchaseOrderNumber,
+        purchase_order_number: trimmedPo,
         po_to_follow: false
       })
       .eq('booking_group_reference', bookingGroupReference);
+
+    if (ownerRow.tenant_id) {
+      updateQuery = updateQuery.eq('tenant_id', ownerRow.tenant_id);
+    }
+
+    const { error: updateError } = await updateQuery;
 
     if (updateError) {
       throw new Error(`Failed to update booking PO number: ${updateError.message}`);
     }
 
-    console.log('[updateXeroInvoicePO] Booking PO number updated');
+    console.log(`[updateXeroInvoicePO] Booking PO number saved locally for group ${bookingGroupReference}`);
+
+    // Legacy rows may pre-date the tenant_id backfill; fall back to the member's tenant.
+    let appTenantId = invoiceRow?.tenant_id || ownerRow.tenant_id || null;
+    if (!appTenantId) {
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('tenant_id')
+        .eq('id', memberId)
+        .single();
+      appTenantId = memberData?.tenant_id || null;
+    }
+
+    const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
+      appTenantId,
+      xeroInvoiceId: invoiceRow?.xero_invoice_id || null,
+      purchaseOrderNumber: trimmedPo,
+      contextLabel: `updateXeroInvoicePO group ${bookingGroupReference}`
+    });
 
     return {
       success: true,
-      invoice_id: booking.xero_invoice_id,
-      invoice_number: booking.xero_invoice_number,
-      reference: purchaseOrderNumber
+      invoice_id: invoiceRow?.xero_invoice_id || null,
+      invoice_number: invoiceRow?.xero_invoice_number || null,
+      reference: trimmedPo,
+      xeroUpdated,
+      xeroError
     };
   },
 

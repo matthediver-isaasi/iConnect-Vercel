@@ -361,41 +361,63 @@ export default function BookingsPage() {
     }
 
     setSubmittingPoFor(stateKey);
-    
+
+    const showXeroWarning = (xeroError) => {
+      toast.warning('Saved locally — Xero not updated', {
+        description: `The PO number was saved, but the Xero invoice could not be updated: ${xeroError}`,
+      });
+    };
+
     try {
       if (hasXeroInvoice) {
-        try {
-          const response = await base44.functions.invoke('updateXeroInvoicePO', {
-            bookingGroupReference: apiReference,
-            purchaseOrderNumber: poNumber,
-            bookingSource: bookingSource,
+        if (bookingSource === 'complex') {
+          const poResp = await fetch('/api/complex-event-bookings/update-po', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ booking_id: bookingId, purchase_order_number: poNumber }),
           });
-          
-          if (!response.data.success) {
-            throw new Error(response.data.error || 'Failed to update invoice');
+          const poData = await poResp.json();
+          if (!poResp.ok) {
+            throw new Error(poData.error || 'Failed to save PO number');
           }
-
-          toast.success('PO number added and invoice updated successfully');
-        } catch (invokeError) {
-          console.error('Xero invoice update error:', invokeError?.message);
-          if (bookingSource === 'complex') {
-            const poResp = await fetch('/api/complex-event-bookings/update-po', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ booking_id: bookingId, purchase_order_number: poNumber }),
-            });
-            if (!poResp.ok) {
-              const poData = await poResp.json();
-              throw new Error(poData.error || 'Failed to save PO number');
-            }
-            toast.info('PO number saved. Invoice will be updated shortly.');
+          if (poData.xeroUpdated === false && poData.xeroError) {
+            showXeroWarning(poData.xeroError);
           } else {
-            await base44.entities.Booking.update(bookingId, {
+            toast.success('PO number added and invoice updated successfully');
+          }
+        } else {
+          try {
+            const response = await base44.functions.invoke('updateXeroInvoicePO', {
+              bookingGroupReference: apiReference,
+              purchaseOrderNumber: poNumber,
+              bookingSource: bookingSource,
+            });
+
+            if (!response.data.success) {
+              throw new Error(response.data.error || 'Failed to update invoice');
+            }
+
+            if (response.data.xeroUpdated === false && response.data.xeroError) {
+              showXeroWarning(response.data.xeroError);
+            } else {
+              toast.success('PO number added and invoice updated successfully');
+            }
+          } catch (invokeError) {
+            // Fall back to entity PATCH (which also pushes to Xero) on function-level failures.
+            console.error('updateXeroInvoicePO failed, falling back to entity PATCH:', invokeError?.message);
+            const updateResult = await base44.entities.Booking.update(bookingId, {
               purchase_order_number: poNumber,
               po_to_follow: false
             });
-            toast.info('PO number saved. Invoice will be updated shortly.');
+            const sync = updateResult?._xeroPoSync;
+            if (sync && sync.xeroUpdated === false && sync.xeroError) {
+              showXeroWarning(sync.xeroError);
+            } else if (sync && sync.xeroUpdated === true) {
+              toast.success('PO number added and invoice updated successfully');
+            } else {
+              toast.info('PO number saved. Invoice will be updated shortly.');
+            }
           }
         }
       } else {
@@ -406,17 +428,26 @@ export default function BookingsPage() {
             credentials: 'include',
             body: JSON.stringify({ booking_id: bookingId, purchase_order_number: poNumber }),
           });
+          const poData = await poResp.json();
           if (!poResp.ok) {
-            const poData = await poResp.json();
             throw new Error(poData.error || 'Failed to save PO number');
           }
-          toast.success('Purchase order number submitted successfully');
+          if (poData.xeroUpdated === false && poData.xeroError) {
+            showXeroWarning(poData.xeroError);
+          } else {
+            toast.success('Purchase order number submitted successfully');
+          }
         } else {
-          await base44.entities.Booking.update(bookingId, {
+          const updateResult = await base44.entities.Booking.update(bookingId, {
             purchase_order_number: poNumber,
             po_to_follow: false
           });
-          toast.success('Purchase order number submitted successfully');
+          const sync = updateResult?._xeroPoSync;
+          if (sync && sync.xeroUpdated === false && sync.xeroError) {
+            showXeroWarning(sync.xeroError);
+          } else {
+            toast.success('Purchase order number submitted successfully');
+          }
         }
       }
 

@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
+import { pushPurchaseOrderToXero } from '../_lib/xero.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
   try {
     const { data: booking, error: fetchError } = await supabase
       .from('complex_event_booking')
-      .select('id, member_id, attendee_email, tenant_id')
+      .select('id, member_id, attendee_email, tenant_id, xero_invoice_id, booking_group_reference')
       .eq('id', booking_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -61,13 +62,16 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'You can only update PO for your own bookings' });
     }
 
+    const trimmedPO = purchase_order_number.trim();
+
+    // The group shares one Xero invoice — apply the PO to every group row.
     const { error: updateError } = await supabase
       .from('complex_event_booking')
       .update({
-        purchase_order_number: purchase_order_number.trim(),
+        purchase_order_number: trimmedPO,
         po_to_follow: false,
       })
-      .eq('id', booking_id)
+      .eq('booking_group_reference', booking.booking_group_reference)
       .eq('tenant_id', tenantId);
 
     if (updateError) {
@@ -75,7 +79,33 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update PO number' });
     }
 
-    return res.json({ success: true });
+    // The invoice is stored on one row in the group — fall back to a group lookup.
+    let groupXeroInvoiceId = booking.xero_invoice_id;
+    if (!groupXeroInvoiceId) {
+      const { data: invoiceRow } = await supabase
+        .from('complex_event_booking')
+        .select('xero_invoice_id')
+        .eq('booking_group_reference', booking.booking_group_reference)
+        .eq('tenant_id', tenantId)
+        .not('xero_invoice_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+      groupXeroInvoiceId = invoiceRow?.xero_invoice_id || null;
+    }
+
+    const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
+      appTenantId: tenantId,
+      xeroInvoiceId: groupXeroInvoiceId,
+      purchaseOrderNumber: trimmedPO,
+      contextLabel: `ComplexEventBooking ${booking_id}`,
+    });
+
+    return res.json({
+      success: true,
+      purchase_order_number: trimmedPO,
+      xeroUpdated,
+      xeroError,
+    });
   } catch (err) {
     console.error('[ComplexEventBookings] PO update error:', err);
     return res.status(500).json({ error: 'Internal server error' });

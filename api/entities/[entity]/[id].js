@@ -6,6 +6,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, 
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
+import { pushPurchaseOrderToXero } from '../../_lib/xero.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -505,6 +506,75 @@ export default async function handler(req, res) {
         await invalidateMemberSessions(id);
       }
 
+      // Mirror PO edits on Booking / ProgramTicketTransaction into the matching Xero invoice.
+      let xeroPoSyncResult = null;
+      const isBookingPoUpdate =
+        (entityNormalized === 'booking' || entityNormalized === 'programtickettransaction')
+        && Object.prototype.hasOwnProperty.call(sanitizedBody, 'purchase_order_number')
+        && typeof sanitizedBody.purchase_order_number === 'string'
+        && sanitizedBody.purchase_order_number.trim() !== '';
+
+      if (isBookingPoUpdate && data) {
+        const trimmedPo = sanitizedBody.purchase_order_number.trim();
+        let appTenantIdForXero = data.tenant_id || tenantCtx.tenantId || null;
+
+        // Legacy rows may not carry tenant_id; fall back via organization then member.
+        if (!appTenantIdForXero) {
+          if (data.organization_id) {
+            const { data: orgRow } = await supabase
+              .from('organization')
+              .select('tenant_id')
+              .eq('id', data.organization_id)
+              .single();
+            appTenantIdForXero = orgRow?.tenant_id || null;
+          }
+          if (!appTenantIdForXero && data.member_id) {
+            const { data: memberRow } = await supabase
+              .from('member')
+              .select('tenant_id')
+              .eq('id', data.member_id)
+              .single();
+            appTenantIdForXero = memberRow?.tenant_id || null;
+          }
+        }
+
+        // Booking groups share one Xero invoice — fall back to a tenant-scoped
+        // group lookup when the patched row itself doesn't carry it, and apply
+        // the PO across the whole group so attendees stay in sync.
+        let xeroInvoiceIdForPush = data.xero_invoice_id || null;
+        if (
+          !xeroInvoiceIdForPush
+          && entityNormalized === 'booking'
+          && data.booking_group_reference
+          && appTenantIdForXero
+        ) {
+          const { data: groupInvoiceRow } = await supabase
+            .from('booking')
+            .select('xero_invoice_id')
+            .eq('booking_group_reference', data.booking_group_reference)
+            .eq('tenant_id', appTenantIdForXero)
+            .not('xero_invoice_id', 'is', null)
+            .limit(1)
+            .maybeSingle();
+          xeroInvoiceIdForPush = groupInvoiceRow?.xero_invoice_id || null;
+
+          if (xeroInvoiceIdForPush) {
+            await supabase
+              .from('booking')
+              .update({ purchase_order_number: trimmedPo, po_to_follow: false })
+              .eq('booking_group_reference', data.booking_group_reference)
+              .eq('tenant_id', appTenantIdForXero);
+          }
+        }
+
+        xeroPoSyncResult = await pushPurchaseOrderToXero({
+          appTenantId: appTenantIdForXero,
+          xeroInvoiceId: xeroInvoiceIdForPush,
+          purchaseOrderNumber: trimmedPo,
+          contextLabel: `Entity ${entity} ${id} PO update`,
+        });
+      }
+
       // Derive base URL for workflow email placeholders
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       let host = req.headers['x-forwarded-host'] || req.headers.host || '';
@@ -712,12 +782,19 @@ export default async function handler(req, res) {
         }
       }
 
-      if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0 || zohoCrmSyncResult) {
+      if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0 || zohoCrmSyncResult || xeroPoSyncResult) {
         return res.json({
           ...responseData,
           ...(pendingWorkflowConfirmations.length > 0 && { _pendingWorkflowConfirmations: pendingWorkflowConfirmations }),
           ...(workflowReverts.length > 0 && { _workflowReverts: workflowReverts }),
-          ...(zohoCrmSyncResult && { _zohoCrmSync: zohoCrmSyncResult })
+          ...(zohoCrmSyncResult && { _zohoCrmSync: zohoCrmSyncResult }),
+          ...(xeroPoSyncResult && {
+            _xeroPoSync: {
+              xeroUpdated: xeroPoSyncResult.xeroUpdated,
+              xeroError: xeroPoSyncResult.xeroError,
+              skipped: xeroPoSyncResult.skipped || false,
+            }
+          })
         });
       }
 

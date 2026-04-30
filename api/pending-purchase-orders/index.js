@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
-import { getValidXeroAccessToken, updateXeroInvoiceReference } from '../_lib/xero.js';
+import { getValidXeroAccessToken, pushPurchaseOrderToXero } from '../_lib/xero.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { replacePlaceholders } from '../_lib/emailService.js';
 
@@ -665,35 +665,18 @@ export default async function handler(req, res) {
         }
         
         const trimmedPO = purchaseOrderNumber.trim();
-        const xeroInvoiceIdForPush = existingRecord.xero_invoice_id;
-        
-        if (xeroInvoiceIdForPush) {
-          try {
-            await updateXeroInvoiceReference(tenantId, xeroInvoiceIdForPush, trimmedPO);
-            console.log(`[PendingPO] Xero reference updated for invoice ${xeroInvoiceIdForPush} (entity ${entityType} ${entityId}) -> "${trimmedPO}"`);
-            return res.json({
-              success: true,
-              purchase_order_number: trimmedPO,
-              xeroUpdated: true
-            });
-          } catch (xeroErr) {
-            const xeroErrorMessage = xeroErr?.message || 'Unknown Xero error';
-            console.error(`[PendingPO] Xero reference update FAILED for invoice ${xeroInvoiceIdForPush} (entity ${entityType} ${entityId}): ${xeroErrorMessage}`);
-            return res.json({
-              success: true,
-              purchase_order_number: trimmedPO,
-              xeroUpdated: false,
-              xeroError: xeroErrorMessage
-            });
-          }
-        }
-        
-        console.log(`[PendingPO] PO saved locally for ${entityType} ${entityId} but no xero_invoice_id present — skipping Xero push`);
+        const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
+          appTenantId: tenantId,
+          xeroInvoiceId: existingRecord.xero_invoice_id,
+          purchaseOrderNumber: trimmedPO,
+          contextLabel: `PendingPO ${entityType} ${entityId}`,
+        });
+
         return res.json({
           success: true,
           purchase_order_number: trimmedPO,
-          xeroUpdated: false,
-          xeroError: null
+          xeroUpdated,
+          xeroError,
         });
         
       } else if (action === 'verify') {
