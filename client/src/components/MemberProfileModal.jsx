@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isVisibleOnBack, isCustomFieldVisibleOnBack, getOrderedCustomFields } from "@/utils/directorySettings";
+import { isVisibleOnBack, isCustomFieldVisibleOnBack, getOrderedCustomFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
 
 export default function MemberProfileModal({ memberId, open, onOpenChange }) {
   const { isFeatureExcluded } = useMemberAccess();
@@ -404,10 +404,9 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
               );
               if (enabledFields.length === 0) return null;
               const memberValues = memberPreferenceMap[member.id] || {};
-              const fieldsWithValues = enabledFields.filter(f => {
-                const val = memberValues[f.id];
-                return val !== undefined && val !== null && val !== '';
-              });
+              const fieldsWithValues = enabledFields.filter(f =>
+                hasDirectoryFieldValue(f, memberValues[f.id])
+              );
               if (fieldsWithValues.length === 0) return null;
               return (
                 <div className="space-y-3 pt-4 border-t border-slate-200">

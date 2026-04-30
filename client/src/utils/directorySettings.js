@@ -45,6 +45,29 @@ export function isCustomFieldVisibleOnBack(settings, fieldId) {
   return vis.back;
 }
 
+export function hasDirectoryFieldValue(field, rawValue) {
+  if (rawValue === undefined || rawValue === null) return false;
+
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0;
+  }
+
+  if (typeof rawValue === 'string') {
+    if (rawValue.trim() === '') return false;
+    if (field?.field_type === 'picklist') {
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (Array.isArray(parsed)) return parsed.length > 0;
+      } catch {
+        // Not JSON; non-empty string is a value
+      }
+    }
+    return true;
+  }
+
+  return true;
+}
+
 export function getOrderedCustomFields(fields, settings) {
   const fieldOrder = settings?.field_order;
   if (!fieldOrder || !Array.isArray(fieldOrder) || fieldOrder.length === 0) {

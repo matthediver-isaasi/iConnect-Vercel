@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
+import { hasDirectoryFieldValue } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -927,56 +928,79 @@ export default function OrganisationDirectoryPage() {
             )}
 
             {/* Custom Fields Section */}
-            {orgCustomFields.length > 0 && (
-              <div className="space-y-3 pt-2 border-t">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-blue-600" />
-                  <h4 className="font-medium text-slate-900">Additional Information</h4>
-                </div>
-                
-                {isLoadingOrgValues ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            {orgCustomFields.length > 0 && (() => {
+              if (isLoadingOrgValues) {
+                return (
+                  <div className="space-y-3 pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="w-4 h-4 text-blue-600" />
+                      <h4 className="font-medium text-slate-900">Additional Information</h4>
+                    </div>
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                    </div>
                   </div>
-                ) : (
+                );
+              }
+
+              const populatedFields = orgCustomFields
+                .map((field) => {
+                  const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
+                  const rawValue = valueRecord?.value;
+
+                  if (!hasDirectoryFieldValue(field, rawValue)) return null;
+
+                  let displayValue = rawValue;
+
+                  // Handle picklist (array) values
+                  if (field.field_type === 'picklist' && displayValue) {
+                    try {
+                      const parsed = JSON.parse(displayValue);
+                      if (Array.isArray(parsed) && field.options) {
+                        displayValue = parsed
+                          .map(v => field.options.find(o => o.value === v)?.label || v)
+                          .join(', ');
+                      }
+                    } catch {
+                      // Keep as is
+                    }
+                  }
+
+                  // Handle dropdown - show label instead of value
+                  if (field.field_type === 'dropdown' && displayValue && field.options) {
+                    const option = field.options.find(o => o.value === displayValue);
+                    if (option) displayValue = option.label;
+                  }
+
+                  if (displayValue === '' || displayValue === null || displayValue === undefined) {
+                    return null;
+                  }
+
+                  return { field, displayValue };
+                })
+                .filter(Boolean);
+
+              if (populatedFields.length === 0) return null;
+
+              return (
+                <div className="space-y-3 pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4 text-blue-600" />
+                    <h4 className="font-medium text-slate-900">Additional Information</h4>
+                  </div>
                   <div className="space-y-3">
-                    {orgCustomFields.map((field) => {
-                      const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
-                      let displayValue = valueRecord?.value || '';
-                      
-                      // Handle picklist (array) values
-                      if (field.field_type === 'picklist' && displayValue) {
-                        try {
-                          const parsed = JSON.parse(displayValue);
-                          if (Array.isArray(parsed) && field.options) {
-                            displayValue = parsed
-                              .map(v => field.options.find(o => o.value === v)?.label || v)
-                              .join(', ');
-                          }
-                        } catch {
-                          // Keep as is
-                        }
-                      }
-                      
-                      // Handle dropdown - show label instead of value
-                      if (field.field_type === 'dropdown' && displayValue && field.options) {
-                        const option = field.options.find(o => o.value === displayValue);
-                        if (option) displayValue = option.label;
-                      }
-                      
-                      return (
-                        <div key={field.id} className="flex justify-between items-start gap-4">
-                          <span className="text-sm text-slate-600">{field.label}</span>
-                          <span className="text-sm font-medium text-slate-900 text-right">
-                            {displayValue || <span className="text-slate-400 italic">Not set</span>}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    {populatedFields.map(({ field, displayValue }) => (
+                      <div key={field.id} className="flex justify-between items-start gap-4">
+                        <span className="text-sm text-slate-600">{field.label}</span>
+                        <span className="text-sm font-medium text-slate-900 text-right">
+                          {displayValue}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
