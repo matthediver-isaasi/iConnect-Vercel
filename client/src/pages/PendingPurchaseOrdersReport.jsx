@@ -166,12 +166,20 @@ export default function PendingPurchaseOrdersReport() {
       }
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
-      toast({
-        title: "Success",
-        description: "Purchase order number has been saved.",
-      });
+      if (result?.xeroUpdated === false && result?.xeroError) {
+        toast({
+          title: "Saved locally — Xero not updated",
+          description: `The PO number was saved, but the Xero invoice could not be updated: ${result.xeroError}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Purchase order number has been saved.",
+        });
+      }
       setEditingRecord(null);
       setPoNumber("");
     },

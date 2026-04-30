@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
-import { getValidXeroAccessToken } from '../_lib/xero.js';
+import { getValidXeroAccessToken, updateXeroInvoiceReference } from '../_lib/xero.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { replacePlaceholders } from '../_lib/emailService.js';
 
@@ -618,7 +618,7 @@ export default async function handler(req, res) {
       
       const { data: existingRecord, error: fetchError } = await supabase
         .from(tableName)
-        .select('id, organization_id, member_id')
+        .select('id, organization_id, member_id, xero_invoice_id')
         .eq('id', entityId)
         .single();
       
@@ -664,7 +664,37 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to update purchase order number' });
         }
         
-        return res.json({ success: true, purchase_order_number: purchaseOrderNumber.trim() });
+        const trimmedPO = purchaseOrderNumber.trim();
+        const xeroInvoiceIdForPush = existingRecord.xero_invoice_id;
+        
+        if (xeroInvoiceIdForPush) {
+          try {
+            await updateXeroInvoiceReference(tenantId, xeroInvoiceIdForPush, trimmedPO);
+            console.log(`[PendingPO] Xero reference updated for invoice ${xeroInvoiceIdForPush} (entity ${entityType} ${entityId}) -> "${trimmedPO}"`);
+            return res.json({
+              success: true,
+              purchase_order_number: trimmedPO,
+              xeroUpdated: true
+            });
+          } catch (xeroErr) {
+            const xeroErrorMessage = xeroErr?.message || 'Unknown Xero error';
+            console.error(`[PendingPO] Xero reference update FAILED for invoice ${xeroInvoiceIdForPush} (entity ${entityType} ${entityId}): ${xeroErrorMessage}`);
+            return res.json({
+              success: true,
+              purchase_order_number: trimmedPO,
+              xeroUpdated: false,
+              xeroError: xeroErrorMessage
+            });
+          }
+        }
+        
+        console.log(`[PendingPO] PO saved locally for ${entityType} ${entityId} but no xero_invoice_id present — skipping Xero push`);
+        return res.json({
+          success: true,
+          purchase_order_number: trimmedPO,
+          xeroUpdated: false,
+          xeroError: null
+        });
         
       } else if (action === 'verify') {
         if (!xeroInvoiceId) {

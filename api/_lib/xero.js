@@ -395,6 +395,49 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   };
 }
 
+export async function updateXeroInvoiceReference(appTenantId, invoiceId, reference) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const trimmedReference = typeof reference === 'string' ? reference.trim() : '';
+  if (!trimmedReference) {
+    throw new Error('reference must be a non-empty string');
+  }
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const updatePayload = {
+    Invoices: [{
+      InvoiceID: invoiceId,
+      Reference: trimmedReference
+    }]
+  };
+
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(updatePayload)
+  });
+
+  const data = await safeXeroJson(response, 'invoice-update-reference');
+  const updatedInvoice = data?.Invoices?.[0];
+
+  if (!updatedInvoice?.InvoiceID) {
+    throw new Error(`Failed to update Xero invoice reference: ${JSON.stringify(data).substring(0, 500)}`);
+  }
+
+  return {
+    invoiceId: updatedInvoice.InvoiceID,
+    invoiceNumber: updatedInvoice.InvoiceNumber,
+    reference: updatedInvoice.Reference
+  };
+}
+
 export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   
