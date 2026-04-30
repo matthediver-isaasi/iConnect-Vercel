@@ -53,6 +53,30 @@ const validateRoleTenant = async (supabaseClient, roleId, expectedTenantId) => {
   return { ok: true };
 };
 
+// Resolve the tenant's configured default role (`is_default = true`),
+// strictly tenant-scoped. Returns { role, error } where `role` is the full
+// role row ({ id, name }) or null when no default is configured, and
+// `error` is non-null only on lookup failure (so callers can distinguish
+// "tenant misconfig" from "DB error").
+const resolveTenantDefaultRole = async (supabaseClient, tenantId) => {
+  if (!tenantId) return { role: null, error: null };
+  const { data, error } = await supabaseClient
+    .from('role')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('is_default', true)
+    .order('id', { ascending: true });
+  if (error) return { role: null, error };
+  if (!data || data.length === 0) return { role: null, error: null };
+  if (data.length > 1) {
+    console.warn('[AppProcessor] Tenant has multiple is_default roles; picking first by id:', {
+      tenant_id: tenantId,
+      candidate_role_ids: data.map(r => r.id),
+    });
+  }
+  return { role: data[0], error: null };
+};
+
 // Helper function to check if a field has a usable value for assignment
 // For boolean fields, we ALWAYS assign (even undefined means false - toggle was off)
 const hasAssignableValue = (fieldName, value) => {
@@ -1499,16 +1523,52 @@ export default async function handler(req, res) {
             });
           }
           
-          // Determine effective role_id from multiple sources:
-          // 1. Pipeline config role_id (memberData.role_id)
-          // 2. Form conditional logic role_id (role_id param)
-          const effectiveRoleId = memberData.role_id !== undefined ? memberData.role_id : role_id;
-          console.log('[AppProcessor] Role ID resolution:', { 
-            memberData_role_id: memberData.role_id, 
-            role_id_param: role_id, 
-            effectiveRoleId 
+          // Resolve role_id with explicit precedence. The pipeline writes
+          // memberData.role_id only for real UUIDs or explicit __clear__
+          // (null); __keep__ leaves it undefined. The request-level role_id
+          // is form-conditional logic — callers pass `null` when none, so a
+          // truthy check correctly treats null as "no conditional role".
+          // On create only, fall back to the tenant's default role; explicit
+          // pipeline-clear (null) is preserved.
+          let effectiveRoleId;
+          let roleSource;
+          if (memberData.role_id !== undefined) {
+            effectiveRoleId = memberData.role_id;
+            if (effectiveRoleId === null) {
+              roleSource = 'pipeline-clear';
+              console.log('[AppProcessor] Pipeline explicitly cleared role on new member (role_id will be NULL)');
+            } else {
+              roleSource = 'pipeline-configured';
+              console.log('[AppProcessor] Applied pipeline-configured role to new member:', effectiveRoleId);
+            }
+          } else if (role_id) {
+            effectiveRoleId = role_id;
+            roleSource = 'form-conditional';
+            console.log('[AppProcessor] Applied form-conditional role to new member:', effectiveRoleId);
+          } else {
+            const tenantForDefault = memberInsertData.tenant_id || tenant_id || null;
+            const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
+            if (defaultLookupError) {
+              effectiveRoleId = undefined;
+              roleSource = 'lookup-error';
+              console.error('[AppProcessor] Tenant default role lookup failed; new member created without role:', { tenant_id: tenantForDefault, error: defaultLookupError });
+            } else if (tenantDefaultRole) {
+              effectiveRoleId = tenantDefaultRole.id;
+              roleSource = 'tenant-default';
+              console.log('[AppProcessor] Applied tenant default role to new member:', { role_id: tenantDefaultRole.id, role_name: tenantDefaultRole.name, tenant_id: tenantForDefault });
+            } else {
+              effectiveRoleId = undefined;
+              roleSource = 'none';
+              console.warn('[AppProcessor] No default role configured for tenant; new member created without role. Set one in /RoleManagement.', { tenant_id: tenantForDefault });
+            }
+          }
+          console.log('[AppProcessor] Role ID resolution:', {
+            memberData_role_id: memberData.role_id,
+            role_id_param: role_id,
+            effectiveRoleId,
+            roleSource,
           });
-          
+
           // Add role_id if we have one from any source
           if (effectiveRoleId !== undefined) {
             // Cross-tenant guard: a non-null role_id about to be written onto
@@ -1525,7 +1585,7 @@ export default async function handler(req, res) {
             }
 
             memberInsertData.role_id = effectiveRoleId;
-            console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId);
+            console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId, `(source: ${roleSource})`);
 
             // Check role capacity before inserting member (per-organization)
             if (effectiveRoleId !== null) {
@@ -2362,7 +2422,35 @@ export default async function handler(req, res) {
           if (tenant_id) {
             newMemberData.tenant_id = tenant_id;
           }
-          
+
+          // Create-branch only: when the additional-member pipeline is
+          // __keep__ (newMemberData.role_id === undefined), fall back to
+          // the tenant default. Explicit __clear__ (null) is preserved.
+          let additionalRoleSource;
+          if (newMemberData.role_id === undefined) {
+            additionalRoleSource = 'none';
+          } else if (newMemberData.role_id === null) {
+            additionalRoleSource = 'pipeline-clear';
+          } else {
+            additionalRoleSource = 'pipeline-configured';
+          }
+          if (newMemberData.role_id === undefined) {
+            const tenantForDefault = newMemberData.tenant_id || tenant_id || null;
+            const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
+            if (defaultLookupError) {
+              additionalRoleSource = 'lookup-error';
+              console.error('[AppProcessor] Tenant default role lookup failed; additional member created without role:', { label: memberConfig.label, tenant_id: tenantForDefault, error: defaultLookupError });
+            } else if (tenantDefaultRole) {
+              newMemberData.role_id = tenantDefaultRole.id;
+              additionalRoleSource = 'tenant-default';
+              console.log('[AppProcessor] Applied tenant default role to new additional member:', { label: memberConfig.label, role_id: tenantDefaultRole.id, role_name: tenantDefaultRole.name, tenant_id: tenantForDefault });
+            } else {
+              console.warn('[AppProcessor] No default role configured for tenant; additional member created without role. Set one in /RoleManagement.', { label: memberConfig.label, tenant_id: tenantForDefault });
+            }
+          } else {
+            console.log('[AppProcessor] Additional member role source:', additionalRoleSource, 'role_id:', newMemberData.role_id);
+          }
+
           // Cross-tenant guard: a non-null role_id about to be written onto
           // this brand-new additional member must belong to its tenant. Hard
           // fail on mismatch — see validateRoleTenant.
