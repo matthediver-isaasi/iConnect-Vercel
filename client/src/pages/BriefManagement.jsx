@@ -335,6 +335,17 @@ export default function BriefManagementPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isAccessReady, memberInfo, isFeatureExcluded } = useMemberAccess();
+  const [accessChecked, setAccessChecked] = useState(false);
+
+  useEffect(() => {
+    if (isAccessReady) {
+      if (isFeatureExcluded("page_BriefManagement")) {
+        navigate(createPageUrl("Dashboard"));
+      } else {
+        setAccessChecked(true);
+      }
+    }
+  }, [isAccessReady, isFeatureExcluded, navigate]);
 
   const canManage = !isFeatureExcluded("content.briefs.manage");
   const canAssign = !isFeatureExcluded("content.briefs.assign");
@@ -1014,7 +1025,7 @@ export default function BriefManagementPage() {
     return getMemberName(brief.assigned_writer_id);
   }
 
-  if (isLoading) {
+  if (!accessChecked || isLoading) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-spinner">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />

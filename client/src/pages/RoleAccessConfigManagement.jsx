@@ -50,6 +50,33 @@ const extractDefaultKeys = () => {
 
 const DEFAULT_KEYS = extractDefaultKeys();
 
+// Keys that must be appended to every existing role's excluded_features
+// when the corresponding access items are seeded/synced, so that newly
+// introduced modules/pages default to disabled until an admin explicitly
+// grants access on a per-role basis.
+const ROLE_BACKFILL_EXCLUSION_KEYS = ['publications', 'publications.briefmanagement'];
+
+const backfillRoleExclusionsForKeys = async (newKeys) => {
+  const keys = (newKeys || []).filter(Boolean);
+  if (keys.length === 0) return 0;
+
+  const allRoles = await base44.entities.Role.list();
+  let updatedCount = 0;
+
+  for (const role of allRoles) {
+    const current = Array.isArray(role.excluded_features) ? role.excluded_features : [];
+    const toAdd = keys.filter((k) => !current.includes(k));
+    if (toAdd.length === 0) continue;
+
+    await base44.entities.Role.update(role.id, {
+      excluded_features: [...current, ...toAdd],
+    });
+    updatedCount++;
+  }
+
+  return updatedCount;
+};
+
 // Combobox component for selecting item keys with autocomplete
 function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPages = [] }) {
   const [open, setOpen] = useState(false);
@@ -469,6 +496,16 @@ export default function RoleAccessConfigManagement() {
       await seedMutation.mutateAsync(featureItems);
     }
 
+    // Backfill the new Publications keys onto every existing role's
+    // excluded_features so the page is disabled by default for everyone.
+    try {
+      await backfillRoleExclusionsForKeys(ROLE_BACKFILL_EXCLUSION_KEYS);
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+    } catch (err) {
+      console.error('Failed to backfill role exclusions for new modules:', err);
+      toast.error('Seeded items, but failed to update some role exclusions: ' + (err?.message || err));
+    }
+
     queryClient.invalidateQueries({ queryKey: ['role-access-items'] });
     setShowResetConfirm(false);
     toast.success('Configuration seeded from defaults');
@@ -568,6 +605,46 @@ export default function RoleAccessConfigManagement() {
 
     if (featureItemsToCreate.length > 0) {
       await seedMutation.mutateAsync(featureItemsToCreate);
+    }
+
+    // Backfill role exclusions for the tracked Publications keys.
+    // Two cases trigger backfill, both idempotent:
+    //   1. Newly created in this sync run (key was not in existingKeys).
+    //   2. Recovery: key already existed in access items but NO role has it
+    //      excluded yet. This signals a previous backfill failed mid-run or
+    //      was interrupted before reaching any role; safe to retry because
+    //      no admin has had a chance to grant access yet.
+    // If at least one role already has the key excluded, we leave it alone
+    // to preserve any access an admin may have explicitly granted to others.
+    const newlyAddedBackfillKeys = ROLE_BACKFILL_EXCLUSION_KEYS.filter(
+      (key) => !existingKeys.has(key)
+    );
+    let recoveryBackfillKeys = [];
+    const preExistingBackfillKeys = ROLE_BACKFILL_EXCLUSION_KEYS.filter(
+      (key) => existingKeys.has(key)
+    );
+    if (preExistingBackfillKeys.length > 0) {
+      try {
+        const allRoles = await base44.entities.Role.list();
+        recoveryBackfillKeys = preExistingBackfillKeys.filter((key) => {
+          const anyRoleHasIt = allRoles.some(
+            (r) => Array.isArray(r.excluded_features) && r.excluded_features.includes(key)
+          );
+          return !anyRoleHasIt;
+        });
+      } catch (err) {
+        console.error('Failed to inspect roles for backfill recovery:', err);
+      }
+    }
+    const keysToBackfill = [...newlyAddedBackfillKeys, ...recoveryBackfillKeys];
+    if (keysToBackfill.length > 0) {
+      try {
+        await backfillRoleExclusionsForKeys(keysToBackfill);
+        queryClient.invalidateQueries({ queryKey: ['roles'] });
+      } catch (err) {
+        console.error('Failed to backfill role exclusions during sync:', err);
+        toast.error('Synced items, but failed to update some role exclusions: ' + (err?.message || err));
+      }
     }
 
     queryClient.invalidateQueries({ queryKey: ['role-access-items'] });

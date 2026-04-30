@@ -190,7 +190,7 @@ const adminNavigationItems = [
   {
     title: "Article Briefs",
     icon: FileText,
-    featureId: "page_BriefManagement",
+    featureId: "content.briefs",
     subItems: [
       {
         title: "Manage Briefs",

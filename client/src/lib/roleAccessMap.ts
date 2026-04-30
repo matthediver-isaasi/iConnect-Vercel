@@ -322,6 +322,17 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "publications",
+    label: "Publications",
+    icon: "BookOpen",
+    pages: [
+      {
+        id: "publications.briefmanagement",
+        label: "Brief Management"
+      }
+    ]
+  },
+  {
     id: "forum",
     label: "Forum",
     icon: "MessageSquare",
@@ -1022,10 +1033,11 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_ProjectBoard": "projects.board-view",
   "page_AIReports": "admin.ai-reports",
   "page_admin_AIReports": "admin.ai-reports",
-  "page_BriefManagement": "content.briefs",
+  "page_BriefManagement": "publications.briefmanagement",
   "page_BriefDetail": "content.briefs",
   "page_BriefSettings": "content.brief-settings",
-  "page_admin_BriefManagement": "content.briefs",
+  "page_admin_BriefManagement": "publications.briefmanagement",
+  "page_user_BriefManagement": "publications.briefmanagement",
   "page_admin_BriefDetail": "content.briefs",
   "page_admin_BriefSettings": "content.brief-settings"
 };

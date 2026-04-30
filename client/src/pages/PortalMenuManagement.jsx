@@ -63,6 +63,7 @@ const builtInPages = [
   { value: "Bookings", label: "Bookings" },
   { value: "booking-agents", label: "Booking Agents" },
   { value: "BorderRadiusSettings", label: "Border Radius Settings" },
+  { value: "BriefManagement", label: "Brief Management" },
   { value: "ButtonElements", label: "Button Elements" },
   { value: "ButtonStyleManagement", label: "Button Styles" },
   { value: "BuyProgramTickets", label: "Buy Program Tickets" },
