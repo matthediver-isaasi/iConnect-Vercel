@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
@@ -362,6 +362,75 @@ export default function FormSubmissionView() {
             </div>
           </CardContent>
         </Card>
+
+        {Array.isArray(submission.processing_notes) && submission.processing_notes.length > 0 && (
+          <Card className="mb-6 border-amber-200 dark:border-amber-900" data-testid="card-processing-notes">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                Processing Notes
+              </CardTitle>
+              <CardDescription>
+                Issues recorded by the application processor. Investigate any errors before treating this submission as fully applied.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {submission.processing_notes.map((note, idx) => {
+                  const level = note?.level || 'info';
+                  const levelClass = level === 'error'
+                    ? 'border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900'
+                    : level === 'warn'
+                      ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900'
+                      : 'border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700';
+                  const Icon = level === 'info' ? Info : AlertTriangle;
+                  const iconClass = level === 'error'
+                    ? 'text-red-600 dark:text-red-400'
+                    : level === 'warn'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-slate-500 dark:text-slate-400';
+                  return (
+                    <li
+                      key={idx}
+                      className={`p-3 rounded-md border ${levelClass}`}
+                      data-testid={`processing-note-${idx}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${iconClass}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            <span data-testid={`processing-note-level-${idx}`}>{level}</span>
+                            {note?.kind && <span>· {note.kind}</span>}
+                            {note?.stage && <span>· {note.stage}</span>}
+                            {note?.entity_scope && <span>· {note.entity_scope}</span>}
+                            {note?.field_id && <span className="font-mono normal-case">field {note.field_id}</span>}
+                            {note?.at && <span>· {note.at}</span>}
+                          </div>
+                          {note?.message && (
+                            <p className="mt-1 text-sm text-slate-900 dark:text-slate-100 whitespace-pre-wrap break-words">
+                              {note.message}
+                            </p>
+                          )}
+                          {note && Object.keys(note).some((k) => !['level', 'kind', 'stage', 'message', 'at', 'entity_scope', 'field_id'].includes(k)) && (
+                            <pre className="mt-2 text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words font-mono">
+                              {JSON.stringify(
+                                Object.fromEntries(
+                                  Object.entries(note).filter(([k]) => !['level', 'kind', 'stage', 'message', 'at', 'entity_scope', 'field_id'].includes(k))
+                                ),
+                                null,
+                                2,
+                              )}
+                            </pre>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-slate-200 dark:border-slate-700">
           <CardHeader>

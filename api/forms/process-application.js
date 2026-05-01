@@ -444,6 +444,128 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'fields array is required' });
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Per-submission processing notes. Anything written here is persisted to
+    // form_submission.processing_notes at the end of the handler so the
+    // FormSubmissionView admin page can surface dropped fields and other
+    // per-submission diagnostics that used to be log-only and therefore
+    // invisible to admins. Keep entries small and structured (kind + a few
+    // context keys) — this is a debugging breadcrumb, not a full audit log.
+    const processingNotes = [];
+    const addProcessingNote = (entry) => {
+      try {
+        processingNotes.push({
+          // `at` is the canonical key; the FormSubmissionView UI reads it
+          // by that name. Keep this in sync if you ever rename it.
+          at: new Date().toISOString(),
+          ...entry,
+        });
+      } catch (_) {
+        // Defence in depth: never let note-keeping itself fail the request.
+      }
+    };
+
+    // Custom-field upsert helper. Switches the existence probe to
+    // .maybeSingle()-equivalent semantics (tolerating zero or duplicate rows
+    // for the same (parent_id, field_id) pair), checks the result of every
+    // .update() / .insert(), and accumulates failures into processingNotes
+    // with full submission/member/field context. Pass entityScope='member'
+    // for member_preference_value and 'organization' for organization_preference_value.
+    const upsertPreferenceValue = async ({
+      table,
+      parentColumn,
+      parentId,
+      fieldId,
+      value,
+      entityScope,
+      prefField,
+    }) => {
+      const noteContext = {
+        submission_id: submission_id || null,
+        [parentColumn]: parentId,
+        field_id: fieldId,
+        field_label: prefField?.label || prefField?.name || null,
+        field_type: prefField?.field_type || null,
+        entity_scope: entityScope,
+      };
+      try {
+        const { data: existingRows, error: lookupError } = await supabase
+          .from(table)
+          .select('id')
+          .eq(parentColumn, parentId)
+          .eq('field_id', fieldId)
+          .order('id', { ascending: true });
+        if (lookupError) {
+          console.error('[AppProcessor] Custom field lookup failed:', { ...noteContext, error: lookupError.message });
+          addProcessingNote({ kind: 'custom_field_lookup_failed', message: lookupError.message, ...noteContext });
+          return { ok: false };
+        }
+        const rows = existingRows || [];
+        if (rows.length > 1) {
+          console.warn('[AppProcessor] Custom field has duplicate rows; updating the first and ignoring the rest:', { ...noteContext, duplicate_ids: rows.slice(1).map(r => r.id) });
+          addProcessingNote({ kind: 'custom_field_duplicate_rows', message: `Found ${rows.length} rows for (${parentColumn}, field_id); updated the earliest and left the rest untouched`, ...noteContext, duplicate_ids: rows.slice(1).map(r => r.id) });
+        }
+        if (rows.length >= 1) {
+          const { error: updateError } = await supabase
+            .from(table)
+            .update({ value })
+            .eq('id', rows[0].id);
+          if (updateError) {
+            console.error('[AppProcessor] Custom field update failed:', { ...noteContext, error: updateError.message });
+            addProcessingNote({ kind: 'custom_field_update_failed', message: updateError.message, ...noteContext });
+            return { ok: false };
+          }
+          return { ok: true, action: 'updated', id: rows[0].id };
+        }
+        const insertPayload = { [parentColumn]: parentId, field_id: fieldId, value };
+        const { error: insertError } = await supabase
+          .from(table)
+          .insert(insertPayload);
+        if (insertError) {
+          console.error('[AppProcessor] Custom field insert failed:', { ...noteContext, error: insertError.message });
+          addProcessingNote({ kind: 'custom_field_insert_failed', message: insertError.message, ...noteContext });
+          return { ok: false };
+        }
+        return { ok: true, action: 'inserted' };
+      } catch (err) {
+        console.error('[AppProcessor] Custom field upsert threw:', { ...noteContext, error: err?.message });
+        addProcessingNote({ kind: 'custom_field_upsert_threw', message: err?.message || String(err), ...noteContext });
+        return { ok: false };
+      }
+    };
+
+    // Delete an existing preference value row when the user explicitly cleared
+    // a mapped custom field on update (distinct from "field absent from the
+    // submission", which is a no-op). Tolerates duplicate rows.
+    const clearPreferenceValue = async ({
+      table,
+      parentColumn,
+      parentId,
+      fieldId,
+      entityScope,
+      prefField,
+    }) => {
+      const noteContext = {
+        submission_id: submission_id || null,
+        [parentColumn]: parentId,
+        field_id: fieldId,
+        field_label: prefField?.label || prefField?.name || null,
+        field_type: prefField?.field_type || null,
+        entity_scope: entityScope,
+      };
+      const { error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .eq(parentColumn, parentId)
+        .eq('field_id', fieldId);
+      if (deleteError) {
+        console.error('[AppProcessor] Custom field clear failed:', { ...noteContext, error: deleteError.message });
+        addProcessingNote({ kind: 'custom_field_clear_failed', message: deleteError.message, ...noteContext });
+        return { ok: false };
+      }
+      return { ok: true };
+    };
+
     // Normalize entity_pipelines to work with both new and legacy formats
     const memberPipelines = entity_pipelines?.members || [];
     const orgPipelines = entity_pipelines?.organisations || [];
@@ -506,15 +628,24 @@ export default async function handler(req, res) {
     console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
     console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
 
-    // Idempotency check: if submission_id provided, check if already processed
+    // Idempotency check: if submission_id provided, check if already processed.
+    // form_submission has no processed_at column (the previous select referenced
+    // a non-existent column and silently errored, defeating idempotency). We
+    // treat a non-null created_member_id or created_organization_id as the
+    // success marker — both are stamped at the end of a successful run.
+    // Uses .maybeSingle() so a missing row (or zero rows) doesn't throw.
     if (submission_id) {
-      const { data: existingSubmission } = await supabase
+      const { data: existingSubmission, error: existingErr } = await supabase
         .from('form_submission')
-        .select('created_member_id, created_organization_id, processed_at')
+        .select('created_member_id, created_organization_id')
         .eq('id', submission_id)
-        .single();
+        .maybeSingle();
 
-      if (existingSubmission?.processed_at) {
+      if (existingErr) {
+        console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
+      }
+
+      if (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id)) {
         console.log('[AppProcessor] Submission already processed:', submission_id);
         return res.json({
           success: true,
@@ -622,8 +753,27 @@ export default async function handler(req, res) {
     // Use Maps to aggregate values for list fields
     const memberCustomFieldsMap = new Map();
     const orgCustomFieldsMap = new Map();
+    // Track custom fields the user explicitly cleared on this submission so we
+    // can DELETE the existing member_preference_value / organization_preference_value
+    // row at upsert time. This is distinct from "field absent from the
+    // submission" (which is a no-op). Populated by both the legacy
+    // field_mappings path and the entity_pipelines path when the source form
+    // value is present but empty (null / '' / [] / __clear__ sentinel).
+    const memberCustomFieldsToClear = new Set();
+    const orgCustomFieldsToClear = new Set();
     // Map to collect communication preferences (categoryId -> boolean subscribed value)
     const memberCommunicationPrefsMap = new Map();
+
+    // Test whether a form_values key is "present and explicitly cleared" vs
+    // "absent from the submission". Only used for custom-field mappings (core
+    // field semantics are owned by hasAssignableValue / task #593's work).
+    const isExplicitlyClearedValue = (value) => {
+      if (value === '__clear__') return true;
+      if (value === null) return true;
+      if (value === '') return true;
+      if (Array.isArray(value) && value.length === 0) return true;
+      return false;
+    };
 
     const { data: preferenceFields } = await supabase
       .from('preference_field')
@@ -632,34 +782,48 @@ export default async function handler(req, res) {
 
     const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
 
-    // Helper to add value to custom field map (aggregates for list fields)
+    // Multi-value preference field types. All of these store their value as a
+    // JSON-stringified array via convertMapToArray below, so when the same
+    // field is mapped from multiple form fields (or arrives as an array from
+    // a multi-select control) we aggregate-and-dedupe instead of letting one
+    // mapping clobber another. Single-value field types fall through to
+    // "last write wins". Keep this list in sync with the FormBuilder field
+    // type catalogue so a new multi-select type doesn't silently regress to
+    // scalar storage.
+    const MULTI_VALUE_PREF_FIELD_TYPES = new Set([
+      'list',
+      'picklist',
+      'checkbox',
+      'multi_select',
+      'multiselect',
+    ]);
+
+    // Helper to add value to custom field map (aggregates for multi-value fields)
     const addCustomFieldValue = (map, fieldId, value, prefField) => {
-      const isListField = prefField?.field_type === 'list';
-      
-      if (isListField) {
-        // Aggregate values into an array for list fields
-        if (!map.has(fieldId)) {
+      const isMultiValueField =
+        MULTI_VALUE_PREF_FIELD_TYPES.has(prefField?.field_type) || Array.isArray(value);
+
+      if (isMultiValueField) {
+        // Aggregate values into a deduped array for multi-value fields
+        if (!map.has(fieldId) || !Array.isArray(map.get(fieldId))) {
           map.set(fieldId, []);
         }
         const arr = map.get(fieldId);
-        
+
         // Handle array values (from multi-select checkboxes)
         if (Array.isArray(value)) {
           for (const item of value) {
-            // Add each item if not already present (dedupe)
             if (!arr.includes(item)) {
               arr.push(item);
             }
           }
-        } else {
-          // Add single value if not already present (dedupe)
+        } else if (value !== undefined && value !== null && value !== '') {
           if (!arr.includes(value)) {
             arr.push(value);
           }
         }
       } else {
-        // For non-list fields, just store the value (last one wins)
-        // If value is an array, store it as-is (will be JSON stringified later)
+        // For non-multi-value fields, just store the value (last one wins).
         map.set(fieldId, value);
       }
     };
@@ -717,19 +881,26 @@ export default async function handler(req, res) {
         }
         
         let value;
+        // Track whether this mapping was sourced from a key that exists in
+        // form_values (vs absent). For custom-field mappings, an absent key
+        // is a no-op while a present-but-empty key is an explicit clear.
+        let sourceFieldKeyPresent = false;
         
         // Handle current_date source type or transformation - doesn't need a source value
         if (source_type === 'current_date' || transformation === 'current_date') {
           value = applyTransformation('', 'current_date');
+          sourceFieldKeyPresent = true;
           console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
         } else if (source_type === 'static') {
           // Static value mapping - use the fixed value
           value = static_value;
           if (value === undefined || value === null || value === '') continue;
+          sourceFieldKeyPresent = true;
           console.log('[AppProcessor] Static mapping:', target_field, '=', value);
         } else {
           // Form field mapping (default)
           if (!source_field_id) continue;
+          sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, source_field_id);
           value = form_values[source_field_id];
           
           // If source_category_id is set, extract the specific category value from a communication_preferences object
@@ -740,10 +911,20 @@ export default async function handler(req, res) {
           
           // For boolean fields in member entities, allow empty/false through (they mean false)
           const isMemberBooleanField = target_type === 'core' && target_entity === 'member' && BOOLEAN_CORE_FIELDS.includes(target_field);
-          if (!isMemberBooleanField && (value === undefined || value === null || value === '')) continue;
+          // For custom-field mappings, distinguish "absent" (skip) from
+          // "present and explicitly cleared" (clear the existing value at
+          // upsert time). For core fields, preserve the legacy behaviour of
+          // skipping any empty value (task #593 owns core field clearing).
+          if (target_type === 'custom') {
+            if (!sourceFieldKeyPresent) continue;
+            // Falls through with possibly-empty value; clear handling below.
+          } else if (!isMemberBooleanField && (value === undefined || value === null || value === '')) {
+            continue;
+          }
           
-          // Apply transformation only for field mappings
-          if (transformation && transformation !== 'none') {
+          // Apply transformation only for field mappings (skip for empty
+          // custom-field clears so transformations don't synthesise a value).
+          if (transformation && transformation !== 'none' && !(target_type === 'custom' && isExplicitlyClearedValue(value))) {
             value = applyTransformation(value, transformation);
           }
         }
@@ -759,29 +940,35 @@ export default async function handler(req, res) {
           }
         } else if (target_type === 'custom') {
           const prefField = prefFieldMap.get(target_field);
-          if (target_entity === 'organization') {
-            addCustomFieldValue(orgCustomFieldsMap, target_field, value, prefField);
+          const targetMap = target_entity === 'organization' ? orgCustomFieldsMap : memberCustomFieldsMap;
+          const targetClearSet = target_entity === 'organization' ? orgCustomFieldsToClear : memberCustomFieldsToClear;
+          if (isExplicitlyClearedValue(value)) {
+            // Explicit clear: drop any aggregated value and queue the existing
+            // DB row for deletion at upsert time.
+            targetMap.delete(target_field);
+            targetClearSet.add(target_field);
           } else {
-            addCustomFieldValue(memberCustomFieldsMap, target_field, value, prefField);
+            targetClearSet.delete(target_field);
+            addCustomFieldValue(targetMap, target_field, value, prefField);
           }
         }
       }
     } else {
       // Fallback: Use legacy core_field_mapping and custom_field_id on fields
       for (const field of fields) {
+        const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, field.id);
         const value = form_values[field.id];
-        
+
         // Check if this is a boolean member core field - allow empty/false through
         let isMemberBooleanField = false;
         if (field.core_field_mapping) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
           isMemberBooleanField = entity === 'member' && BOOLEAN_CORE_FIELDS.includes(fieldName);
         }
-        
-        // For non-boolean fields, skip empty values
-        if (!isMemberBooleanField && (value === undefined || value === null || value === '')) continue;
 
-        if (field.core_field_mapping) {
+        const isEmptyForCore = !isMemberBooleanField && (value === undefined || value === null || value === '');
+
+        if (field.core_field_mapping && !isEmptyForCore) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
           if (entity === 'member') {
             // Use hasAssignableValue to properly handle boolean fields
@@ -793,13 +980,22 @@ export default async function handler(req, res) {
           }
         }
 
+        // Custom-field handling: distinguish absent (no-op) from explicitly
+        // cleared (delete existing pref value at upsert time). The form key
+        // is always present when the form rendered the field, so absent
+        // means the form configuration itself doesn't include this field.
         if (field.custom_field_id) {
           const customField = prefFieldMap.get(field.custom_field_id);
           if (customField) {
-            if (customField.entity_scope === 'organization') {
-              addCustomFieldValue(orgCustomFieldsMap, customField.id, value, customField);
+            if (!fieldKeyPresent) continue;
+            const targetMap = customField.entity_scope === 'organization' ? orgCustomFieldsMap : memberCustomFieldsMap;
+            const targetClearSet = customField.entity_scope === 'organization' ? orgCustomFieldsToClear : memberCustomFieldsToClear;
+            if (isExplicitlyClearedValue(value)) {
+              targetMap.delete(customField.id);
+              targetClearSet.add(customField.id);
             } else {
-              addCustomFieldValue(memberCustomFieldsMap, customField.id, value, customField);
+              targetClearSet.delete(customField.id);
+              addCustomFieldValue(targetMap, customField.id, value, customField);
             }
           }
         }
@@ -807,18 +1003,22 @@ export default async function handler(req, res) {
     }
 
     // Convert maps to arrays for insertion, stringifying values appropriately
+    // Centralised value coercion for preference values. Arrays/objects are
+    // JSON-encoded; scalars are stringified. Used by convertMapToArray (which
+    // feeds the primary-member/org upsert paths) and by the additional-member
+    // upsert paths so all four sites store identical shapes — review-noted
+    // risk that the additional paths previously bypassed coercion.
+    const coercePreferenceValueForStorage = (value) => {
+      if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
+        return JSON.stringify(value);
+      }
+      return String(value);
+    };
+
     const convertMapToArray = (map) => {
       const result = [];
       for (const [fieldId, value] of map.entries()) {
-        let storedValue;
-        if (Array.isArray(value)) {
-          storedValue = JSON.stringify(value);
-        } else if (typeof value === 'object') {
-          storedValue = JSON.stringify(value);
-        } else {
-          storedValue = String(value);
-        }
-        result.push({ field_id: fieldId, value: storedValue });
+        result.push({ field_id: fieldId, value: coercePreferenceValueForStorage(value) });
       }
       return result;
     };
@@ -826,7 +1026,7 @@ export default async function handler(req, res) {
     let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
 
     // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
-    const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig) => {
+    const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig, customFieldsToClear) => {
       if (!pipelineEntry) return;
       
       // Check for new mappings array format first
@@ -847,11 +1047,15 @@ export default async function handler(req, res) {
           
           // Get value from form or static value
           let value;
+          let sourceFieldKeyPresent = false;
           if (mapping.source_type === 'static') {
             value = mapping.static_value;
+            sourceFieldKeyPresent = true;
           } else if (mapping.transformation === 'current_date') {
             value = new Date().toISOString().split('T')[0];
+            sourceFieldKeyPresent = true;
           } else if (mapping.source_field_id) {
+            sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, mapping.source_field_id);
             value = form_values[mapping.source_field_id];
             
             if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
@@ -867,6 +1071,7 @@ export default async function handler(req, res) {
               dataObj[dbKey] = null;
             } else if (mapping.target_type === 'custom') {
               customFieldsMap.delete(mapping.target_field);
+              if (customFieldsToClear) customFieldsToClear.add(mapping.target_field);
             }
             continue;
           }
@@ -889,17 +1094,27 @@ export default async function handler(req, res) {
               dataObj[dbKey] = coerced;
             }
           } else if (mapping.target_type === 'custom') {
-            // Custom field
+            // Custom field. Distinguish "absent" (source key not in
+            // form_values) from "present and explicitly cleared" (source
+            // key present but empty). Absent → skip; cleared → queue
+            // delete-on-upsert. Includes prefField metadata in the log so
+            // future investigations don't need to re-read the source to
+            // figure out why a value was treated as scalar vs aggregated.
             const customFieldId = mapping.target_field;
             const prefField = prefFieldMap.get(customFieldId);
-            const hasValue = value !== undefined && value !== null && value !== '';
-            const skipReason = value === undefined ? 'undefined' : value === null ? 'null' : value === '' ? 'empty string' : null;
-            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, value=${JSON.stringify(value)}, hasValue=${hasValue}${skipReason ? `, skipReason=${skipReason}` : ''}`);
-            if (hasValue) {
+            const isCleared = isExplicitlyClearedValue(value);
+            const hasValue = !isCleared && value !== undefined;
+            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, source_key_present=${sourceFieldKeyPresent}, field_type=${prefField?.field_type || 'unknown'}, entity_scope=${prefField?.entity_scope || 'unknown'}, value=${JSON.stringify(value)?.substring(0, 200)}, hasValue=${hasValue}, isCleared=${isCleared}`);
+            if (!sourceFieldKeyPresent && value === undefined) {
+              console.log(`[AppProcessor] Skipped custom field (absent from submission): ${customFieldId}`);
+            } else if (isCleared) {
+              customFieldsMap.delete(customFieldId);
+              if (customFieldsToClear) customFieldsToClear.add(customFieldId);
+              console.log(`[AppProcessor] Queued custom field clear: ${customFieldId}`);
+            } else if (hasValue) {
+              if (customFieldsToClear) customFieldsToClear.delete(customFieldId);
               addCustomFieldValue(customFieldsMap, customFieldId, value, prefField);
-              console.log(`[AppProcessor] Added custom field value: ${customFieldId} = "${value}"`);
-            } else {
-              console.log(`[AppProcessor] Skipped custom field: ${customFieldId} (reason: ${skipReason})`);
+              console.log(`[AppProcessor] Added custom field value: ${customFieldId} = ${JSON.stringify(value)?.substring(0, 200)}`);
             }
           } else if (mapping.target_type === 'communication' && targetEntity === 'member') {
             // Communication preference (marketing list subscription)
@@ -965,9 +1180,16 @@ export default async function handler(req, res) {
           
           if (fieldId === '__clear__') {
             customFieldsMap.delete(customFieldId);
+            if (customFieldsToClear) customFieldsToClear.add(customFieldId);
           } else {
+            const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, fieldId);
             const val = form_values[fieldId];
-            if (val !== undefined && val !== null && val !== '') {
+            if (!fieldKeyPresent) continue; // absent: skip
+            if (isExplicitlyClearedValue(val)) {
+              customFieldsMap.delete(customFieldId);
+              if (customFieldsToClear) customFieldsToClear.add(customFieldId);
+            } else {
+              if (customFieldsToClear) customFieldsToClear.delete(customFieldId);
               addCustomFieldValue(customFieldsMap, customFieldId, val, prefField);
             }
           }
@@ -993,7 +1215,7 @@ export default async function handler(req, res) {
         'show_in_directory': 'show_in_directory'
       };
       
-      processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings);
+      processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings, memberCustomFieldsToClear);
       
       // If pipeline has a role_id, use it. null/undefined/'__keep__' all mean
       // "don't change" — leave memberData.role_id unset so update/insert skip it.
@@ -1054,7 +1276,7 @@ export default async function handler(req, res) {
         'website': 'website_url',
       };
       
-      processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings);
+      processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings, orgCustomFieldsToClear);
       
       // Re-convert custom fields after pipeline processing
       orgCustomFields = convertMapToArray(orgCustomFieldsMap);
@@ -1216,9 +1438,14 @@ export default async function handler(req, res) {
         // Organization does not exist via any of the resolution strategies above.
         if (orgAction === 'update') {
           // Update mode and we couldn't find an org to update — emit a high-signal
-          // diagnostic so this skip is observable in production logs (the
-          // form_submission row has no processing_notes column, so the log is the
-          // only surface). Includes everything we tried for postmortem.
+          // diagnostic so this skip is observable in production logs and
+          // also append a structured note so the form_submission viewer
+          // surfaces the skip. Includes everything we tried for postmortem.
+          addProcessingNote({
+            level: 'warn',
+            stage: 'organization_resolve',
+            message: 'Organisation update skipped — no existing organisation could be resolved.',
+          });
           console.warn('[AppProcessor] Organisation update SKIPPED — no existing org could be resolved.', {
             submission_id: submission_id || null,
             form_id: form_id || null,
@@ -1274,28 +1501,37 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save/update org custom fields if we have an org ID
+      // Save/update org custom fields if we have an org ID. Uses the
+      // checked upsertPreferenceValue helper so RLS denials, FK violations,
+      // type mismatches, and trigger failures surface in processing_notes
+      // instead of being swallowed (the long-standing bug fixed here).
       if (createdOrganizationId && orgCustomFields.length > 0) {
         for (const cf of orgCustomFields) {
-          // Upsert: check if exists, then update or insert
-          const { data: existingValue } = await supabase
-            .from('organization_preference_value')
-            .select('id')
-            .eq('organization_id', createdOrganizationId)
-            .eq('field_id', cf.field_id)
-            .single();
-          
-          if (existingValue) {
-            await supabase.from('organization_preference_value')
-              .update({ value: cf.value })
-              .eq('id', existingValue.id);
-          } else {
-            await supabase.from('organization_preference_value').insert({
-              organization_id: createdOrganizationId,
-              field_id: cf.field_id,
-              value: cf.value
-            });
-          }
+          await upsertPreferenceValue({
+            table: 'organization_preference_value',
+            parentColumn: 'organization_id',
+            parentId: createdOrganizationId,
+            fieldId: cf.field_id,
+            value: cf.value,
+            entityScope: 'organization',
+            prefField: prefFieldMap.get(cf.field_id),
+          });
+        }
+      }
+
+      // Apply explicit clears for org custom fields that the user emptied
+      // on this submission (only meaningful on update flows; harmless when
+      // the row doesn't exist).
+      if (createdOrganizationId && orgCustomFieldsToClear.size > 0) {
+        for (const fieldId of orgCustomFieldsToClear) {
+          await clearPreferenceValue({
+            table: 'organization_preference_value',
+            parentColumn: 'organization_id',
+            parentId: createdOrganizationId,
+            fieldId,
+            entityScope: 'organization',
+            prefField: prefFieldMap.get(fieldId),
+          });
         }
       }
       
@@ -1642,25 +1878,33 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save/update member custom fields
+      // Save/update member custom fields. Uses upsertPreferenceValue so
+      // any failure (RLS denial, FK violation, type mismatch, trigger
+      // error) lands in processing_notes instead of being silently
+      // dropped — the long-standing bug fixed by task 653.
       for (const cf of memberCustomFields) {
-        // Upsert: check if exists, then update or insert
-        const { data: existingValue } = await supabase
-          .from('member_preference_value')
-          .select('id')
-          .eq('member_id', createdMemberId)
-          .eq('field_id', cf.field_id)
-          .single();
-        
-        if (existingValue) {
-          await supabase.from('member_preference_value')
-            .update({ value: cf.value })
-            .eq('id', existingValue.id);
-        } else {
-          await supabase.from('member_preference_value').insert({
-            member_id: createdMemberId,
-            field_id: cf.field_id,
-            value: cf.value
+        await upsertPreferenceValue({
+          table: 'member_preference_value',
+          parentColumn: 'member_id',
+          parentId: createdMemberId,
+          fieldId: cf.field_id,
+          value: cf.value,
+          entityScope: 'member',
+          prefField: prefFieldMap.get(cf.field_id),
+        });
+      }
+
+      // Apply explicit clears for member custom fields the user emptied
+      // on this submission.
+      if (memberCustomFieldsToClear.size > 0) {
+        for (const fieldId of memberCustomFieldsToClear) {
+          await clearPreferenceValue({
+            table: 'member_preference_value',
+            parentColumn: 'member_id',
+            parentId: createdMemberId,
+            fieldId,
+            entityScope: 'member',
+            prefField: prefFieldMap.get(fieldId),
           });
         }
       }
@@ -2517,44 +2761,36 @@ export default async function handler(req, res) {
         // For new format, custom fields were already collected in additionalCustomFieldsMap
         // For legacy format, process from field_mappings object
         if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
-          // New format: custom fields already in additionalCustomFieldsMap
+          // New format: custom fields already in additionalCustomFieldsMap.
+          // Routed through upsertPreferenceValue/clearPreferenceValue so
+          // failures get logged to processing_notes instead of being
+          // silently dropped (task 653).
           for (const [customFieldId, value] of additionalCustomFieldsMap.entries()) {
+            const prefField = prefFieldMap.get(customFieldId);
             if (value === '__clear__') {
-              // Clear this custom field
-              await supabase
-                .from('member_preference_value')
-                .delete()
-                .eq('member_id', existingMemberId)
-                .eq('field_id', customFieldId);
-              console.log('[AppProcessor] Cleared custom field:', customFieldId, 'for additional member:', existingMemberId);
+              await clearPreferenceValue({
+                table: 'member_preference_value',
+                parentColumn: 'member_id',
+                parentId: existingMemberId,
+                fieldId: customFieldId,
+                entityScope: 'member',
+                prefField,
+              });
             } else if (value !== undefined && value !== null && value !== '') {
-              const { data: existingPref } = await supabase
-                .from('member_preference_value')
-                .select('id')
-                .eq('member_id', existingMemberId)
-                .eq('field_id', customFieldId)
-                .single();
-              
-              const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
-              
-              if (existingPref) {
-                await supabase
-                  .from('member_preference_value')
-                  .update({ value: storedValue })
-                  .eq('id', existingPref.id);
-              } else {
-                await supabase
-                  .from('member_preference_value')
-                  .insert({
-                    member_id: existingMemberId,
-                    field_id: customFieldId,
-                    value: storedValue
-                  });
-              }
+              await upsertPreferenceValue({
+                table: 'member_preference_value',
+                parentColumn: 'member_id',
+                parentId: existingMemberId,
+                fieldId: customFieldId,
+                value: coercePreferenceValueForStorage(value),
+                entityScope: 'member',
+                prefField,
+              });
             }
           }
         } else if (memberConfig.field_mappings) {
-          // Legacy format: process custom fields from field_mappings object
+          // Legacy format: process custom fields from field_mappings
+          // object. Same helper-based path as the new format above.
           const customFieldMappings = Object.entries(memberConfig.field_mappings)
             .filter(([key]) => key.startsWith('custom_'));
           
@@ -2563,37 +2799,40 @@ export default async function handler(req, res) {
               if (!fieldId) continue;
               
               const customFieldId = key.replace('custom_', '');
+              const prefField = prefFieldMap.get(customFieldId);
               
               if (fieldId === '__clear__') {
-                await supabase
-                  .from('member_preference_value')
-                  .delete()
-                  .eq('member_id', existingMemberId)
-                  .eq('field_id', customFieldId);
-                console.log('[AppProcessor] Cleared custom field:', customFieldId, 'for member:', existingMemberId);
-              } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
+                await clearPreferenceValue({
+                  table: 'member_preference_value',
+                  parentColumn: 'member_id',
+                  parentId: existingMemberId,
+                  fieldId: customFieldId,
+                  entityScope: 'member',
+                  prefField,
+                });
+              } else {
+                const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, fieldId);
                 const value = form_values[fieldId];
-                
-                const { data: existingPref } = await supabase
-                  .from('member_preference_value')
-                  .select('id')
-                  .eq('member_id', existingMemberId)
-                  .eq('field_id', customFieldId)
-                  .single();
-                
-                if (existingPref) {
-                  await supabase
-                    .from('member_preference_value')
-                    .update({ value: String(value) })
-                    .eq('id', existingPref.id);
+                if (!fieldKeyPresent) continue; // absent: skip
+                if (isExplicitlyClearedValue(value)) {
+                  await clearPreferenceValue({
+                    table: 'member_preference_value',
+                    parentColumn: 'member_id',
+                    parentId: existingMemberId,
+                    fieldId: customFieldId,
+                    entityScope: 'member',
+                    prefField,
+                  });
                 } else {
-                  await supabase
-                    .from('member_preference_value')
-                    .insert({
-                      member_id: existingMemberId,
-                      field_id: customFieldId,
-                      value: String(value)
-                    });
+                  await upsertPreferenceValue({
+                    table: 'member_preference_value',
+                    parentColumn: 'member_id',
+                    parentId: existingMemberId,
+                    fieldId: customFieldId,
+                    value: coercePreferenceValueForStorage(value),
+                    entityScope: 'member',
+                    prefField,
+                  });
                 }
               }
             }
@@ -2604,19 +2843,34 @@ export default async function handler(req, res) {
       console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
     }
 
-    if (submission_id && (createdMemberId || createdOrganizationId || prefill_organization_id)) {
-      // organization_id is the canonical link - use created org if available, otherwise prefilled org
+    // Persist processing notes (per-field outcomes from upsert/clear
+    // helpers) to form_submission so silent failures become visible in
+    // the submission viewer. Combined with the linkage update so we make
+    // a single round-trip. NOTE: the previous version of this update
+    // also wrote `processed_at`, but that column does not exist on
+    // form_submission and the entire write was being rejected with a
+    // PostgREST error that nothing checked — every "successful" submission
+    // since the column was referenced was failing this final update
+    // silently. Dropping the bogus column lets the legitimate fields
+    // (created_member_id, created_organization_id, organization_id, and
+    // processing_notes) actually persist.
+    if (submission_id && (createdMemberId || createdOrganizationId || prefill_organization_id || processingNotes.length > 0)) {
       const finalOrganizationId = createdOrganizationId || prefill_organization_id || null;
-      
-      await supabase
+      const updatePayload = {};
+      if (createdMemberId) updatePayload.created_member_id = createdMemberId;
+      if (createdOrganizationId) updatePayload.created_organization_id = createdOrganizationId;
+      if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
+      if (processingNotes.length > 0) updatePayload.processing_notes = processingNotes;
+
+      const { error: subUpdateErr } = await supabase
         .from('form_submission')
-        .update({
-          created_member_id: createdMemberId,
-          created_organization_id: createdOrganizationId,
-          organization_id: finalOrganizationId,
-          processed_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', submission_id);
+      if (subUpdateErr) {
+        console.error('[AppProcessor] Failed to update form_submission with processing notes/links:', subUpdateErr);
+      } else {
+        console.log(`[AppProcessor] form_submission ${submission_id} updated with ${processingNotes.length} processing note(s).`);
+      }
     }
 
     // Return the resolved organization_id (whether created or existing)
