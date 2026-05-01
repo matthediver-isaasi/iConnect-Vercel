@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, cancelCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
+import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, cancelCampaign, pauseCampaign, resumeCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -65,6 +65,28 @@ export default async function handler(req, res) {
       const result = await cancelCampaign(id, tenantId, tenantContext.memberId);
       if (!result.success) {
         const statusCode = result.error?.includes('Cannot cancel') || result.error?.includes('already changed') ? 400 : result.error?.includes('not found') ? 404 : 500;
+        return res.status(statusCode).json({ error: result.error });
+      }
+      return res.json(result);
+    }
+    if (action === 'pause') {
+      if (!tenantContext.memberId) {
+        return res.status(401).json({ error: 'Authentication required to pause a campaign' });
+      }
+      const result = await pauseCampaign(id, tenantId, tenantContext.memberId);
+      if (!result.success) {
+        const statusCode = result.error?.includes('Cannot pause') || result.error?.includes('changed before') ? 400 : result.error?.includes('not found') ? 404 : 500;
+        return res.status(statusCode).json({ error: result.error });
+      }
+      return res.json(result);
+    }
+    if (action === 'resume') {
+      if (!tenantContext.memberId) {
+        return res.status(401).json({ error: 'Authentication required to resume a campaign' });
+      }
+      const result = await resumeCampaign(id, tenantId, tenantContext.memberId);
+      if (!result.success) {
+        const statusCode = result.error?.includes('Cannot resume') || result.error?.includes('Nothing to resume') || result.error?.includes('changed before') ? 400 : result.error?.includes('not found') ? 404 : 500;
         return res.status(statusCode).json({ error: result.error });
       }
       return res.json(result);

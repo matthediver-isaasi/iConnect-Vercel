@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS email_campaign (
 );
 
 COMMENT ON TABLE email_campaign IS 'Email marketing campaigns managed via Mailgun';
-COMMENT ON COLUMN email_campaign.status IS 'draft, scheduled, sending, sent, cancelled, failed';
+COMMENT ON COLUMN email_campaign.status IS 'draft, scheduled, preparing, sending, paused, sent, cancelled, failed';
 COMMENT ON COLUMN email_campaign.target_type IS 'communication_category, member_group, role, all_members';
 COMMENT ON COLUMN email_campaign.target_ids IS 'Array of IDs for the selected target type';
 

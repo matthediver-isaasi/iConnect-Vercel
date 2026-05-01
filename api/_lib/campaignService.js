@@ -32,10 +32,13 @@ export function getTenantBaseUrl(tenantSlug, requestHost = null) {
 
 async function enrichCampaignCounts(campaign) {
   if (!supabase || !campaign || !campaign.id) return campaign;
-  if (!['sent', 'sending'].includes(campaign.status)) return campaign;
+  // Include 'paused' so the UI shows up-to-date counts on a paused campaign,
+  // and include all final states ('sent', 'failed', 'cancelled') so the UI
+  // can detect "stuck with pending recipients" cases and offer Resume.
+  if (!['sent', 'sending', 'preparing', 'paused', 'failed', 'cancelled'].includes(campaign.status)) return campaign;
 
   try {
-    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult] = await Promise.all([
+    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult, pendingResult] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['sent', 'delivered', 'opened', 'clicked']),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
@@ -48,6 +51,11 @@ async function enrichCampaignCounts(campaign) {
         .eq('campaign_id', campaign.id).eq('status', 'sent')
         .not('mailgun_message_id', 'is', null)
         .lt('sent_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()),
+      // pending_count drives the UI's "Resume sending" affordance on
+      // campaigns that ended (sent/failed/cancelled) but still have rows
+      // sitting in 'pending' or 'processing' (the GRAFTAs-style stuck state).
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).in('status', ['pending', 'processing']),
     ]);
 
     if (sentResult.error) throw sentResult.error;
@@ -60,6 +68,7 @@ async function enrichCampaignCounts(campaign) {
     const liveClickedCount = clickedResult.count || 0;
     const liveDeliveredCount = deliveredResult.count || 0;
     const likelyDeliveredCount = (pendingSentResult.count || 0);
+    const livePendingCount = pendingResult?.count || 0;
 
     const needsUpdate = campaign.sent_count !== liveSentCount ||
       campaign.opened_count !== liveOpenedCount ||
@@ -84,7 +93,8 @@ async function enrichCampaignCounts(campaign) {
       opened_count: liveOpenedCount,
       clicked_count: liveClickedCount,
       delivered_count: liveDeliveredCount,
-      likely_delivered_count: likelyDeliveredCount
+      likely_delivered_count: likelyDeliveredCount,
+      pending_count: livePendingCount
     };
   } catch (err) {
     console.warn('[Campaign Service] Failed to enrich campaign counts:', campaign.id, err.message);
@@ -286,8 +296,8 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
       return { success: false, error: 'Campaign not found' };
     }
 
-    if (campaign.status !== 'sending' && campaign.status !== 'scheduled') {
-      return { success: false, error: `Cannot cancel campaign with status: ${campaign.status}. Only sending or scheduled campaigns can be cancelled.` };
+    if (campaign.status !== 'sending' && campaign.status !== 'scheduled' && campaign.status !== 'preparing' && campaign.status !== 'paused') {
+      return { success: false, error: `Cannot cancel campaign with status: ${campaign.status}. Only sending, paused, or scheduled campaigns can be cancelled.` };
     }
 
     const cancelledAt = new Date().toISOString();
@@ -301,7 +311,7 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
       })
       .eq('id', campaignId)
       .eq('tenant_id', tenantId)
-      .in('status', ['sending', 'scheduled'])
+      .in('status', ['sending', 'scheduled', 'preparing', 'paused'])
       .select('id');
 
     if (updateError) throw updateError;
@@ -355,6 +365,173 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
     };
   } catch (err) {
     console.error('[Campaign Service] Error cancelling campaign:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Pause an in-flight campaign. Allowed from 'sending' or 'preparing'. The
+// campaign is flipped to 'paused' so the cron worker (which only looks for
+// status='sending') will stop picking it up. Recipient rows remain in their
+// current 'pending'/'processing' state — they are NOT cancelled, so the
+// operator can resume from the exact same point with resumeCampaign().
+//
+// Note about in-flight batches: sendBatch may already have claimed up to 100
+// recipients (status='processing') for the current invocation. Those will
+// finish their Mailgun call (we don't kill them mid-flight). Any pending
+// rows beyond that batch will remain pending until resume.
+export async function pauseCampaign(campaignId, tenantId, pausedBy = null) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: campaign, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('id, status, name')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError || !campaign) {
+      return { success: false, error: 'Campaign not found' };
+    }
+
+    if (campaign.status !== 'sending' && campaign.status !== 'preparing') {
+      return { success: false, error: `Cannot pause campaign with status: ${campaign.status}. Only sending or preparing campaigns can be paused.` };
+    }
+
+    const pausedAt = new Date().toISOString();
+    // Atomic claim — only flip if the status hasn't changed in the meantime
+    // (the campaign could have just finished in the millisecond between the
+    // fetch above and now).
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('email_campaign')
+      .update({ status: 'paused', updated_at: pausedAt })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .in('status', ['sending', 'preparing'])
+      .select('id');
+
+    if (updateError) throw updateError;
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: `Campaign status changed before pause could be applied. Current status: ${campaign.status}` };
+    }
+
+    const { count: pendingCount } = await supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .in('status', ['pending', 'processing']);
+
+    console.log(`[Campaign Service] Campaign ${campaignId} (${campaign.name}) PAUSED by ${pausedBy || 'unknown'} — ${pendingCount || 0} recipients pending`);
+
+    return {
+      success: true,
+      paused: true,
+      campaignId,
+      campaignName: campaign.name,
+      previousStatus: campaign.status,
+      pendingCount: pendingCount || 0,
+      pausedAt,
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error pausing campaign:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Resume a campaign back to 'sending' so the cron drains its remaining
+// pending recipients. Handles two distinct scenarios:
+//
+//   1) Normal resume: campaign is 'paused' (operator hit Pause).
+//   2) Stuck recovery: campaign is 'sent', 'failed', or 'cancelled' but
+//      still has pending/processing recipient rows (e.g. the GRAFTAs
+//      incident, or any future race / timeout that left rows orphaned).
+//
+// In BOTH cases we refuse to act unless there are actually pending or
+// processing rows to drain — resuming a fully-completed campaign would be
+// a no-op at best and confusing at worst. completed_at and cancelled_at
+// are cleared so the cron's mark-sent path can set completed_at correctly
+// when the drain finishes.
+export async function resumeCampaign(campaignId, tenantId, resumedBy = null) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: campaign, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('id, status, name, completed_at, cancelled_at')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError || !campaign) {
+      return { success: false, error: 'Campaign not found' };
+    }
+
+    const resumableFromPaused = campaign.status === 'paused';
+    const resumableFromStuck = ['sent', 'failed', 'cancelled'].includes(campaign.status);
+
+    if (!resumableFromPaused && !resumableFromStuck) {
+      return { success: false, error: `Cannot resume campaign with status: ${campaign.status}. Only paused or finished campaigns with remaining recipients can be resumed.` };
+    }
+
+    const { count: pendingCount } = await supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .in('status', ['pending', 'processing']);
+
+    if (!pendingCount || pendingCount === 0) {
+      return { success: false, error: 'Nothing to resume — there are no pending or processing recipients for this campaign.' };
+    }
+
+    const resumedAt = new Date().toISOString();
+    // Atomic flip: only proceed if the status is still what we read above.
+    // Clear completed_at + cancelled_at so the cron's completion path will
+    // set them correctly when the drain actually finishes.
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('email_campaign')
+      .update({
+        status: 'sending',
+        completed_at: null,
+        cancelled_at: null,
+        cancelled_by: null,
+        updated_at: resumedAt,
+      })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .eq('status', campaign.status)
+      .select('id');
+
+    if (updateError) throw updateError;
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: `Campaign status changed before resume could be applied. Current status was: ${campaign.status}` };
+    }
+
+    // If the operator is resuming cancelled rows back to pending? No — only
+    // `pending`/`processing` rows are drained by the cron. cancelled rows
+    // were intentionally cancelled and stay that way. Resume only finishes
+    // the unprocessed remainder.
+
+    const reason = resumableFromPaused ? 'paused' : `stuck-${campaign.status}`;
+    console.log(`[Campaign Service] Campaign ${campaignId} (${campaign.name}) RESUMED by ${resumedBy || 'unknown'} from '${campaign.status}' → 'sending' (${pendingCount} pending recipients to drain). Reason: ${reason}`);
+
+    return {
+      success: true,
+      resumed: true,
+      campaignId,
+      campaignName: campaign.name,
+      previousStatus: campaign.status,
+      pendingCount,
+      resumedAt,
+      stuckRecovery: resumableFromStuck,
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error resuming campaign:', err);
     return { success: false, error: err.message };
   }
 }
@@ -1653,12 +1830,82 @@ export async function processScheduledCampaigns() {
   }
 }
 
+// Pure decision predicate for processSendingCampaigns(). Extracted so it can
+// be unit-tested without a database. Returns true ONLY when it is safe to
+// flip a 'sending' campaign to 'sent'. The race fix is the `anyRowCount === 0`
+// branch: a campaign with no recipient rows at all is mid-insert, not done.
+export function shouldMarkCampaignSent({ pendingCount, processingCount, anyRowCount }) {
+  if ((pendingCount || 0) > 0) return false;
+  if ((processingCount || 0) > 0) return false;
+  if (!anyRowCount || anyRowCount === 0) return false;
+  return true;
+}
+
+// Recovery for the interim 'preparing' status used by sendCampaign() to
+// avoid the race with the cron worker. Normally a campaign sits in
+// 'preparing' for only a few seconds (audience resolution + recipient row
+// insert). If something interrupts that work (Vercel function timeout,
+// hard crash, etc.), the campaign would otherwise be stuck. We sweep for
+// 'preparing' campaigns older than the threshold and either:
+//   - promote to 'sending' if recipient rows already exist (rows inserted
+//     but the status flip never ran), or
+//   - mark 'failed' if no rows exist (interrupted before insert).
+async function recoverStuckPreparingCampaigns() {
+  const STALE_PREPARING_MS = 5 * 60 * 1000; // 5 minutes
+  const cutoffIso = new Date(Date.now() - STALE_PREPARING_MS).toISOString();
+
+  const { data: stuck, error } = await supabase
+    .from('email_campaign')
+    .select('id, tenant_id, name, updated_at')
+    .eq('status', 'preparing')
+    .lt('updated_at', cutoffIso);
+
+  if (error) {
+    console.warn('[Campaign Service] recoverStuckPreparingCampaigns failed to fetch:', error.message);
+    return;
+  }
+
+  if (!stuck || stuck.length === 0) return;
+
+  for (const c of stuck) {
+    const { count: rowCount } = await supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', c.id);
+
+    if (rowCount && rowCount > 0) {
+      console.warn(`[Campaign Service] Recovering stuck 'preparing' campaign ${c.id} (${c.name}) — ${rowCount} recipient rows already inserted, promoting to 'sending'`);
+      await updateCampaign(c.id, { status: 'sending' }, c.tenant_id).catch(err => {
+        console.error(`[Campaign Service] Failed to promote stuck preparing campaign ${c.id}:`, err.message);
+      });
+    } else {
+      console.warn(`[Campaign Service] Recovering stuck 'preparing' campaign ${c.id} (${c.name}) — no recipient rows, marking 'failed'`);
+      await updateCampaign(c.id, { status: 'failed' }, c.tenant_id).catch(err => {
+        console.error(`[Campaign Service] Failed to mark stuck preparing campaign ${c.id} as failed:`, err.message);
+      });
+    }
+  }
+}
+
+// IMPORTANT — race-condition fix: this worker MUST NOT mark a campaign as
+// 'sent' unless recipient rows actually exist for it. Without that guard, a
+// campaign that has just been flipped to status='sending' but is still in
+// the middle of resolving its audience (no recipient rows yet) would be
+// prematurely marked 'sent', and only the first batch would be delivered.
+// See sendCampaign() for the matching protection (interim 'preparing' status).
 export async function processSendingCampaigns() {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
 
   try {
+    // Recovery sweep: any campaign stuck in the interim 'preparing' state
+    // for too long without recipient rows is a victim of an interrupted
+    // send (e.g. function timeout / hard crash). Mark it 'failed' so the
+    // user can retry. If rows DO exist (insert succeeded but the status
+    // update did not), promote it to 'sending' so this worker can finish.
+    await recoverStuckPreparingCampaigns();
+
     const { data: sendingCampaigns, error: fetchError } = await supabase
       .from('email_campaign')
       .select('id, tenant_id, name, updated_at')
@@ -1685,6 +1932,25 @@ export async function processSendingCampaigns() {
         .eq('status', 'processing');
 
       if ((!pendingCount || pendingCount === 0) && (!processingCount || processingCount === 0)) {
+        // Race-condition guard: refuse to mark sent if NO recipient rows
+        // exist at all for this campaign id. That state means another
+        // worker (or sendCampaign itself) is still in the middle of
+        // inserting recipients — completing here would orphan all of them.
+        const { count: anyRowCount } = await supabase
+          .from('email_campaign_recipient')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', sc.id);
+
+        if (!shouldMarkCampaignSent({
+          pendingCount: pendingCount || 0,
+          processingCount: processingCount || 0,
+          anyRowCount: anyRowCount || 0,
+        })) {
+          console.warn(`[Campaign Service] Campaign ${sc.id} (${sc.name}) is in 'sending' but has zero recipient rows — skipping (likely mid-insert by another worker)`);
+          results.push({ campaignId: sc.id, name: sc.name, status: 'skipped', reason: 'no_recipient_rows' });
+          continue;
+        }
+
         const { count: sentCount } = await supabase
           .from('email_campaign_recipient')
           .select('*', { count: 'exact', head: true })
@@ -1917,7 +2183,7 @@ async function claimPendingRecipients(campaignId, batchSize = BATCH_SIZE) {
   return claimed || [];
 }
 
-async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE) {
+export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE) {
   const claimedRecipients = await claimPendingRecipients(campaignId, batchSize);
 
   if (claimedRecipients.length === 0) {
@@ -1969,6 +2235,22 @@ async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost
   return { sent: sentCount, failed: failedCount, remaining: remainingCount || 0 };
 }
 
+// IMPORTANT — race-condition fix history:
+// Previously sendCampaign() flipped the campaign to status='sending' BEFORE
+// resolving the audience and inserting recipient rows. For large audiences
+// (e.g. 4k+ members) recipient resolution takes several seconds, leaving a
+// window where the every-minute cron worker (processSendingCampaigns) would
+// see status='sending' with zero pending/processing recipient rows and
+// prematurely mark the campaign as 'sent'. Only the first batch of 100 was
+// ever delivered. To prevent this we now:
+//   1) Use an interim status='preparing' while resolving + inserting rows,
+//      so the cron (which only looks at status='sending') cannot see the
+//      campaign during the dangerous window.
+//   2) Only flip 'preparing' → 'sending' AFTER recipient rows are inserted.
+//   3) processSendingCampaigns() additionally refuses to mark a campaign
+//      'sent' if no recipient rows exist at all for that campaign id.
+// Do not undo either of these protections without replacing them with an
+// equivalent guard.
 export async function sendCampaign(campaignId, tenantId, requestHost = null) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
@@ -1984,10 +2266,13 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       return { success: false, error: `Cannot send campaign with status: ${campaign.status}` };
     }
 
+    // Atomic claim into the interim 'preparing' status. This prevents
+    // double-send (a second caller will fail the .in() filter) AND keeps
+    // the campaign invisible to the cron until recipients are inserted.
     const { data: claimedCampaign, error: claimError } = await supabase
       .from('email_campaign')
       .update({
-        status: 'sending',
+        status: 'preparing',
         sent_at: new Date().toISOString(),
         sent_count: 0,
         updated_at: new Date().toISOString()
@@ -2046,6 +2331,11 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       .insert(recipientRecords);
 
     if (insertError) throw insertError;
+
+    // Only NOW that recipient rows are durably inserted, flip from
+    // 'preparing' to 'sending' so the cron worker can safely take over
+    // if this request times out.
+    await updateCampaign(campaignId, { status: 'sending' }, tenantId);
 
     const { data: tenant } = await supabase
       .from('tenant')

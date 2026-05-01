@@ -14,7 +14,7 @@ import {
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
   ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
   RefreshCw, Monitor, Smartphone, Reply, Forward, Archive, MoreHorizontal, Star, Paperclip,
-  Flame
+  Flame, Pause, Play
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -45,6 +45,10 @@ export default function EmailCampaigns() {
   const [cancelPreviewStats, setCancelPreviewStats] = useState(null);
   const [loadingCancelPreview, setLoadingCancelPreview] = useState(false);
   const [cancelling, setCancelling] = useState(null);
+  const [pausing, setPausing] = useState(null);
+  const [resuming, setResuming] = useState(null);
+  const [showResumeStuckConfirm, setShowResumeStuckConfirm] = useState(false);
+  const [campaignToResume, setCampaignToResume] = useState(null);
   const [statsDetailView, setStatsDetailView] = useState(false);
   const [statsRecipients, setStatsRecipients] = useState([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
@@ -71,7 +75,9 @@ export default function EmailCampaigns() {
     staleTime: 30000,
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (Array.isArray(data) && data.some(c => c.status === 'sending')) {
+      // Poll while a campaign is actively progressing or could be flipped
+      // back to active by an operator (paused → resume).
+      if (Array.isArray(data) && data.some(c => c.status === 'sending' || c.status === 'preparing' || c.status === 'paused')) {
         return 5000;
       }
       return false;
@@ -235,6 +241,69 @@ export default function EmailCampaigns() {
       setCancelling(null);
       setCampaignToCancel(null);
       setCancelPreviewStats(null);
+    }
+  };
+
+  const handlePauseCampaign = async (campaign) => {
+    if (pausing) return;
+    setPausing(campaign.id);
+    try {
+      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'pause' })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to pause campaign');
+      toast.success(`Campaign paused. ${data.pendingCount} recipients still queued — click Resume to continue.`);
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setPausing(null);
+    }
+  };
+
+  // Single resume entry point. For 'paused' campaigns we resume immediately.
+  // For finished campaigns ('sent'/'failed'/'cancelled') that still have
+  // pending recipients (the GRAFTAs-style stuck case), we open a confirm
+  // dialog first because resuming a "completed" campaign is unusual and
+  // operators should explicitly acknowledge what they're doing.
+  const handleResumeClick = (campaign) => {
+    if (campaign.status === 'paused') {
+      doResumeCampaign(campaign);
+      return;
+    }
+    setCampaignToResume(campaign);
+    setShowResumeStuckConfirm(true);
+  };
+
+  const doResumeCampaign = async (campaign) => {
+    if (resuming) return;
+    setResuming(campaign.id);
+    setShowResumeStuckConfirm(false);
+    try {
+      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'resume' })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to resume campaign');
+      const wasStuck = data.stuckRecovery;
+      toast.success(
+        wasStuck
+          ? `Resuming campaign — draining ${data.pendingCount} remaining recipients (~${Math.ceil(data.pendingCount / 100)} min).`
+          : `Campaign resumed — ${data.pendingCount} recipients will be sent.`
+      );
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setResuming(null);
+      setCampaignToResume(null);
     }
   };
 
@@ -824,7 +893,9 @@ export default function EmailCampaigns() {
     const statusConfig = {
       draft: { label: 'Draft', variant: 'secondary' },
       scheduled: { label: 'Scheduled', variant: 'outline', className: 'border-blue-500 text-blue-600' },
+      preparing: { label: 'Preparing', variant: 'outline', className: 'border-amber-500 text-amber-600' },
       sending: { label: 'Sending', variant: 'outline', className: 'border-amber-500 text-amber-600' },
+      paused: { label: 'Paused', variant: 'outline', className: 'border-slate-400 text-slate-600' },
       sent: { label: 'Sent', variant: 'outline', className: 'border-green-500 text-green-600' },
       failed: { label: 'Failed', variant: 'destructive' },
       cancelled: { label: 'Cancelled', variant: 'secondary' }
@@ -1109,7 +1180,60 @@ export default function EmailCampaigns() {
                                 </Button>
                               </>
                             )}
-                            {(campaign.status === 'sending' || campaign.status === 'scheduled') && (
+                            {(campaign.status === 'sending' || campaign.status === 'preparing') && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handlePauseCampaign(campaign)}
+                                disabled={pausing === campaign.id}
+                                title="Pause Campaign"
+                                data-testid={`button-pause-${campaign.id}`}
+                              >
+                                {pausing === campaign.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Pause className="w-4 h-4" />
+                                )}
+                              </Button>
+                            )}
+                            {campaign.status === 'paused' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleResumeClick(campaign)}
+                                disabled={resuming === campaign.id}
+                                title="Resume Campaign"
+                                data-testid={`button-resume-${campaign.id}`}
+                              >
+                                {resuming === campaign.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Play className="w-4 h-4" />
+                                )}
+                              </Button>
+                            )}
+                            {/* Stuck-campaign recovery: a finished campaign
+                                that still has pending recipients (e.g. the
+                                GRAFTAs incident or any future race/timeout)
+                                gets a Resume button to drain the remainder. */}
+                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && (campaign.pending_count || 0) > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleResumeClick(campaign)}
+                                disabled={resuming === campaign.id}
+                                title={`Resume sending (${campaign.pending_count} recipients still pending)`}
+                                className="text-amber-600 hover:text-amber-600"
+                                data-testid={`button-resume-stuck-${campaign.id}`}
+                              >
+                                {resuming === campaign.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Play className="w-4 h-4" />
+                                )}
+                              </Button>
+                            )}
+                            {(campaign.status === 'sending' || campaign.status === 'preparing' || campaign.status === 'paused' || campaign.status === 'scheduled') && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1201,6 +1325,38 @@ export default function EmailCampaigns() {
             </Button>
             <Button variant="destructive" onClick={handleDeleteCampaign} disabled={isDeleting} data-testid="button-confirm-delete">
               {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Deleting...</> : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showResumeStuckConfirm} onOpenChange={(open) => { setShowResumeStuckConfirm(open); if (!open) setCampaignToResume(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              Resume Sending
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  "{campaignToResume?.name}" is marked as <span className="font-medium">{campaignToResume?.status}</span>, but {campaignToResume?.pending_count} recipient{campaignToResume?.pending_count === 1 ? '' : 's'} never received the email.
+                </p>
+                <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+                  Resuming will send to those remaining recipients only. Anyone who already received the email will not be emailed again.
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Estimated time: ~{Math.max(1, Math.ceil((campaignToResume?.pending_count || 0) / 100))} minute{((campaignToResume?.pending_count || 0) > 100) ? 's' : ''} (sent in batches of 100 per minute by the background worker).
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowResumeStuckConfirm(false); setCampaignToResume(null); }} disabled={resuming === campaignToResume?.id} data-testid="button-resume-cancel">
+              Cancel
+            </Button>
+            <Button onClick={() => doResumeCampaign(campaignToResume)} disabled={resuming === campaignToResume?.id} data-testid="button-confirm-resume">
+              {resuming === campaignToResume?.id ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resuming...</> : <><Play className="mr-2 h-4 w-4" /> Resume sending</>}
             </Button>
           </DialogFooter>
         </DialogContent>
