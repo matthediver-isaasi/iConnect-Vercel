@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { registerMailgunWebhooks } from '../_lib/emailDomainService.js';
 
 const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
@@ -76,18 +76,18 @@ export default async function handler(req, res) {
     scope = 'all_tenants';
     console.log('[Backfill Webhooks] All-tenant backfill authorized via API key');
   } else {
-    const tenantUser = await getSessionTenantUser(req);
-    if (!tenantUser) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const tenantContext = await getTenantContext(req);
+    if (!tenantContext.tenantId) {
+      return res.status(401).json({ error: 'Unauthorized - tenant required' });
     }
 
-    const isAuthorized = tenantUser.role === 'owner' || tenantUser.role === 'admin' || !tenantUser.role;
+    const isAuthorized = await hasAdminAccess(tenantContext);
     if (!isAuthorized) {
-      return res.status(403).json({ error: 'Forbidden - requires owner or admin role' });
+      return res.status(403).json({ error: 'Forbidden - requires admin access' });
     }
 
-    tenantId = tenantUser.tenant_id;
-    console.log('[Backfill Webhooks] Single-tenant backfill started by user:', tenantUser.email, 'for tenant:', tenantId);
+    tenantId = tenantContext.tenantId;
+    console.log('[Backfill Webhooks] Single-tenant backfill started for tenant:', tenantId);
   }
 
   try {

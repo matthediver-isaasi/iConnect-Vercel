@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 
 const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
@@ -292,17 +292,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext.tenantId) {
+    return res.status(401).json({ error: 'Unauthorized - tenant required' });
   }
 
-  const isAuthorized = tenantUser.role === 'owner' || tenantUser.role === 'admin' || !tenantUser.role;
+  const isAuthorized = await hasAdminAccess(tenantContext);
   if (!isAuthorized) {
-    return res.status(403).json({ error: 'Forbidden - requires owner or admin role' });
+    return res.status(403).json({ error: 'Forbidden - requires admin access' });
   }
 
-  const tenantId = tenantUser.tenant_id;
+  const tenantId = tenantContext.tenantId;
   const { campaignId } = req.body || {};
 
   if (!campaignId) {
