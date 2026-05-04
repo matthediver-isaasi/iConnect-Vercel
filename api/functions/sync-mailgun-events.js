@@ -196,9 +196,9 @@ async function loadExistingEventIds(campaignId) {
 
 async function flushRecipientUpdates(recipientStates) {
   const dirty = [...recipientStates.values()].filter(s => s.dirty);
-  const BATCH = 20;
-  for (let i = 0; i < dirty.length; i += BATCH) {
-    const chunk = dirty.slice(i, i + BATCH);
+  const CONCURRENCY = 50;
+  for (let i = 0; i < dirty.length; i += CONCURRENCY) {
+    const chunk = dirty.slice(i, i + CONCURRENCY);
     await Promise.all(chunk.map(state => {
       const update = { status: state.status };
       if (state.delivered_at) update.delivered_at = state.delivered_at;
@@ -376,7 +376,7 @@ export default async function handler(req, res) {
     const endDate = String(Math.floor(Math.min(sentAtMs + 7 * 24 * 60 * 60 * 1000, Date.now()) / 1000));
 
     const pendingInsertRows = [];
-    const INSERT_BATCH_SIZE = 100;
+    const INSERT_BATCH_SIZE = 500;
 
     for (const eventType of eventTypes) {
       if (timedOut) break;
@@ -437,18 +437,33 @@ export default async function handler(req, res) {
 
     console.log(`[Sync Mailgun Events] Fetch phase done: ${totalEvents} events collected, ${processed} applied in-memory, ${skipped} skipped. Starting flush...`);
 
+    const insertBatches = [];
     for (let i = 0; i < pendingInsertRows.length; i += INSERT_BATCH_SIZE) {
-      const batch = pendingInsertRows.slice(i, i + INSERT_BATCH_SIZE);
-      const { error: insertError } = await supabase.from('email_event').insert(batch);
-      if (insertError) {
-        console.error(`[Sync Mailgun Events] Batch insert error:`, insertError.message);
-        errors += batch.length;
+      insertBatches.push(pendingInsertRows.slice(i, i + INSERT_BATCH_SIZE));
+    }
+
+    const INSERT_CONCURRENCY = 5;
+    async function flushInserts() {
+      for (let i = 0; i < insertBatches.length; i += INSERT_CONCURRENCY) {
+        const chunk = insertBatches.slice(i, i + INSERT_CONCURRENCY);
+        const results = await Promise.all(chunk.map(batch =>
+          supabase.from('email_event').insert(batch)
+        ));
+        for (const r of results) {
+          if (r.error) {
+            console.error(`[Sync Mailgun Events] Batch insert error:`, r.error.message);
+            errors += INSERT_BATCH_SIZE;
+          }
+        }
       }
     }
 
-    await flushRecipientUpdates(recipientStates);
-    await flushCampaignCounters(campaignId, recipientStates);
-    await flushBounceAndUnsubscribe(recipientStates, tenantId, campaignId);
+    await Promise.all([
+      flushInserts(),
+      flushRecipientUpdates(recipientStates),
+      flushCampaignCounters(campaignId, recipientStates),
+      flushBounceAndUnsubscribe(recipientStates, tenantId, campaignId),
+    ]);
 
     const elapsed = Math.round((Date.now() - startTime) / 1000);
     console.log(`[Sync Mailgun Events] ${timedOut ? 'Partial' : 'Complete'} for campaign ${campaignId}: ${totalEvents} events, ${processed} processed, ${skipped} skipped, ${errors} errors, ${elapsed}s`);
