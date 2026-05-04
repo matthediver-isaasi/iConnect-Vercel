@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 const TIME_BUDGET_MS = 50_000;
+const FLUSH_BUDGET_MS = 8_000;
+const FETCH_BUDGET_MS = TIME_BUDGET_MS - FLUSH_BUDGET_MS;
 
 function getAllowedOrigin(requestOrigin) {
   if (!requestOrigin) return ALLOWED_ORIGINS[0];
@@ -15,52 +17,23 @@ function getAllowedOrigin(requestOrigin) {
 
 async function fetchMailgunEvents(domain, params) {
   if (!MAILGUN_API_KEY) throw new Error('MAILGUN_API_KEY not configured');
-
   const apiBase = MAILGUN_REGION === 'eu'
     ? 'https://api.eu.mailgun.net'
     : 'https://api.mailgun.net';
   const authHeader = 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
-
   const url = new URL(`${apiBase}/v3/${domain}/events`);
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, value);
-    }
+    if (value !== undefined && value !== null) url.searchParams.set(key, value);
   }
-
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: { 'Authorization': authHeader }
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(`Mailgun Events API error: ${response.status} - ${JSON.stringify(errorData)}`);
   }
-
   return response.json();
-}
-
-async function incrementCampaignColumn(campaignId, columnName) {
-  try {
-    const { error: rpcError } = await supabase.rpc('increment_campaign_counter', {
-      p_campaign_id: campaignId,
-      p_column_name: columnName
-    });
-    if (rpcError) throw rpcError;
-  } catch {
-    const { data: current } = await supabase
-      .from('email_campaign')
-      .select(columnName)
-      .eq('id', campaignId)
-      .single();
-
-    const currentVal = current?.[columnName] || 0;
-    await supabase
-      .from('email_campaign')
-      .update({ [columnName]: currentVal + 1 })
-      .eq('id', campaignId);
-  }
 }
 
 function extractEventIdentifiers(eventData) {
@@ -76,12 +49,8 @@ function extractEventIdentifiers(eventData) {
 }
 
 function lookupRecipient(messageId, recipientEmail, recipientsByMsgId, recipientsByEmail) {
-  if (messageId && recipientsByMsgId.has(messageId)) {
-    return recipientsByMsgId.get(messageId);
-  }
-  if (recipientEmail && recipientsByEmail.has(recipientEmail)) {
-    return recipientsByEmail.get(recipientEmail);
-  }
+  if (messageId && recipientsByMsgId.has(messageId)) return recipientsByMsgId.get(messageId);
+  if (recipientEmail && recipientsByEmail.has(recipientEmail)) return recipientsByEmail.get(recipientEmail);
   return null;
 }
 
@@ -111,158 +80,78 @@ function buildEventRow(eventData, campaignId, tenantId, recipientObj, messageId,
   };
 }
 
-async function applyRecipientSideEffects(eventData, recipient, campaignId, tenantId, timestamp) {
+const STATUS_PRIORITY = { complained: 6, unsubscribed: 5, bounced: 4, clicked: 3, opened: 2, delivered: 1 };
+
+function applyEventToRecipientState(state, eventData, timestamp) {
   const eventType = eventData.event;
-  const recipientEmail = eventData.recipient;
+  const effectiveType = eventType === 'failed' ? 'bounced' : eventType;
+  const currentPriority = STATUS_PRIORITY[state.status] || 0;
+  const newPriority = STATUS_PRIORITY[effectiveType] || 0;
 
-  switch (eventType) {
-    case 'delivered': {
-      if (!recipient.delivered_at) {
-        await supabase
-          .from('email_campaign_recipient')
-          .update({ status: 'delivered', delivered_at: timestamp })
-          .eq('id', recipient.id);
-        await incrementCampaignColumn(campaignId, 'delivered_count');
-        recipient.delivered_at = timestamp;
-        recipient.status = 'delivered';
-      }
-      break;
+  if (!state.delivered_at && (effectiveType === 'delivered' || effectiveType === 'opened' || effectiveType === 'clicked')) {
+    state.delivered_at = timestamp;
+    state.counterDeltas.delivered_count = (state.counterDeltas.delivered_count || 0) + 1;
+    if (currentPriority < STATUS_PRIORITY['delivered']) {
+      state.status = 'delivered';
     }
+  }
 
-    case 'opened': {
-      const newOpenCount = (recipient.open_count || 0) + 1;
-      const recipientUpdate = { open_count: newOpenCount };
-      const isFirstOpen = !recipient.opened_at;
-
-      if (isFirstOpen) {
-        recipientUpdate.status = 'opened';
-        recipientUpdate.opened_at = timestamp;
-      }
-
-      if (!recipient.delivered_at) {
-        recipientUpdate.delivered_at = timestamp;
-        await incrementCampaignColumn(campaignId, 'delivered_count');
-        recipient.delivered_at = timestamp;
-      }
-
-      await supabase
-        .from('email_campaign_recipient')
-        .update(recipientUpdate)
-        .eq('id', recipient.id);
-
-      if (isFirstOpen) {
-        await incrementCampaignColumn(campaignId, 'opened_count');
-        recipient.opened_at = timestamp;
-        recipient.status = 'opened';
-      }
-      recipient.open_count = newOpenCount;
+  switch (effectiveType) {
+    case 'delivered':
+      if (currentPriority < newPriority) state.status = 'delivered';
       break;
-    }
 
-    case 'clicked': {
-      const newClickCount = (recipient.click_count || 0) + 1;
-      const clickUpdate = { click_count: newClickCount };
-      const isFirstClick = !recipient.clicked_at;
-
-      if (isFirstClick) {
-        clickUpdate.status = 'clicked';
-        clickUpdate.clicked_at = timestamp;
+    case 'opened':
+      state.open_count = (state.open_count || 0) + 1;
+      if (!state.opened_at) {
+        state.opened_at = timestamp;
+        state.counterDeltas.opened_count = (state.counterDeltas.opened_count || 0) + 1;
       }
-
-      if (!recipient.delivered_at) {
-        clickUpdate.delivered_at = timestamp;
-        await incrementCampaignColumn(campaignId, 'delivered_count');
-        recipient.delivered_at = timestamp;
-      }
-
-      await supabase
-        .from('email_campaign_recipient')
-        .update(clickUpdate)
-        .eq('id', recipient.id);
-
-      if (isFirstClick) {
-        await incrementCampaignColumn(campaignId, 'clicked_count');
-        recipient.clicked_at = timestamp;
-        recipient.status = 'clicked';
-      }
-      recipient.click_count = newClickCount;
+      if (currentPriority < newPriority) state.status = 'opened';
       break;
-    }
 
-    case 'failed':
-    case 'bounced': {
-      if (recipient.status !== 'bounced') {
-        await supabase
-          .from('email_campaign_recipient')
-          .update({
-            status: 'bounced',
-            bounced_at: timestamp,
-            error_message: eventData.reason || eventData['delivery-status']?.message
-          })
-          .eq('id', recipient.id);
-        await incrementCampaignColumn(campaignId, 'bounced_count');
-        recipient.status = 'bounced';
+    case 'clicked':
+      state.click_count = (state.click_count || 0) + 1;
+      if (!state.clicked_at) {
+        state.clicked_at = timestamp;
+        state.counterDeltas.clicked_count = (state.counterDeltas.clicked_count || 0) + 1;
+      }
+      if (currentPriority < newPriority) state.status = 'clicked';
+      break;
 
+    case 'bounced':
+      if (currentPriority < newPriority) {
+        state.status = 'bounced';
+        state.bounced_at = state.bounced_at || timestamp;
+        state.error_message = eventData.reason || eventData['delivery-status']?.message;
+        state.counterDeltas.bounced_count = (state.counterDeltas.bounced_count || 0) + 1;
         if (eventData.severity === 'permanent') {
-          await supabase
-            .from('member')
-            .update({
-              email_bounced: true,
-              email_bounce_reason: eventData.reason
-            })
-            .eq('id', recipient.member_id);
+          state.permanentBounce = true;
+          state.bounceReason = eventData.reason;
         }
       }
       break;
-    }
 
-    case 'complained': {
-      if (recipient.status !== 'complained') {
-        await supabase
-          .from('email_campaign_recipient')
-          .update({ status: 'complained', complained_at: timestamp })
-          .eq('id', recipient.id);
-        await incrementCampaignColumn(campaignId, 'complained_count');
-        recipient.status = 'complained';
-
-        await supabase.from('email_unsubscribe').upsert({
-          tenant_id: tenantId,
-          email: recipientEmail,
-          member_id: recipient.member_id,
-          unsubscribe_type: 'all',
-          campaign_id: campaignId,
-          reason: 'Spam complaint',
-          source: 'complaint'
-        }, {
-          onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
-        });
+    case 'complained':
+      if (currentPriority < newPriority) {
+        state.status = 'complained';
+        state.complained_at = state.complained_at || timestamp;
+        state.counterDeltas.complained_count = (state.counterDeltas.complained_count || 0) + 1;
+        state.needsUnsubscribe = { reason: 'Spam complaint', source: 'complaint' };
       }
       break;
-    }
 
-    case 'unsubscribed': {
-      if (recipient.status !== 'unsubscribed') {
-        await supabase
-          .from('email_campaign_recipient')
-          .update({ status: 'unsubscribed', unsubscribed_at: timestamp })
-          .eq('id', recipient.id);
-        await incrementCampaignColumn(campaignId, 'unsubscribed_count');
-        recipient.status = 'unsubscribed';
-
-        await supabase.from('email_unsubscribe').upsert({
-          tenant_id: tenantId,
-          email: recipientEmail,
-          member_id: recipient.member_id,
-          unsubscribe_type: 'all',
-          campaign_id: campaignId,
-          source: 'webhook'
-        }, {
-          onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
-        });
+    case 'unsubscribed':
+      if (currentPriority < newPriority) {
+        state.status = 'unsubscribed';
+        state.unsubscribed_at = state.unsubscribed_at || timestamp;
+        state.counterDeltas.unsubscribed_count = (state.counterDeltas.unsubscribed_count || 0) + 1;
+        state.needsUnsubscribe = { source: 'webhook' };
       }
       break;
-    }
   }
+
+  state.dirty = true;
 }
 
 async function loadAllRecipients(campaignId) {
@@ -272,9 +161,8 @@ async function loadAllRecipients(campaignId) {
   while (true) {
     const { data, error } = await supabase
       .from('email_campaign_recipient')
-      .select('id, campaign_id, member_id, email, mailgun_message_id, status, delivered_at, opened_at, clicked_at, open_count, click_count')
+      .select('id, campaign_id, member_id, email, mailgun_message_id, status, delivered_at, opened_at, clicked_at, bounced_at, complained_at, unsubscribed_at, open_count, click_count, error_message')
       .eq('campaign_id', campaignId)
-      .in('status', ['sent', 'delivered', 'opened', 'clicked', 'processing'])
       .range(offset, offset + pageSize - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
@@ -306,6 +194,87 @@ async function loadExistingEventIds(campaignId) {
   return ids;
 }
 
+async function flushRecipientUpdates(recipientStates) {
+  const dirty = [...recipientStates.values()].filter(s => s.dirty);
+  const BATCH = 20;
+  for (let i = 0; i < dirty.length; i += BATCH) {
+    const chunk = dirty.slice(i, i + BATCH);
+    await Promise.all(chunk.map(state => {
+      const update = { status: state.status };
+      if (state.delivered_at) update.delivered_at = state.delivered_at;
+      if (state.opened_at) update.opened_at = state.opened_at;
+      if (state.clicked_at) update.clicked_at = state.clicked_at;
+      if (state.bounced_at) update.bounced_at = state.bounced_at;
+      if (state.complained_at) update.complained_at = state.complained_at;
+      if (state.unsubscribed_at) update.unsubscribed_at = state.unsubscribed_at;
+      if (state.open_count != null) update.open_count = state.open_count;
+      if (state.click_count != null) update.click_count = state.click_count;
+      if (state.error_message) update.error_message = state.error_message;
+      return supabase.from('email_campaign_recipient').update(update).eq('id', state.id);
+    }));
+  }
+  return dirty.length;
+}
+
+async function flushCampaignCounters(campaignId, recipientStates) {
+  const totals = {};
+  for (const state of recipientStates.values()) {
+    for (const [col, delta] of Object.entries(state.counterDeltas)) {
+      totals[col] = (totals[col] || 0) + delta;
+    }
+  }
+  if (Object.keys(totals).length === 0) return;
+
+  const { data: current } = await supabase
+    .from('email_campaign')
+    .select('delivered_count, opened_count, clicked_count, bounced_count, complained_count, unsubscribed_count')
+    .eq('id', campaignId)
+    .single();
+
+  if (!current) return;
+  const update = {};
+  for (const [col, delta] of Object.entries(totals)) {
+    update[col] = (current[col] || 0) + delta;
+  }
+  await supabase.from('email_campaign').update(update).eq('id', campaignId);
+}
+
+async function flushBounceAndUnsubscribe(recipientStates, tenantId, campaignId) {
+  const bounceUpdates = [];
+  const unsubRows = [];
+  for (const state of recipientStates.values()) {
+    if (!state.dirty) continue;
+    if (state.permanentBounce) {
+      bounceUpdates.push({ memberId: state.member_id, reason: state.bounceReason });
+    }
+    if (state.needsUnsubscribe) {
+      unsubRows.push({
+        tenant_id: tenantId,
+        email: state.email,
+        member_id: state.member_id,
+        unsubscribe_type: 'all',
+        campaign_id: campaignId,
+        reason: state.needsUnsubscribe.reason || null,
+        source: state.needsUnsubscribe.source
+      });
+    }
+  }
+
+  const BATCH = 20;
+  for (let i = 0; i < bounceUpdates.length; i += BATCH) {
+    await Promise.all(bounceUpdates.slice(i, i + BATCH).map(b =>
+      supabase.from('member').update({ email_bounced: true, email_bounce_reason: b.reason }).eq('id', b.memberId)
+    ));
+  }
+
+  for (let i = 0; i < unsubRows.length; i += 50) {
+    await supabase.from('email_unsubscribe').upsert(
+      unsubRows.slice(i, i + 50),
+      { onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id' }
+    );
+  }
+}
+
 export default async function handler(req, res) {
   const origin = getAllowedOrigin(req.headers.origin);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -313,30 +282,17 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext.tenantId) {
-    return res.status(401).json({ error: 'Unauthorized - tenant required' });
-  }
-
+  if (!tenantContext.tenantId) return res.status(401).json({ error: 'Unauthorized - tenant required' });
   const isAuthorized = await hasAdminAccess(tenantContext);
-  if (!isAuthorized) {
-    return res.status(403).json({ error: 'Forbidden - requires admin access' });
-  }
+  if (!isAuthorized) return res.status(403).json({ error: 'Forbidden - requires admin access' });
 
   const tenantId = tenantContext.tenantId;
   const { campaignId } = req.body || {};
-
-  if (!campaignId) {
-    return res.status(400).json({ error: 'campaignId is required' });
-  }
+  if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
 
   const startTime = Date.now();
 
@@ -348,9 +304,7 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .single();
 
-    if (campaignError || !campaign) {
-      return res.status(404).json({ error: 'Campaign not found' });
-    }
+    if (campaignError || !campaign) return res.status(404).json({ error: 'Campaign not found' });
 
     const { data: tenant } = await supabase
       .from('tenant')
@@ -359,24 +313,22 @@ export default async function handler(req, res) {
       .single();
 
     const emailDomain = tenant?.settings?.email_domain?.domain;
-    if (!emailDomain) {
-      return res.status(400).json({ error: 'No email domain configured for this tenant' });
-    }
+    if (!emailDomain) return res.status(400).json({ error: 'No email domain configured for this tenant' });
 
-    const allRecipients = await loadAllRecipients(campaignId);
+    const [allRecipients, existingEventIds] = await Promise.all([
+      loadAllRecipients(campaignId),
+      loadExistingEventIds(campaignId)
+    ]);
 
     if (allRecipients.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No recipients found for this campaign',
-        summary: { total_events: 0, processed: 0, skipped: 0 }
-      });
+      return res.json({ success: true, message: 'No recipients found', summary: { total_events: 0, processed: 0, skipped: 0 } });
     }
 
     const recipientsByMsgId = new Map();
     const recipientsByEmail = new Map();
     const messageIds = new Set();
     const recipientEmails = new Set();
+    const recipientStates = new Map();
 
     for (const r of allRecipients) {
       if (r.mailgun_message_id) {
@@ -387,9 +339,27 @@ export default async function handler(req, res) {
         recipientsByEmail.set(r.email, r);
         recipientEmails.add(r.email);
       }
+      recipientStates.set(r.id, {
+        id: r.id,
+        member_id: r.member_id,
+        email: r.email,
+        status: r.status,
+        delivered_at: r.delivered_at,
+        opened_at: r.opened_at,
+        clicked_at: r.clicked_at,
+        bounced_at: r.bounced_at || null,
+        complained_at: r.complained_at || null,
+        unsubscribed_at: r.unsubscribed_at || null,
+        open_count: r.open_count || 0,
+        click_count: r.click_count || 0,
+        error_message: r.error_message || null,
+        counterDeltas: {},
+        dirty: false,
+        permanentBounce: false,
+        bounceReason: null,
+        needsUnsubscribe: null,
+      });
     }
-
-    const existingEventIds = await loadExistingEventIds(campaignId);
 
     console.log(`[Sync Mailgun Events] Starting sync for campaign ${campaignId}, ${messageIds.size} message IDs, ${recipientEmails.size} emails, domain: ${emailDomain}, ${existingEventIds.size} existing events pre-loaded`);
 
@@ -405,7 +375,8 @@ export default async function handler(req, res) {
     const beginDate = String(Math.floor((sentAtMs - 60 * 60 * 1000) / 1000));
     const endDate = String(Math.floor(Math.min(sentAtMs + 7 * 24 * 60 * 60 * 1000, Date.now()) / 1000));
 
-    const INSERT_BATCH_SIZE = 50;
+    const pendingInsertRows = [];
+    const INSERT_BATCH_SIZE = 100;
 
     for (const eventType of eventTypes) {
       if (timedOut) break;
@@ -414,7 +385,7 @@ export default async function handler(req, res) {
       let hasMore = true;
 
       while (hasMore) {
-        if (Date.now() - startTime > TIME_BUDGET_MS) {
+        if (Date.now() - startTime > FETCH_BUDGET_MS) {
           timedOut = true;
           break;
         }
@@ -422,101 +393,65 @@ export default async function handler(req, res) {
         let eventsData;
         if (nextUrl) {
           const authHeader = 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
-          const resp = await fetch(nextUrl, {
-            method: 'GET',
-            headers: { 'Authorization': authHeader }
-          });
+          const resp = await fetch(nextUrl, { method: 'GET', headers: { 'Authorization': authHeader } });
           if (!resp.ok) break;
           eventsData = await resp.json();
         } else {
           eventsData = await fetchMailgunEvents(emailDomain, {
-            event: eventType,
-            begin: beginDate,
-            end: endDate,
-            limit: 300,
-            ascending: 'yes'
+            event: eventType, begin: beginDate, end: endDate, limit: 300, ascending: 'yes'
           });
         }
 
         const items = eventsData.items || [];
-        if (items.length === 0) {
-          hasMore = false;
-          break;
-        }
+        if (items.length === 0) { hasMore = false; break; }
 
-        const matchedEvents = [];
         for (const event of items) {
-          const { messageId, recipientEmail } = extractEventIdentifiers(event);
+          const { messageId, recipientEmail, timestamp } = extractEventIdentifiers(event);
           if (!messageId && !recipientEmail) continue;
 
           const matchesByMessageId = messageId && messageIds.has(messageId);
           const matchesByEmail = recipientEmail && recipientEmails.has(recipientEmail);
           if (!matchesByMessageId && !matchesByEmail) continue;
 
-          if (event.id && existingEventIds.has(event.id)) {
-            skipped++;
-            continue;
-          }
+          if (event.id && existingEventIds.has(event.id)) { skipped++; continue; }
 
           const recipient = lookupRecipient(messageId, recipientEmail, recipientsByMsgId, recipientsByEmail);
-          if (!recipient) {
-            skipped++;
-            continue;
-          }
+          if (!recipient) { skipped++; continue; }
 
-          matchedEvents.push({ event, recipient, messageId, recipientEmail });
-        }
+          existingEventIds.add(event.id);
+          totalEvents++;
 
-        for (let i = 0; i < matchedEvents.length; i += INSERT_BATCH_SIZE) {
-          if (Date.now() - startTime > TIME_BUDGET_MS) {
-            timedOut = true;
-            break;
-          }
+          pendingInsertRows.push(buildEventRow(event, campaignId, tenantId, recipient, messageId, recipientEmail, timestamp));
 
-          const batch = matchedEvents.slice(i, i + INSERT_BATCH_SIZE);
-          const insertRows = batch.map(({ event, recipient, messageId, recipientEmail }) => {
-            const { timestamp } = extractEventIdentifiers(event);
-            return buildEventRow(event, campaignId, tenantId, recipient, messageId, recipientEmail, timestamp);
-          });
-
-          const { error: insertError } = await supabase
-            .from('email_event')
-            .insert(insertRows);
-
-          if (insertError) {
-            console.error(`[Sync Mailgun Events] Batch insert error:`, insertError.message);
-            errors += batch.length;
-            continue;
-          }
-
-          for (const row of insertRows) {
-            if (row.mailgun_event_id) existingEventIds.add(row.mailgun_event_id);
-          }
-
-          for (const { event, recipient } of batch) {
-            totalEvents++;
-            try {
-              const { timestamp } = extractEventIdentifiers(event);
-              await applyRecipientSideEffects(event, recipient, campaignId, tenantId, timestamp);
-              processed++;
-            } catch (err) {
-              console.error(`[Sync Mailgun Events] Side-effect error:`, err.message);
-              errors++;
-            }
+          const state = recipientStates.get(recipient.id);
+          if (state) {
+            applyEventToRecipientState(state, event, timestamp);
+            processed++;
           }
         }
-
-        if (timedOut) break;
 
         nextUrl = eventsData.paging?.next;
-        if (!nextUrl) {
-          hasMore = false;
-        }
+        if (!nextUrl) hasMore = false;
       }
     }
 
+    console.log(`[Sync Mailgun Events] Fetch phase done: ${totalEvents} events collected, ${processed} applied in-memory, ${skipped} skipped. Starting flush...`);
+
+    for (let i = 0; i < pendingInsertRows.length; i += INSERT_BATCH_SIZE) {
+      const batch = pendingInsertRows.slice(i, i + INSERT_BATCH_SIZE);
+      const { error: insertError } = await supabase.from('email_event').insert(batch);
+      if (insertError) {
+        console.error(`[Sync Mailgun Events] Batch insert error:`, insertError.message);
+        errors += batch.length;
+      }
+    }
+
+    await flushRecipientUpdates(recipientStates);
+    await flushCampaignCounters(campaignId, recipientStates);
+    await flushBounceAndUnsubscribe(recipientStates, tenantId, campaignId);
+
     const elapsed = Math.round((Date.now() - startTime) / 1000);
-    console.log(`[Sync Mailgun Events] ${timedOut ? 'Partial' : 'Complete'} for campaign ${campaignId}: ${totalEvents} events found, ${processed} processed, ${skipped} skipped, ${errors} errors, ${elapsed}s elapsed${timedOut ? `, stopped at event type: ${lastEventType}` : ''}`);
+    console.log(`[Sync Mailgun Events] ${timedOut ? 'Partial' : 'Complete'} for campaign ${campaignId}: ${totalEvents} events, ${processed} processed, ${skipped} skipped, ${errors} errors, ${elapsed}s`);
 
     return res.json({
       success: true,
@@ -532,9 +467,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Sync Mailgun Events] Error:', error);
-    return res.status(500).json({
-      error: 'Failed to sync Mailgun events',
-      details: error.message
-    });
+    return res.status(500).json({ error: 'Failed to sync Mailgun events', details: error.message });
   }
 }
