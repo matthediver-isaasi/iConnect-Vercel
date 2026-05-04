@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     const emailDomain = tenant?.settings?.email_domain?.domain;
     if (!emailDomain) return res.status(400).json({ error: 'No email domain configured for this tenant' });
 
-    const result = await syncCampaignEvents(campaign, emailDomain, tenantId, TIME_BUDGET_MS);
+    const result = await syncCampaignEvents(campaign, emailDomain, tenantId, TIME_BUDGET_MS, { lookbackDays: 7 });
 
     return res.json({
       success: true,

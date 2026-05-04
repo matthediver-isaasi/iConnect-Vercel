@@ -283,7 +283,7 @@ export function buildRecipientState(r) {
 
 const MIN_USEFUL_BUDGET_MS = 12_000;
 
-export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBudgetMs) {
+export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBudgetMs, { lookbackDays = 30 } = {}) {
   if (timeBudgetMs < MIN_USEFUL_BUDGET_MS) {
     return { totalEvents: 0, processed: 0, skipped: 0, errors: 0, timedOut: true, lastEventType: null, elapsedSeconds: 0 };
   }
@@ -330,7 +330,7 @@ export async function syncCampaignEvents(campaign, emailDomain, tenantId, timeBu
 
   const sentAtMs = campaign.sent_at ? new Date(campaign.sent_at).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000;
   const beginDate = String(Math.floor((sentAtMs - 60 * 60 * 1000) / 1000));
-  const endDate = String(Math.floor(Math.min(sentAtMs + 30 * 24 * 60 * 60 * 1000, Date.now()) / 1000));
+  const endDate = String(Math.floor(Math.min(sentAtMs + lookbackDays * 24 * 60 * 60 * 1000, Date.now()) / 1000));
 
   const pendingInsertRows = [];
   const INSERT_BATCH_SIZE = 500;
