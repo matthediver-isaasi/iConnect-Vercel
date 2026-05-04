@@ -358,8 +358,8 @@ export default async function handler(req, res) {
     const eventTypes = ['delivered', 'opened', 'clicked', 'failed', 'bounced', 'complained', 'unsubscribed'];
 
     const sentAtMs = campaign.sent_at ? new Date(campaign.sent_at).getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const beginDate = new Date(sentAtMs - 60 * 60 * 1000).toISOString();
-    const endDate = new Date(Math.min(sentAtMs + 7 * 24 * 60 * 60 * 1000, Date.now())).toISOString();
+    const beginDate = String(Math.floor((sentAtMs - 60 * 60 * 1000) / 1000));
+    const endDate = String(Math.floor(Math.min(sentAtMs + 7 * 24 * 60 * 60 * 1000, Date.now()) / 1000));
 
     for (const eventType of eventTypes) {
       let nextUrl = null;
