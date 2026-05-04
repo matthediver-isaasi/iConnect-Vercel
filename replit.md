@@ -51,5 +51,5 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **Stripe:** Payment processing.
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
--   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).
+-   **Mailgun:** Tenant-specific email sending, delivery, native Email Marketing System (EMS), and scheduled event sync (cron every 6h via `api/cron/sync-mailgun-campaign-events.js`, shared logic in `api/_lib/mailgunEventSync.js`).
 -   **Zoho Campaigns:** Syncing member communication preferences.
