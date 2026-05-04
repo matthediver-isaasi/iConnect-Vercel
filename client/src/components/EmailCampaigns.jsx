@@ -863,7 +863,11 @@ export default function EmailCampaigns() {
 
       const result = await response.json();
       const { summary } = result;
-      toast.success(`Sync complete: ${summary.processed} events processed, ${summary.skipped} skipped`);
+      if (result.partial) {
+        toast.info(`Partial sync: ${summary.processed} processed, ${summary.skipped} skipped. ${summary.message || 'Click Sync again to continue.'}`);
+      } else {
+        toast.success(`Sync complete: ${summary.processed} events processed, ${summary.skipped} skipped`);
+      }
 
       const campaign = campaigns.find(c => c.id === statsCampaignId);
       if (campaign) {
