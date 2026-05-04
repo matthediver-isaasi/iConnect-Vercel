@@ -72,7 +72,7 @@ export function getTicketClassFromConfig(pricingConfigOrTicketClasses, ticketCla
   return ticketClasses.find(t => String(t.id) === String(ticketClassId)) || null;
 }
 
-export async function validateDiscountCode({ code, tenantId, eventId, memberId, memberRoleId, orgId }) {
+export async function validateDiscountCode({ code, tenantId, eventId, memberId, memberRoleId, orgId, ticketClassId }) {
   const supabase = getSupabase();
   if (!supabase || !code) return { valid: false, reason: 'No discount code provided' };
 
@@ -94,6 +94,10 @@ export async function validateDiscountCode({ code, tenantId, eventId, memberId, 
 
   if (discountCode.event_id && discountCode.event_id !== eventId) {
     return { valid: false, reason: 'Discount code is not valid for this event' };
+  }
+
+  if (discountCode.ticket_class_id && discountCode.ticket_class_id !== ticketClassId) {
+    return { valid: false, reason: 'This discount code is not valid for your selected ticket' };
   }
 
   const isMemberTargeted = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;

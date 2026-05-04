@@ -56,7 +56,8 @@ export default async function handler(req, res) {
       eventId: event_id,
       memberId,
       memberRoleId,
-      orgId
+      orgId,
+      ticketClassId: ticket_class_id
     });
 
     if (!result.valid) {

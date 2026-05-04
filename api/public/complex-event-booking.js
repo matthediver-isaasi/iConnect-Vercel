@@ -180,7 +180,8 @@ export default async function handler(req, res) {
           eventId: event_id,
           memberId: isMember ? authenticatedMember.id : null,
           memberRoleId: isMember ? authenticatedMember.role_id : null,
-          orgId: isMember ? authenticatedMember.organization_id : null
+          orgId: isMember ? authenticatedMember.organization_id : null,
+          ticketClassId: item.ticket_class_id
         });
 
         if (discountResult.valid) {

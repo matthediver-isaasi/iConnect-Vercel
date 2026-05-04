@@ -83,6 +83,12 @@ export default function DiscountCodeManagementPage() {
     staleTime: 60000,
   });
 
+  const { data: allTicketClasses = [] } = useQuery({
+    queryKey: ['ticket-classes-for-discount'],
+    queryFn: () => base44.entities.ComplexEventTicketClass.list(),
+    staleTime: 60000,
+  });
+
   const { data: usageRecords = [] } = useQuery({
     queryKey: ['discount-usage'],
     queryFn: () => base44.entities.DiscountCodeUsage.list(),
@@ -282,6 +288,7 @@ export default function DiscountCodeManagementPage() {
       max_usage_count: null,
       program_tag: "",
       event_id: "",
+      ticket_class_id: "",
       organization_id: "",
       member_id: "",
       role_id: "",
@@ -305,6 +312,7 @@ export default function DiscountCodeManagementPage() {
       member_group_id: code.member_group_id || "",
       program_tag: code.program_tag || "",
       event_id: code.event_id || "",
+      ticket_class_id: code.ticket_class_id || "",
       max_usage_count: code.max_usage_count || null,
       _targetType: targetType
     };
@@ -337,6 +345,7 @@ export default function DiscountCodeManagementPage() {
       member_group_id: code.member_group_id || "",
       program_tag: code.program_tag || "",
       event_id: code.event_id || "",
+      ticket_class_id: code.ticket_class_id || "",
       _targetType: targetType
     });
     if (targetType === 'member' && code.member_id) {
@@ -431,6 +440,7 @@ export default function DiscountCodeManagementPage() {
       max_usage_count: editingCode.max_usage_count ? parseInt(editingCode.max_usage_count) : null,
       program_tag: editingCode.program_tag || null,
       event_id: editingCode.event_id || null,
+      ticket_class_id: editingCode.event_id && editingCode.ticket_class_id ? editingCode.ticket_class_id : null,
       organization_id: targetType === 'organization' ? editingCode.organization_id : null,
       member_id: targetType === 'member' ? editingCode.member_id : null,
       role_id: targetType === 'role' ? editingCode.role_id : null,
@@ -629,6 +639,15 @@ export default function DiscountCodeManagementPage() {
                               <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">
                                 <Calendar className="w-3 h-3 mr-1" />
                                 {ev?.title || ev?.name || 'Event'}
+                              </Badge>
+                            );
+                          })()}
+                          {code.ticket_class_id && (() => {
+                            const tc = allTicketClasses.find(t => t.id === code.ticket_class_id);
+                            return (
+                              <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200">
+                                <Ticket className="w-3 h-3 mr-1" />
+                                {tc?.name || 'Ticket class'}
                               </Badge>
                             );
                           })()}
@@ -1043,7 +1062,7 @@ export default function DiscountCodeManagementPage() {
                     <Label htmlFor="event">Event (Optional)</Label>
                     <Select
                       value={editingCode.event_id}
-                      onValueChange={(value) => setEditingCode({ ...editingCode, event_id: value })}
+                      onValueChange={(value) => setEditingCode({ ...editingCode, event_id: value, ticket_class_id: "" })}
                     >
                       <SelectTrigger data-testid="select-event">
                         <SelectValue placeholder="All events" />
@@ -1056,6 +1075,32 @@ export default function DiscountCodeManagementPage() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {editingCode.event_id && (() => {
+                    const ticketClassesForEvent = allTicketClasses.filter(
+                      tc => tc.complex_event_id === editingCode.event_id
+                    );
+                    if (ticketClassesForEvent.length === 0) return null;
+                    return (
+                      <div className="space-y-2">
+                        <Label htmlFor="ticket-class">Apply to</Label>
+                        <Select
+                          value={editingCode.ticket_class_id || "__entire_event__"}
+                          onValueChange={(value) => setEditingCode({ ...editingCode, ticket_class_id: value === "__entire_event__" ? "" : value })}
+                        >
+                          <SelectTrigger data-testid="select-ticket-class">
+                            <SelectValue placeholder="Entire event" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__entire_event__">Entire event</SelectItem>
+                            {ticketClassesForEvent.map(tc => (
+                              <SelectItem key={tc.id} value={tc.id}>{tc.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4">

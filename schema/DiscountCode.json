@@ -69,6 +69,10 @@
       "event_id": {
         "type": "string",
         "description": "Optional: Reference to Event entity if this discount is restricted to a specific event. Independent of program_tag and target type restrictions."
+      },
+      "ticket_class_id": {
+        "type": "string",
+        "description": "Optional: Reference to ComplexEventTicketClass entity if this discount is restricted to a specific ticket class within the event. Requires event_id to be set."
       }
     },
     "required": [

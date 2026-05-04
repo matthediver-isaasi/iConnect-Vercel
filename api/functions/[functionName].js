@@ -3332,7 +3332,7 @@ const functionHandlers = {
   async applyDiscountCode(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
-    const { code, memberEmail, eventId, amount } = params;
+    const { code, memberEmail, eventId, amount, ticketClassId } = params;
 
     if (!code) {
       return { valid: false, error: 'Discount code is required' };
@@ -3483,6 +3483,13 @@ const functionHandlers = {
       if (!eventId || discountCode.event_id !== eventId) {
         console.log('[applyDiscountCode] Code is event-targeted to', discountCode.event_id, 'but applied to event', eventId);
         return { valid: false, error: 'This discount code is not valid for this event' };
+      }
+    }
+
+    if (discountCode.ticket_class_id) {
+      if (!ticketClassId || discountCode.ticket_class_id !== ticketClassId) {
+        console.log('[applyDiscountCode] Code is ticket-class-targeted to', discountCode.ticket_class_id, 'but applied to ticket class', ticketClassId);
+        return { valid: false, error: 'This discount code is not valid for your selected ticket' };
       }
     }
 

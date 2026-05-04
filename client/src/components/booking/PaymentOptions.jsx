@@ -792,7 +792,8 @@ export default function PaymentOptions({
           code: discountCodeInput.trim().toUpperCase(),
           eventId: event?.id,
           memberEmail: memberInfo?.email || guestInfo?.email,
-          amount: totalCost
+          amount: totalCost,
+          ticketClassId: selectedTicketClass?.id
         });
 
         if (response.data.valid) {
