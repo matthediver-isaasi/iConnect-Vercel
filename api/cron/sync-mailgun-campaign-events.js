@@ -63,12 +63,13 @@ export default async function handler(req, res) {
     let totalSkipped = 0;
     let totalErrors = 0;
 
-    for (const campaign of campaigns) {
+    for (let idx = 0; idx < campaigns.length; idx++) {
+      const campaign = campaigns[idx];
       const elapsed = Date.now() - startTime;
       const remaining = OVERALL_BUDGET_MS - elapsed;
 
       if (remaining < 5_000) {
-        console.log(`[cron/sync-mailgun-events] Time budget exhausted after ${campaignsSynced} campaigns, ${campaigns.length - campaignsSynced} remaining`);
+        console.log(`[cron/sync-mailgun-events] Time budget exhausted after ${campaignsSynced} campaigns, ${campaigns.length - idx} remaining`);
         break;
       }
 
@@ -78,10 +79,14 @@ export default async function handler(req, res) {
         continue;
       }
 
-      const perCampaignBudget = Math.min(remaining - 2_000, 45_000);
+      const campaignsLeft = campaigns.length - idx;
+      const perCampaignBudget = Math.min(
+        Math.floor((remaining - 2_000) / campaignsLeft),
+        45_000
+      );
 
       if (perCampaignBudget < 12_000) {
-        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for more campaigns, stopping`);
+        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for ${campaignsLeft} campaigns, stopping`);
         break;
       }
 
