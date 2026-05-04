@@ -481,7 +481,7 @@ export default async function handler(req, res) {
 
           const { error: insertError } = await supabase
             .from('email_event')
-            .upsert(insertRows, { onConflict: 'mailgun_event_id', ignoreDuplicates: true });
+            .insert(insertRows);
 
           if (insertError) {
             console.error(`[Sync Mailgun Events] Batch insert error:`, insertError.message);
