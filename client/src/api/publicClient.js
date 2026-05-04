@@ -417,9 +417,10 @@ class PublicClient {
     return this._fetch('/api/public/forms');
   }
   
-  async getForm(slug) {
+  async getForm(slug, { authenticated = false } = {}) {
     if (!slug) return null;
-    return this._fetch(`/api/public/form/${encodeURIComponent(slug)}`);
+    const authQuery = authenticated ? '?authenticated=1' : '';
+    return this._fetch(`/api/public/form/${encodeURIComponent(slug)}${authQuery}`);
   }
   
   async getFormDraft(token) {

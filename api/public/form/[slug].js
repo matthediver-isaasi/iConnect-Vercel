@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { getSession } from '../../_lib/session.js';
 
-// Fields safe to return publicly - excludes internal config like field_mappings
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
@@ -9,7 +9,14 @@ const PUBLIC_FORM_FIELDS = [
   'visibility_rules', 'pages',
   'entity_pipelines',
   'uniqueness_checks', 'application_level',
-  'blank_layout'
+  'blank_layout',
+  'require_authentication', 'updated_at'
+];
+
+const AUTHENTICATED_EXTRA_FIELDS = [
+  'field_mappings', 'create_entity_type', 'default_member_role_id',
+  'member_entity_action', 'organization_entity_action',
+  'additional_member_creations'
 ];
 
 export default async function handler(req, res) {
@@ -40,7 +47,6 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Fetch form scoped to tenant
     const { data: form, error } = await supabase
       .from('form')
       .select('*')
@@ -61,7 +67,18 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form not found' });
     }
 
-    if (form.require_authentication) {
+    const isAuthenticatedRequest = req.query.authenticated === '1';
+    let hasValidSession = false;
+    if (isAuthenticatedRequest) {
+      try {
+        const session = await getSession(req);
+        hasValidSession = !!session;
+      } catch (e) {
+        console.error('[Public Form API] Session check error:', e);
+      }
+    }
+
+    if (form.require_authentication && !hasValidSession) {
       const previewFields = (form.fields || []).map(f => ({
         id: f.id,
         label: f.label,
@@ -80,11 +97,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Return only public-safe fields
     const publicForm = {};
     for (const field of PUBLIC_FORM_FIELDS) {
       if (form[field] !== undefined) {
         publicForm[field] = form[field];
+      }
+    }
+
+    if (hasValidSession) {
+      for (const field of AUTHENTICATED_EXTRA_FIELDS) {
+        if (form[field] !== undefined) {
+          publicForm[field] = form[field];
+        }
       }
     }
 

@@ -4,7 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import FormRenderer from "../../forms/FormRenderer";
 import { base44 } from "@/api/base44Client";
-import { publicClient } from "@/api/publicClient";
+import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle, LogIn, Lock } from "lucide-react";
@@ -279,16 +279,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     };
   };
 
+  const tenantSlug = getTenantSlugFromLocation();
+
   const { data: form, isLoading } = useQuery({
-    queryKey: ['form-embed', formSlug, !!memberInfo],
+    queryKey: ['form-embed', formSlug, tenantSlug, !!memberInfo],
     queryFn: async () => {
       if (!formSlug) return null;
-      if (memberInfo) {
-        const allForms = await base44.entities.Form.list() || [];
-        return allForms.find(f => f.slug === formSlug && f.is_active);
-      } else {
-        return publicClient.getForm(formSlug);
-      }
+      return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
     },
     enabled: !!formSlug
   });
