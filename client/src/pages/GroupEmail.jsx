@@ -182,16 +182,34 @@ export default function GroupEmailPage() {
     },
   });
 
-  const openCompose = (campaign = null) => {
+  const openCompose = async (campaign = null) => {
     if (campaign) {
-      const segment = Array.isArray(campaign.target_audiences) ? campaign.target_audiences[0] : null;
+      // The list endpoint only returns summary fields, so hydrate the full
+      // editable record (html_content, design_json, from_name, preheader,
+      // target_audiences) before opening the editor — otherwise a save
+      // would clobber those fields with empty strings.
+      let full = campaign;
+      try {
+        const res = await fetch(`/api/member-campaigns/${campaign.id}`, { credentials: "include" });
+        if (res.ok) {
+          full = await res.json();
+        } else {
+          toast.error("Failed to load draft for editing");
+          return;
+        }
+      } catch (_e) {
+        toast.error("Failed to load draft for editing");
+        return;
+      }
+
+      const segment = Array.isArray(full.target_audiences) ? full.target_audiences[0] : null;
       setCompose({
-        id: campaign.id,
-        name: campaign.name || "",
-        subject: campaign.subject || "",
-        from_name: campaign.from_name || activeGroup?.name || "",
-        preheader: campaign.preheader || "",
-        html_content: campaign.html_content || "",
+        id: full.id,
+        name: full.name || "",
+        subject: full.subject || "",
+        from_name: full.from_name || activeGroup?.name || "",
+        preheader: full.preheader || "",
+        html_content: full.html_content || "",
         audience_roles: segment && Array.isArray(segment.roles) ? segment.roles : [],
       });
     } else {
