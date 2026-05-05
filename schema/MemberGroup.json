@@ -22,6 +22,19 @@
         "type": "boolean",
         "default": true,
         "description": "Whether this group is currently active"
+      },
+      "header_image_url": {
+        "type": "string",
+        "description": "Optional header image URL displayed on the self-join browse page"
+      },
+      "allow_self_join": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether members can join this group themselves from the Member Groups page"
+      },
+      "default_self_join_role": {
+        "type": "string",
+        "description": "Role assigned automatically when a member self-joins this group"
       }
     },
     "required": [

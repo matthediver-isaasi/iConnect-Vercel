@@ -61,6 +61,7 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_admin_PortalMenuManagement": "system.portal-menu",
   "page_admin_TourManagement": "system.tours",
   "page_admin_MemberGroupManagement": "membership.member-groups",
+  "page_MemberGroups": "membership.member-group-access",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
   "page_EventRegistrationReport": "events.event-report",

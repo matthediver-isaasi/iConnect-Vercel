@@ -1047,7 +1047,68 @@ export default async function handler(req, res) {
           return res.status(409).json({ error: 'This email belongs to an existing member' });
         }
       }
-      
+
+      // SECURITY: Self-join enforcement for MemberGroupAssignment.
+      // Non-admin members may only create assignments that satisfy the
+      // group's self-join configuration; admins (tenant users or members
+      // with admin role) keep unrestricted access for the assign UI.
+      if (entityNorm === 'membergroupassignment' && tenantCtx.isAuthenticated) {
+        const isAdmin = await hasAdminAccess(tenantCtx);
+        if (!isAdmin) {
+          if (!sanitizedBody.group_id) {
+            return res.status(400).json({ error: 'group_id is required' });
+          }
+          if (sanitizedBody.guest_id) {
+            return res.status(403).json({ error: 'Members cannot self-join as guests' });
+          }
+          if (!tenantCtx.memberId || sanitizedBody.member_id !== tenantCtx.memberId) {
+            return res.status(403).json({ error: 'You may only join groups for yourself' });
+          }
+          if (sanitizedBody.expires_at) {
+            return res.status(403).json({ error: 'Self-join assignments cannot have an expiry date' });
+          }
+
+          const effectiveTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+          const { data: group, error: groupErr } = await supabase
+            .from('member_group')
+            .select('id, tenant_id, is_active, allow_self_join, default_self_join_role, roles')
+            .eq('id', sanitizedBody.group_id)
+            .single();
+
+          if (groupErr || !group) {
+            return res.status(404).json({ error: 'Group not found' });
+          }
+          if (effectiveTenantId && group.tenant_id && group.tenant_id !== effectiveTenantId) {
+            return res.status(403).json({ error: 'Group does not belong to your tenant' });
+          }
+          if (group.is_active === false) {
+            return res.status(403).json({ error: 'This group is not active' });
+          }
+          if (!group.allow_self_join) {
+            return res.status(403).json({ error: 'This group is not open for self-join' });
+          }
+          if (!group.default_self_join_role) {
+            return res.status(403).json({ error: 'This group has no default self-join role configured' });
+          }
+          if (sanitizedBody.group_role !== group.default_self_join_role) {
+            return res.status(403).json({ error: 'Self-join role must match the group default role' });
+          }
+          if (Array.isArray(group.roles) && !group.roles.includes(group.default_self_join_role)) {
+            return res.status(403).json({ error: 'Group default role is no longer valid' });
+          }
+
+          const { data: existingAssignment } = await supabase
+            .from('member_group_assignment')
+            .select('id')
+            .eq('group_id', sanitizedBody.group_id)
+            .eq('member_id', tenantCtx.memberId)
+            .limit(1);
+          if (existingAssignment && existingAssignment.length > 0) {
+            return res.status(409).json({ error: 'You are already a member of this group' });
+          }
+        }
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .insert(sanitizedBody)

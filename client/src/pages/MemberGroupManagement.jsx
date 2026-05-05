@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -16,6 +17,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import EventImageUpload from "@/components/events/EventImageUpload";
 
 export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -43,7 +45,10 @@ export default function MemberGroupManagementPage() {
     name: '',
     description: '',
     roles: [],
-    is_active: true
+    is_active: true,
+    header_image_url: '',
+    allow_self_join: false,
+    default_self_join_role: ''
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -199,7 +204,15 @@ export default function MemberGroupManagementPage() {
   });
 
   const resetGroupForm = () => {
-    setGroupForm({ name: '', description: '', roles: [], is_active: true });
+    setGroupForm({
+      name: '',
+      description: '',
+      roles: [],
+      is_active: true,
+      header_image_url: '',
+      allow_self_join: false,
+      default_self_join_role: ''
+    });
     setEditingGroup(null);
   };
 
@@ -209,7 +222,10 @@ export default function MemberGroupManagementPage() {
       name: group.name,
       description: group.description || '',
       roles: group.roles || [],
-      is_active: group.is_active
+      is_active: group.is_active,
+      header_image_url: group.header_image_url || '',
+      allow_self_join: !!group.allow_self_join,
+      default_self_join_role: group.default_self_join_role || ''
     });
     setShowGroupDialog(true);
   };
@@ -220,7 +236,10 @@ export default function MemberGroupManagementPage() {
       name: `${group.name} (Copy)`,
       description: group.description || '',
       roles: [...(group.roles || [])],
-      is_active: group.is_active
+      is_active: group.is_active,
+      header_image_url: group.header_image_url || '',
+      allow_self_join: !!group.allow_self_join,
+      default_self_join_role: group.default_self_join_role || ''
     });
     setShowGroupDialog(true);
   };
@@ -257,10 +276,26 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
+    if (groupForm.allow_self_join) {
+      if (!groupForm.default_self_join_role) {
+        toast.error('Default self-join role is required when self-join is enabled');
+        return;
+      }
+      if (!(groupForm.roles || []).includes(groupForm.default_self_join_role)) {
+        toast.error('Default self-join role must be one of the group roles');
+        return;
+      }
+    }
+
+    const payload = {
+      ...groupForm,
+      default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null
+    };
+
     if (editingGroup) {
-      updateGroupMutation.mutate({ id: editingGroup.id, data: groupForm });
+      updateGroupMutation.mutate({ id: editingGroup.id, data: payload });
     } else {
-      createGroupMutation.mutate(groupForm);
+      createGroupMutation.mutate(payload);
     }
   };
 
@@ -794,7 +829,7 @@ export default function MemberGroupManagementPage() {
 
         {/* Create/Edit Group Dialog */}
         <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingGroup ? 'Edit Group' : 'Create New Group'}</DialogTitle>
             </DialogHeader>
@@ -894,6 +929,57 @@ export default function MemberGroupManagementPage() {
                   className="w-4 h-4"
                 />
                 <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200">
+                <EventImageUpload
+                  value={groupForm.header_image_url}
+                  onChange={(url) => setGroupForm({ ...groupForm, header_image_url: url })}
+                  label="Header Image"
+                  helpText="Optional: Shown on the Member Groups page when self-join is enabled"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="allow_self_join" className="cursor-pointer">Allow members to self-join</Label>
+                    <span className="text-xs text-slate-500">Members will see this group on the Member Groups page and can join with one click</span>
+                  </div>
+                  <Switch
+                    id="allow_self_join"
+                    checked={groupForm.allow_self_join}
+                    onCheckedChange={(checked) => setGroupForm({
+                      ...groupForm,
+                      allow_self_join: checked,
+                      default_self_join_role: checked ? groupForm.default_self_join_role : ''
+                    })}
+                    data-testid="switch-allow-self-join"
+                  />
+                </div>
+
+                {groupForm.allow_self_join && (
+                  <div>
+                    <Label htmlFor="default_self_join_role">Default Self-Join Role *</Label>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-red-600 mt-1">Add at least one role above before enabling self-join.</p>
+                    ) : (
+                      <Select
+                        value={groupForm.default_self_join_role}
+                        onValueChange={(val) => setGroupForm({ ...groupForm, default_self_join_role: val })}
+                      >
+                        <SelectTrigger id="default_self_join_role" data-testid="select-default-self-join-role">
+                          <SelectValue placeholder="Select a default role..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {groupForm.roles.map((role) => (
+                            <SelectItem key={role} value={role}>{role}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
