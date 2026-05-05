@@ -5,7 +5,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Users, UserPlus, Loader2, ImageIcon, Check } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Users, UserPlus, Loader2, ImageIcon, Check, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -14,6 +24,7 @@ export default function MemberGroupsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [leavingGroup, setLeavingGroup] = useState(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -66,6 +77,25 @@ export default function MemberGroupsPage() {
     },
     onError: (error) => {
       toast.error('Failed to join group: ' + (error?.message || 'Unknown error'));
+    }
+  });
+
+  const leaveMutation = useMutation({
+    mutationFn: async (group) => {
+      const assignment = myAssignments.find((a) => a.group_id === group.id);
+      if (!assignment) {
+        throw new Error('You are not a member of this group');
+      }
+      return base44.entities.MemberGroupAssignment.delete(assignment.id);
+    },
+    onSuccess: (_data, group) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments-self', memberInfo?.id] });
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      toast.success(`You've left "${group.name}"`);
+      setLeavingGroup(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to leave group: ' + (error?.message || 'Unknown error'));
     }
   });
 
@@ -193,15 +223,24 @@ export default function MemberGroupsPage() {
                     )}
                     <div className="mt-auto pt-3">
                       {alreadyJoined ? (
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          disabled
-                          data-testid={`button-joined-${group.id}`}
-                        >
-                          <Check className="w-4 h-4 mr-2" />
-                          Already a member
-                        </Button>
+                        <div className="flex flex-col gap-2">
+                          <div
+                            className="flex items-center justify-center text-sm text-slate-600"
+                            data-testid={`text-joined-${group.id}`}
+                          >
+                            <Check className="w-4 h-4 mr-2 text-green-600" />
+                            Already a member
+                          </div>
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => setLeavingGroup(group)}
+                            data-testid={`button-leave-${group.id}`}
+                          >
+                            <LogOut className="w-4 h-4 mr-2" />
+                            Leave Group
+                          </Button>
+                        </div>
                       ) : (
                         <Button
                           className="w-full bg-blue-600 hover:bg-blue-700"
@@ -225,6 +264,50 @@ export default function MemberGroupsPage() {
           </div>
         )}
       </div>
+
+      <AlertDialog
+        open={!!leavingGroup}
+        onOpenChange={(open) => {
+          if (!open && !leaveMutation.isPending) {
+            setLeavingGroup(null);
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-leave-group">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave Group</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to leave "{leavingGroup?.name}"? You can rejoin at any time
+              while this group remains open for self-join.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={leaveMutation.isPending}
+              data-testid="button-cancel-leave"
+            >
+              Stay in Group
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (leavingGroup) {
+                  leaveMutation.mutate(leavingGroup);
+                }
+              }}
+              disabled={leaveMutation.isPending}
+              data-testid="button-confirm-leave"
+            >
+              {leaveMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <LogOut className="w-4 h-4 mr-2" />
+              )}
+              Leave Group
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
