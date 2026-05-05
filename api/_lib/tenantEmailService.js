@@ -28,7 +28,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-async function getTenantEmailConfig(tenantId) {
+export async function getTenantEmailConfig(tenantId) {
   if (!tenantId) {
     return null;
   }

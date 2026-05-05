@@ -92,7 +92,6 @@ function blankComposeState() {
     name: "",
     subject: "",
     from_name: "",
-    from_email: "",
     preheader: "",
     html_content: "",
     audience_roles: [],
@@ -147,10 +146,16 @@ export default function GroupEmailPage() {
     }
   }, [qualifying, activeGroupId]);
 
-  // Redirect when not qualifying anywhere — match the MemberGroups pattern.
+  // Hard-redirect non-qualifying members away from /GroupEmail — the task
+  // spec requires the page be invisible to anyone without permission, and
+  // any direct URL navigation should bounce.
   useEffect(() => {
     if (accessChecked && !loadingGroups && !groupsError && qualifying.length === 0) {
-      // Stay on page so the user can see the empty-state message; no redirect.
+      toast.error("You don't have permission to send group emails.");
+      const redirectTimer = setTimeout(() => {
+        window.location.href = createPageUrl("MemberGroups");
+      }, 1200);
+      return () => clearTimeout(redirectTimer);
     }
   }, [accessChecked, loadingGroups, groupsError, qualifying.length]);
 
@@ -185,7 +190,6 @@ export default function GroupEmailPage() {
         name: campaign.name || "",
         subject: campaign.subject || "",
         from_name: campaign.from_name || activeGroup?.name || "",
-        from_email: campaign.from_email || memberInfo?.email || "",
         preheader: campaign.preheader || "",
         html_content: campaign.html_content || "",
         audience_roles: segment && Array.isArray(segment.roles) ? segment.roles : [],
@@ -194,7 +198,6 @@ export default function GroupEmailPage() {
       setCompose({
         ...blankComposeState(),
         from_name: activeGroup?.name || "",
-        from_email: memberInfo?.email || "",
       });
     }
     setRecipientPreview(null);
@@ -245,7 +248,6 @@ export default function GroupEmailPage() {
           name: compose.name,
           subject: compose.subject,
           from_name: compose.from_name,
-          from_email: compose.from_email,
           preheader: compose.preheader,
           html_content: compose.html_content,
           audience_roles: compose.audience_roles,
@@ -255,7 +257,6 @@ export default function GroupEmailPage() {
           name: compose.name,
           subject: compose.subject,
           from_name: compose.from_name,
-          from_email: compose.from_email,
           preheader: compose.preheader,
           html_content: compose.html_content,
           audience_roles: compose.audience_roles,
@@ -389,17 +390,11 @@ export default function GroupEmailPage() {
   }
 
   if (qualifying.length === 0) {
+    // Redirect handled above; render a brief blocking placeholder to avoid
+    // a flash of empty-state content.
     return (
-      <div className="p-8 max-w-2xl mx-auto" data-testid="empty-no-groups">
-        <Card>
-          <CardHeader>
-            <CardTitle>Group Email</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>You don't currently have permission to send group emails.</p>
-            <p>Group email is enabled per role by your group's administrator. If you think this is wrong, contact them.</p>
-          </CardContent>
-        </Card>
+      <div className="p-8 flex items-center justify-center" data-testid="redirect-no-access">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -529,13 +524,12 @@ export default function GroupEmailPage() {
                 <Label htmlFor="campaign-subject">Subject *</Label>
                 <Input id="campaign-subject" value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })} data-testid="input-campaign-subject" />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <Label htmlFor="from-name">From name</Label>
                 <Input id="from-name" value={compose.from_name} onChange={(e) => setCompose({ ...compose, from_name: e.target.value })} data-testid="input-from-name" />
-              </div>
-              <div>
-                <Label htmlFor="from-email">Reply-to email</Label>
-                <Input id="from-email" type="email" value={compose.from_email} onChange={(e) => setCompose({ ...compose, from_email: e.target.value })} data-testid="input-from-email" />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Sender address is fixed to your tenant's verified email address — set by your admin.
+                </p>
               </div>
               <div className="md:col-span-2">
                 <Label htmlFor="preheader">Preheader (optional)</Label>
@@ -647,9 +641,29 @@ export default function GroupEmailPage() {
   );
 }
 
+const RECIPIENT_STATUS_VARIANTS = {
+  pending: "outline",
+  queued: "outline",
+  sent: "secondary",
+  delivered: "secondary",
+  opened: "default",
+  clicked: "default",
+  bounced: "destructive",
+  failed: "destructive",
+  unsubscribed: "destructive",
+  complained: "destructive",
+};
+
 function StatsDialog({ campaign, onClose }) {
   const open = !!campaign;
-  const { data, isLoading } = useQuery({
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!open) { setFilter("all"); setSearch(""); }
+  }, [open]);
+
+  const { data: statsData, isLoading: loadingStats } = useQuery({
     queryKey: ["member-campaigns", "stats", campaign?.id],
     queryFn: async () => {
       const res = await fetch(`/api/member-campaigns/${campaign.id}?stats=true`, { credentials: "include" });
@@ -659,26 +673,46 @@ function StatsDialog({ campaign, onClose }) {
     enabled: open,
   });
 
-  const stats = data?.stats || {};
+  const { data: recipientsData, isLoading: loadingRecipients } = useQuery({
+    queryKey: ["member-campaigns", "recipients", campaign?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/member-campaigns/${campaign.id}?recipients=true`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load recipients");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const stats = statsData?.stats || {};
+  const recipients = recipientsData?.recipients || [];
+
+  const filteredRecipients = useMemo(() => {
+    return recipients.filter((r) => {
+      if (filter !== "all" && r.status !== filter) return false;
+      if (search.trim() && !(r.email || "").toLowerCase().includes(search.trim().toLowerCase())) return false;
+      return true;
+    });
+  }, [recipients, filter, search]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><BarChart3 className="w-4 h-4" /> Campaign stats</DialogTitle>
           <DialogDescription>{campaign?.name}</DialogDescription>
         </DialogHeader>
-        {isLoading ? (
+
+        {loadingStats ? (
           <div className="py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
-              ["Recipients", stats.totalRecipients ?? campaign?.total_recipients ?? 0],
-              ["Sent", stats.sentCount ?? campaign?.sent_count ?? 0],
-              ["Delivered", stats.deliveredCount ?? campaign?.delivered_count ?? 0],
-              ["Opened", stats.openedCount ?? campaign?.opened_count ?? 0],
-              ["Clicked", stats.clickedCount ?? campaign?.clicked_count ?? 0],
-              ["Bounced", stats.bouncedCount ?? campaign?.bounced_count ?? 0],
+              ["Recipients", stats.total ?? campaign?.total_recipients ?? 0],
+              ["Sent", stats.sent ?? campaign?.sent_count ?? 0],
+              ["Delivered", stats.delivered ?? campaign?.delivered_count ?? 0],
+              ["Opened", stats.opened ?? campaign?.opened_count ?? 0],
+              ["Clicked", stats.clicked ?? campaign?.clicked_count ?? 0],
+              ["Bounced", stats.bounced ?? campaign?.bounced_count ?? 0],
             ].map(([label, value]) => (
               <Card key={label}>
                 <CardContent className="p-3">
@@ -689,6 +723,79 @@ function StatsDialog({ campaign, onClose }) {
             ))}
           </div>
         )}
+
+        <Card className="mt-4">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm">Per-recipient detail</CardTitle>
+            <Badge variant="outline">{filteredRecipients.length} of {recipients.length}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Input
+                placeholder="Search email..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="max-w-xs"
+                data-testid="input-recipient-search"
+              />
+              <Select value={filter} onValueChange={setFilter}>
+                <SelectTrigger className="w-44" data-testid="select-recipient-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="opened">Opened</SelectItem>
+                  <SelectItem value="clicked">Clicked</SelectItem>
+                  <SelectItem value="bounced">Bounced</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
+                  <SelectItem value="complained">Complained</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {loadingRecipients ? (
+              <div className="py-6 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+            ) : filteredRecipients.length === 0 ? (
+              <div className="py-6 text-center text-xs text-muted-foreground" data-testid="empty-recipients">
+                No recipients match this view.
+              </div>
+            ) : (
+              <div className="border rounded-md max-h-80 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Opens</TableHead>
+                      <TableHead className="text-right">Clicks</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRecipients.map((r) => (
+                      <TableRow key={r.id} data-testid={`row-recipient-${r.id}`}>
+                        <TableCell className="font-mono text-xs">{r.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={RECIPIENT_STATUS_VARIANTS[r.status] || "outline"}>{r.status || "pending"}</Badge>
+                          {r.error_message && (
+                            <div className="text-xs text-destructive mt-1 truncate max-w-[260px]" title={r.error_message}>
+                              {r.error_message}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{r.open_count || 0}</TableCell>
+                        <TableCell className="text-right">{r.click_count || 0}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose} data-testid="button-close-stats">Close</Button>
         </DialogFooter>

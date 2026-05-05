@@ -10,10 +10,13 @@ import {
   resumeCampaign,
   duplicateCampaign,
 } from '../_lib/campaignService.js';
-import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles } from '../_lib/memberGroupEmsAccess.js';
+import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
 
+// from_email is intentionally NOT in this list — see PATCH handler. Members
+// may only customize from_name; the sender address is forced from the
+// tenant's verified email-domain config.
 const MEMBER_EDITABLE_FIELDS = new Set([
-  'name', 'subject', 'preheader', 'from_name', 'from_email',
+  'name', 'subject', 'preheader', 'from_name',
   'html_content', 'design_json', 'audience_roles',
 ]);
 
@@ -89,6 +92,13 @@ export default async function handler(req, res) {
     updates.target_type = 'member_group';
     updates.target_ids = [group.groupId];
     updates.communication_category_id = null;
+
+    // Re-pin sender identity from tenant config. from_name is allowed
+    // through MEMBER_EDITABLE_FIELDS above; from_email is forced.
+    const sender = await resolveMemberCampaignSender(access.tenantContext.tenantId, group, updates.from_name);
+    if (sender.error) return res.status(400).json({ error: sender.error });
+    updates.from_email = sender.fromEmail;
+    updates.from_name = sender.fromName;
 
     const result = await updateCampaign(id, updates, access.tenantContext.tenantId);
     if (!result.success) return res.status(500).json({ error: result.error });

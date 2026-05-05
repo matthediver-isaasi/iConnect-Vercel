@@ -106,6 +106,26 @@ export function requireGroupAccess(qualifyingGroups, groupId) {
  * every entry must be one of the group's defined roles. Returns the
  * normalized array (deduped) or null if invalid.
  */
+/**
+ * Resolve the locked sender identity for a member-originated campaign.
+ * Members may NEVER set or change the from-address: the task spec is
+ * explicit ("from-address remains the tenant's existing campaign sender").
+ * Returns { fromEmail, fromName } where fromEmail comes from the tenant's
+ * verified email-domain config and fromName falls back to the group name.
+ */
+import { getTenantEmailConfig as _getTenantEmailConfig } from './tenantEmailService.js';
+
+export async function resolveMemberCampaignSender(tenantId, group, requestedFromName) {
+  const tenantCfg = await _getTenantEmailConfig(tenantId);
+  if (!tenantCfg || !tenantCfg.fromEmail) {
+    return { error: 'Your tenant has not configured a verified email domain. Ask an admin to set one up before sending group emails.' };
+  }
+  const fromName = (typeof requestedFromName === 'string' && requestedFromName.trim())
+    ? requestedFromName.trim()
+    : (group?.groupName || tenantCfg.fromName || 'ICONN');
+  return { fromEmail: tenantCfg.fromEmail, fromName };
+}
+
 export function normalizeAudienceRoles(group, roles) {
   if (!Array.isArray(roles) || roles.length === 0) return [];
   const allowed = new Set(group.allRoles || []);

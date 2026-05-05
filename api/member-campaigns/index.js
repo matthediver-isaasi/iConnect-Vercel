@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles } from '../_lib/memberGroupEmsAccess.js';
+import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
 import { createCampaign } from '../_lib/campaignService.js';
 
 /**
@@ -49,7 +49,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { groupId, name, subject, html_content, design_json, from_name, from_email, preheader, audience_roles } = req.body || {};
+    // Note: from_email is intentionally NOT destructured — members may never
+    // set the sender address. We always pull it from tenant email config.
+    const { groupId, name, subject, html_content, design_json, from_name, preheader, audience_roles } = req.body || {};
 
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required' });
@@ -70,11 +72,14 @@ export default async function handler(req, res) {
     const audienceSegment = { type: 'member_group', ids: [group.groupId] };
     if (roles.length > 0) audienceSegment.roles = roles;
 
+    const sender = await resolveMemberCampaignSender(access.tenantContext.tenantId, group, from_name);
+    if (sender.error) return res.status(400).json({ error: sender.error });
+
     const campaignData = {
       name,
       subject,
-      from_name: from_name || group.groupName,
-      from_email: from_email || null,
+      from_name: sender.fromName,
+      from_email: sender.fromEmail,
       preheader: preheader || null,
       html_content: html_content || '',
       design_json: design_json || null,
