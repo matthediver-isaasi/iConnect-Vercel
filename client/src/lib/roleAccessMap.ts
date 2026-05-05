@@ -217,6 +217,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Groups (Self-Join)"
       },
       {
+        id: "membership.member-group-email",
+        label: "Group Email"
+      },
+      {
         id: "membership.member-group-assignment-report",
         label: "Member Group Assignment Report"
       },
@@ -889,6 +893,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_TourManagement": "system.tours",
   "page_admin_MemberGroupManagement": "membership.member-groups",
   "page_MemberGroups": "membership.member-group-access",
+  "page_GroupEmail": "membership.member-group-email",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
   "page_EventRegistrationReport": "events.event-report",

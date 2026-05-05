@@ -48,7 +48,8 @@ export default function MemberGroupManagementPage() {
     is_active: true,
     header_image_url: '',
     allow_self_join: false,
-    default_self_join_role: ''
+    default_self_join_role: '',
+    ems_enabled_roles: []
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -211,7 +212,8 @@ export default function MemberGroupManagementPage() {
       is_active: true,
       header_image_url: '',
       allow_self_join: false,
-      default_self_join_role: ''
+      default_self_join_role: '',
+      ems_enabled_roles: []
     });
     setEditingGroup(null);
   };
@@ -225,7 +227,8 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
-      default_self_join_role: group.default_self_join_role || ''
+      default_self_join_role: group.default_self_join_role || '',
+      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? group.ems_enabled_roles : []
     });
     setShowGroupDialog(true);
   };
@@ -239,7 +242,8 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
-      default_self_join_role: group.default_self_join_role || ''
+      default_self_join_role: group.default_self_join_role || '',
+      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? [...group.ems_enabled_roles] : []
     });
     setShowGroupDialog(true);
   };
@@ -287,9 +291,14 @@ export default function MemberGroupManagementPage() {
       }
     }
 
+    // Prune ems_enabled_roles to only roles still on the group.
+    const validRoles = new Set(groupForm.roles || []);
+    const prunedEms = (groupForm.ems_enabled_roles || []).filter((r) => validRoles.has(r));
+
     const payload = {
       ...groupForm,
-      default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null
+      default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
+      ems_enabled_roles: prunedEms
     };
 
     if (editingGroup) {
@@ -334,7 +343,18 @@ export default function MemberGroupManagementPage() {
   };
 
   const handleRemoveRole = (role) => {
-    setGroupForm({ ...groupForm, roles: groupForm.roles.filter(r => r !== role) });
+    setGroupForm({
+      ...groupForm,
+      roles: groupForm.roles.filter(r => r !== role),
+      ems_enabled_roles: (groupForm.ems_enabled_roles || []).filter(r => r !== role),
+      default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
+    });
+  };
+
+  const toggleEmsRole = (role) => {
+    const current = new Set(groupForm.ems_enabled_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, ems_enabled_roles: Array.from(current) });
   };
 
   const handleAssignMember = () => {
@@ -978,6 +998,40 @@ export default function MemberGroupManagementPage() {
                         </SelectContent>
                       </Select>
                     )}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex flex-col gap-1">
+                  <Label>Roles allowed to send group emails</Label>
+                  <span className="text-xs text-slate-500">
+                    Members assigned one of these roles will see a "Group Email" page where they can email the rest of the group.
+                  </span>
+                </div>
+                {(groupForm.roles || []).length === 0 ? (
+                  <p className="text-xs text-slate-500">Add at least one role above to choose who can send group emails.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {groupForm.roles.map((role) => {
+                      const checked = (groupForm.ems_enabled_roles || []).includes(role);
+                      return (
+                        <label
+                          key={role}
+                          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                          data-testid={`label-ems-role-${role}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleEmsRole(role)}
+                            className="w-4 h-4"
+                            data-testid={`checkbox-ems-role-${role}`}
+                          />
+                          <span>{role}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
               </div>

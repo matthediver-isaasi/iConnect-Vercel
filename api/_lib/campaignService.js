@@ -772,17 +772,26 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       }
     }
   } else if (targetType === 'member_group' && targetIds.length > 0) {
+    // Optional in-group role restriction (used by member-side group emails so
+    // a Chair can email only Treasurers within their group). Tenant-admin
+    // callers don't pass `roles`, preserving the existing wide behavior.
+    const roleFilter = segmentData && Array.isArray(segmentData.roles) && segmentData.roles.length > 0
+      ? segmentData.roles
+      : null;
+
     const allAssignments = [];
     let assignmentOffset = 0;
     const assignmentBatchSize = 1000;
     let hasMoreAssignments = true;
+    const nowIso = new Date().toISOString();
 
     while (hasMoreAssignments) {
-      const { data: batch } = await supabase
+      let q = supabase
         .from('member_group_assignment')
-        .select('member_id')
-        .in('group_id', targetIds)
-        .range(assignmentOffset, assignmentOffset + assignmentBatchSize - 1);
+        .select('member_id, group_role, expires_at')
+        .in('group_id', targetIds);
+      if (roleFilter) q = q.in('group_role', roleFilter);
+      const { data: batch } = await q.range(assignmentOffset, assignmentOffset + assignmentBatchSize - 1);
 
       if (batch && batch.length > 0) {
         allAssignments.push(...batch);
@@ -793,7 +802,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       }
     }
 
-    const memberIds = [...new Set(allAssignments.map(a => a.member_id))];
+    // Drop expired assignments client-side (tolerates NULL expires_at).
+    const liveAssignments = allAssignments.filter(a => a.member_id && (!a.expires_at || new Date(a.expires_at).toISOString() > nowIso));
+    const memberIds = [...new Set(liveAssignments.map(a => a.member_id))];
+
+    if (memberIds.length === 0 && roleFilter) {
+      console.log(`[Campaign Service] member_group resolver: 0 members for group(s) ${targetIds.join(',')} after role filter [${roleFilter.join(',')}]`);
+    }
 
     if (memberIds.length > 0) {
       const allMembers = [];

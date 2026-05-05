@@ -220,6 +220,8 @@ import MemberGroupManagement from "./MemberGroupManagement";
 
 import MemberGroups from "./MemberGroups";
 
+import GroupEmail from "./GroupEmail";
+
 import ArticlesSettings from "./ArticlesSettings";
 
 import GuestWriterManagement from "./GuestWriterManagement";
@@ -590,6 +592,8 @@ const PAGES = {
     
     MemberGroups: MemberGroups,
     
+    GroupEmail: GroupEmail,
+    
     ArticlesSettings: ArticlesSettings,
     
     GuestWriterManagement: GuestWriterManagement,
@@ -952,6 +956,8 @@ function PagesContent() {
                 <Route path="/MemberGroupManagement" element={<MemberGroupManagement />} />
                 
                 <Route path="/MemberGroups" element={<MemberGroups />} />
+                
+                <Route path="/GroupEmail" element={<GroupEmail />} />
                 
                 <Route path="/ArticlesSettings" element={<ArticlesSettings />} />
                 

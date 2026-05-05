@@ -117,6 +117,35 @@ export default function EmailCampaigns() {
     }
   });
 
+  // Member-originated campaigns (created via /GroupEmail) — used to render an
+  // audit badge on the tenant table. Only fetched lazily and only the minimal
+  // fields needed for label resolution.
+  const memberOwnerIds = useMemo(() => {
+    return [...new Set((campaigns || []).map(c => c.created_by_member_id).filter(Boolean))];
+  }, [campaigns]);
+  const { data: memberOwners = [] } = useQuery({
+    queryKey: ['member-campaign-owners', memberOwnerIds.sort().join(',')],
+    queryFn: async () => {
+      if (memberOwnerIds.length === 0) return [];
+      try {
+        return await base44.entities.Member.filter({ id: memberOwnerIds });
+      } catch (e) {
+        return [];
+      }
+    },
+    enabled: memberOwnerIds.length > 0,
+  });
+  const memberOwnerMap = useMemo(() => {
+    const map = new Map();
+    memberOwners.forEach(m => map.set(m.id, m));
+    return map;
+  }, [memberOwners]);
+  const memberGroupMap = useMemo(() => {
+    const map = new Map();
+    (memberGroups || []).forEach(g => map.set(g.id, g));
+    return map;
+  }, [memberGroups]);
+
   const stats = useMemo(() => {
     const sentCampaigns = campaigns.filter(c => c.status === 'sent');
     const totalSent = sentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
@@ -1084,6 +1113,17 @@ export default function EmailCampaigns() {
                             <div className="text-sm text-muted-foreground truncate max-w-[200px]">
                               {campaign.subject}
                             </div>
+                            {campaign.created_by_member_id && (() => {
+                              const owner = memberOwnerMap.get(campaign.created_by_member_id);
+                              const grp = memberGroupMap.get(campaign.member_group_id);
+                              const ownerName = owner ? `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || owner.email : 'member';
+                              const grpName = grp ? grp.name : 'group';
+                              return (
+                                <Badge variant="outline" className="mt-1 border-amber-500 text-amber-700" data-testid={`badge-member-owner-${campaign.id}`}>
+                                  By {ownerName} · {grpName}
+                                </Badge>
+                              );
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell>
