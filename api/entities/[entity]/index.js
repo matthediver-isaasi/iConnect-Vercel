@@ -976,7 +976,24 @@ export default async function handler(req, res) {
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];
-            if (entitiesWithExplicitOrgId.includes(entity) && sanitizedBody.organization_id) {
+            const entitiesAllowingNullOrg = ['DiscountCode'];
+            if (entitiesAllowingNullOrg.includes(entity)) {
+              if (sanitizedBody.organization_id) {
+                const effectiveTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+                if (!effectiveTenantId) {
+                  return res.status(403).json({ error: 'Unable to verify organization ownership' });
+                }
+                const { data: org } = await supabase
+                  .from('organization')
+                  .select('tenant_id')
+                  .eq('id', sanitizedBody.organization_id)
+                  .single();
+                if (!org || org.tenant_id !== effectiveTenantId) {
+                  return res.status(403).json({ error: 'Organization does not belong to your tenant' });
+                }
+                console.log(`[Entity POST] Preserving organization_id ${sanitizedBody.organization_id} from request for ${entity} creation`);
+              }
+            } else if (entitiesWithExplicitOrgId.includes(entity) && sanitizedBody.organization_id) {
               console.log(`[Entity POST] Preserving organization_id ${sanitizedBody.organization_id} from request for ${entity} creation`);
             } else if (tenantCtx.organizationId) {
               sanitizedBody.organization_id = tenantCtx.organizationId;
