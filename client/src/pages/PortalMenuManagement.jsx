@@ -97,6 +97,7 @@ const builtInPages = [
   { value: "DueDiligenceDashboard", label: "Due Diligence Dashboard" },
   { value: "DueDiligenceConfig", label: "Due Diligence Configuration" },
   { value: "ReviewSubmission", label: "Review Submission" },
+  { value: "GroupEmail", label: "Group Email" },
   { value: "GuestWriterManagement", label: "Guest Writer Management" },
   { value: "History", label: "History" },
   { value: "Home", label: "Home" },
