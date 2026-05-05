@@ -553,6 +553,11 @@ class PublicClient {
     });
   }
 
+  // Photo Galleries (task #681) - returns public galleries with their photos
+  async listGalleries() {
+    return this._fetch('/api/public/galleries');
+  }
+
   async listComplexEvents() {
     return this._fetch('/api/public/complex-events');
   }

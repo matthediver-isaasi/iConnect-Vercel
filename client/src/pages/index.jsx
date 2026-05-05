@@ -354,6 +354,8 @@ import BriefDetail from "./BriefDetail";
 import BriefSettings from "./BriefSettings";
 import ExternalWriters from "./ExternalWriters";
 
+import PhotoGalleries from "./PhotoGalleries";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -655,6 +657,8 @@ const PAGES = {
     BriefDetail: BriefDetail,
     BriefSettings: BriefSettings,
     ExternalWriters: ExternalWriters,
+
+    PhotoGalleries: PhotoGalleries,
     
     Forum: Forum,
     ForumThread: ForumThread,
@@ -921,6 +925,8 @@ function PagesContent() {
                 <Route path="/BriefSettings" element={<BriefSettings />} />
                 <Route path="/ExternalWriters" element={<ExternalWriters />} />
                 <Route path="/external-writers" element={<ExternalWriters />} />
+
+                <Route path="/PhotoGalleries" element={<PhotoGalleries />} />
                 
                 <Route path="/Forum" element={<Forum />} />
                 <Route path="/ForumThread" element={<ForumThread />} />

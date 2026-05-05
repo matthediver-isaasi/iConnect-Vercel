@@ -26,6 +26,7 @@ import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
 import { IEditVideoElementRenderer } from "./elements/IEditVideoElement";
 import { IEditTimelineElementRenderer } from "./elements/IEditTimelineElement";
 import { IEditHeroCarouselElementRenderer } from "./elements/IEditHeroCarouselElement";
+import { IEditGalleryElementRenderer } from "./elements/IEditGalleryElement";
 
 export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst, previewViewport }) {
   // Map element types to their corresponding components
@@ -57,6 +58,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'video': IEditVideoElementRenderer,
     'timeline': IEditTimelineElementRenderer,
     'hero_carousel': IEditHeroCarouselElementRenderer,
+    'gallery': (props) => <IEditGalleryElementRenderer {...props} memberInfo={memberInfo} />,
   };
 
   const Component = elementComponents[element.element_type];

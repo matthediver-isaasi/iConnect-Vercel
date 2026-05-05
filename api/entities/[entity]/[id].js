@@ -10,6 +10,8 @@ import { pushPurchaseOrderToXero } from '../../_lib/xero.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
+  'Gallery': 'gallery',
+  'GalleryPhoto': 'gallery_photo',
   'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
@@ -231,7 +233,8 @@ export default async function handler(req, res) {
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
-            'CrmTagColor'
+            'CrmTagColor',
+            'Gallery', 'GalleryPhoto'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -314,7 +317,8 @@ export default async function handler(req, res) {
                 'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
                 'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
                 'ExternalWriter', 'ExternalWriterDocument',
-                'CrmTagColor'
+                'CrmTagColor',
+                'Gallery', 'GalleryPhoto'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -484,7 +488,8 @@ export default async function handler(req, res) {
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
-            'CrmTagColor'
+            'CrmTagColor',
+            'Gallery', 'GalleryPhoto'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -836,7 +841,8 @@ export default async function handler(req, res) {
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
-            'CrmTagColor'
+            'CrmTagColor',
+            'Gallery', 'GalleryPhoto'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

@@ -707,3 +707,56 @@ export const insertDashboardWidgetSchema = createInsertSchema(dashboardWidget).o
 
 export type InsertDashboardWidget = z.infer<typeof insertDashboardWidgetSchema>;
 export type DashboardWidget = typeof dashboardWidget.$inferSelect;
+
+// Photo Gallery (task #681)
+// Tenant-scoped photo gallery folders. Each gallery is either public (visible
+// to anonymous visitors via /api/public/galleries) or members-only (requires
+// authenticated tenant member). Photos are stored in Supabase Storage; the
+// bucket is decided at upload time based on the gallery's current is_public
+// state. Toggling privacy after upload does not move existing files.
+export const gallery = pgTable("gallery", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  is_public: boolean("is_public").notNull().default(false),
+  cover_photo_id: varchar("cover_photo_id"),
+  display_order: integer("display_order").notNull().default(0),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertGallerySchema = createInsertSchema(gallery).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertGallery = z.infer<typeof insertGallerySchema>;
+export type Gallery = typeof gallery.$inferSelect;
+
+export const galleryPhoto = pgTable("gallery_photo", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // tenant_id is denormalized from the parent gallery so the generic
+  // tenant-scoped entity API can filter without a join. The API at
+  // api/entities/[entity]/index.js auto-injects tenant_id from the caller's
+  // session on create, and api/entities/[entity]/[id].js filters by it on
+  // list/get/update/delete.
+  tenant_id: varchar("tenant_id").notNull(),
+  gallery_id: varchar("gallery_id").notNull(),
+  storage_path: text("storage_path").notNull(),
+  bucket: varchar("bucket", { length: 64 }).notNull(),
+  file_url: text("file_url").notNull(),
+  caption: text("caption"),
+  alt_text: text("alt_text"),
+  display_order: integer("display_order").notNull().default(0),
+  created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertGalleryPhotoSchema = createInsertSchema(galleryPhoto).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertGalleryPhoto = z.infer<typeof insertGalleryPhotoSchema>;
+export type GalleryPhoto = typeof galleryPhoto.$inferSelect;

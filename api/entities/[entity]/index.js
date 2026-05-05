@@ -89,6 +89,8 @@ async function sendFormSubmissionEmail(submissionData) {
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
+  'Gallery': 'gallery',
+  'GalleryPhoto': 'gallery_photo',
   'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
@@ -786,7 +788,8 @@ export default async function handler(req, res) {
               'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
               'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
               'ExternalWriter', 'ExternalWriterDocument',
-              'CrmTagColor'
+              'CrmTagColor',
+              'Gallery', 'GalleryPhoto'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -972,7 +975,8 @@ export default async function handler(req, res) {
             'EventSponsor', 'EventSponsorCategory', 'EventSponsorAssignment',
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
-            'CrmTagColor'
+            'CrmTagColor',
+            'Gallery', 'GalleryPhoto'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

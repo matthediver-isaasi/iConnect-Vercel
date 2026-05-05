@@ -326,6 +326,15 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "content.briefs.review-comments", label: "Add Review Comments" },
           { id: "content.briefs.delete", label: "Delete Briefs" }
         ]
+      },
+      {
+        id: "content.gallery",
+        label: "Photo Galleries",
+        features: [
+          { id: "content.gallery.manage", label: "Create & Edit Galleries" },
+          { id: "content.gallery.upload", label: "Upload Photos" },
+          { id: "content.gallery.delete", label: "Delete Galleries & Photos" }
+        ]
       }
     ]
   },
@@ -1049,7 +1058,9 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_BriefManagement": "publications.briefmanagement",
   "page_user_BriefManagement": "publications.briefmanagement",
   "page_admin_BriefDetail": "content.briefs",
-  "page_admin_BriefSettings": "content.brief-settings"
+  "page_admin_BriefSettings": "content.brief-settings",
+  "page_PhotoGalleries": "content.gallery",
+  "page_admin_PhotoGalleries": "content.gallery"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

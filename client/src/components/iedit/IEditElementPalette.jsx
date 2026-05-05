@@ -5,10 +5,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Search, Type, Image, Layout, Zap, Square } from "lucide-react";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+// Map element_type -> required feature id. Templates whose feature is
+// excluded for the current member's role are hidden from the palette so a
+// user without permission can't add the widget to a page.
+const ELEMENT_FEATURE_MAP = {
+  gallery: "content.gallery",
+};
 
 export default function IEditElementPalette({ onClose, onSelectTemplate }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const { isFeatureExcluded } = useMemberAccess();
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['iedit-templates'],
@@ -31,7 +40,9 @@ export default function IEditElementPalette({ onClose, onSelectTemplate }) {
     const matchesSearch = template.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           template.description?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = selectedCategory === "all" || template.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const requiredFeature = ELEMENT_FEATURE_MAP[template.element_type];
+    const allowed = !requiredFeature || !isFeatureExcluded(requiredFeature);
+    return matchesSearch && matchesCategory && allowed;
   });
 
   const iconMap = {

@@ -36,6 +36,7 @@ import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
 import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
 import { IEditTimelineElementEditor } from "./elements/IEditTimelineElement";
 import { IEditHeroCarouselElementEditor } from "./elements/IEditHeroCarouselElement";
+import { IEditGalleryElementEditor } from "./elements/IEditGalleryElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, onSaveOnly, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -230,6 +231,9 @@ export default function IEditElementEditor({ element, onClose, onSave, onSaveOnl
 
   // Check if this is a Hero Carousel element (custom editor)
   const isHeroCarousel = element.element_type === 'hero_carousel';
+
+  // Check if this is a Gallery element (custom editor)
+  const isGallery = element.element_type === 'gallery';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -588,6 +592,8 @@ export default function IEditElementEditor({ element, onClose, onSave, onSaveOnl
               <IEditTimelineElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isHeroCarousel ? (
               <IEditHeroCarouselElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isGallery ? (
+              <IEditGalleryElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : (
               renderContentFields()
             )}
@@ -844,6 +850,11 @@ export default function IEditElementEditor({ element, onClose, onSave, onSaveOnl
             />
           ) : isHeroCarousel ? (
             <IEditHeroCarouselElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isGallery ? (
+            <IEditGalleryElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={handleContentChangeFromEditor}
             />

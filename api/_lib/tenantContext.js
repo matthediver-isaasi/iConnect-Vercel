@@ -66,6 +66,8 @@ export const entityTenantScope = {
   // SystemSettings is TENANT-scoped for proper multi-tenant isolation
   'SystemSettings': TENANT_SCOPE.TENANT,
   'PreferenceField': TENANT_SCOPE.TENANT, // Custom field definitions are per-tenant
+  'Gallery': TENANT_SCOPE.TENANT, // Photo gallery folders (task #681)
+  'GalleryPhoto': TENANT_SCOPE.TENANT, // Gallery photos (task #681)
   'TypographyStyle': TENANT_SCOPE.GLOBAL,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
