@@ -198,6 +198,8 @@ class EntitiesProxy {
   get TourStep() { return this._getEntity('TourStep'); }
   get Resource() { return this._getEntity('Resource'); }
   get ResourceCategory() { return this._getEntity('ResourceCategory'); }
+  get Gallery() { return this._getEntity('Gallery'); }
+  get GalleryPhoto() { return this._getEntity('GalleryPhoto'); }
   get FileRepository() { return this._getEntity('FileRepository'); }
   get ResourceAuthorSettings() { return this._getEntity('ResourceAuthorSettings'); }
   get JobPosting() { return this._getEntity('JobPosting'); }
