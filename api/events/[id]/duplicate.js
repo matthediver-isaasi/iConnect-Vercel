@@ -19,18 +19,25 @@ const FIELDS_TO_COPY = [
 // Best-effort deep-copy. Tables that don't exist in this tenant's schema
 // are skipped silently via the "relation does not exist" guard below, so
 // the matrix can safely include optional/legacy associations.
+//
+// `tenantScoped` indicates whether the child table has its own `tenant_id`
+// column. When false, we fetch by FK only — the parent `event` row was
+// already verified to belong to `ctx.tenantId`, so child rows scoped by
+// `event_id` are implicitly tenant-safe — and we omit `tenant_id` from the
+// insert payload (otherwise the insert would fail on a missing column).
 const CHILD_TABLES = [
-  { table: 'event_email', fk: 'event_id' },
-  { table: 'event_sponsor_assignment', fk: 'event_id' },
-  { table: 'event_resource_link', fk: 'event_id' },
-  { table: 'event_field', fk: 'event_id' },
-  { table: 'event_cta_button', fk: 'event_id' },
-  { table: 'event_booking_terms', fk: 'event_id' },
-  { table: 'event_timing', fk: 'event_id' },
+  // event_email has no tenant_id column (see docs/event_email_schema.sql).
+  { table: 'event_email', fk: 'event_id', tenantScoped: false },
+  { table: 'event_sponsor_assignment', fk: 'event_id', tenantScoped: true },
+  { table: 'event_resource_link', fk: 'event_id', tenantScoped: true },
+  { table: 'event_field', fk: 'event_id', tenantScoped: true },
+  { table: 'event_cta_button', fk: 'event_id', tenantScoped: true },
+  { table: 'event_booking_terms', fk: 'event_id', tenantScoped: true },
+  { table: 'event_timing', fk: 'event_id', tenantScoped: true },
   // NOTE: event_attendees / booking / registration tables are intentionally
   // excluded — duplicates must never inherit attendance/booking data.
-  { table: 'event_discount_code', fk: 'event_id' },
-  { table: 'event_training_fund', fk: 'event_id' },
+  { table: 'event_discount_code', fk: 'event_id', tenantScoped: true },
+  { table: 'event_training_fund', fk: 'event_id', tenantScoped: true },
 ];
 
 async function findUniqueSlug(tenantId, base) {
@@ -112,19 +119,22 @@ export default async function handler(req, res) {
     createdEventId = created.id;
 
     // Deep-copy child rows. On any error → rollback by deleting the new event row.
-    for (const { table, fk } of CHILD_TABLES) {
+    for (const { table, fk, tenantScoped } of CHILD_TABLES) {
       try {
-        const { data: rows, error: childFetchErr } = await supabase
-          .from(table).select('*').eq(fk, id).eq('tenant_id', ctx.tenantId);
+        let fetchQuery = supabase.from(table).select('*').eq(fk, id);
+        if (tenantScoped) fetchQuery = fetchQuery.eq('tenant_id', ctx.tenantId);
+        const { data: rows, error: childFetchErr } = await fetchQuery;
         if (childFetchErr) {
           // Table may not exist; skip silently.
           if (/relation .* does not exist|schema cache/i.test(childFetchErr.message || '')) continue;
           throw new Error(`fetch ${table}: ${childFetchErr.message}`);
         }
         if (!rows || rows.length === 0) continue;
-        const inserts = rows.map(({ id: _id, created_at, updated_at, ...rest }) => ({
-          ...rest, tenant_id: ctx.tenantId, [fk]: createdEventId,
-        }));
+        const inserts = rows.map(({ id: _id, created_at, updated_at, ...rest }) => {
+          const row = { ...rest, [fk]: createdEventId };
+          if (tenantScoped) row.tenant_id = ctx.tenantId;
+          return row;
+        });
         const { error: insChildErr } = await supabase.from(table).insert(inserts);
         if (insChildErr) throw new Error(`insert ${table}: ${insChildErr.message}`);
       } catch (err) {
