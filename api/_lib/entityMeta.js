@@ -387,6 +387,134 @@ async function resolveMember(tenantId, id) {
   };
 }
 
+// CMS page (IEditPage) content extraction. Mirrors the field lists used by
+// `api/public/prerender.js` so unfurls pick up the same hero text/image the
+// SEO body uses.
+const CMS_TEXT_FIELDS = [
+  'heading', 'text', 'content_text', 'header_content', 'header', 'subheading',
+  'subtitle', 'description', 'quote_text', 'attribution', 'author_name',
+  'left_heading', 'left_text', 'right_heading', 'right_text',
+  'header_title', 'header_subtitle', 'text_content', 'body_content',
+  'title', 'body', 'name', 'label', 'quote', 'content',
+];
+const CMS_IMAGE_FIELDS = [
+  'image_url', 'background_image', 'hero_image', 'image',
+  'background_image_url', 'left_image_url', 'right_image_url',
+  'profile_image_url', 'mobile_image_url',
+];
+const CMS_TEXT_FIELDS_SET = new Set(CMS_TEXT_FIELDS);
+const CMS_IMAGE_FIELDS_SET = new Set(CMS_IMAGE_FIELDS);
+
+function extractCmsTexts(obj, seen) {
+  if (!obj || typeof obj !== 'object') return [];
+  if (!seen) seen = new WeakSet();
+  if (seen.has(obj)) return [];
+  seen.add(obj);
+  const out = [];
+  if (Array.isArray(obj)) {
+    for (const item of obj) out.push(...extractCmsTexts(item, seen));
+    return out;
+  }
+  for (const f of CMS_TEXT_FIELDS) {
+    if (typeof obj[f] === 'string') {
+      const cleaned = stripHtml(obj[f]);
+      if (cleaned) out.push(cleaned);
+    }
+  }
+  for (const k of Object.keys(obj)) {
+    if (CMS_TEXT_FIELDS_SET.has(k) || CMS_IMAGE_FIELDS_SET.has(k)) continue;
+    const v = obj[k];
+    if (v && typeof v === 'object') out.push(...extractCmsTexts(v, seen));
+  }
+  return out;
+}
+
+function extractCmsImage(obj, seen) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (!seen) seen = new WeakSet();
+  if (seen.has(obj)) return null;
+  seen.add(obj);
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const img = extractCmsImage(item, seen);
+      if (img) return img;
+    }
+    return null;
+  }
+  for (const f of CMS_IMAGE_FIELDS) {
+    if (typeof obj[f] === 'string' && obj[f].startsWith('http')) return obj[f];
+  }
+  if (obj.media && typeof obj.media.src === 'string' && obj.media.src.startsWith('http')) {
+    return obj.media.src;
+  }
+  if (Array.isArray(obj.media_items)) {
+    for (const m of obj.media_items) {
+      if (m && typeof m.src === 'string' && m.src.startsWith('http')) return m.src;
+    }
+  }
+  for (const k of Object.keys(obj)) {
+    if (CMS_IMAGE_FIELDS_SET.has(k) || CMS_TEXT_FIELDS_SET.has(k)) continue;
+    const v = obj[k];
+    if (v && typeof v === 'object') {
+      const img = extractCmsImage(v, seen);
+      if (img) return img;
+    }
+  }
+  return null;
+}
+
+async function resolveIEditPage(tenantId, slug) {
+  if (!supabase || !slug) return null;
+  // Match the public page endpoint: only published public/hybrid pages
+  // unfurl. Member-only pages stay private and fall back to tenant defaults.
+  const { data: page } = await supabase
+    .from('i_edit_page')
+    .select('id, title, slug, meta_title, meta_description, description, status, layout_type')
+    .eq('tenant_id', tenantId)
+    .eq('slug', slug)
+    .eq('status', 'published')
+    .in('layout_type', ['public', 'hybrid'])
+    .maybeSingle();
+  if (!page) return null;
+
+  const title = page.meta_title || page.title || page.slug;
+  let description = page.meta_description || stripHtml(page.description) || '';
+  let image = null;
+
+  if (!description || !image) {
+    const { data: elements } = await supabase
+      .from('i_edit_page_element')
+      .select('element_type, content')
+      .eq('page_id', page.id)
+      .order('display_order', { ascending: true });
+    if (elements?.length) {
+      const texts = [];
+      for (const el of elements) {
+        if (!image && el.content && typeof el.content === 'object') {
+          image = extractCmsImage(el.content);
+        }
+        if (!description) {
+          if (typeof el.content === 'string') {
+            const t = stripHtml(el.content);
+            if (t) texts.push(t);
+          } else if (el.content && typeof el.content === 'object') {
+            texts.push(...extractCmsTexts(el.content));
+          }
+        }
+        if (description ? image : (image && texts.length > 0)) break;
+      }
+      if (!description && texts.length) description = texts.join(' ');
+    }
+  }
+
+  return {
+    title,
+    description: truncate(description, 300),
+    image: image || null,
+    canonicalPath: `/${encodeURIComponent(page.slug)}`,
+  };
+}
+
 async function resolveForm(tenantId, slug) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
@@ -597,6 +725,16 @@ export async function resolveEntityMeta(req, tenant) {
           if (meta) return meta;
         }
       }
+    }
+    // CMS pages built with the IEditPage page builder. These are served by
+    // DynamicPage at top-level single-segment routes (`/:slug`). Try this
+    // last so dedicated entity handlers above always win, but before the
+    // list-route fallback so a tenant's own CMS page provides richer meta.
+    const cmsMatch = pathname.match(/^\/([^/]+)\/?$/);
+    if (cmsMatch) {
+      const cmsSlug = decodeURIComponent(cmsMatch[1]);
+      const meta = await resolveIEditPage(tenant.id, cmsSlug);
+      if (meta) return meta;
     }
   } catch (err) {
     console.error('[entityMeta] resolution failed:', err?.message);
