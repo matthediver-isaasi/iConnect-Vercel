@@ -23,6 +23,10 @@ import { supabase } from './database.js';
 import { getStripeCredentials } from './stripeCredentials.js';
 import { createXeroCreditNote, emailXeroCreditNote } from './xero.js';
 import { sendEmail } from './emailService.js';
+import {
+  buildCancellationEmail,
+  CANCELLATION_FLOW_EVENT_DELETED,
+} from './cancellationEmail.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from './zoomClient.js';
 import Stripe from 'stripe';
 import {
@@ -597,76 +601,9 @@ export async function sendEventDeletionCancellationEmail({
   const bookingRef = booking.booking_reference || booking.booking_group_reference || '';
 
   const isEventDeleted = reason === CANCELLATION_REASON_EVENT_DELETED;
-  const subject = isEventDeleted
-    ? `Event cancelled — ${eventName}`
-    : `Booking cancellation confirmed — ${eventName}`;
-
-  const financialLines = [];
-  if (reversalResults) {
-    const rr = reversalResults;
-    if (rr.trainingFund?.success) {
-      financialLines.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
-    }
-    for (const v of rr.vouchers || []) {
-      if (v.reinstated) financialLines.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
-      if (v.replacementCreated) financialLines.push(`Replacement voucher ${v.newVoucherCode} issued`);
-    }
-    if (rr.discountCode?.reversed) financialLines.push(`Discount code ${rr.discountCode.code} usage reversed`);
-    if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) {
-      financialLines.push(`Card refund: £${Number(rr.stripeRefund.amount).toFixed(2)} will be returned to your payment method`);
-    } else if (rr.stripeRefund && rr.stripeRefund.requiresManualRefund) {
-      financialLines.push(`Card refund of £${Number(rr.stripeRefund.amount).toFixed(2)} could not be processed automatically — our team will be in touch`);
-    }
-    if (rr.xeroCreditNote?.success) {
-      financialLines.push(`Credit note ${rr.xeroCreditNote.creditNoteNumber} raised for £${Number(rr.xeroCreditNote.amount).toFixed(2)}`);
-    } else if (rr.xeroCreditNote?.requiresManualAction) {
-      financialLines.push(`A credit note will be issued shortly`);
-    }
-  }
-
-  const safeOrganiserMessage = organiserMessage
-    ? String(organiserMessage).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
-    : null;
-
-  const buildHtml = (recipientName, isBooker) => {
-    const safeName = recipientName || 'there';
-    let body = `<p>Hi ${safeName},</p>`;
-    if (isEventDeleted) {
-      if (isBooker && attendeeEmail && attendeeEmail.toLowerCase() !== (bookerEmail || '').toLowerCase()) {
-        body += `<p><strong>${eventName}</strong> has been cancelled by the organiser. The booking you made for <strong>${attendeeName}</strong> has therefore been cancelled.</p>`;
-      } else {
-        body += `<p><strong>${eventName}</strong> has been cancelled by the organiser, so your booking has been cancelled.</p>`;
-      }
-    } else {
-      if (isBooker && attendeeEmail && attendeeEmail.toLowerCase() !== (bookerEmail || '').toLowerCase()) {
-        body += `<p>A booking you made for <strong>${attendeeName}</strong> for <strong>${eventName}</strong> has been cancelled.</p>`;
-      } else {
-        body += `<p>Your booking for <strong>${eventName}</strong> has been cancelled.</p>`;
-      }
-    }
-
-    if (bookingRef) {
-      body += `<p style="color:#666;font-size:14px;">Booking reference: <strong>${bookingRef}</strong></p>`;
-    }
-
-    if (safeOrganiserMessage) {
-      body += `<div style="margin:20px 0;padding:16px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;">`;
-      body += `<p style="margin:0 0 6px 0;font-weight:600;">A message from the organiser</p>`;
-      body += `<p style="margin:0;color:#555;">${safeOrganiserMessage}</p>`;
-      body += `</div>`;
-    }
-
-    if (financialLines.length > 0) {
-      body += `<div style="margin:20px 0;padding:16px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;">`;
-      body += `<p style="margin:0 0 10px 0;font-weight:600;">Refund summary</p>`;
-      body += `<ul style="margin:0;padding-left:20px;color:#555;">`;
-      for (const line of financialLines) body += `<li style="margin-bottom:6px;">${line}</li>`;
-      body += `</ul></div>`;
-    }
-
-    body += `<p style="color:#666;font-size:14px;">If you have any questions, please get in touch.</p>`;
-    return body;
-  };
+  const hasDifferentBookerAttendee = !!(
+    attendeeEmail && attendeeEmail.toLowerCase() !== (bookerEmail || '').toLowerCase()
+  );
 
   const recipients = new Set();
   if (attendeeEmail) recipients.add(attendeeEmail.toLowerCase());
@@ -677,11 +614,24 @@ export async function sendEventDeletionCancellationEmail({
   for (const to of recipients) {
     const isBooker = bookerEmail && to === bookerEmail.toLowerCase();
     const recipientName = isBooker ? bookerFirstName : (booking.attendee_first_name || attendeeName);
+    const { subject, html } = buildCancellationEmail({
+      flow: CANCELLATION_FLOW_EVENT_DELETED,
+      isGroup: false,
+      eventName,
+      recipientName,
+      isBooker,
+      bookingRef,
+      attendeeName,
+      hasDifferentBookerAttendee,
+      eventDeletedReason: isEventDeleted,
+      reversalResults,
+      organiserMessage,
+    });
     try {
       await sendEmail({
         to,
         subject,
-        html: buildHtml(recipientName, isBooker),
+        html,
         tenantId,
       });
       console.log(`[EventDeleteCancel] Sent ${reason} email to ${to} | bookingId: ${booking.id}`);

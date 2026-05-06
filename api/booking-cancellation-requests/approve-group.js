@@ -3,6 +3,11 @@ import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
+import {
+  buildCancellationEmail,
+  CANCELLATION_FLOW_REQUEST_APPROVED,
+  CANCELLATION_FLOW_REQUEST_REJECTED,
+} from '../_lib/cancellationEmail.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
 import {
@@ -757,113 +762,35 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
   }
 
   const isApproved = status === 'approved';
+  const flow = isApproved ? CANCELLATION_FLOW_REQUEST_APPROVED : CANCELLATION_FLOW_REQUEST_REJECTED;
   const ticketCount = bookings.length;
   const attendeeNames = bookings
     .map(b => [b.attendee_first_name, b.attendee_last_name].filter(Boolean).join(' '))
     .filter(Boolean);
   const uniqueNames = [...new Set(attendeeNames)];
 
-  const subject = isApproved
-    ? `Group Booking Cancellation Confirmed — ${eventName} (${ticketCount} tickets)`
-    : `Group Booking Cancellation Request Rejected — ${eventName}`;
-
-  const financialLines = [];
-  if (isApproved && reversalResults) {
-    const rr = reversalResults;
-    const totalTrainingFund = (rr.trainingFund || []).filter(t => t.success).reduce((sum, t) => sum + t.amount, 0);
-    if (totalTrainingFund > 0) {
-      financialLines.push(`Training fund: £${totalTrainingFund.toFixed(2)} reinstated`);
-    }
-    for (const v of rr.vouchers || []) {
-      if (v.reinstated) financialLines.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
-      if (v.replacementCreated) {
-        const replacement = rr.replacements?.find(r => r.type === 'voucher' && r.newCode === v.newVoucherCode);
-        const expiryText = replacement?.expiryDate ? ` (expires ${replacement.expiryDate})` : '';
-        financialLines.push(`Replacement voucher ${v.newVoucherCode} issued${expiryText}`);
-      }
-    }
-    if (rr.discountCode?.reversed) {
-      financialLines.push(`Discount code ${rr.discountCode.code} usage reversed`);
-    }
-    if (rr.discountCode?.replacementCreated) {
-      financialLines.push(`Replacement discount code ${rr.discountCode.newCode} issued`);
-    }
-    if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) {
-      financialLines.push(`Card refund: £${Number(rr.stripeRefund.amount).toFixed(2)} will be returned to your payment method`);
-    }
-    if (rr.xeroCreditNote?.success) {
-      financialLines.push(`Credit note ${rr.xeroCreditNote.creditNoteNumber} raised for £${Number(rr.xeroCreditNote.amount).toFixed(2)}`);
-    }
-    const programCount = (rr.programTickets || []).filter(p => p.success).length;
-    if (programCount > 0) {
-      financialLines.push(`${programCount} program ticket(s) refunded`);
-    }
-  }
-
-  const buildEmailHtml = (recipientName, isBooker) => {
-    let body = '';
-
-    if (isApproved) {
-      body += `<p>Hi ${recipientName},</p>`;
-      if (isBooker) {
-        body += `<p>Your group booking for <strong>${eventName}</strong> has been cancelled. <strong>${ticketCount} ticket(s)</strong> were cancelled.</p>`;
-      } else {
-        body += `<p>A booking for <strong>${eventName}</strong> that included your ticket has been cancelled.</p>`;
-      }
-
-      if (groupRef) {
-        body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${groupRef}</strong></p>`;
-      }
-
-      if (uniqueNames.length > 0 && isBooker) {
-        body += `<p style="color: #666; font-size: 14px;">Cancelled attendees: ${uniqueNames.join(', ')}</p>`;
-      }
-
-      if (financialLines.length > 0) {
-        body += `<div style="margin: 20px 0; padding: 16px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">`;
-        body += `<p style="margin: 0 0 10px 0; font-weight: 600; color: #333;">Financial Summary</p>`;
-        body += `<ul style="margin: 0; padding-left: 20px; color: #555;">`;
-        for (const line of financialLines) {
-          body += `<li style="margin-bottom: 6px;">${line}</li>`;
-        }
-        body += `</ul>`;
-        body += `</div>`;
-      }
-
-      body += `<p style="color: #666; font-size: 14px;">If you have any questions, please don't hesitate to get in touch.</p>`;
-    } else {
-      body += `<p>Hi ${recipientName},</p>`;
-      if (isBooker) {
-        body += `<p>Your group cancellation request for <strong>${eventName}</strong> (${ticketCount} tickets) has been reviewed and <strong>was not approved</strong>.</p>`;
-      } else {
-        body += `<p>A cancellation request for <strong>${eventName}</strong> that included your ticket has been reviewed and <strong>was not approved</strong>.</p>`;
-      }
-
-      if (groupRef) {
-        body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${groupRef}</strong></p>`;
-      }
-
-      if (reviewNotes) {
-        body += `<div style="margin: 20px 0; padding: 16px; background-color: #fff8e1; border-radius: 6px; border: 1px solid #ffe082;">`;
-        body += `<p style="margin: 0 0 6px 0; font-weight: 600; color: #333;">Reviewer Notes</p>`;
-        body += `<p style="margin: 0; color: #555;">${reviewNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
-        body += `</div>`;
-      }
-
-      body += `<p style="color: #666; font-size: 14px;">Your bookings remain active. If you have any questions, please get in touch.</p>`;
-    }
-
-    return body;
-  };
+  const buildForRecipient = (recipientName, isBooker) => buildCancellationEmail({
+    flow,
+    isGroup: true,
+    eventName,
+    recipientName: recipientName || 'there',
+    isBooker,
+    bookingRef: groupRef,
+    ticketCount,
+    uniqueAttendeeNames: uniqueNames,
+    reversalResults: isApproved ? reversalResults : null,
+    reviewNotes,
+  });
 
   const sentEmails = new Set();
 
   if (bookerEmail) {
     try {
+      const { subject, html } = buildForRecipient(bookerFirstName || 'there', true);
       const result = await sendEmail({
         to: bookerEmail,
         subject,
-        html: buildEmailHtml(bookerFirstName || 'there', true),
+        html,
         tenantId,
       });
       if (result?.success) {
@@ -880,10 +807,11 @@ async function sendGroupNotificationEmails({ requests, status, tenantId, reviewN
     if (!attendeeEmail || sentEmails.has(attendeeEmail.toLowerCase())) continue;
 
     try {
+      const { subject, html } = buildForRecipient(booking.attendee_first_name || 'there', false);
       const result = await sendEmail({
         to: attendeeEmail,
         subject,
-        html: buildEmailHtml(booking.attendee_first_name || 'there', false),
+        html,
         tenantId,
       });
       if (result?.success) {

@@ -2,6 +2,11 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
 import {
+  buildCancellationEmail,
+  CANCELLATION_FLOW_REQUEST_APPROVED,
+  CANCELLATION_FLOW_REQUEST_REJECTED,
+} from '../_lib/cancellationEmail.js';
+import {
   cancelBooking,
   CANCELLATION_REASON_REQUEST_APPROVED,
 } from '../_lib/bookingCancellation.js';
@@ -257,101 +262,28 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
   const attendeeName = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ') || 'there';
   const bookingRef = booking.booking_reference || booking.booking_group_reference || '';
   const isApproved = status === 'approved';
+  const flow = isApproved ? CANCELLATION_FLOW_REQUEST_APPROVED : CANCELLATION_FLOW_REQUEST_REJECTED;
 
-  const subject = isApproved
-    ? `Booking Cancellation Confirmed — ${eventName}`
-    : `Booking Cancellation Request Rejected — ${eventName}`;
-
-  const financialLines = [];
-  if (isApproved && reversalResults) {
-    const rr = reversalResults;
-    if (rr.trainingFund?.success) {
-      financialLines.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
-    }
-    for (const v of rr.vouchers || []) {
-      if (v.reinstated) financialLines.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
-      if (v.replacementCreated) {
-        const replacement = reversalResults.replacements?.find(r => r.type === 'voucher' && r.newCode === v.newVoucherCode);
-        const expiryText = replacement?.expiryDate ? ` (expires ${replacement.expiryDate})` : '';
-        financialLines.push(`Replacement voucher ${v.newVoucherCode} issued${expiryText}`);
-      }
-    }
-    if (rr.discountCode?.reversed) {
-      financialLines.push(`Discount code ${rr.discountCode.code} usage reversed`);
-    }
-    if (rr.discountCode?.replacementCreated) {
-      financialLines.push(`Replacement discount code ${rr.discountCode.newCode} issued`);
-    }
-    if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) {
-      financialLines.push(`Card refund: £${Number(rr.stripeRefund.amount).toFixed(2)} will be returned to your payment method`);
-    }
-    if (rr.xeroCreditNote?.success) {
-      financialLines.push(`Credit note ${rr.xeroCreditNote.creditNoteNumber} raised for £${Number(rr.xeroCreditNote.amount).toFixed(2)}`);
-    }
-  }
-
-  const buildEmailHtml = (recipientName, isBooker) => {
-    const safeName = recipientName || 'there';
-    let body = '';
-
-    if (isApproved) {
-      if (isBooker) {
-        body += `<p>Hi ${safeName},</p>`;
-        body += `<p>A booking you made for <strong>${attendeeName}</strong> for <strong>${eventName}</strong> has been cancelled.</p>`;
-      } else {
-        body += `<p>Hi ${safeName},</p>`;
-        body += `<p>Your booking for <strong>${eventName}</strong> has been cancelled as requested.</p>`;
-      }
-
-      if (bookingRef) {
-        body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${bookingRef}</strong></p>`;
-      }
-
-      if (financialLines.length > 0) {
-        body += `<div style="margin: 20px 0; padding: 16px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">`;
-        body += `<p style="margin: 0 0 10px 0; font-weight: 600; color: #333;">Financial Summary</p>`;
-        body += `<ul style="margin: 0; padding-left: 20px; color: #555;">`;
-        for (const line of financialLines) {
-          body += `<li style="margin-bottom: 6px;">${line}</li>`;
-        }
-        body += `</ul>`;
-        body += `</div>`;
-      }
-
-      body += `<p style="color: #666; font-size: 14px;">If you have any questions, please don't hesitate to get in touch.</p>`;
-    } else {
-      body += `<p>Hi ${safeName},</p>`;
-
-      if (isBooker) {
-        body += `<p>A cancellation request for a booking you made for <strong>${attendeeName}</strong> for <strong>${eventName}</strong> has been reviewed and <strong>was not approved</strong>.</p>`;
-      } else {
-        body += `<p>Your cancellation request for <strong>${eventName}</strong> has been reviewed and <strong>was not approved</strong>.</p>`;
-      }
-
-      if (bookingRef) {
-        body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${bookingRef}</strong></p>`;
-      }
-
-      if (reviewNotes) {
-        body += `<div style="margin: 20px 0; padding: 16px; background-color: #fff8e1; border-radius: 6px; border: 1px solid #ffe082;">`;
-        body += `<p style="margin: 0 0 6px 0; font-weight: 600; color: #333;">Reviewer Notes</p>`;
-        body += `<p style="margin: 0; color: #555;">${String(reviewNotes).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
-        body += `</div>`;
-      }
-
-      body += `<p style="color: #666; font-size: 14px;">Your booking remains active. If you have any questions, please get in touch.</p>`;
-    }
-
-    return body;
-  };
+  const buildForRecipient = (recipientName, isBooker) => buildCancellationEmail({
+    flow,
+    isGroup: false,
+    eventName,
+    recipientName,
+    isBooker,
+    bookingRef,
+    attendeeName,
+    reversalResults: isApproved ? reversalResults : null,
+    reviewNotes,
+  });
 
   if (attendeeEmail) {
     try {
       console.log(`[CancellationEmail] Sending ${status} email to attendee: ${attendeeEmail} | bookingId: ${bookingId}`);
+      const { subject, html } = buildForRecipient(booking.attendee_first_name || attendeeName, false);
       const result = await sendEmail({
         to: attendeeEmail,
         subject,
-        html: buildEmailHtml(booking.attendee_first_name || attendeeName, false),
+        html,
         tenantId,
       });
       if (result?.success) {
@@ -369,10 +301,11 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
   if (bookerEmail && bookerEmail.toLowerCase() !== (attendeeEmail || '').toLowerCase()) {
     try {
       console.log(`[CancellationEmail] Sending ${status} email to booker: ${bookerEmail} | bookingId: ${bookingId}`);
+      const { subject, html } = buildForRecipient(bookerFirstName || 'there', true);
       const result = await sendEmail({
         to: bookerEmail,
         subject,
-        html: buildEmailHtml(bookerFirstName || 'there', true),
+        html,
         tenantId,
       });
       if (result?.success) {
