@@ -392,14 +392,120 @@ function buildResolverMap(s) {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Resolve a single placeholder token to a preview value.
  * Returns { kind, value } where kind is 'text' | 'html' | 'placeholder'.
+ *
+ * In addition to the static lookup table, when a Due Diligence submission has
+ * been picked the resolver will also answer:
+ *   - {{<field_id>}}     — uuid form-field ids resolved against submission_data
+ *   - {{<field_label>}}  — looked up by label against submission_data
+ *   - {{record.<field>}} — pulled from the picked DD row (status, score,
+ *                          risk_level, application_uid, owner, reviewer, etc.)
  */
 export function resolvePlaceholderPreview(token, sampleData = FIXTURE_SAMPLE_DATA) {
   const map = buildResolverMap(sampleData);
   const key = normalizeToken(token);
+
+  // Dynamic resolvers that depend on a picked DD submission.
+  const ddValues = sampleData?._dd_form_values;
+  const ddFields = sampleData?._dd_form_fields;
+  const ddRecord = sampleData?._dd_record;
+
+  // When a DD submission is selected, the catalog's pattern rows
+  //   {{<field_id>}}, {{<field_label>}}, {{record.<field>}}
+  // should display a real example resolved from the bundle (rather than the
+  // generic "an example value" placeholder text). The override only fires
+  // when the bundle actually has a value to show — otherwise the static
+  // placeholder is preserved so the user still sees something meaningful.
+  if (key === '<field_id>' && ddValues?.byId) {
+    const firstId = Object.keys(ddValues.byId)[0];
+    if (firstId) {
+      const v = ddValues.byId[firstId];
+      if (v !== undefined && v !== null && v !== '') {
+        return { kind: 'text', value: String(v) };
+      }
+    }
+  }
+  if (key === '<field_label>' && ddValues?.byLabel) {
+    const firstLabel = Object.keys(ddValues.byLabel)[0];
+    if (firstLabel) {
+      const v = ddValues.byLabel[firstLabel];
+      if (v !== undefined && v !== null && v !== '') {
+        return { kind: 'text', value: String(v) };
+      }
+    }
+  }
+  if (key === 'record.<field>' && ddRecord) {
+    const candidates = [
+      'workflow_status',
+      'status',
+      'risk_level',
+      'due_diligence_score',
+      'application_uid',
+    ];
+    for (const f of candidates) {
+      const v = ddRecord[f] ?? ddRecord.submission?.[f];
+      if (v !== undefined && v !== null && v !== '') {
+        return { kind: 'text', value: String(v) };
+      }
+    }
+  }
+
   if (key in map) return map[key];
+
+  // Use the *original* (case-preserving) inner token so labels like
+  // "Investment Banking" still match. normalizeToken lower-cases.
+  const inner = (token || '').replace(/^\{\{|\}\}$|^\[\[|\]\]$/g, '').trim();
+
+  if (inner) {
+    // {{record.<field>}} — pull from the DD row
+    const recordMatch = inner.match(/^record\.(.+)$/i);
+    if (recordMatch && ddRecord) {
+      const field = recordMatch[1].trim();
+      const v =
+        ddRecord[field] ??
+        ddRecord.submission?.[field] ??
+        sampleData?._dd_form_values?.byId?.[field] ??
+        sampleData?._dd_form_values?.byLabel?.[field];
+      if (v !== undefined && v !== null && v !== '') {
+        return { kind: 'text', value: String(v) };
+      }
+    }
+
+    if (ddValues) {
+      // {{<uuid>}} — match against form_submission.submission_data keyed by id
+      if (UUID_RE.test(inner)) {
+        const v = ddValues.byId?.[inner];
+        if (v !== undefined && v !== null && v !== '') {
+          return { kind: 'text', value: String(v) };
+        }
+        // Known but empty value — surface the field label instead of "—".
+        const fieldDef = (ddFields || []).find((f) => f.id === inner);
+        if (fieldDef) {
+          return { kind: 'placeholder', value: `(empty: ${fieldDef.label || fieldDef.id})` };
+        }
+      }
+      // {{<label>}} — exact label match (case-insensitive)
+      const byLabel = ddValues.byLabel || {};
+      if (inner in byLabel) {
+        const v = byLabel[inner];
+        if (v !== undefined && v !== null && v !== '') {
+          return { kind: 'text', value: String(v) };
+        }
+      } else {
+        const lc = inner.toLowerCase();
+        for (const [label, v] of Object.entries(byLabel)) {
+          if (label.toLowerCase() === lc && v !== undefined && v !== null && v !== '') {
+            return { kind: 'text', value: String(v) };
+          }
+        }
+      }
+    }
+  }
+
   return null;
 }
 
@@ -421,8 +527,43 @@ export function resolvePlaceholderPreview(token, sampleData = FIXTURE_SAMPLE_DAT
  *   - Contracts:     { id, name?, days_since_sent?, signer: { ... } }
  *   - Event:         { id, title, name, date, location, booking?, attendee? }
  */
+/**
+ * Apply the active Due Diligence bundle (if any) onto a sample so that
+ * pattern tokens like {{<field_id>}}, {{<field_label>}} and {{record.<field>}}
+ * resolve correctly in *every* section, not just the Due Diligence one.
+ * Sections that derive their own data from the bundle (e.g. Form Submissions
+ * use the DD parent submission's data) do that here too.
+ */
+function applyDdBundleContext(out, baseSample, category) {
+  const bundle = baseSample?._dd_active_bundle;
+  if (!bundle || typeof bundle !== 'object') return out;
+  out._dd_form_values = bundle.formValues || { byId: {}, byLabel: {} };
+  out._dd_form_fields = bundle.formFields || [];
+  out._dd_record = bundle.ddRecord || baseSample.due_diligence;
+  if (category === 'Form Submissions' && bundle.submission) {
+    out.form_submission = {
+      ...(baseSample.form_submission || {}),
+      id: bundle.submission.id ?? baseSample.form_submission?.id,
+      application_uid:
+        bundle.submission.application_uid ?? baseSample.form_submission?.application_uid,
+      form_name: bundle.formName ?? baseSample.form_submission?.form_name,
+      values: bundle.formValues?.byLabel || baseSample.form_submission?.values || {},
+    };
+  }
+  return out;
+}
+
 export function buildCategorySample(baseSample, category, record) {
-  if (!record || !baseSample) return baseSample;
+  if (!baseSample) return baseSample;
+  if (!record) {
+    // No per-section record but a DD bundle may still be active globally —
+    // surface its form values so pattern tokens still resolve in non-DD
+    // sections (e.g. Form Submissions, System & Links).
+    if (baseSample._dd_active_bundle) {
+      return applyDdBundleContext({ ...baseSample }, baseSample, category);
+    }
+    return baseSample;
+  }
   const out = { ...baseSample };
   switch (category) {
     case 'Member': {
@@ -477,11 +618,46 @@ export function buildCategorySample(baseSample, category, record) {
     case 'Due Diligence': {
       const baseDd = baseSample.due_diligence || {};
       const baseSub = baseDd.submission || {};
+      const { _bundle, ...ddFields } = record;
       out.due_diligence = {
         ...baseDd,
-        ...record,
+        ...ddFields,
         submission: { ...baseSub, ...(record.submission || {}) },
       };
+      if (_bundle && typeof _bundle === 'object') {
+        // Surface the linked organisation, submitting member, owner, reviewer
+        // and most-recent meeting so [[organization.*]], [[member.*]],
+        // {{recipient_*}}, {{meeting_*}}, etc. all resolve against the picked
+        // submission instead of the tenant's "most recent" defaults.
+        if (_bundle.organization) {
+          out.organization = { ...baseSample.organization, ..._bundle.organization };
+        }
+        if (_bundle.member) {
+          out.member = { ...baseSample.member, ..._bundle.member };
+          out.attendee = {
+            ...baseSample.attendee,
+            first_name: _bundle.member.first_name ?? baseSample.attendee.first_name,
+            last_name: _bundle.member.last_name ?? baseSample.attendee.last_name,
+            email: _bundle.member.email ?? baseSample.attendee.email,
+          };
+        }
+        if (_bundle.meeting) {
+          out.meeting = { ...baseSample.meeting, ..._bundle.meeting };
+        }
+        if (_bundle.owner) {
+          out.due_diligence.owner = _bundle.owner.full_name || out.due_diligence.owner;
+          out.due_diligence.owner_email = _bundle.owner.email || out.due_diligence.owner_email;
+        }
+        if (_bundle.reviewer) {
+          out.due_diligence.reviewer = _bundle.reviewer.full_name || out.due_diligence.reviewer;
+        }
+        // Stash the form values + field definitions on the sample so the
+        // dynamic resolver can answer {{<field_id>}}, {{<field_label>}} and
+        // {{record.<field>}} from real submission data.
+        out._dd_form_values = _bundle.formValues || { byId: {}, byLabel: {} };
+        out._dd_form_fields = _bundle.formFields || [];
+        out._dd_record = out.due_diligence;
+      }
       return out;
     }
     default:

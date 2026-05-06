@@ -25,6 +25,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Search,
   Copy,
@@ -37,6 +46,8 @@ import {
   ChevronRight,
   ChevronsUpDown,
   ChevronsDownUp,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -269,6 +280,203 @@ function MultiSelectFilter({ label, options, selected, onChange, testIdPrefix })
   );
 }
 
+function DueDiligencePicker({
+  selectedId,
+  selectedRecord,
+  onPickResult,
+  onClear,
+  loading,
+  lookupError,
+  onLookup,
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [lookupValue, setLookupValue] = useState("");
+
+  // Debounced server-side search
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        if (query.trim()) params.set("search", query.trim());
+        const res = await fetch(
+          `/api/admin/email-placeholder-dd-submission?${params.toString()}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) {
+          if (!cancelled) setResults([]);
+          return;
+        }
+        const json = await res.json();
+        if (!cancelled) setResults(Array.isArray(json.results) ? json.results : []);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [query, open]);
+
+  const handleLookupSubmit = async (e) => {
+    e?.preventDefault?.();
+    const v = lookupValue.trim();
+    if (!v) return;
+    await onLookup(v);
+  };
+
+  const headerLabel = selectedRecord
+    ? labelForRecord("Due Diligence", selectedRecord)
+    : "Built-in sample";
+
+  return (
+    <div
+      className="flex flex-col gap-2 w-full md:w-[420px]"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              role="combobox"
+              aria-expanded={open}
+              className="flex-1 min-w-[220px] justify-between font-normal"
+              data-testid="combobox-dd-submission"
+            >
+              <span className="truncate text-left">{headerLabel}</span>
+              <ChevronsUpDown className="ml-2 w-4 h-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[420px] p-0" align="end">
+            <Command shouldFilter={false}>
+              <CommandInput
+                placeholder="Search by application UID, organisation, member…"
+                value={query}
+                onValueChange={setQuery}
+                data-testid="input-dd-search"
+              />
+              <CommandList>
+                {/* "Built-in sample" is always available — even when search
+                    returns zero rows — so admins can always reset the picker
+                    to the fixture data. */}
+                <CommandGroup>
+                  <CommandItem
+                    value="__fixture__"
+                    onSelect={() => {
+                      onClear();
+                      setOpen(false);
+                    }}
+                    data-testid="option-dd-submission-fixture"
+                  >
+                    <span className="text-muted-foreground">Built-in sample</span>
+                  </CommandItem>
+                </CommandGroup>
+                {searching ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching…
+                  </div>
+                ) : results.length === 0 ? (
+                  <CommandEmpty>No submissions match.</CommandEmpty>
+                ) : (
+                  <CommandGroup heading="Recent">
+                    {results.map((r) => (
+                      <CommandItem
+                        key={r.id}
+                        value={r.id}
+                        onSelect={async () => {
+                          await onPickResult(r);
+                          setOpen(false);
+                        }}
+                        data-testid={`option-dd-submission-${r.id}`}
+                      >
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="text-sm font-medium truncate">
+                            {r.application_uid || r.id}
+                          </span>
+                          <span className="text-xs text-muted-foreground truncate">
+                            {[r.form_name, r.organization_name || r.member_name, r.status]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {selectedId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            data-testid="button-dd-submission-clear"
+          >
+            <X className="w-4 h-4 mr-1" /> Clear
+          </Button>
+        )}
+      </div>
+      <form onSubmit={handleLookupSubmit} className="flex items-center gap-2">
+        <Input
+          value={lookupValue}
+          onChange={(e) => setLookupValue(e.target.value)}
+          placeholder="Look up by application UID or submission id"
+          className="h-9 flex-1"
+          data-testid="input-dd-submission-lookup"
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          disabled={loading || !lookupValue.trim()}
+          data-testid="button-dd-submission-lookup"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load"}
+        </Button>
+      </form>
+      {selectedRecord && (
+        <div
+          className="text-xs text-muted-foreground"
+          data-testid="text-dd-current-submission"
+        >
+          Currently using:{" "}
+          <span className="text-foreground font-medium">
+            {selectedRecord.submission?.application_uid || selectedRecord.id}
+          </span>
+          {selectedRecord.form_name ? ` — ${selectedRecord.form_name}` : ""}
+          {selectedRecord._bundle?.organization?.name
+            ? ` · ${selectedRecord._bundle.organization.name}`
+            : ""}
+          {selectedRecord._bundle?.member?.full_name
+            ? ` · ${selectedRecord._bundle.member.full_name}`
+            : ""}
+        </div>
+      )}
+      {lookupError && (
+        <div
+          className="flex items-start gap-1.5 text-xs text-destructive"
+          data-testid="text-dd-lookup-error"
+        >
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>{lookupError}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CategoryRecordPicker({ category, list, selectedId, onChange }) {
   if (!list || list.length === 0) {
     return (
@@ -333,6 +541,13 @@ export default function EmailPlaceholders() {
   const [tenantId, setTenantId] = useState(null);
   const [recordSelections, setRecordSelections] = useState({});
   const [openSections, setOpenSections] = useState({});
+  // Map of dd submission id -> full bundle returned by
+  // /api/admin/email-placeholder-dd-submission. Looked-up submissions live
+  // here (since they're not in the 25-row "recent" list) so findRecord can
+  // resolve them just like a list-picked record.
+  const [ddBundles, setDdBundles] = useState({});
+  const [ddLoading, setDdLoading] = useState(false);
+  const [ddLookupError, setDdLookupError] = useState(null);
   // Track which tenant the in-memory selections were hydrated from. When the
   // tenant id changes (e.g. cross-tenant navigation in a single SPA session)
   // we must drop the previous tenant's prefs and reload from its own key.
@@ -376,13 +591,37 @@ export default function EmailPlaceholders() {
   useEffect(() => {
     if (!tenantId || tenantId === hydratedTenantId) return;
     const stored = readStored(tenantId);
-    setRecordSelections(
-      stored && typeof stored.recordSelections === "object" ? stored.recordSelections : {},
-    );
+    const selections =
+      stored && typeof stored.recordSelections === "object" ? stored.recordSelections : {};
+    setRecordSelections(selections);
     setOpenSections(
       stored && typeof stored.openSections === "object" ? stored.openSections : {},
     );
+    setDdBundles({});
+    setDdLookupError(null);
     setHydratedTenantId(tenantId);
+
+    // Re-fetch the previously selected DD submission bundle (if any) so that
+    // a page reload preserves not just the id but the full org/member/values
+    // payload it depends on.
+    const ddId = selections["Due Diligence"];
+    if (ddId) {
+      (async () => {
+        try {
+          const res = await fetch(
+            `/api/admin/email-placeholder-dd-submission?lookup=${encodeURIComponent(ddId)}`,
+            { credentials: "include" },
+          );
+          if (!res.ok) return;
+          const json = await res.json();
+          if (json?.submission) {
+            setDdBundles((prev) => ({ ...prev, [json.submission.id]: json.submission }));
+          }
+        } catch {
+          // ignore — selection will fall back to fixture
+        }
+      })();
+    }
   }, [tenantId, hydratedTenantId]);
 
   // Persist preferences for the currently-hydrated tenant only. Skipping when
@@ -403,6 +642,27 @@ export default function EmailPlaceholders() {
   }, [search, categories, contexts, syntax]);
 
   const grouped = useMemo(() => groupPlaceholdersByCategory(filtered), [filtered]);
+
+  // The "active" Due Diligence bundle (if any) — exposed as `_dd_active_bundle`
+  // on the sample so any section's resolver (not just Due Diligence) can pull
+  // {{<field_id>}}, {{<field_label>}}, {{record.<field>}} from it. Form
+  // Submissions in particular needs this so its pattern tokens reflect the
+  // picked DD submission.
+  const globalSample = useMemo(() => {
+    const ddId = recordSelections["Due Diligence"];
+    const bundle = ddId ? ddBundles[ddId] : null;
+    if (!bundle?._bundle) return sampleData;
+    return {
+      ...sampleData,
+      _dd_active_bundle: {
+        formValues: bundle._bundle.formValues,
+        formFields: bundle._bundle.formFields,
+        ddRecord: bundle,
+        submission: bundle.submission,
+        formName: bundle.form_name,
+      },
+    };
+  }, [sampleData, recordSelections, ddBundles]);
 
   const totalCount = EMAIL_PLACEHOLDERS.length;
   const filteredCount = filtered.length;
@@ -428,6 +688,59 @@ export default function EmailPlaceholders() {
     });
   }, []);
 
+  const handleDdLookup = useCallback(async (lookupValue) => {
+    setDdLoading(true);
+    setDdLookupError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/email-placeholder-dd-submission?lookup=${encodeURIComponent(lookupValue)}`,
+        { credentials: "include" },
+      );
+      if (res.status === 404) {
+        setDdLookupError(
+          `No Due Diligence submission found for "${lookupValue}". Check the application UID or submission id.`,
+        );
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setDdLookupError(body?.error || `Lookup failed (${res.status}).`);
+        return;
+      }
+      const json = await res.json();
+      if (!json?.submission) {
+        setDdLookupError("Lookup returned no submission.");
+        return;
+      }
+      const bundle = json.submission;
+      setDdBundles((prev) => ({ ...prev, [bundle.id]: bundle }));
+      setRecordSelections((prev) => ({ ...prev, "Due Diligence": bundle.id }));
+    } catch (err) {
+      setDdLookupError(err?.message || "Lookup failed.");
+    } finally {
+      setDdLoading(false);
+    }
+  }, []);
+
+  const handleDdPickResult = useCallback(async (result) => {
+    if (!result?.id) return;
+    setDdLookupError(null);
+    if (ddBundles[result.id]) {
+      setRecordSelections((prev) => ({ ...prev, "Due Diligence": result.id }));
+      return;
+    }
+    await handleDdLookup(result.id);
+  }, [ddBundles, handleDdLookup]);
+
+  const handleDdClear = useCallback(() => {
+    setDdLookupError(null);
+    setRecordSelections((prev) => {
+      const next = { ...prev };
+      delete next["Due Diligence"];
+      return next;
+    });
+  }, []);
+
   const setSectionOpen = useCallback((category, open) => {
     setOpenSections((prev) => ({ ...prev, [category]: open }));
   }, []);
@@ -446,13 +759,19 @@ export default function EmailPlaceholders() {
 
   const findRecord = useCallback(
     (category, id) => {
+      // For Due Diligence we prefer the looked-up full bundle (which carries
+      // the linked org/member/meeting/values) over the stripped-down 25-row
+      // recent list returned by the samples endpoint.
+      if (category === "Due Diligence" && ddBundles[id]) {
+        return ddBundles[id];
+      }
       const listKey = CATEGORY_LIST_KEY[category];
       if (!listKey) return null;
       const list = sampleData?.[listKey];
       if (!Array.isArray(list)) return null;
       return list.find((r) => String(r.id) === String(id)) || null;
     },
-    [sampleData],
+    [sampleData, ddBundles],
   );
 
   // For the live-preview header summary: the picker categories that currently
@@ -659,8 +978,8 @@ export default function EmailPlaceholders() {
             const selectedId = recordSelections[category] || null;
             const sectionRecord = selectedId ? findRecord(category, selectedId) : null;
             const sectionSample = sectionRecord
-              ? buildCategorySample(sampleData, category, sectionRecord)
-              : sampleData;
+              ? buildCategorySample(globalSample, category, sectionRecord)
+              : buildCategorySample(globalSample, category, null);
 
             return (
               <Card key={category} data-testid={`card-category-${category}`}>
@@ -688,7 +1007,18 @@ export default function EmailPlaceholders() {
                           </Badge>
                         </button>
                       </CollapsibleTrigger>
-                      {showsPicker && (
+                      {showsPicker && category === "Due Diligence" && (
+                        <DueDiligencePicker
+                          selectedId={selectedId}
+                          selectedRecord={sectionRecord}
+                          loading={ddLoading}
+                          lookupError={ddLookupError}
+                          onPickResult={handleDdPickResult}
+                          onClear={handleDdClear}
+                          onLookup={handleDdLookup}
+                        />
+                      )}
+                      {showsPicker && category !== "Due Diligence" && (
                         <CategoryRecordPicker
                           category={category}
                           list={list}
