@@ -1483,26 +1483,28 @@ export default function EditEvent() {
           )}
         </div>
 
-        {isOnlineEvent && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
-            <div className="flex items-center gap-2 mb-2">
-              <Globe className="h-4 w-4 text-blue-600" />
-              <span className="font-medium text-blue-900">Online Event — Zoom Link</span>
-            </div>
-            {(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
-              <p className="text-sm text-blue-800 mb-3">
-                Linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. Date, time, and location are managed by Zoom and cannot be edited here.
-              </p>
-            ) : (
-              <p className="text-sm text-blue-800 mb-3">
-                This event is marked online but has no Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.
-              </p>
-            )}
+        {/* task-692: panel is always rendered (regardless of isOnlineEvent /
+            sync state) so admins can attach/change/detach Zoom at any time. */}
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
+          <div className="flex items-center gap-2 mb-2">
+            <Globe className="h-4 w-4 text-blue-600" />
+            <span className="font-medium text-blue-900">Zoom Link</span>
+          </div>
+          {(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
+            <p className="text-sm text-blue-800 mb-3">
+              Linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. Date, time, and location are managed by Zoom and cannot be edited here.
+            </p>
+          ) : isOnlineEvent ? (
+            <p className="text-sm text-blue-800 mb-3">
+              This event is marked online but has no Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.
+            </p>
+          ) : (
+            <p className="text-sm text-blue-800 mb-3">
+              No Zoom link attached. Attach one to convert this event to online and give confirmed attendees a join URL.
+            </p>
+          )}
 
-            {/* Always-on admin actions: attach when no Zoom is linked,
-                change/detach when one is. Available regardless of whether
-                the sync detector flagged the event as out-of-sync. */}
-            <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-3">
               {!(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
                 <Button
                   type="button"
@@ -1604,8 +1606,7 @@ export default function EditEvent() {
                 ) : null}
               </div>
             )}
-          </div>
-        )}
+        </div>
 
         <ChangeZoomDialog
           open={zoomLinkDialog.open}

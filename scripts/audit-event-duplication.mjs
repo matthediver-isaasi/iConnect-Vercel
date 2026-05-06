@@ -155,6 +155,37 @@ ok('Duplicate endpoints implement manual rollback');
   }
   // Inline Dialog from before task-692 must be gone.
   if (editEvent.includes('showChangeZoomDialog')) fail('EditEvent.jsx must not retain inline showChangeZoomDialog state');
+  // task-692 core requirement: the Zoom panel is ALWAYS rendered. It must
+  // not be wrapped in `{isOnlineEvent && (...)}`, `{zoomSyncStatus?.inSync ...}`,
+  // or any equivalent conditional. We check that the line opening the
+  // panel container (data-testid="panel-zoom-link-admin") is not preceded
+  // by an isOnlineEvent gate.
+  {
+    const panelIdx = editEvent.indexOf('data-testid="panel-zoom-link-admin"');
+    if (panelIdx < 0) fail('EditEvent.jsx missing panel-zoom-link-admin');
+    else {
+      const before = editEvent.slice(Math.max(0, panelIdx - 400), panelIdx);
+      if (/\{\s*isOnlineEvent\s*&&/.test(before)) {
+        fail('EditEvent.jsx: panel-zoom-link-admin must not be gated by isOnlineEvent (task-692)');
+      }
+      if (/\{\s*zoomSyncStatus[^}]*&&\s*$/.test(before)) {
+        fail('EditEvent.jsx: panel-zoom-link-admin must not be gated by zoomSyncStatus (task-692)');
+      }
+    }
+  }
+  // Same rule for the saved-session panel inside CreateComplexEvent: the
+  // panel must not be gated by sessionForm.is_online — admins should be
+  // able to attach Zoom to any saved session.
+  {
+    const panelIdx = createComplex.indexOf('data-testid="panel-session-zoom-link-admin"');
+    if (panelIdx < 0) fail('CreateComplexEvent.jsx missing panel-session-zoom-link-admin');
+    else {
+      const before = createComplex.slice(Math.max(0, panelIdx - 600), panelIdx);
+      if (/\{\s*sessionForm\.is_online\s*&&\s*\(\s*\)\s*=>/.test(before) || /\{\s*sessionForm\.is_online\s*&&\s*\(/.test(before)) {
+        fail('CreateComplexEvent.jsx: panel-session-zoom-link-admin must not be gated by sessionForm.is_online (task-692)');
+      }
+    }
+  }
   // The session bypass PATCH must strip Zoom resource cols.
   const bypassRe = /if \(session\.id\) \{[\s\S]{0,2000}?method:\s*['"]PATCH['"]/;
   const m = createComplex.match(bypassRe);

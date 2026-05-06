@@ -603,12 +603,7 @@ export default function CreateComplexEvent() {
   const [expandedTracks, setExpandedTracks] = useState({});
   const [sessions, setSessions] = useState([]);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
-  // Reusable change-zoom dialog for an existing session: { open, mode, sessionId }.
-  // The session edit dialog above renders an admin Zoom Link panel that opens
-  // this dialog so admins can attach/change/detach Zoom on a saved session via
-  // /api/complex-event-sessions/:id/change-zoom (which cancels old registrants
-  // + re-registers attendees), instead of editing zoom_*_id columns blindly
-  // through the bypass PATCH save loop. See task-692.
+  // task-692: change-zoom dialog for a saved session (attach/change/detach).
   const [sessionZoomDialog, setSessionZoomDialog] = useState({ open: false, mode: 'change', sessionId: null });
   const [editingSession, setEditingSession] = useState(null);
   const [sessionForm, setSessionForm] = useState({
@@ -1706,15 +1701,8 @@ export default function CreateComplexEvent() {
         }
 
         if (session.id) {
-          // task-692: never let the bypass PATCH mutate a saved session's
-          // actual Zoom resource columns. Any attach/change/detach for an
-          // existing session must go through
-          // /api/complex-event-sessions/:id/change-zoom (which cancels old
-          // registrants and re-registers attendees against the new Zoom).
-          // We strip the IDs/URLs here so confirmed bookings can never end
-          // up registered against a stale Zoom. Setup-mode flags
-          // (auto_create_zoom, zoom_link_mode, link_existing_zoom_id) are
-          // stripped too because they only apply at first-create time.
+          // task-692: strip Zoom resource cols + setup-mode flags from the
+          // bypass PATCH. Zoom changes go through change-zoom only.
           const {
             zoom_meeting_id: _zmi,
             zoom_webinar_id: _zwi,
@@ -4098,7 +4086,10 @@ export default function CreateComplexEvent() {
               </div>
             </div>
 
-            {sessionForm.is_online && (() => {
+            {(() => {
+              // task-692: always show the session Zoom panel for saved
+              // sessions (regardless of is_online) so admins can attach a
+              // Zoom link from any session that is being edited.
               const savedSession = sessions.find((s) => s._localId === editingSession);
               const savedSessionId = savedSession?.id || null;
               const hasZoom = !!(sessionForm.zoom_meeting_id || sessionForm.zoom_webinar_id);
@@ -4313,11 +4304,7 @@ export default function CreateComplexEvent() {
         </DialogContent>
       </Dialog>
 
-      {/* task-692: nested change-zoom dialog driven by the session admin panel
-          inside the session edit dialog. Hits
-          /api/complex-event-sessions/:id/change-zoom so confirmed registrants
-          are correctly cancelled/re-registered instead of orphaned by a raw
-          PATCH on zoom_*_id. */}
+      {/* task-692: session change-zoom dialog. */}
       <ChangeZoomDialog
         open={sessionZoomDialog.open}
         onOpenChange={(open) => setSessionZoomDialog((s) => ({ ...s, open }))}
@@ -4326,12 +4313,8 @@ export default function CreateComplexEvent() {
         targetLabel="session"
         initialType={sessionForm.zoom_meeting_id ? 'meeting' : 'webinar'}
         onSuccess={async () => {
-          // task-692 follow-up: never hard-reload. The page holds large
-          // amounts of unsaved editor state (tracks/sessions/tickets/details)
-          // and a reload would silently discard it. Instead, refetch the one
-          // session that change-zoom mutated, patch it into the local
-          // sessions array + the open sessionForm, and invalidate the
-          // sessions query so any background fetch sees the same data.
+          // task-692: refetch the mutated session and patch local state
+          // (avoid a hard reload which would drop unsaved editor state).
           const sid = sessionZoomDialog.sessionId;
           setSessionZoomDialog({ open: false, mode: 'change', sessionId: null });
           if (!sid) return;
