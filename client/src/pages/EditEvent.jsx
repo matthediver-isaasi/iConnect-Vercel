@@ -451,15 +451,11 @@ export default function EditEvent() {
   // They were intentionally set (or left blank) when created/edited
   // Only newly added tickets via addTicketClass will get the default
 
-  // Trim summary if it exceeds the limit when settings load or summary changes
-  useEffect(() => {
-    if (formData.summary && formData.summary.length > summaryMaxLength) {
-      setFormData(prev => ({
-        ...prev,
-        summary: prev.summary.slice(0, summaryMaxLength)
-      }));
-    }
-  }, [summaryMaxLength, formData.summary]);
+  // task-696: never silently truncate the loaded summary. The previous
+  // trim-on-load effect ran before SystemSettings resolved (default cap
+  // 150) and chopped the last N chars off any longer stored summary.
+  // The submit-time check + the counter highlight below make admins
+  // consciously shorten over-cap legacy values instead.
 
   useEffect(() => {
     if (!slug) {
@@ -1846,7 +1842,9 @@ export default function EditEvent() {
                   value={formData.summary}
                   onChange={(e) => {
                     const value = e.target.value;
-                    if (value.length <= summaryMaxLength) {
+                    // task-696: allow change if within cap OR if user is
+                    // shortening an over-cap legacy summary.
+                    if (value.length <= summaryMaxLength || value.length < formData.summary.length) {
                       handleInputChange('summary', value);
                     }
                   }}
@@ -1856,8 +1854,21 @@ export default function EditEvent() {
                   data-testid="input-summary"
                 />
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>Displayed on event cards and listings</span>
-                  <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-600' : ''}>
+                  <span>
+                    {formData.summary.length > summaryMaxLength
+                      ? `Please shorten to ${summaryMaxLength} characters before saving`
+                      : 'Displayed on event cards and listings'}
+                  </span>
+                  <span
+                    className={
+                      formData.summary.length > summaryMaxLength
+                        ? 'text-destructive font-medium'
+                        : formData.summary.length >= summaryMaxLength - 10
+                          ? 'text-amber-600'
+                          : ''
+                    }
+                    data-testid="text-summary-counter"
+                  >
                     {formData.summary.length}/{summaryMaxLength}
                   </span>
                 </div>
