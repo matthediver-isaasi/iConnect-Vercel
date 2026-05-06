@@ -32,11 +32,14 @@ export default function AdminBranding() {
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingHeaderLogo, setUploadingHeaderLogo] = useState(false);
+  const [uploadingSocialImage, setUploadingSocialImage] = useState(false);
+  const [socialImageDimWarning, setSocialImageDimWarning] = useState('');
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   
   const logoInputRef = useRef(null);
   const headerLogoInputRef = useRef(null);
+  const socialImageInputRef = useRef(null);
   
   const DEFAULT_GRADIENT_STOPS = [
     { color: '#FFFFFF', position: 0 },
@@ -329,6 +332,119 @@ export default function AdminBranding() {
       });
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const handleSocialImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingSocialImage(true);
+    setSocialImageDimWarning('');
+
+    // Read dimensions for non-blocking warning
+    try {
+      const dims = await new Promise((resolve, reject) => {
+        const img = new window.Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        };
+        img.onerror = (err) => {
+          URL.revokeObjectURL(url);
+          reject(err);
+        };
+        img.src = url;
+      });
+      const { width, height } = dims;
+      const widthOk = width >= 1100 && width <= 1300;
+      const heightOk = height >= 580 && height <= 680;
+      if (!widthOk || !heightOk) {
+        setSocialImageDimWarning(`Uploaded image is ${width}×${height}. The recommended size is 1200×630 for best link-preview results.`);
+      }
+    } catch (_dimErr) {
+      // ignore — proceed with upload regardless
+    }
+
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('folder', 'branding');
+
+    try {
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newUrl = data.file_url;
+        setFormData(prev => ({ ...prev, social_image_url: newUrl }));
+
+        const saveResponse = await fetch('/api/admin/tenant-branding', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ social_image_url: newUrl })
+        });
+
+        if (saveResponse.ok) {
+          toast({
+            title: "Social image saved",
+            description: "Your link-preview image has been uploaded and saved."
+          });
+        } else {
+          toast({
+            title: "Image uploaded",
+            description: "Image uploaded but not saved. Click Save to persist changes.",
+            variant: "warning"
+          });
+        }
+      } else {
+        throw new Error('Upload failed');
+      }
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload social image. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingSocialImage(false);
+      if (socialImageInputRef.current) socialImageInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveSocialImage = async () => {
+    setFormData(prev => ({ ...prev, social_image_url: '' }));
+    setSocialImageDimWarning('');
+    try {
+      const response = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ social_image_url: '' })
+      });
+      if (response.ok) {
+        toast({
+          title: "Social image removed",
+          description: "Your link-preview image has been removed."
+        });
+      } else {
+        toast({
+          title: "Image cleared locally",
+          description: "Removal not saved on the server. Click Save to persist changes.",
+          variant: "warning"
+        });
+      }
+    } catch (_err) {
+      toast({
+        title: "Image cleared locally",
+        description: "Removal not saved on the server. Click Save to persist changes.",
+        variant: "warning"
+      });
     }
   };
 
@@ -1240,16 +1356,81 @@ export default function AdminBranding() {
                 <p className="text-xs text-slate-500">Shown as the meta description and link-preview subtitle. Aim for under 160 characters.</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="social_image_url" className="text-slate-200">Social Image URL</Label>
-                <Input
-                  id="social_image_url"
-                  value={formData.social_image_url}
-                  onChange={(e) => setFormData({ ...formData, social_image_url: e.target.value })}
-                  className="bg-slate-900/50 border-slate-600 text-white"
-                  placeholder="https://… (1200×630 PNG/JPG)"
-                  data-testid="input-social-image-url"
-                />
-                <p className="text-xs text-slate-500">If empty, your logo is used as the link-preview image.</p>
+                <Label className="text-slate-200">Social Image</Label>
+                <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 bg-slate-900/50">
+                  {formData.social_image_url ? (
+                    <div className="flex items-center gap-4">
+                      <div className="bg-slate-700 rounded-lg p-2">
+                        <img
+                          src={formData.social_image_url}
+                          alt="Social share preview"
+                          className="h-24 w-auto object-contain"
+                          data-testid="img-social-image-preview"
+                        />
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => socialImageInputRef.current?.click()}
+                          disabled={uploadingSocialImage}
+                          className="border-slate-600 text-slate-300"
+                          data-testid="button-change-social-image"
+                        >
+                          {uploadingSocialImage ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          Change
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleRemoveSocialImage}
+                          data-testid="button-remove-social-image"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6">
+                      <Image className="w-12 h-12 mx-auto text-slate-500 mb-3" />
+                      <p className="text-slate-400 mb-3">No social image uploaded</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => socialImageInputRef.current?.click()}
+                        disabled={uploadingSocialImage}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-upload-social-image"
+                      >
+                        {uploadingSocialImage ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="w-4 h-4 mr-2" />
+                        )}
+                        Upload Social Image
+                      </Button>
+                    </div>
+                  )}
+                  <input
+                    ref={socialImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleSocialImageUpload}
+                    data-testid="input-social-image-file"
+                  />
+                </div>
+                {socialImageDimWarning ? (
+                  <p className="text-xs text-amber-400" data-testid="text-social-image-warning">{socialImageDimWarning}</p>
+                ) : null}
+                <p className="text-xs text-slate-500">Recommended size: 1200×630 PNG/JPG. If empty, your logo is used as the link-preview image.</p>
               </div>
             </CardContent>
           </Card>
