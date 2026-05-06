@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.js';
+import { resolveEntityMeta } from './entityMeta.js';
 
 let cachedTemplate = null;
 
@@ -165,15 +166,41 @@ export async function renderTenantHtml(req) {
     console.error('[renderHtml] tenant resolution failed:', err?.message);
   }
 
-  const ogUrl = buildOgUrl(req);
+  let ogUrl = buildOgUrl(req);
+
+  let entity = null;
+  if (tenant) {
+    try {
+      entity = await resolveEntityMeta(req, tenant);
+    } catch (err) {
+      console.error('[renderHtml] entity meta resolution failed:', err?.message);
+    }
+  }
+
+  const tenantSiteName = tenant?.name || DEFAULTS.siteName;
+  const tenantTitle = tenant?.name
+    ? (tenant.tagline ? `${tenant.name} — ${tenant.tagline}` : tenant.name)
+    : DEFAULTS.title;
+  const tenantDescription = tenant?.description || tenant?.tagline || DEFAULTS.description;
+  const tenantOgImage = makeAbsolute(tenant?.social_image_url || tenant?.logo_url, req) || DEFAULTS.ogImage;
+
+  // If we resolved an entity, override the canonical og:url so unfurl bots
+  // see a stable URL even when visiting alternate routes (e.g. /EventDetails?id=…).
+  if (entity?.canonicalPath) {
+    const host = getHostFromRequest(req) || 'iconn.app';
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    ogUrl = `${proto}://${host}${entity.canonicalPath}`;
+  }
+
+  const entityTitle = entity?.title
+    ? (tenant?.name ? `${entity.title} — ${tenant.name}` : entity.title)
+    : null;
 
   const values = {
-    siteName: tenant?.name || DEFAULTS.siteName,
-    title: tenant?.name
-      ? (tenant.tagline ? `${tenant.name} — ${tenant.tagline}` : tenant.name)
-      : DEFAULTS.title,
-    description: tenant?.description || tenant?.tagline || DEFAULTS.description,
-    ogImage: makeAbsolute(tenant?.social_image_url || tenant?.logo_url, req) || DEFAULTS.ogImage,
+    siteName: tenantSiteName,
+    title: entityTitle || tenantTitle,
+    description: entity?.description || tenantDescription,
+    ogImage: makeAbsolute(entity?.image, req) || tenantOgImage,
     ogUrl,
     favicon32: tenant?.favicon_url || DEFAULTS.favicon32,
     favicon192: tenant?.favicon_url || DEFAULTS.favicon192,
