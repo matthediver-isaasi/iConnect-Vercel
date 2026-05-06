@@ -469,7 +469,7 @@ async function resolveIEditPage(tenantId, slug) {
   // unfurl. Member-only pages stay private and fall back to tenant defaults.
   const { data: page } = await supabase
     .from('i_edit_page')
-    .select('id, title, slug, meta_title, meta_description, description, status, layout_type')
+    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type')
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('status', 'published')
@@ -477,9 +477,19 @@ async function resolveIEditPage(tenantId, slug) {
     .maybeSingle();
   if (!page) return null;
 
-  const title = page.meta_title || page.title || page.slug;
-  let description = page.meta_description || stripHtml(page.description) || '';
-  let image = null;
+  // task-711: explicit admin overrides win over auto-derived values.
+  // task-712: when overrides are blank, fall back to meta_*, then crawl
+  // the page's elements to lift a hero title/image/description.
+  const overrideTitle = page.seo_title?.trim() || null;
+  const overrideDescription = page.seo_description?.trim() || null;
+  const overrideImage = page.og_image_url?.trim() || null;
+
+  const title = overrideTitle || page.meta_title || page.title || page.slug;
+  let description = overrideDescription
+    || page.meta_description
+    || stripHtml(page.description)
+    || '';
+  let image = overrideImage;
 
   if (!description || !image) {
     const { data: elements } = await supabase
@@ -509,7 +519,7 @@ async function resolveIEditPage(tenantId, slug) {
 
   return {
     title,
-    description: truncate(description, 300),
+    description: description ? truncate(description, 300) : null,
     image: image || null,
     canonicalPath: `/${encodeURIComponent(page.slug)}`,
   };
@@ -730,6 +740,8 @@ export async function resolveEntityMeta(req, tenant) {
     // DynamicPage at top-level single-segment routes (`/:slug`). Try this
     // last so dedicated entity handlers above always win, but before the
     // list-route fallback so a tenant's own CMS page provides richer meta.
+    // Honors per-page seo_title/seo_description/og_image_url overrides
+    // (task-711) and falls back to element-derived content (task-712).
     const cmsMatch = pathname.match(/^\/([^/]+)\/?$/);
     if (cmsMatch) {
       const cmsSlug = decodeURIComponent(cmsMatch[1]);
