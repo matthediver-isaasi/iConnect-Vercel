@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle, Send } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit, Clock, Users, Ticket, Pencil, Trash2, UsersRound, List, Star, ArrowUpDown, Download, Upload, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, AlertCircle, Send, Copy } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -1661,6 +1661,37 @@ export default function EventsPage({
                                       >
                                         <UsersRound className="w-4 h-4 mr-1" />
                                         Attendees
+                                      </Button>
+                                    )}
+                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try {
+                                            const resp = await fetch(`/api/complex-events/${event.id}/duplicate`, {
+                                              method: 'POST',
+                                              credentials: 'include',
+                                              headers: { 'Content-Type': 'application/json' },
+                                            });
+                                            if (!resp.ok) {
+                                              const err = await resp.json().catch(() => ({}));
+                                              throw new Error(err.error || 'Duplicate failed');
+                                            }
+                                            const data = await resp.json();
+                                            toast.success('Complex event duplicated as draft');
+                                            queryClient.invalidateQueries({ queryKey: ['complex-events'] });
+                                            window.location.href = createPageUrl('CreateComplexEvent') + '?id=' + data.id;
+                                          } catch (err) {
+                                            toast.error('Duplicate failed: ' + err.message);
+                                          }
+                                        }}
+                                        className="flex-1"
+                                        data-testid={`button-duplicate-complex-event-${event.id}`}
+                                      >
+                                        <Copy className="w-4 h-4 mr-1" />
+                                        Duplicate
                                       </Button>
                                     )}
                                     {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (

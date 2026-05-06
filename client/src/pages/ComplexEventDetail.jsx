@@ -13,7 +13,7 @@ import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
   Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown, ChevronUp,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Copy
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
@@ -411,7 +411,161 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
   );
 }
 
-function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMap, eventImageUrl, eventImageFocalPoint }) {
+function ChangeSessionZoomDialog({ session, open, onOpenChange }) {
+  const [type, setType] = useState(session?.zoom_meeting_id ? 'meeting' : 'webinar');
+  const [targetId, setTargetId] = useState('');
+  const [cancelOld, setCancelOld] = useState(true);
+  const [registerNew, setRegisterNew] = useState(true);
+  const [resend, setResend] = useState(true);
+  const [convertToInPerson, setConvertToInPerson] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [impactCount, setImpactCount] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setType(session?.zoom_meeting_id ? 'meeting' : 'webinar');
+    setTargetId('');
+    setConvertToInPerson(false);
+    setImpactCount(null);
+    if (session?.id) {
+      fetch(`/api/complex-event-sessions/${session.id}/change-zoom`, { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => setImpactCount(d?.confirmedBookings ?? null))
+        .catch(() => setImpactCount(null));
+    }
+  }, [open, session?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoadingItems(true);
+    fetch(`/api/zoom/${type === 'meeting' ? 'meetings' : 'webinars'}`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setItems(Array.isArray(d) ? d : (d?.data || [])))
+      .catch(() => setItems([]))
+      .finally(() => setLoadingItems(false));
+  }, [open, type]);
+
+  const submit = async (clearOnly = false) => {
+    if (!session) return;
+    if (!clearOnly && !targetId) {
+      toast.error(`Please select a ${type}`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const body = {
+        zoom_webinar_id: clearOnly ? null : (type === 'webinar' ? targetId : null),
+        zoom_meeting_id: clearOnly ? null : (type === 'meeting' ? targetId : null),
+        cancelOld,
+        registerNew: clearOnly ? false : registerNew,
+        resendConfirmations: clearOnly ? false : resend,
+        convert_to_in_person: clearOnly ? convertToInPerson : false,
+      };
+      const resp = await fetch(`/api/complex-event-sessions/${session.id}/change-zoom`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Change Zoom failed');
+      }
+      const result = await resp.json();
+      toast.success(`Zoom updated. Cancelled ${result.cancelled || 0}, registered ${result.registered || 0}, emailed ${result.emailed || 0}.`);
+      onOpenChange(false);
+      window.location.reload();
+    } catch (err) {
+      toast.error('Failed: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!session) return null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg" data-testid={`dialog-change-session-zoom-${session.id}`}>
+        <DialogHeader>
+          <DialogTitle>Change Session Zoom Link</DialogTitle>
+          <DialogDescription>
+            Re-link this session to a different Zoom {type}. Confirmed bookings whose ticket grants access to this session can be cancelled, re-registered, and re-emailed.
+            {impactCount !== null && (
+              <span className="block mt-2 font-medium text-slate-900" data-testid="text-session-zoom-impact">
+                Impact: {impactCount} confirmed booking{impactCount === 1 ? '' : 's'} would be affected.
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label className="mb-2 block">Type</Label>
+            <div className="flex gap-2">
+              <Button type="button" variant={type === 'webinar' ? 'default' : 'outline'} size="sm" onClick={() => { setType('webinar'); setTargetId(''); }} data-testid="button-session-zoom-type-webinar">Webinar</Button>
+              <Button type="button" variant={type === 'meeting' ? 'default' : 'outline'} size="sm" onClick={() => { setType('meeting'); setTargetId(''); }} data-testid="button-session-zoom-type-meeting">Meeting</Button>
+            </div>
+          </div>
+          <div>
+            <Label className="mb-2 block">Target {type}</Label>
+            <select
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+              className="w-full p-2 border rounded-md text-sm"
+              data-testid="select-session-zoom-target"
+            >
+              <option value="">{loadingItems ? 'Loading…' : `Select a ${type}`}</option>
+              {items.map(it => (
+                <option key={it.id} value={it.id}>{it.topic || it.title || it.id}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2 pt-2 border-t">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={cancelOld} onCheckedChange={(v) => setCancelOld(!!v)} data-testid="checkbox-session-zoom-cancel-old" />
+              Cancel previous Zoom registrants
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={registerNew} onCheckedChange={(v) => setRegisterNew(!!v)} data-testid="checkbox-session-zoom-register-new" />
+              Register confirmed attendees with new Zoom
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={resend} onCheckedChange={(v) => setResend(!!v)} data-testid="checkbox-session-zoom-resend" />
+              Resend confirmation emails with new join link
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer pt-1 border-t">
+              <Checkbox checked={convertToInPerson} onCheckedChange={(v) => setConvertToInPerson(!!v)} data-testid="checkbox-session-zoom-convert-in-person" />
+              When clearing Zoom: also convert this session to In-Person (delivery_mode)
+            </label>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} data-testid="button-session-zoom-cancel">Cancel</Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              const msg = convertToInPerson
+                ? 'Clear Zoom link AND convert session to In-Person?'
+                : 'Clear Zoom link from this session? It will remain Online with no join link until you set one.';
+              if (confirm(msg)) submit(true);
+            }}
+            disabled={submitting}
+            data-testid="button-session-zoom-clear"
+          >
+            Clear Zoom Link
+          </Button>
+          <Button type="button" onClick={() => submit(false)} disabled={submitting || !targetId} data-testid="button-session-zoom-confirm">
+            {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</>) : 'Update Zoom Link'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMap, eventImageUrl, eventImageFocalPoint, isAdmin }) {
+  const [showChangeZoom, setShowChangeZoom] = useState(false);
   const sessionSpeakers = useMemo(() => {
     if (session?.speaker_ids?.length) {
       return session.speaker_ids.map(id => speakerMap[id]).filter(Boolean);
@@ -530,13 +684,36 @@ function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMa
               <span>{fallbackSpeakerNames.join(", ")}</span>
             </div>
           )}
+
+          {isAdmin && (
+            <div className="pt-3 border-t flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {session.zoom_webinar_id || session.zoom_meeting_id
+                  ? `Linked to Zoom ${session.zoom_type || (session.zoom_webinar_id ? 'webinar' : 'meeting')}`
+                  : 'No Zoom link assigned'}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowChangeZoom(true)}
+                data-testid={`button-session-change-zoom-${session.id}`}
+              >
+                <Video className="w-4 h-4 mr-1.5" />
+                Change Zoom Link
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
+      {isAdmin && (
+        <ChangeSessionZoomDialog session={session} open={showChangeZoom} onOpenChange={setShowChangeZoom} />
+      )}
     </Dialog>
   );
 }
 
-function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl, eventImageFocalPoint }) {
+function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl, eventImageFocalPoint, isAdmin }) {
   const scrollRef = useRef(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
@@ -610,6 +787,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
         speakerMap={speakerMap}
         eventImageUrl={eventImageUrl}
         eventImageFocalPoint={eventImageFocalPoint}
+        isAdmin={isAdmin}
       />
     </div>
   );
@@ -1474,7 +1652,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 }
 
 export default function ComplexEventDetail() {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isAdmin } = useMemberAccess();
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
   const [cart, setCart] = useState({});
@@ -1727,11 +1905,39 @@ export default function ComplexEventDetail() {
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 gap-2 flex-wrap">
           <Link to="/events" className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to Events
           </Link>
+          {memberInfo && event?.id && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const resp = await fetch(`/api/complex-events/${event.id}/duplicate`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                  });
+                  if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || 'Duplicate failed');
+                  }
+                  const data = await resp.json();
+                  toast.success('Event duplicated as draft');
+                  window.location.href = `/CreateComplexEvent?id=${data.id}`;
+                } catch (err) {
+                  toast.error('Duplicate failed: ' + err.message);
+                }
+              }}
+              data-testid={`button-duplicate-complex-event-detail-${event.id}`}
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Duplicate Event
+            </Button>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8 lg:items-start">
@@ -1874,6 +2080,7 @@ export default function ComplexEventDetail() {
                     speakerMap={speakerMap}
                     eventImageUrl={event?.image_url}
                     eventImageFocalPoint={event?.image_focal_point}
+                    isAdmin={isAdmin}
                   />
                 </CardContent>
               </Card>

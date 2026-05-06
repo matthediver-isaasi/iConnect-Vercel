@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus } from "lucide-react";
+import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle, Send, Plus, Copy } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { parseEventTypes } from "@/lib/utils";
@@ -844,6 +844,37 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   >
                     <UsersRound className="w-4 h-4 mr-1" />
                     Attendees
+                  </Button>
+                )}
+                {!isFeatureExcluded?.('events.browse-events.create') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const resp = await fetch(`/api/events/${event.id}/duplicate`, {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                        });
+                        if (!resp.ok) {
+                          const err = await resp.json().catch(() => ({}));
+                          throw new Error(err.error || 'Duplicate failed');
+                        }
+                        const data = await resp.json();
+                        toast.success('Event duplicated as draft');
+                        queryClient.invalidateQueries({ queryKey: ['events'] });
+                        window.location.href = createPageUrl('EditEvent') + '?id=' + data.id;
+                      } catch (err) {
+                        toast.error('Duplicate failed: ' + err.message);
+                      }
+                    }}
+                    className="flex-1"
+                    data-testid={`button-duplicate-event-${event.id}`}
+                  >
+                    <Copy className="w-4 h-4 mr-1" />
+                    Duplicate
                   </Button>
                 )}
                 {!isFeatureExcluded?.('events.browse-events.create') && (
