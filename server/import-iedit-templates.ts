@@ -366,6 +366,20 @@ const templates = [
     display_order: 104
   },
   {
+    id: 'gallery_template',
+    name: 'Photo Gallery',
+    element_type: 'gallery',
+    description:
+      'Display photo galleries as cards with a lightbox viewer. Public galleries appear for everyone; members-only galleries require login.',
+    icon: 'Image',
+    category: 'media',
+    default_content: { heading: '', gallery_ids: [], columns: 3 },
+    available_variants: ["default"],
+    content_schema: {},
+    is_active: true,
+    display_order: 103
+  },
+  {
     id: 'card_deck_template',
     name: 'Card Deck',
     element_type: 'card_deck',
