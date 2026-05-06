@@ -139,6 +139,41 @@ const dupComplex2 = fs.readFileSync(path.join(REPO_ROOT, 'api/complex-events/[id
 if (!/function rollback|rolling back/i.test(dupComplex2)) fail('Complex duplicate must implement rollback');
 ok('Duplicate endpoints implement manual rollback');
 
+// task-692: ChangeZoomDialog must be the sole change-zoom UI for both single
+// events and complex-event sessions, and the bypass PATCH that
+// CreateComplexEvent uses to update saved sessions must NEVER write Zoom
+// resource columns directly (those go through change-zoom which cancels old
+// registrants + re-registers attendees).
+{
+  const editEvent = fs.readFileSync(path.join(REPO_ROOT, 'client/src/pages/EditEvent.jsx'), 'utf8');
+  const createComplex = fs.readFileSync(path.join(REPO_ROOT, 'client/src/pages/CreateComplexEvent.jsx'), 'utf8');
+  if (!editEvent.includes('ChangeZoomDialog')) fail('EditEvent.jsx must use ChangeZoomDialog');
+  if (!createComplex.includes('ChangeZoomDialog')) fail('CreateComplexEvent.jsx must use ChangeZoomDialog');
+  // The single-event panel must expose all three modes.
+  for (const t of ['button-attach-zoom-link', 'button-change-zoom-link', 'button-detach-zoom-link']) {
+    if (!editEvent.includes(t)) fail(`EditEvent.jsx missing data-testid: ${t}`);
+  }
+  // Inline Dialog from before task-692 must be gone.
+  if (editEvent.includes('showChangeZoomDialog')) fail('EditEvent.jsx must not retain inline showChangeZoomDialog state');
+  // The session bypass PATCH must strip Zoom resource cols.
+  const bypassRe = /if \(session\.id\) \{[\s\S]{0,2000}?method:\s*['"]PATCH['"]/;
+  const m = createComplex.match(bypassRe);
+  if (!m) {
+    fail('CreateComplexEvent.jsx: cannot locate session bypass PATCH branch');
+  } else {
+    const slice = m[0];
+    for (const col of [
+      'zoom_meeting_id', 'zoom_webinar_id',
+      'zoom_join_url', 'zoom_start_url', 'zoom_registration_url',
+      'auto_create_zoom', 'zoom_link_mode', 'link_existing_zoom_id',
+    ]) {
+      if (!slice.includes(col)) fail(`CreateComplexEvent.jsx bypass PATCH must strip ${col} before sending`);
+    }
+    if (!slice.includes('patchPayload')) fail('CreateComplexEvent.jsx bypass PATCH must rebuild a patchPayload without Zoom cols');
+  }
+  ok('EditEvent + CreateComplexEvent route Zoom changes through ChangeZoomDialog and strip Zoom cols from bypass PATCH');
+}
+
 // Static check: history_log migration exists
 const histMig = path.join(REPO_ROOT, 'supabase/migrations/20260506_add_event_history_log.sql');
 if (!fs.existsSync(histMig)) fail('Missing migration: 20260506_add_event_history_log.sql');

@@ -31,6 +31,7 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
+import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -602,6 +603,13 @@ export default function CreateComplexEvent() {
   const [expandedTracks, setExpandedTracks] = useState({});
   const [sessions, setSessions] = useState([]);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  // Reusable change-zoom dialog for an existing session: { open, mode, sessionId }.
+  // The session edit dialog above renders an admin Zoom Link panel that opens
+  // this dialog so admins can attach/change/detach Zoom on a saved session via
+  // /api/complex-event-sessions/:id/change-zoom (which cancels old registrants
+  // + re-registers attendees), instead of editing zoom_*_id columns blindly
+  // through the bypass PATCH save loop. See task-692.
+  const [sessionZoomDialog, setSessionZoomDialog] = useState({ open: false, mode: 'change', sessionId: null });
   const [editingSession, setEditingSession] = useState(null);
   const [sessionForm, setSessionForm] = useState({
     title: "",
@@ -1698,11 +1706,31 @@ export default function CreateComplexEvent() {
         }
 
         if (session.id) {
+          // task-692: never let the bypass PATCH mutate a saved session's
+          // actual Zoom resource columns. Any attach/change/detach for an
+          // existing session must go through
+          // /api/complex-event-sessions/:id/change-zoom (which cancels old
+          // registrants and re-registers attendees against the new Zoom).
+          // We strip the IDs/URLs here so confirmed bookings can never end
+          // up registered against a stale Zoom. Setup-mode flags
+          // (auto_create_zoom, zoom_link_mode, link_existing_zoom_id) are
+          // stripped too because they only apply at first-create time.
+          const {
+            zoom_meeting_id: _zmi,
+            zoom_webinar_id: _zwi,
+            zoom_join_url: _zju,
+            zoom_start_url: _zsu,
+            zoom_registration_url: _zru,
+            auto_create_zoom: _ac,
+            zoom_link_mode: _zlm,
+            link_existing_zoom_id: _lez,
+            ...patchPayload
+          } = sessionPayload;
           const resp = await fetch(`/api/complex-event-sessions/${session.id}?skipOverlapCheck=true`, {
             method: 'PATCH',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(sessionPayload),
+            body: JSON.stringify(patchPayload),
           });
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
@@ -4070,6 +4098,63 @@ export default function CreateComplexEvent() {
               </div>
             </div>
 
+            {sessionForm.is_online && (() => {
+              const savedSession = sessions.find((s) => s._localId === editingSession);
+              const savedSessionId = savedSession?.id || null;
+              const hasZoom = !!(sessionForm.zoom_meeting_id || sessionForm.zoom_webinar_id);
+              if (!savedSessionId) return null;
+              return (
+                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-session-zoom-link-admin">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Globe className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium text-blue-900 text-sm">Session Zoom Link</span>
+                  </div>
+                  <p className="text-xs text-blue-800 mb-3">
+                    {hasZoom
+                      ? `Linked to a Zoom ${sessionForm.zoom_meeting_id ? 'meeting' : 'webinar'}. Use Change/Detach to safely re-route confirmed registrants.`
+                      : 'No Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {!hasZoom ? (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={() => setSessionZoomDialog({ open: true, mode: 'attach', sessionId: savedSessionId })}
+                        data-testid={`button-attach-session-zoom-${savedSessionId}`}
+                      >
+                        <Video className="h-4 w-4 mr-2" />
+                        Attach Zoom Link
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSessionZoomDialog({ open: true, mode: 'change', sessionId: savedSessionId })}
+                          data-testid={`button-change-session-zoom-${savedSessionId}`}
+                        >
+                          <Video className="h-4 w-4 mr-2" />
+                          Change Zoom Link
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSessionZoomDialog({ open: true, mode: 'detach', sessionId: savedSessionId })}
+                          data-testid={`button-detach-session-zoom-${savedSessionId}`}
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Detach Zoom Link
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {sessionForm.is_online && (
               <ZoomSessionConfig
                 zoomType={sessionForm.zoom_type}
@@ -4227,6 +4312,55 @@ export default function CreateComplexEvent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* task-692: nested change-zoom dialog driven by the session admin panel
+          inside the session edit dialog. Hits
+          /api/complex-event-sessions/:id/change-zoom so confirmed registrants
+          are correctly cancelled/re-registered instead of orphaned by a raw
+          PATCH on zoom_*_id. */}
+      <ChangeZoomDialog
+        open={sessionZoomDialog.open}
+        onOpenChange={(open) => setSessionZoomDialog((s) => ({ ...s, open }))}
+        endpointBase={sessionZoomDialog.sessionId ? `/api/complex-event-sessions/${sessionZoomDialog.sessionId}` : ''}
+        mode={sessionZoomDialog.mode}
+        targetLabel="session"
+        initialType={sessionForm.zoom_meeting_id ? 'meeting' : 'webinar'}
+        onSuccess={async () => {
+          // task-692 follow-up: never hard-reload. The page holds large
+          // amounts of unsaved editor state (tracks/sessions/tickets/details)
+          // and a reload would silently discard it. Instead, refetch the one
+          // session that change-zoom mutated, patch it into the local
+          // sessions array + the open sessionForm, and invalidate the
+          // sessions query so any background fetch sees the same data.
+          const sid = sessionZoomDialog.sessionId;
+          setSessionZoomDialog({ open: false, mode: 'change', sessionId: null });
+          if (!sid) return;
+          try {
+            const resp = await fetch(`/api/complex-event-sessions/${sid}`, { credentials: 'include' });
+            if (resp.ok) {
+              const fresh = await resp.json();
+              setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...fresh } : s)));
+              setSessionForm((prev) => {
+                const stillEditingThis = sessions.find((s) => s._localId === editingSession)?.id === sid;
+                if (!stillEditingThis) return prev;
+                return {
+                  ...prev,
+                  zoom_meeting_id: fresh.zoom_meeting_id ?? null,
+                  zoom_webinar_id: fresh.zoom_webinar_id ?? null,
+                  zoom_join_url: fresh.zoom_join_url ?? null,
+                  zoom_start_url: fresh.zoom_start_url ?? null,
+                  zoom_registration_url: fresh.zoom_registration_url ?? null,
+                  start_time: fresh.start_time ?? prev.start_time,
+                  duration_minutes: fresh.duration_minutes ?? prev.duration_minutes,
+                };
+              });
+            }
+          } catch (err) {
+            console.warn('[CreateComplexEvent] failed to refetch session after change-zoom', err);
+          }
+          queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
+        }}
+      />
       </div>
     </div>
   );

@@ -53,6 +53,7 @@ import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
@@ -132,17 +133,11 @@ export default function EditEvent() {
   
   // Event timezone (fetched from Zoom record or default)
   const [eventTimezone, setEventTimezone] = useState('Europe/London');
-  const [showChangeZoomDialog, setShowChangeZoomDialog] = useState(false);
-  const [changeZoomType, setChangeZoomType] = useState('webinar');
-  const [changeZoomTargetId, setChangeZoomTargetId] = useState('');
-  const [changeZoomCancelOld, setChangeZoomCancelOld] = useState(true);
-  const [changeZoomRegisterNew, setChangeZoomRegisterNew] = useState(true);
-  const [changeZoomResendEmails, setChangeZoomResendEmails] = useState(true);
-  const [changeZoomConvertInPerson, setChangeZoomConvertInPerson] = useState(false);
-  const [changeZoomImpactCount, setChangeZoomImpactCount] = useState(null);
-  const [changeZoomSubmitting, setChangeZoomSubmitting] = useState(false);
-  const [availableZoomItems, setAvailableZoomItems] = useState([]);
-  const [loadingZoomItems, setLoadingZoomItems] = useState(false);
+  // Reusable change-zoom dialog: { open, mode } — see ChangeZoomDialog.
+  // mode is 'attach' | 'change' | 'detach'. Triggered from the always-on
+  // Zoom Link admin panel below so admins can edit Zoom at any time, not
+  // just when the event is detected as out-of-sync.
+  const [zoomLinkDialog, setZoomLinkDialog] = useState({ open: false, mode: 'change' });
   
   // Event timing: published or tbc - affects date requirements
   const [eventTiming, setEventTiming] = useState("published");
@@ -1489,79 +1484,43 @@ export default function EditEvent() {
         </div>
 
         {isOnlineEvent && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
             <div className="flex items-center gap-2 mb-2">
               <Globe className="h-4 w-4 text-blue-600" />
-              <span className="font-medium text-blue-900">Online Event</span>
+              <span className="font-medium text-blue-900">Online Event — Zoom Link</span>
             </div>
-            <p className="text-sm text-blue-800 mb-3">
-              This is an online event linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. The date, time, and location fields are managed by Zoom and cannot be edited here.
-            </p>
-            
-            {/* Zoom Sync Status */}
-            <div className="mt-3 pt-3 border-t border-blue-200">
-              {checkingSyncStatus ? (
-                <div className="flex items-center gap-2 text-sm text-blue-700">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Checking sync status with Zoom...</span>
-                </div>
-              ) : zoomSyncStatus?.error ? (
-                <div className="flex items-center gap-2 text-sm text-red-700">
-                  <X className="h-4 w-4" />
-                  <span>{zoomSyncStatus.error}</span>
-                </div>
-              ) : zoomSyncStatus?.inSync === true ? (
-                <div className="flex items-center gap-2 text-sm text-green-700">
-                  <Check className="h-4 w-4" />
-                  <span>In sync with Zoom</span>
-                  {zoomSyncStatus.zoomTopic && (
-                    <span className="text-green-600">({zoomSyncStatus.zoomTopic})</span>
-                  )}
-                </div>
-              ) : zoomSyncStatus?.inSync === false ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-amber-700">
-                    <Bell className="h-4 w-4" />
-                    <span className="font-medium">Out of sync with Zoom</span>
-                  </div>
-                  {zoomSyncStatus.differences?.start?.zoom && (
-                    <div className="text-xs text-amber-600 ml-6">
-                      Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'}, 
-                      Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
-                    </div>
-                  )}
-                  {zoomSyncStatus.differences?.end?.zoom && (
-                    <div className="text-xs text-amber-600 ml-6">
-                      End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'}, 
-                      Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
-                    </div>
-                  )}
+            {(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
+              <p className="text-sm text-blue-800 mb-3">
+                Linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. Date, time, and location are managed by Zoom and cannot be edited here.
+              </p>
+            ) : (
+              <p className="text-sm text-blue-800 mb-3">
+                This event is marked online but has no Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.
+              </p>
+            )}
+
+            {/* Always-on admin actions: attach when no Zoom is linked,
+                change/detach when one is. Available regardless of whether
+                the sync detector flagged the event as out-of-sync. */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {!(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => setZoomLinkDialog({ open: true, mode: 'attach' })}
+                  data-testid="button-attach-zoom-link"
+                >
+                  <Video className="h-4 w-4 mr-2" />
+                  Attach Zoom Link
+                </Button>
+              ) : (
+                <>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      const isMeeting = !!formData.zoom_meeting_id;
-                      setChangeZoomType(isMeeting ? 'meeting' : 'webinar');
-                      setChangeZoomTargetId('');
-                      setChangeZoomCancelOld(true);
-                      setChangeZoomRegisterNew(true);
-                      setChangeZoomResendEmails(true);
-                      setChangeZoomConvertInPerson(false);
-                      setChangeZoomImpactCount(null);
-                      fetch(`/api/events/${eventId}/change-zoom`, { credentials: 'include' })
-                        .then(r => r.ok ? r.json() : null)
-                        .then(d => setChangeZoomImpactCount(d?.confirmedBookings ?? null))
-                        .catch(() => setChangeZoomImpactCount(null));
-                      setShowChangeZoomDialog(true);
-                      setLoadingZoomItems(true);
-                      fetch(`/api/zoom/${isMeeting ? 'meetings' : 'webinars'}`, { credentials: 'include' })
-                        .then(r => r.json())
-                        .then(d => setAvailableZoomItems(Array.isArray(d) ? d : (d?.data || [])))
-                        .catch(() => setAvailableZoomItems([]))
-                        .finally(() => setLoadingZoomItems(false));
-                    }}
-                    className="ml-6 mt-2 mr-2"
+                    onClick={() => setZoomLinkDialog({ open: true, mode: 'change' })}
                     data-testid="button-change-zoom-link"
                   >
                     <Video className="h-4 w-4 mr-2" />
@@ -1571,223 +1530,95 @@ export default function EditEvent() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={syncFromZoom}
-                    disabled={syncingFromZoom}
-                    className="mt-2"
-                    data-testid="button-sync-from-zoom"
+                    onClick={() => setZoomLinkDialog({ open: true, mode: 'detach' })}
+                    data-testid="button-detach-zoom-link"
                   >
-                    {syncingFromZoom ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Syncing...
-                      </>
-                    ) : (
-                      <>
-                        <Video className="h-4 w-4 mr-2" />
-                        Sync from Zoom
-                      </>
-                    )}
+                    <X className="h-4 w-4 mr-2" />
+                    Detach Zoom Link
                   </Button>
-                </div>
-              ) : null}
+                </>
+              )}
             </div>
+
+            {/* Zoom Sync Status (only meaningful when Zoom is attached) */}
+            {(formData.zoom_meeting_id || formData.zoom_webinar_id) && (
+              <div className="mt-3 pt-3 border-t border-blue-200">
+                {checkingSyncStatus ? (
+                  <div className="flex items-center gap-2 text-sm text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Checking sync status with Zoom...</span>
+                  </div>
+                ) : zoomSyncStatus?.error ? (
+                  <div className="flex items-center gap-2 text-sm text-red-700">
+                    <X className="h-4 w-4" />
+                    <span>{zoomSyncStatus.error}</span>
+                  </div>
+                ) : zoomSyncStatus?.inSync === true ? (
+                  <div className="flex items-center gap-2 text-sm text-green-700">
+                    <Check className="h-4 w-4" />
+                    <span>In sync with Zoom</span>
+                    {zoomSyncStatus.zoomTopic && (
+                      <span className="text-green-600">({zoomSyncStatus.zoomTopic})</span>
+                    )}
+                  </div>
+                ) : zoomSyncStatus?.inSync === false ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-amber-700">
+                      <Bell className="h-4 w-4" />
+                      <span className="font-medium">Out of sync with Zoom</span>
+                    </div>
+                    {zoomSyncStatus.differences?.start?.zoom && (
+                      <div className="text-xs text-amber-600 ml-6">
+                        Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
+                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
+                      </div>
+                    )}
+                    {zoomSyncStatus.differences?.end?.zoom && (
+                      <div className="text-xs text-amber-600 ml-6">
+                        End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
+                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={syncFromZoom}
+                      disabled={syncingFromZoom}
+                      className="mt-2"
+                      data-testid="button-sync-from-zoom"
+                    >
+                      {syncingFromZoom ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <Video className="h-4 w-4 mr-2" />
+                          Sync from Zoom
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
 
-        <Dialog open={showChangeZoomDialog} onOpenChange={setShowChangeZoomDialog}>
-          <DialogContent className="max-w-lg" data-testid="dialog-change-zoom">
-            <DialogHeader>
-              <DialogTitle>Change Zoom Link</DialogTitle>
-              <DialogDescription>
-                Switch this event to a different Zoom {changeZoomType}. Existing confirmed bookings can be cancelled from the previous Zoom and re-registered against the new one.
-                {changeZoomImpactCount !== null && (
-                  <span className="block mt-2 font-medium text-foreground" data-testid="text-change-zoom-impact">
-                    Impact: {changeZoomImpactCount} confirmed booking{changeZoomImpactCount === 1 ? '' : 's'} would be affected.
-                  </span>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <Label className="mb-2 block">Type</Label>
-                <RadioGroup
-                  value={changeZoomType}
-                  onValueChange={(v) => {
-                    setChangeZoomType(v);
-                    setChangeZoomTargetId('');
-                    setLoadingZoomItems(true);
-                    fetch(`/api/zoom/${v === 'meeting' ? 'meetings' : 'webinars'}`, { credentials: 'include' })
-                      .then(r => r.json())
-                      .then(d => setAvailableZoomItems(Array.isArray(d) ? d : (d?.data || [])))
-                      .catch(() => setAvailableZoomItems([]))
-                      .finally(() => setLoadingZoomItems(false));
-                  }}
-                  className="grid grid-cols-2 gap-2"
-                >
-                  <div className="flex items-center space-x-2 p-2 rounded-md border">
-                    <RadioGroupItem value="webinar" id="cz-webinar" data-testid="radio-change-zoom-webinar" />
-                    <Label htmlFor="cz-webinar" className="cursor-pointer">Webinar</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 p-2 rounded-md border">
-                    <RadioGroupItem value="meeting" id="cz-meeting" data-testid="radio-change-zoom-meeting" />
-                    <Label htmlFor="cz-meeting" className="cursor-pointer">Meeting</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-              <div>
-                <Label className="mb-2 block">Target {changeZoomType}</Label>
-                <Select value={changeZoomTargetId} onValueChange={setChangeZoomTargetId}>
-                  <SelectTrigger data-testid="select-change-zoom-target">
-                    <SelectValue placeholder={loadingZoomItems ? 'Loading…' : `Select a ${changeZoomType}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableZoomItems.map((it) => (
-                      <SelectItem key={it.id} value={it.id} data-testid={`option-zoom-${it.id}`}>
-                        {it.topic || it.title || it.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 pt-2 border-t">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="cz-cancel-old"
-                    checked={changeZoomCancelOld}
-                    onCheckedChange={(v) => setChangeZoomCancelOld(!!v)}
-                    data-testid="checkbox-change-zoom-cancel-old"
-                  />
-                  <Label htmlFor="cz-cancel-old" className="cursor-pointer text-sm">Cancel previous Zoom registrants</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="cz-register-new"
-                    checked={changeZoomRegisterNew}
-                    onCheckedChange={(v) => setChangeZoomRegisterNew(!!v)}
-                    data-testid="checkbox-change-zoom-register-new"
-                  />
-                  <Label htmlFor="cz-register-new" className="cursor-pointer text-sm">Register confirmed attendees with new Zoom</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="cz-resend"
-                    checked={changeZoomResendEmails}
-                    onCheckedChange={(v) => setChangeZoomResendEmails(!!v)}
-                    data-testid="checkbox-change-zoom-resend"
-                  />
-                  <Label htmlFor="cz-resend" className="cursor-pointer text-sm">Resend confirmation emails with new join link</Label>
-                </div>
-                <div className="flex items-center space-x-2 pt-2 border-t">
-                  <Checkbox
-                    id="cz-convert-in-person"
-                    checked={changeZoomConvertInPerson}
-                    onCheckedChange={(v) => setChangeZoomConvertInPerson(!!v)}
-                    data-testid="checkbox-change-zoom-convert-in-person"
-                  />
-                  <Label htmlFor="cz-convert-in-person" className="cursor-pointer text-sm">When clearing Zoom: also convert this event to In-Person (is_online = false)</Label>
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowChangeZoomDialog(false)}
-                disabled={changeZoomSubmitting}
-                data-testid="button-change-zoom-cancel"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={async () => {
-                  const msg = changeZoomConvertInPerson
-                    ? 'Clear the Zoom link AND convert this event to In-Person? Existing registrants can be cancelled.'
-                    : 'Clear the Zoom link from this event? It will remain Online with no join link until you set one. Existing registrants can be cancelled.';
-                  if (!confirm(msg)) return;
-                  setChangeZoomSubmitting(true);
-                  try {
-                    const body = {
-                      zoom_webinar_id: null,
-                      zoom_meeting_id: null,
-                      cancelOld: changeZoomCancelOld,
-                      registerNew: false,
-                      resendConfirmations: false,
-                      convert_to_in_person: changeZoomConvertInPerson,
-                    };
-                    const resp = await fetch(`/api/events/${eventId}/change-zoom`, {
-                      method: 'POST', credentials: 'include',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(body),
-                    });
-                    if (!resp.ok) {
-                      const err = await resp.json().catch(() => ({}));
-                      throw new Error(err.error || 'Clear Zoom failed');
-                    }
-                    const result = await resp.json();
-                    toast.success(`Zoom cleared. Cancelled ${result.cancelled || 0} registrant(s).`);
-                    setShowChangeZoomDialog(false);
-                    window.location.reload();
-                  } catch (err) {
-                    toast.error('Failed to clear Zoom: ' + err.message);
-                  } finally {
-                    setChangeZoomSubmitting(false);
-                  }
-                }}
-                disabled={changeZoomSubmitting}
-                data-testid="button-change-zoom-clear"
-              >
-                Clear Zoom Link
-              </Button>
-              <Button
-                type="button"
-                onClick={async () => {
-                  if (!changeZoomTargetId) {
-                    toast.error(`Please select a ${changeZoomType}`);
-                    return;
-                  }
-                  setChangeZoomSubmitting(true);
-                  try {
-                    const body = {
-                      zoom_webinar_id: changeZoomType === 'webinar' ? changeZoomTargetId : null,
-                      zoom_meeting_id: changeZoomType === 'meeting' ? changeZoomTargetId : null,
-                      cancelOld: changeZoomCancelOld,
-                      registerNew: changeZoomRegisterNew,
-                      resendConfirmations: changeZoomResendEmails,
-                    };
-                    const resp = await fetch(`/api/events/${eventId}/change-zoom`, {
-                      method: 'POST',
-                      credentials: 'include',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(body),
-                    });
-                    if (!resp.ok) {
-                      const err = await resp.json().catch(() => ({}));
-                      throw new Error(err.error || 'Change Zoom failed');
-                    }
-                    const result = await resp.json();
-                    toast.success(`Zoom updated. Cancelled ${result.cancelled || 0}, registered ${result.registered || 0}, emailed ${result.emailed || 0}.`);
-                    if (result.errors?.length) {
-                      console.warn('[change-zoom] errors:', result.errors);
-                    }
-                    setShowChangeZoomDialog(false);
-                    queryClient.invalidateQueries({ queryKey: ['event', eventId] });
-                    window.location.reload();
-                  } catch (err) {
-                    toast.error('Failed to change Zoom: ' + err.message);
-                  } finally {
-                    setChangeZoomSubmitting(false);
-                  }
-                }}
-                disabled={changeZoomSubmitting || !changeZoomTargetId}
-                data-testid="button-change-zoom-confirm"
-              >
-                {changeZoomSubmitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating…</>) : 'Update Zoom Link'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ChangeZoomDialog
+          open={zoomLinkDialog.open}
+          onOpenChange={(open) => setZoomLinkDialog((s) => ({ ...s, open }))}
+          endpointBase={`/api/events/${eventId}`}
+          mode={zoomLinkDialog.mode}
+          targetLabel="event"
+          initialType={formData.zoom_meeting_id ? 'meeting' : 'webinar'}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+            window.location.reload();
+          }}
+        />
 
         <form onSubmit={handleSubmit}>
           {/* Event Status Selector */}
