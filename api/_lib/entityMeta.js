@@ -177,6 +177,216 @@ async function resolveNews(tenantId, slug) {
   };
 }
 
+async function resolveComplexEvent(tenantId, { id, slug }) {
+  if (!supabase || (!id && !slug)) return null;
+  let q = supabase
+    .from('complex_event')
+    .select('id, title, slug, summary, description, image_url, start_date, location, status')
+    .eq('tenant_id', tenantId)
+    .in('status', ['published', 'tbc']);
+  if (slug) q = q.eq('slug', slug);
+  else q = q.eq('id', id);
+  const { data } = await q.maybeSingle();
+  if (!data) return null;
+  const dateStr = data.start_date
+    ? new Date(data.start_date).toLocaleDateString('en-GB', { dateStyle: 'long' })
+    : '';
+  const descBase = stripHtml(data.summary || data.description);
+  const description = truncate(
+    [dateStr, data.location, descBase].filter(Boolean).join(' · '),
+    300
+  );
+  return {
+    title: data.title,
+    description,
+    image: data.image_url || null,
+    canonicalPath: data.slug ? `/complex-event/${data.slug}` : `/ComplexEventDetail?id=${data.id}`,
+  };
+}
+
+async function resolveJob(tenantId, id) {
+  if (!supabase || !id) return null;
+  const { data } = await supabase
+    .from('job_posting')
+    .select('id, title, description, company_name, company_logo_url, location, salary_range, job_type, status')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!data) return null;
+  const descParts = [data.company_name, data.location, data.job_type, data.salary_range].filter(Boolean);
+  const descBase = stripHtml(data.description);
+  const description = truncate(
+    [descParts.join(' · '), descBase].filter(Boolean).join(' — '),
+    300
+  );
+  const title = data.company_name ? `${data.title} — ${data.company_name}` : data.title;
+  return {
+    title,
+    description,
+    image: data.company_logo_url || null,
+    canonicalPath: `/JobDetails?id=${data.id}`,
+  };
+}
+
+async function resolveForumThread(tenantId, { id, slug }) {
+  if (!supabase || (!id && !slug)) return null;
+  let q = supabase
+    .from('forum_thread')
+    .select('id, title, slug, post_count, view_count, is_hidden, tenant_id')
+    .eq('tenant_id', tenantId)
+    .eq('is_hidden', false);
+  if (slug) q = q.eq('slug', slug);
+  else q = q.eq('id', id);
+  const { data: thread } = await q.maybeSingle();
+  if (!thread) return null;
+  // Try to grab the opening post for description
+  let descBase = '';
+  const { data: firstPost } = await supabase
+    .from('forum_post')
+    .select('content')
+    .eq('thread_id', thread.id)
+    .eq('is_hidden', false)
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (firstPost?.content) descBase = stripHtml(firstPost.content);
+  const meta = [
+    typeof thread.post_count === 'number' ? `${thread.post_count} ${thread.post_count === 1 ? 'reply' : 'replies'}` : null,
+  ].filter(Boolean).join(' · ');
+  const description = truncate([meta, descBase].filter(Boolean).join(' — '), 300);
+  return {
+    title: thread.title,
+    description,
+    image: null,
+    canonicalPath: `/ForumThread?threadId=${thread.id}`,
+  };
+}
+
+async function resolveResource(tenantId, identifier) {
+  if (!supabase || !identifier) return null;
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+  let q = supabase
+    .from('resource')
+    .select('id, title, description, image_url, slug, status, author_name, resource_type')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active');
+  q = isUUID ? q.eq('id', identifier) : q.eq('slug', identifier);
+  const { data } = await q.maybeSingle();
+  if (!data) return null;
+  const descParts = [data.resource_type, data.author_name].filter(Boolean).join(' · ');
+  const descBase = stripHtml(data.description);
+  const description = truncate([descParts, descBase].filter(Boolean).join(' — '), 300);
+  return {
+    title: data.title,
+    description,
+    image: data.image_url || null,
+    canonicalPath: data.slug ? `/resources/${data.slug}` : `/Resources?resourceId=${data.id}`,
+  };
+}
+
+async function resolveDynamicDirectory(tenantId, slug) {
+  if (!supabase || !slug) return null;
+  const { data } = await supabase
+    .from('dynamic_directory')
+    .select('id, name, description, slug, is_active, entity_type')
+    .eq('tenant_id', tenantId)
+    .eq('slug', slug)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    title: data.name,
+    description: truncate(stripHtml(data.description), 300),
+    image: null,
+    canonicalPath: `/directory/${encodeURIComponent(data.slug)}`,
+  };
+}
+
+async function resolveGallery(tenantId, id) {
+  if (!supabase || !id) return null;
+  const { data: gallery } = await supabase
+    .from('gallery')
+    .select('id, title, description, is_public, cover_photo_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .eq('is_public', true)
+    .maybeSingle();
+  if (!gallery) return null;
+  let image = null;
+  if (gallery.cover_photo_id) {
+    const { data: photo } = await supabase
+      .from('gallery_photo')
+      .select('file_url')
+      .eq('id', gallery.cover_photo_id)
+      .eq('gallery_id', gallery.id)
+      .maybeSingle();
+    if (photo?.file_url) image = photo.file_url;
+  }
+  if (!image) {
+    const { data: firstPhoto } = await supabase
+      .from('gallery_photo')
+      .select('file_url')
+      .eq('gallery_id', gallery.id)
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (firstPhoto?.file_url) image = firstPhoto.file_url;
+  }
+  return {
+    title: gallery.title || 'Photo Gallery',
+    description: truncate(stripHtml(gallery.description), 300),
+    image,
+    canonicalPath: `/galleries/${gallery.id}`,
+  };
+}
+
+async function resolveCampaign(tenantId, slug) {
+  if (!supabase || !slug) return null;
+  const { data } = await supabase
+    .from('fundraising_campaign')
+    .select('id, name, slug, description, public_description, cover_image_url, status')
+    .eq('tenant_id', tenantId)
+    .eq('slug', slug)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    title: data.name,
+    description: truncate(stripHtml(data.public_description || data.description), 300),
+    image: data.cover_image_url || null,
+    canonicalPath: `/fundraise/${encodeURIComponent(data.slug)}`,
+  };
+}
+
+async function resolveMember(tenantId, id) {
+  if (!supabase || !id) return null;
+  const { data } = await supabase
+    .from('member')
+    .select('id, first_name, last_name, handle, profile_image_url, job_title, biography, show_in_directory')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!data) return null;
+  // Respect directory privacy: members hidden from directory should not unfurl
+  // with personal details.
+  if (data.show_in_directory === false) return null;
+  const name = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+  const descBase = stripHtml(data.biography);
+  const description = truncate(
+    [data.job_title, descBase].filter(Boolean).join(' — '),
+    300
+  );
+  return {
+    title: name || 'Member profile',
+    description,
+    image: data.profile_image_url || null,
+    canonicalPath: `/members/${data.id}`,
+  };
+}
+
 async function resolveForm(tenantId, slug) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
@@ -273,6 +483,89 @@ export async function resolveEntityMeta(req, tenant) {
     if (/^\/NewsView\/?$/i.test(pathname)) {
       const slug = getQueryParam(search, 'slug');
       if (slug) return await resolveNews(tenant.id, slug);
+    }
+
+    // Complex events
+    const complexSlugMatch = pathname.match(/^\/(?:complex-event|session-events)\/([^/]+)\/?$/i);
+    if (complexSlugMatch) {
+      return await resolveComplexEvent(tenant.id, {
+        slug: decodeURIComponent(complexSlugMatch[1]),
+      });
+    }
+    if (/^\/ComplexEventDetail\/?$/i.test(pathname)) {
+      const id = getQueryParam(search, 'id');
+      const slug = getQueryParam(search, 'slug');
+      if (id || slug) return await resolveComplexEvent(tenant.id, { id, slug });
+    }
+
+    // Job postings
+    const jobSlugMatch = pathname.match(/^\/jobs\/([^/]+)\/?$/i);
+    if (jobSlugMatch) {
+      return await resolveJob(tenant.id, decodeURIComponent(jobSlugMatch[1]));
+    }
+    if (/^\/JobDetails\/?$/i.test(pathname)) {
+      const id = getQueryParam(search, 'id');
+      if (id) return await resolveJob(tenant.id, id);
+    }
+
+    // Forum threads
+    const forumSlugMatch = pathname.match(/^\/forum\/([^/]+)\/?$/i);
+    if (forumSlugMatch) {
+      return await resolveForumThread(tenant.id, {
+        slug: decodeURIComponent(forumSlugMatch[1]),
+      });
+    }
+    if (/^\/ForumThread\/?$/i.test(pathname)) {
+      const threadId = getQueryParam(search, 'threadId') || getQueryParam(search, 'id');
+      const slug = getQueryParam(search, 'slug');
+      if (threadId || slug) return await resolveForumThread(tenant.id, { id: threadId, slug });
+    }
+
+    // Resources
+    const resourceSlugMatch = pathname.match(/^\/resources\/([^/]+)\/?$/i);
+    if (resourceSlugMatch) {
+      return await resolveResource(tenant.id, decodeURIComponent(resourceSlugMatch[1]));
+    }
+    if (/^\/(?:Resources|PublicResources)\/?$/i.test(pathname)) {
+      const id = getQueryParam(search, 'resourceId') || getQueryParam(search, 'id');
+      const slug = getQueryParam(search, 'slug');
+      if (id || slug) {
+        const meta = await resolveResource(tenant.id, id || slug);
+        if (meta) return meta;
+      }
+    }
+
+    // Dynamic directories
+    const dirMatch = pathname.match(/^\/directory\/([^/]+)\/?$/i);
+    if (dirMatch) {
+      return await resolveDynamicDirectory(tenant.id, decodeURIComponent(dirMatch[1]));
+    }
+
+    // Photo galleries
+    const galleryMatch = pathname.match(/^\/galleries\/([^/]+)\/?$/i);
+    if (galleryMatch) {
+      return await resolveGallery(tenant.id, decodeURIComponent(galleryMatch[1]));
+    }
+    if (/^\/PhotoGalleries\/?$/i.test(pathname)) {
+      const id = getQueryParam(search, 'galleryId') || getQueryParam(search, 'id');
+      if (id) {
+        const meta = await resolveGallery(tenant.id, id);
+        if (meta) return meta;
+      }
+    }
+
+    // Fundraising campaigns
+    const campaignMatch = pathname.match(/^\/(?:fundraise|campaign|campaigns)\/([^/]+)\/?$/i);
+    if (campaignMatch) {
+      const slug = decodeURIComponent(campaignMatch[1]);
+      const meta = await resolveCampaign(tenant.id, slug);
+      if (meta) return meta;
+    }
+
+    // Member profiles
+    const memberMatch = pathname.match(/^\/members\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
+    if (memberMatch) {
+      return await resolveMember(tenant.id, memberMatch[1]);
     }
 
     // Articles - load article URL config once for both legacy and folder routes
