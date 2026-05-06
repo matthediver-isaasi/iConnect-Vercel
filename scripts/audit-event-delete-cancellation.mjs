@@ -86,6 +86,22 @@ check('Helper cancels Zoom registrants for both event types',
   bookingCancel && bookingCancel.includes('cancelZoomRegistrant')
     && bookingCancel.includes('cancelComplexEventZoomRegistrations'));
 
+// task-704: legacy generic entity DELETE must refuse Event / ComplexEvent and
+// point callers at the safe endpoints, so SDK / automation paths can't bypass
+// the cancellation flow.
+const entityDelete = read('api/entities/[entity]/[id].js');
+check('Legacy entity DELETE refuses Event with 409',
+  entityDelete
+    && /entity === 'Event'\s*\|\|\s*entity === 'ComplexEvent'/.test(entityDelete)
+    && entityDelete.includes('use_delete_with_cancellations')
+    && /res\.status\(409\)/.test(entityDelete));
+check('Legacy entity DELETE points callers to /delete-with-cancellations',
+  entityDelete
+    && entityDelete.includes('/api/events/${id}/delete-with-cancellations')
+    && entityDelete.includes('/api/complex-events/${id}/delete-with-cancellations'));
+check('Legacy entity DELETE no longer hard-deletes bookings by event_id',
+  entityDelete && !/from\('booking'\)\s*\.delete\(\)\s*\.eq\('event_id'/.test(entityDelete));
+
 const fnFile = read('api/functions/[functionName].js');
 const cancellingChecks = (fnFile || '').match(/event\.status === 'cancelling'/g) || [];
 check('createBooking + createOneOffEventBooking both block status=cancelling',

@@ -807,7 +807,24 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
-      
+
+      // Block the legacy unsafe Event / ComplexEvent delete path. Direct deletion
+      // hard-deletes bookings without refunds, credit notes, voucher/training-fund
+      // reinstatement, Zoom unregistration, or attendee notifications. All callers
+      // (admin UI, SDK, automations) must go through the dedicated endpoints which
+      // run the cancellation flow first via deleteEventWithCancellations.
+      if (entity === 'Event' || entity === 'ComplexEvent') {
+        const safeEndpoint = entity === 'Event'
+          ? `/api/events/${id}/delete-with-cancellations`
+          : `/api/complex-events/${id}/delete-with-cancellations`;
+        console.warn(`[Entity DELETE] Refusing legacy ${entity} delete for ${id}; caller must use ${safeEndpoint}`);
+        return res.status(409).json({
+          error: 'Direct event deletion is disabled. Use the safe cancellation endpoint instead.',
+          code: 'use_delete_with_cancellations',
+          endpoint: safeEndpoint,
+        });
+      }
+
       // First, verify tenant access to this entity before deleting (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
         let verifyQuery = supabase.from(tableName).select('id').eq('id', id);
@@ -981,20 +998,9 @@ export default async function handler(req, res) {
         }
       }
 
-      if (entity === 'Event') {
-        // First delete any bookings associated with this event
-        const { error: bookingDeleteError } = await supabase
-          .from('booking')
-          .delete()
-          .eq('event_id', id);
-
-        if (bookingDeleteError) {
-          console.error('Error deleting event bookings:', bookingDeleteError);
-          // Continue anyway - there might not be any bookings
-        } else {
-          console.log(`[Event Delete] Deleted associated bookings for event ${id}`);
-        }
-      }
+      // NOTE: Event / ComplexEvent deletes are short-circuited above with a 409
+      // and routed through deleteEventWithCancellations. The legacy block that
+      // hard-deleted bookings here has been removed.
 
       if (entity === 'BlogPost') {
         // First get all comment IDs for this blog post
