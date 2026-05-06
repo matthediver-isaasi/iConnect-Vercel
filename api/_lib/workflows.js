@@ -1,4 +1,5 @@
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import { applyDdOwnerPlaceholders } from './ddOwner.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg } from './membershipSimulation.js';
@@ -775,6 +776,11 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       if (cc) console.log(`[Workflows] CC: "${cc}"`);
       if (bcc) console.log(`[Workflows] BCC: "${bcc}"`);
       
+      // Workflow context has no form_submission_id; strip dd_owner placeholders so
+      // they don't leak as raw text. (See replit.md - Due Diligence section.)
+      subject = applyDdOwnerPlaceholders(subject, { ownerName: '', ownerEmail: '' });
+      body = applyDdOwnerPlaceholders(body, { ownerName: '', ownerEmail: '' });
+
       const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
       
@@ -952,7 +958,12 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
             
             body = replacePlaceholders(body, entityType, entityData, null);
             subject = replacePlaceholders(subject, entityType, entityData, null);
-            
+
+            // Workflow-created contracts don't carry a form_submission_id; strip dd_owner
+            // placeholders so they don't leak as raw text.
+            subject = applyDdOwnerPlaceholders(subject, { ownerName: '', ownerEmail: '' });
+            body = applyDdOwnerPlaceholders(body, { ownerName: '', ownerEmail: '' });
+
             console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
             
             await sendEmail({
@@ -1444,6 +1455,10 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
         }
       }
       
+      // Workflow context has no form_submission_id; strip dd_owner placeholders.
+      memberSubject = applyDdOwnerPlaceholders(memberSubject, { ownerName: '', ownerEmail: '' });
+      memberBody = applyDdOwnerPlaceholders(memberBody, { ownerName: '', ownerEmail: '' });
+
       console.log(`[Workflows] Role-based email: sending to ${member.email}`);
       
       const emailResult = await sendEmail({

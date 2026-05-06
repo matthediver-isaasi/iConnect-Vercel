@@ -1,6 +1,7 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { resolveDdOwnerForSubmission, applyDdOwnerPlaceholders } from '../_lib/ddOwner.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -169,6 +170,15 @@ export default async function handler(req, res) {
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`);
       }
     }
+
+    const ddOwner = await resolveDdOwnerForSubmission({
+      supabase,
+      tenantId: tenantContext.tenantId,
+      formSubmissionId: contractInstance.form_submission_id,
+      formId: contractSettings.source_dd_form_id || null,
+    });
+    emailSubject = applyDdOwnerPlaceholders(emailSubject, ddOwner);
+    emailBody = applyDdOwnerPlaceholders(emailBody, ddOwner);
 
     await sendEmail({
       to: signer.email,

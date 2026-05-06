@@ -1,5 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import crypto from 'crypto';
 
 // Helper to escape regex special characters
@@ -244,6 +245,13 @@ export default async function handler(req, res) {
         const signerLastName = firstSigner.last_name || (signerName ? signerName.split(' ').slice(1).join(' ') : '');
         const signerEmail = firstSigner.email || '';
 
+        const ddOwnerForTimeout = await resolveDdOwnerForSubmission({
+          supabase,
+          tenantId: form.tenant_id,
+          formSubmissionId: instance.form_submission_id,
+          formId: contractSettings.source_dd_form_id || null,
+        });
+
         const placeholders = {
           applicant_name: applicantName,
           first_name: applicantName,
@@ -257,7 +265,9 @@ export default async function handler(req, res) {
           signer_name: signerName,
           signer_first_name: signerFirstName,
           signer_last_name: signerLastName,
-          signer_email: signerEmail
+          signer_email: signerEmail,
+          dd_owner: ddOwnerForTimeout.ownerName,
+          dd_owner_email: ddOwnerForTimeout.ownerEmail
         };
 
         // Try to get organization name from instance.organization_id first
@@ -289,7 +299,8 @@ export default async function handler(req, res) {
           'organization.name': placeholders.organization_name || '',
           'tenant.name': tenant?.name || '',
           'applicant.name': applicantName,
-          'contract.name': form.name
+          'contract.name': form.name,
+          'dd_owner': ddOwnerForTimeout.ownerName
         };
         emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
         emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);

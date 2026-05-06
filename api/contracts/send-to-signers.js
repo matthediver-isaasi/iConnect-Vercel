@@ -1,6 +1,7 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { applyDdOwnerPlaceholders } from '../_lib/ddOwner.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -70,11 +71,22 @@ export default async function handler(req, res) {
         <p>Thank you.</p>
       `;
 
+      // This endpoint sends the contract to the form's static signer list and is
+      // not tied to a specific form_submission, so there is no DD owner to
+      // resolve. The subject/body above are hardcoded inline (no tenant
+      // template lookup) and do not include {{dd_owner}}/{{dd_owner_email}}
+      // placeholders today; the strip below is purely defensive in case anyone
+      // adds them to the inline strings later. If this endpoint is ever
+      // refactored to use a tenant email template OR a submission-linked send,
+      // switch to resolveDdOwnerForSubmission() (see api/_lib/ddOwner.js).
+      const finalSubject = applyDdOwnerPlaceholders(emailSubject, { ownerName: '', ownerEmail: '' });
+      const finalBody = applyDdOwnerPlaceholders(emailBody, { ownerName: '', ownerEmail: '' });
+
       try {
         await sendEmail({
           to: signer.email,
-          subject: emailSubject,
-          body: emailBody,
+          subject: finalSubject,
+          body: finalBody,
           tenantId: tenantContext.tenantId,
           tenant
         });

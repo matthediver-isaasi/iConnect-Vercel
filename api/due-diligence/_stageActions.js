@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
+import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { 
   isZohoCrmConnected,
   lookupCountryInZoho,
@@ -397,24 +398,13 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
 
-        // Resolve dd_owner for contract emails - with config default fallback
-        const { data: contractDdConfig } = await supabase
-          .from('form_due_diligence_config')
-          .select('default_owner_name')
-          .eq('form_id', formSubmission.form_id || ddSubmission.form_id)
-          .eq('tenant_id', tenantId)
-          .single();
-        const contractOwnerName = ddSubmission.owner_name || contractDdConfig?.default_owner_name || '';
-        let contractOwnerEmail = '';
-        if (ddSubmission.owner_member_id) {
-          const { data: ownerMbr } = await supabase
-            .from('member')
-            .select('email')
-            .eq('id', ddSubmission.owner_member_id)
-            .eq('tenant_id', tenantId)
-            .single();
-          contractOwnerEmail = ownerMbr?.email || '';
-        }
+        // Resolve dd_owner for contract emails (shared helper)
+        const { ownerName: contractOwnerName, ownerEmail: contractOwnerEmail } = await resolveDdOwnerForSubmission({
+          supabase,
+          tenantId,
+          formSubmissionId,
+          formId: formSubmission.form_id || ddSubmission.form_id,
+        });
         subject = subject
           .replace(/\{\{dd_owner\}\}/gi, contractOwnerName)
           .replace(/\{\{dd_owner_email\}\}/gi, contractOwnerEmail);
@@ -784,27 +774,13 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .replace(/\{\{booking_url\}\}/gi, bookingUrl)
         .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
 
-      // Resolve dd_owner for meeting request emails
-      let meetingOwnerName = ddSubmission.owner_name || '';
-      let meetingOwnerEmail = '';
-      if (ddSubmission.owner_member_id) {
-        const { data: ownerMbrMeeting } = await supabase
-          .from('member')
-          .select('email')
-          .eq('id', ddSubmission.owner_member_id)
-          .eq('tenant_id', tenantId)
-          .single();
-        meetingOwnerEmail = ownerMbrMeeting?.email || '';
-      }
-      if (!meetingOwnerName) {
-        const { data: meetingDdCfg } = await supabase
-          .from('form_due_diligence_config')
-          .select('default_owner_name')
-          .eq('form_id', formSubmission.form_id)
-          .eq('tenant_id', tenantId)
-          .single();
-        meetingOwnerName = meetingDdCfg?.default_owner_name || '';
-      }
+      // Resolve dd_owner for meeting request emails (shared helper)
+      const { ownerName: meetingOwnerName, ownerEmail: meetingOwnerEmail } = await resolveDdOwnerForSubmission({
+        supabase,
+        tenantId,
+        formSubmissionId,
+        formId: formSubmission.form_id,
+      });
 
       subject = subject
         .replace(/\{\{dd_owner\}\}/gi, meetingOwnerName)
@@ -927,28 +903,13 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     const tenantName = tenantInfo?.name || '';
     const tenantSlug = tenantInfo?.slug || '';
 
-    // Fetch DD config for default_owner_name fallback
-    const { data: ddConfig } = await supabase
-      .from('form_due_diligence_config')
-      .select('default_owner_name')
-      .eq('form_id', formId)
-      .eq('tenant_id', tenantId)
-      .single();
-
-    // Resolve owner name: submission owner_name > config default_owner_name > empty
-    const ownerName = ddSubmission.owner_name || ddConfig?.default_owner_name || '';
-
-    // Resolve owner email from owner_member_id if set
-    let ownerEmail = '';
-    if (ddSubmission.owner_member_id) {
-      const { data: ownerMember } = await supabase
-        .from('member')
-        .select('email')
-        .eq('id', ddSubmission.owner_member_id)
-        .eq('tenant_id', tenantId)
-        .single();
-      ownerEmail = ownerMember?.email || '';
-    }
+    // Resolve owner name + email via shared helper
+    const { ownerName, ownerEmail } = await resolveDdOwnerForSubmission({
+      supabase,
+      tenantId,
+      formSubmissionId,
+      formId,
+    });
 
     console.log('[DD Email Action] Querying stage_email_action for stageId:', stageId, 'tenantId:', tenantId, 'formId:', formId);
     

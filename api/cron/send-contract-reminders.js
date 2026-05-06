@@ -1,5 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 
 // Helper to escape regex special characters
 function escapeRegex(str) {
@@ -229,14 +230,23 @@ export default async function handler(req, res) {
                 .single();
 
               if (template) {
+                const ddOwnerForReminder = await resolveDdOwnerForSubmission({
+                  supabase,
+                  tenantId: form.tenant_id,
+                  formSubmissionId: instance.form_submission_id,
+                  formId: contractSettings.source_dd_form_id || null,
+                });
+
                 emailSubject = template.subject
                   .replace(/{{contract_name}}/g, form.name)
                   .replace(/{{signer_name}}/g, signerName)
                   .replace(/{{signer_first_name}}/g, signer.first_name || signerName)
                   .replace(/{{signer_last_name}}/g, signer.last_name || '')
                   .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
-                  .replace(/{{days_since_sent}}/g, daysSinceSent.toString());
-                
+                  .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
+                  .replace(/\{\{\s*dd_owner\s*\}\}/gi, ddOwnerForReminder.ownerName)
+                  .replace(/\{\{\s*dd_owner_email\s*\}\}/gi, ddOwnerForReminder.ownerEmail);
+
                 emailBody = template.body
                   .replace(/{{contract_name}}/g, form.name)
                   .replace(/{{signer_name}}/g, signerName)
@@ -245,7 +255,9 @@ export default async function handler(req, res) {
                   .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
                   .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
                   .replace(/{{sign_url}}/g, signingUrl)
-                  .replace(/{{signing_url}}/g, signingUrl);
+                  .replace(/{{signing_url}}/g, signingUrl)
+                  .replace(/\{\{\s*dd_owner\s*\}\}/gi, ddOwnerForReminder.ownerName)
+                  .replace(/\{\{\s*dd_owner_email\s*\}\}/gi, ddOwnerForReminder.ownerEmail);
               }
             }
 
@@ -258,6 +270,14 @@ export default async function handler(req, res) {
               .eq('id', form.tenant_id)
               .single();
 
+            // Resolve dd_owner once for the [[...]] map (cheap re-resolve; safe if no submission)
+            const ddOwnerForBracket = await resolveDdOwnerForSubmission({
+              supabase,
+              tenantId: form.tenant_id,
+              formSubmissionId: instance.form_submission_id,
+              formId: form.contract_settings?.source_dd_form_id || null,
+            });
+
             // Replace [[...]] style placeholders (e.g., [[organization.name]])
             const doubleBracketPlaceholders = {
               'organization.name': organizationName,
@@ -265,7 +285,8 @@ export default async function handler(req, res) {
               'signer.name': signerName,
               'signer.first_name': signer.first_name || '',
               'signer.last_name': signer.last_name || '',
-              'signer.email': signer.email || ''
+              'signer.email': signer.email || '',
+              'dd_owner': ddOwnerForBracket.ownerName
             };
             emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
             emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
