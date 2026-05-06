@@ -1,11 +1,14 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
-import { getStripeCredentials } from '../_lib/stripeCredentials.js';
-import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
-import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
-import Stripe from 'stripe';
-import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, restoreComplexEventSeats, cancelComplexEventZoomRegistrations, reinstateVoucherDirect, reinstateVoucherFromTransactions } from '../_lib/bookingLookup.js';
+import {
+  cancelBooking,
+  CANCELLATION_REASON_REQUEST_APPROVED,
+} from '../_lib/bookingCancellation.js';
+import {
+  isComplexSource,
+  normalizeComplexBooking,
+} from '../_lib/bookingLookup.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -74,8 +77,10 @@ export default async function handler(req, res) {
     let reversalResults = null;
 
     if (status === 'approved') {
-      const effectiveRefundAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null) 
-        ? custom_refund_amount 
+      // Effective Stripe refund amount: explicit custom value wins, otherwise
+      // honour the allocation breakdown coming from the modal.
+      const effectiveRefundAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null)
+        ? custom_refund_amount
         : (refund_allocation?.stripeAmount !== undefined ? refund_allocation.stripeAmount : null);
       if (effectiveRefundAmount !== undefined && effectiveRefundAmount !== null) {
         const parsed = parseFloat(effectiveRefundAmount);
@@ -83,11 +88,47 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'custom_refund_amount must be a positive number' });
         }
       }
-      const reversalOptions = reversal_options || {};
-      const effectiveAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null)
-        ? custom_refund_amount
-        : (refund_allocation?.stripeAmount !== undefined ? refund_allocation.stripeAmount : null);
-      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, effectiveAmount, credit_note_email, refund_allocation);
+
+      const bookingSource = request.booking_source || 'booking';
+      const isComplex = isComplexSource(bookingSource);
+
+      let booking, bookingError;
+      if (isComplex) {
+        const { data, error } = await supabase
+          .from('complex_event_booking')
+          .select('*')
+          .eq('id', request.booking_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        booking = data ? normalizeComplexBooking(data) : null;
+        bookingError = error;
+      } else {
+        const { data, error } = await supabase
+          .from('booking')
+          .select('*')
+          .eq('id', request.booking_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        booking = data;
+        bookingError = error;
+      }
+
+      if (bookingError || !booking) {
+        return res.status(500).json({ error: 'Failed to process cancellation: Booking not found' });
+      }
+
+      const cancellationResult = await cancelBooking({
+        booking,
+        source: bookingSource,
+        tenantId,
+        reason: CANCELLATION_REASON_REQUEST_APPROVED,
+        refundAllocation: refund_allocation || null,
+        reversalOptions: reversal_options || {},
+        customRefundAmount: effectiveRefundAmount,
+        creditNoteEmail: credit_note_email || null,
+        cancellationRequestId: request.id,
+      });
+
       if (!cancellationResult.success) {
         const isValidationError = cancellationResult.error && cancellationResult.error.includes('custom_refund_amount');
         const statusCode = isValidationError ? 400 : 500;
@@ -134,507 +175,6 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[CancellationRequest] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
-  }
-}
-
-async function processCancellation(request, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null, refund_allocation = null) {
-  const reversalResults = {
-    trainingFund: null,
-    vouchers: [],
-    discountCode: null,
-    programTicket: null,
-    stripeRefund: null,
-    xeroCreditNote: null,
-    replacements: [],
-  };
-
-  try {
-    const bookingSource = request.booking_source || 'booking';
-    const isComplex = isComplexSource(bookingSource);
-    const bookingTable = getBookingTable(bookingSource);
-
-    let booking, bookingError;
-    if (isComplex) {
-      const { data, error } = await supabase
-        .from('complex_event_booking')
-        .select('*')
-        .eq('id', request.booking_id)
-        .eq('tenant_id', tenantId)
-        .single();
-      booking = data ? normalizeComplexBooking(data) : null;
-      bookingError = error;
-    } else {
-      const { data, error } = await supabase
-        .from('booking')
-        .select('*')
-        .eq('id', request.booking_id)
-        .eq('tenant_id', tenantId)
-        .single();
-      booking = data;
-      bookingError = error;
-    }
-
-    if (bookingError || !booking) {
-      return { success: false, error: 'Booking not found' };
-    }
-
-    if (booking.status === 'cancelled') {
-      return { success: true, alreadyCancelled: true, reversalResults };
-    }
-
-    const { error: updateError } = await supabase
-      .from(bookingTable)
-      .update({ status: 'cancelled' })
-      .eq('id', booking.id);
-
-    if (updateError) {
-      return { success: false, error: 'Failed to update booking status' };
-    }
-
-    console.log(`[CancellationRequest] Booking ${booking.id} cancelled (source: ${bookingSource})`);
-
-    // --- Restore available seats ---
-    if (booking.event_id) {
-      if (isComplex) {
-        try {
-          await restoreComplexEventSeats(booking, tenantId);
-        } catch (err) {
-          console.error(`[CancellationRequest] Complex event seat restoration error (non-blocking):`, err.message);
-        }
-      } else {
-        try {
-          const { data: eventForSeats } = await supabase
-            .from('event')
-            .select('id, available_seats, is_unlimited_registration')
-            .eq('id', booking.event_id)
-            .single();
-
-          if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
-            const { data: newSeatCount, error: rpcError } = await supabase
-              .rpc('adjust_event_seats', { p_event_id: booking.event_id, p_delta: 1 });
-
-            if (rpcError) {
-              console.error(`[CancellationRequest] RPC seat increment failed:`, rpcError.message);
-              const newCount = eventForSeats.available_seats + 1;
-              await supabase.from('event').update({ available_seats: newCount }).eq('id', booking.event_id);
-              console.log(`[CancellationRequest] Fallback: Incremented seats to ${newCount}`);
-            } else {
-              console.log(`[CancellationRequest] Seats restored, new count: ${newSeatCount}`);
-            }
-          }
-        } catch (err) {
-          console.error(`[CancellationRequest] Seat restoration error (non-blocking):`, err.message);
-        }
-      }
-
-      if (isComplex) {
-        try {
-          await cancelComplexEventZoomRegistrations(booking, tenantId);
-        } catch (err) {
-          console.error(`[CancellationRequest] Complex event Zoom cancellation error (non-blocking):`, err.message);
-        }
-      } else {
-        try {
-          const { data: eventForZoom } = await supabase
-            .from('event')
-            .select('id, zoom_webinar_id, location, backstage_event_id')
-            .eq('id', booking.event_id)
-            .single();
-
-          if (eventForZoom) {
-            const webinar = await resolveEventZoomWebinar(eventForZoom);
-            if (webinar && webinar.zoom_webinar_id && booking.attendee_email) {
-              await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
-              console.log(`[CancellationRequest] Zoom registrant cancelled for ${booking.attendee_email}`);
-            }
-          }
-        } catch (err) {
-          console.error(`[CancellationRequest] Zoom registrant cancellation error (non-blocking):`, err.message);
-        }
-      }
-    }
-
-    const organizationId = booking.organization_id;
-    let org = null;
-    if (organizationId) {
-      const { data: orgData } = await supabase
-        .from('organization')
-        .select('id, program_ticket_balances, training_fund_balance')
-        .eq('id', organizationId)
-        .single();
-      org = orgData;
-    }
-
-    // --- Training Fund Reinstatement ---
-    if (booking.training_fund_amount > 0 && org) {
-      try {
-        let refundTrainingAmount = booking.training_fund_amount;
-        if (refund_allocation && refund_allocation.trainingFundAmount !== undefined) {
-          const allocatedAmt = parseFloat(refund_allocation.trainingFundAmount) || 0;
-          refundTrainingAmount = Math.min(allocatedAmt, booking.training_fund_amount);
-        }
-        if (refundTrainingAmount <= 0) {
-          reversalResults.trainingFund = { amount: 0, success: true, skipped: true };
-          console.log(`[CancellationRequest] Training fund refund skipped per allocation`);
-        } else {
-        const currentBalance = org.training_fund_balance || 0;
-        const newBalance = currentBalance + refundTrainingAmount;
-
-        await supabase
-          .from('organization')
-          .update({ training_fund_balance: newBalance })
-          .eq('id', org.id);
-
-        await supabase.from('training_fund_transaction').insert({
-          organization_id: org.id,
-          type: 'cancellation_refund',
-          amount: refundTrainingAmount,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          reason: `Cancellation refund: ${booking.booking_reference || booking.id}`,
-          booking_id: booking.id,
-          created_by: booking.member_id,
-          created_date: new Date().toISOString(),
-          tenant_id: tenantId
-        });
-
-        org.training_fund_balance = newBalance;
-        reversalResults.trainingFund = { amount: refundTrainingAmount, success: true };
-        console.log(`[CancellationRequest] Training fund reinstated: £${refundTrainingAmount}`);
-        }
-      } catch (err) {
-        console.error('[CancellationRequest] Training fund reinstatement error:', err);
-        reversalResults.trainingFund = { amount: booking.training_fund_amount, success: false, error: err.message };
-      }
-    }
-
-    // --- Voucher Reinstatement ---
-    if (booking.voucher_amount > 0 && booking.booking_reference) {
-      try {
-        if (isComplex && booking.voucher_id) {
-          await reinstateVoucherDirect(booking, refund_allocation, reversalOptions, reversalResults, tenantId);
-        } else {
-          await reinstateVoucherFromTransactions(booking, refund_allocation, reversalOptions, reversalResults, tenantId);
-        }
-      } catch (err) {
-        console.error('[CancellationRequest] Voucher reinstatement error:', err);
-      }
-    }
-
-    // --- Discount Code Usage Reversal ---
-    if (booking.discount_code_id && booking.discount_code_amount > 0) {
-      try {
-        const { data: discountCode } = await supabase
-          .from('discount_code')
-          .select('*')
-          .eq('id', booking.discount_code_id)
-          .single();
-
-        if (discountCode) {
-          const isExpired = discountCode.expires_at && new Date(discountCode.expires_at) < new Date();
-
-          // Only decrement once per booking group — check if this is the first ticket in the group
-          const isFirstInGroup = !booking.booking_group_reference ||
-            booking.booking_reference === booking.booking_group_reference ||
-            booking.booking_reference === `${booking.booking_group_reference}-1`;
-
-          if (!isExpired && isFirstInGroup) {
-            await supabase
-              .from('discount_code')
-              .update({ current_usage_count: Math.max(0, (discountCode.current_usage_count || 1) - 1) })
-              .eq('id', discountCode.id);
-
-            if (organizationId) {
-              const { data: usage } = await supabase
-                .from('discount_code_usage')
-                .select('id, usage_count')
-                .eq('discount_code_id', discountCode.id)
-                .eq('organization_id', organizationId)
-                .maybeSingle();
-
-              if (usage && usage.usage_count > 0) {
-                await supabase
-                  .from('discount_code_usage')
-                  .update({ usage_count: usage.usage_count - 1 })
-                  .eq('id', usage.id);
-              }
-            }
-
-            reversalResults.discountCode = { codeId: discountCode.id, code: discountCode.code, amount: booking.discount_code_amount, success: true, reversed: true };
-            console.log(`[CancellationRequest] Discount code ${discountCode.code} usage decremented`);
-          } else if (isExpired && isFirstInGroup) {
-            // Discount code expired — check if admin wants a replacement
-            const replacementOption = reversalOptions.discountCodeReplacement;
-            if (replacementOption && replacementOption.newExpiryDate) {
-              const newCode = `REFUND-${discountCode.code}-${Date.now().toString(36).toUpperCase()}`;
-              const { data: newDC, error: createErr } = await supabase
-                .from('discount_code')
-                .insert({
-                  code: newCode,
-                  type: discountCode.type,
-                  value: discountCode.value,
-                  description: `Replacement for expired code ${discountCode.code} (cancellation of ${booking.booking_reference})`,
-                  is_active: true,
-                  expires_at: replacementOption.newExpiryDate,
-                  max_usage_count: 1,
-                  current_usage_count: 0,
-                  organization_id: organizationId || null,
-                  tenant_id: tenantId
-                })
-                .select()
-                .single();
-
-              if (createErr) {
-                reversalResults.discountCode = { codeId: discountCode.id, code: discountCode.code, amount: booking.discount_code_amount, success: false, expired: true, error: 'Failed to create replacement: ' + createErr.message };
-              } else {
-                reversalResults.discountCode = { codeId: discountCode.id, code: discountCode.code, amount: booking.discount_code_amount, success: true, expired: true, replacementCreated: true, newCode: newDC.code, newCodeId: newDC.id };
-                reversalResults.replacements.push({ type: 'discount_code', originalCode: discountCode.code, newCode: newDC.code, value: discountCode.value, discountType: discountCode.type, expiryDate: replacementOption.newExpiryDate });
-                console.log(`[CancellationRequest] Replacement discount code ${newCode} created for expired ${discountCode.code}`);
-              }
-            } else {
-              reversalResults.discountCode = { codeId: discountCode.id, code: discountCode.code, amount: booking.discount_code_amount, success: false, expired: true, skipped: true };
-              console.log(`[CancellationRequest] Discount code ${discountCode.code} expired — no replacement requested`);
-            }
-          } else if (!isFirstInGroup) {
-            reversalResults.discountCode = { codeId: discountCode.id, code: discountCode.code, amount: booking.discount_code_amount, success: true, skippedNotFirstInGroup: true };
-          }
-        }
-      } catch (err) {
-        console.error('[CancellationRequest] Discount code reversal error:', err);
-        reversalResults.discountCode = { success: false, error: err.message };
-      }
-    }
-
-    // --- Program Ticket Refund (existing logic) ---
-    if (booking.event_id && booking.member_id && !isComplex) {
-      const { data: event } = await supabase
-        .from('event')
-        .select('program_tag, title')
-        .eq('id', booking.event_id)
-        .single();
-
-      if (event?.program_tag && org) {
-        const currentBalances = org.program_ticket_balances || {};
-        const currentBalance = currentBalances[event.program_tag] || 0;
-
-        await supabase
-          .from('organization')
-          .update({
-            program_ticket_balances: { ...currentBalances, [event.program_tag]: currentBalance + 1 },
-            last_synced: new Date().toISOString()
-          })
-          .eq('id', org.id);
-
-        await supabase.from('program_ticket_transaction').insert({
-          organization_id: org.id,
-          program_name: event.program_tag,
-          transaction_type: 'refund',
-          quantity: 1,
-          booking_reference: booking.booking_reference || booking.backstage_order_id || booking.id,
-          event_name: event.title || 'Unknown Event',
-          member_email: booking.attendee_email || 'unknown',
-          notes: `Ticket refunded via approved cancellation request`
-        });
-
-        reversalResults.programTicket = { programTag: event.program_tag, success: true };
-        console.log(`[CancellationRequest] Program ticket refunded for ${event.program_tag}`);
-      }
-    }
-
-    // --- Compute effective refund amount ---
-    const totalCost = parseFloat(booking.total_cost) || 0;
-    const trainingFundAmt = parseFloat(booking.training_fund_amount) || 0;
-    const voucherAmt = parseFloat(booking.voucher_amount) || 0;
-    const discountAmt = parseFloat(booking.discount_code_amount) || 0;
-    const accountAmt = parseFloat(booking.account_amount) || 0;
-    const fullCardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
-
-    let effectiveRefundAmount = null;
-    if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
-      const customAmt = parseFloat(custom_refund_amount);
-      if (!Number.isFinite(customAmt) || customAmt <= 0) {
-        return { success: false, error: 'custom_refund_amount must be a positive number' };
-      }
-      const maxAllowed = Math.min(fullCardAmount > 0 ? fullCardAmount : Infinity, totalCost > 0 ? totalCost : Infinity);
-      if (customAmt > maxAllowed) {
-        return { success: false, error: `custom_refund_amount (${customAmt}) exceeds maximum refundable amount (${maxAllowed.toFixed(2)})` };
-      }
-      effectiveRefundAmount = customAmt;
-    }
-
-    // --- Stripe Refund ---
-    if (booking.stripe_payment_intent_id && booking.payment_method === 'card') {
-      try {
-        const cardAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCardAmount;
-
-        if (cardAmount > 0) {
-          const creds = await getStripeCredentials(tenantId, 'events');
-          if (!creds || !creds.secret_key || !creds.is_enabled) {
-            reversalResults.stripeRefund = {
-              success: false,
-              amount: cardAmount,
-              requiresManualRefund: true,
-              error: !creds?.is_enabled ? 'Stripe integration is disabled for this tenant' : 'Stripe not configured for this tenant',
-            };
-            console.warn(`[CancellationRequest] Stripe not available — manual refund needed for £${cardAmount}`);
-          } else {
-            const stripe = new Stripe(creds.secret_key);
-            const refundAmountPence = Math.round(cardAmount * 100);
-
-            const paymentIntent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id);
-            const amountReceived = paymentIntent.amount_received || 0;
-            const amountRefunded = paymentIntent.amount_received
-              ? (await stripe.refunds.list({ payment_intent: booking.stripe_payment_intent_id, limit: 100 })).data.reduce((sum, r) => sum + (r.status !== 'failed' ? r.amount : 0), 0)
-              : 0;
-            const refundableAmount = amountReceived - amountRefunded;
-
-            if (refundableAmount <= 0) {
-              reversalResults.stripeRefund = {
-                success: true,
-                amount: cardAmount,
-                alreadyRefunded: true,
-                paymentIntentId: booking.stripe_payment_intent_id,
-              };
-              console.log(`[CancellationRequest] PaymentIntent ${booking.stripe_payment_intent_id} already fully refunded`);
-            } else {
-              const actualRefundPence = Math.min(refundAmountPence, refundableAmount);
-              const idempotencyKey = `cancel-refund-${request.id}-${booking.id}`;
-              const refund = await stripe.refunds.create({
-                payment_intent: booking.stripe_payment_intent_id,
-                amount: actualRefundPence,
-                reason: 'requested_by_customer',
-                metadata: {
-                  booking_id: booking.id,
-                  booking_reference: booking.booking_reference || '',
-                  cancellation_request_id: request.id,
-                },
-              }, {
-                idempotencyKey,
-              });
-
-              const actualRefundAmount = actualRefundPence / 100;
-              reversalResults.stripeRefund = {
-                success: true,
-                amount: actualRefundAmount,
-                refundId: refund.id,
-                status: refund.status,
-                paymentIntentId: booking.stripe_payment_intent_id,
-                partialRefund: actualRefundPence < refundAmountPence,
-              };
-              console.log(`[CancellationRequest] Stripe refund ${refund.id} created: £${actualRefundAmount} (status: ${refund.status})`);
-            }
-          }
-        } else {
-          console.log(`[CancellationRequest] Card amount is £0 — no Stripe refund needed`);
-        }
-      } catch (err) {
-        const errCardAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCardAmount;
-        console.error('[CancellationRequest] Stripe refund error:', err.message);
-        reversalResults.stripeRefund = {
-          success: false,
-          amount: errCardAmount,
-          requiresManualRefund: true,
-          error: err.message,
-          paymentIntentId: booking.stripe_payment_intent_id,
-        };
-      }
-    }
-
-    // --- Xero Credit Note ---
-    if (booking.xero_invoice_id) {
-      try {
-        let creditAmount = totalCost;
-        if (refund_allocation && refund_allocation.invoiceAmount !== undefined) {
-          const invoiceAlloc = parseFloat(refund_allocation.invoiceAmount);
-          if (Number.isFinite(invoiceAlloc) && invoiceAlloc > 0) {
-            creditAmount = Math.min(invoiceAlloc, totalCost);
-          }
-        } else if (effectiveRefundAmount !== null) {
-          creditAmount = effectiveRefundAmount;
-        }
-
-        if (creditAmount > 0) {
-          const result = await createXeroCreditNote({
-            appTenantId: tenantId,
-            invoiceId: booking.xero_invoice_id,
-            creditAmount,
-            description: `Cancellation of booking ${booking.booking_reference || booking.id} — ${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
-            reference: `Cancel: ${booking.booking_reference || booking.id}`,
-          });
-
-          if (result.skipped) {
-            reversalResults.xeroCreditNote = {
-              success: false,
-              skipped: true,
-              reason: result.reason,
-              amount: creditAmount,
-              invoiceNumber: result.invoiceNumber,
-              requiresManualAction: true,
-            };
-            console.log(`[CancellationRequest] Xero credit note skipped: ${result.reason}`);
-          } else {
-            reversalResults.xeroCreditNote = {
-              success: true,
-              amount: result.amount,
-              creditNoteId: result.creditNoteId,
-              creditNoteNumber: result.creditNoteNumber,
-              allocated: result.allocated,
-              invoiceNumber: result.invoiceNumber,
-              alreadyExisted: result.alreadyExisted || false,
-            };
-            console.log(`[CancellationRequest] Xero credit note ${result.creditNoteNumber} created for £${result.amount}`);
-
-            if (result.creditNoteId) {
-              const { error: cnUpdateError } = await supabase
-                .from(bookingTable)
-                .update({
-                  xero_credit_note_id: result.creditNoteId,
-                  xero_credit_note_number: result.creditNoteNumber,
-                })
-                .eq('id', booking.id);
-
-              if (cnUpdateError) {
-                console.warn(`[CancellationRequest] Failed to store credit note on booking: ${cnUpdateError.message}`);
-              }
-
-              if (credit_note_email) {
-                try {
-                  await emailXeroCreditNote({
-                    appTenantId: tenantId,
-                    creditNoteId: result.creditNoteId,
-                    creditNoteNumber: result.creditNoteNumber,
-                    toEmail: credit_note_email,
-                    tenantId,
-                  });
-                  reversalResults.xeroCreditNote.emailed = true;
-                  reversalResults.xeroCreditNote.emailedTo = credit_note_email;
-                } catch (emailErr) {
-                  console.error(`[CancellationRequest] Failed to email credit note to ${credit_note_email}:`, emailErr.message);
-                  reversalResults.xeroCreditNote.emailed = false;
-                  reversalResults.xeroCreditNote.emailError = emailErr.message;
-                }
-              }
-            }
-          }
-        }
-      } catch (err) {
-        const errCreditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalCost;
-        console.error('[CancellationRequest] Xero credit note error:', err.message);
-        reversalResults.xeroCreditNote = {
-          success: false,
-          amount: errCreditAmount,
-          requiresManualAction: true,
-          error: err.message,
-          invoiceId: booking.xero_invoice_id,
-          invoiceNumber: booking.xero_invoice_number,
-        };
-      }
-    }
-
-    return { success: true, reversalResults };
-  } catch (err) {
-    console.error('[CancellationRequest] Error processing cancellation:', err);
-    return { success: false, error: err.message };
   }
 }
 

@@ -5,7 +5,19 @@ import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { cancelZoomRegistrant, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import Stripe from 'stripe';
-import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, restoreComplexEventSeatsMultiple, cancelComplexEventZoomRegistrationsMultiple, reinstateVoucherDirect, reinstateVoucherFromTransactions } from '../_lib/bookingLookup.js';
+import {
+  isComplexSource,
+  normalizeComplexBooking,
+  getBookingTable,
+  restoreComplexEventSeatsMultiple,
+  cancelComplexEventZoomRegistrationsMultiple,
+  reinstateVoucherDirect,
+  reinstateVoucherFromTransactions,
+} from '../_lib/bookingLookup.js';
+import {
+  cancelBooking,
+  CANCELLATION_REASON_REQUEST_APPROVED,
+} from '../_lib/bookingCancellation.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -156,6 +168,17 @@ export default async function handler(req, res) {
   }
 }
 
+/**
+ * Group cancellation orchestrator.
+ *
+ * Per-booking side-effects (status flip, training fund, program ticket
+ * refunds) are run through the shared cancelBooking engine in
+ * api/_lib/bookingCancellation.js so they stay in lock-step with the
+ * single-booking and event-deletion flows. Steps that have to be consolidated
+ * to one external call for the whole group — Stripe refund, Xero credit
+ * note, voucher reinstatement, discount-code decrement, seat restore, Zoom
+ * unregister — are skipped at the per-booking level and handled here once.
+ */
 async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null, refund_allocation = null) {
   const reversalResults = {
     trainingFund: [],
@@ -196,8 +219,6 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       return { success: false, error: 'Failed to fetch bookings for group' };
     }
 
-    const bookingsMap = bookings.reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
-
     const orgIds = [...new Set(bookings.map(b => b.organization_id).filter(Boolean))];
     if (orgIds.length > 1) {
       return { success: false, error: 'All bookings in a group must belong to the same organization' };
@@ -213,136 +234,79 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       return { success: false, error: `Group bookings have multiple Xero invoices (${xeroInvoices.length}). Cannot process consolidated credit note — use individual approval.` };
     }
 
-    let org = null;
     const firstBooking = bookings[0];
     const organizationId = firstBooking.organization_id;
-    if (organizationId) {
-      const { data: orgData } = await supabase
-        .from('organization')
-        .select('id, program_ticket_balances, training_fund_balance')
-        .eq('id', organizationId)
-        .single();
-      org = orgData;
+    const groupRef = firstBooking.booking_group_reference || firstBooking.booking_reference;
+    const groupRequestIds = requests.map(r => r.id).sort().join('-');
+
+    // Pre-compute pro-rated training-fund allocation per booking. The shared
+    // engine accepts a per-booking trainingFundAmount cap; we apportion the
+    // group-level allocation across bookings by their original training-fund
+    // share so the totals add up to refund_allocation.trainingFundAmount.
+    const totalTrainingFundFromBookings = bookings.reduce((sum, b) => sum + (parseFloat(b.training_fund_amount) || 0), 0);
+    let trainingFundRatio = null;
+    if (refund_allocation && refund_allocation.trainingFundAmount !== undefined) {
+      const allocatedTotal = parseFloat(refund_allocation.trainingFundAmount) || 0;
+      if (allocatedTotal <= 0) {
+        trainingFundRatio = 0;
+      } else if (totalTrainingFundFromBookings > 0 && allocatedTotal < totalTrainingFundFromBookings) {
+        trainingFundRatio = allocatedTotal / totalTrainingFundFromBookings;
+      }
     }
 
-    let newlyCancelledCount = 0;
+    const newlyCancelledBookings = [];
     for (const booking of bookings) {
       if (booking.status === 'cancelled') {
         console.log(`[GroupApproval] Booking ${booking.id} already cancelled, skipping`);
         continue;
       }
 
-      const { error: updateError } = await supabase
-        .from(bookingTable)
-        .update({ status: 'cancelled' })
-        .eq('id', booking.id);
-
-      if (updateError) {
-        console.error(`[GroupApproval] Failed to cancel booking ${booking.id}:`, updateError);
-        return { success: false, error: `Failed to cancel booking ${booking.id}: ${updateError.message}` };
+      // Per-booking training-fund cap derived from the group allocation.
+      let perBookingAllocation = null;
+      if (trainingFundRatio !== null && parseFloat(booking.training_fund_amount) > 0) {
+        const perBooking = trainingFundRatio === 0
+          ? 0
+          : Math.round((parseFloat(booking.training_fund_amount) || 0) * trainingFundRatio * 100) / 100;
+        perBookingAllocation = { trainingFundAmount: perBooking };
       }
 
-      newlyCancelledCount++;
-      console.log(`[GroupApproval] Booking ${booking.id} cancelled`);
+      const result = await cancelBooking({
+        booking,
+        source: bookingSource,
+        tenantId,
+        reason: CANCELLATION_REASON_REQUEST_APPROVED,
+        refundAllocation: perBookingAllocation,
+        reversalOptions,
+        cancellationRequestId: requests.find(r => r.booking_id === booking.id)?.id || null,
+        // Group level handles all of these consolidated steps below.
+        skipStripeRefund: true,
+        skipXeroCreditNote: true,
+        skipDiscountCodeReversal: true,
+        skipVoucherReinstatement: true,
+        skipSeatRestore: true,
+        skipZoomCancel: true,
+      });
 
-      if (booking.training_fund_amount > 0 && org) {
-        try {
-          const totalTrainingFundFromBookings = bookings.reduce((sum, b) => sum + (parseFloat(b.training_fund_amount) || 0), 0);
-          let refundTrainingAmount = booking.training_fund_amount;
-          if (refund_allocation && refund_allocation.trainingFundAmount !== undefined) {
-            const allocatedTotal = parseFloat(refund_allocation.trainingFundAmount) || 0;
-            if (allocatedTotal <= 0) {
-              console.log(`[GroupApproval] Training fund refund skipped per allocation (0) for booking ${booking.id}`);
-              refundTrainingAmount = 0;
-            } else if (allocatedTotal < totalTrainingFundFromBookings) {
-              const ratio = allocatedTotal / totalTrainingFundFromBookings;
-              refundTrainingAmount = Math.round(booking.training_fund_amount * ratio * 100) / 100;
-            }
-          }
-          if (refundTrainingAmount <= 0) {
-            reversalResults.trainingFund.push({ bookingId: booking.id, amount: 0, success: true, skipped: true });
-          } else {
-          const currentBalance = org.training_fund_balance || 0;
-          const newBalance = currentBalance + refundTrainingAmount;
-
-          await supabase
-            .from('organization')
-            .update({ training_fund_balance: newBalance })
-            .eq('id', org.id);
-
-          await supabase.from('training_fund_transaction').insert({
-            organization_id: org.id,
-            type: 'cancellation_refund',
-            amount: refundTrainingAmount,
-            balance_before: currentBalance,
-            balance_after: newBalance,
-            reason: `Cancellation refund: ${booking.booking_reference || booking.id}`,
-            booking_id: booking.id,
-            created_by: booking.member_id,
-            created_date: new Date().toISOString(),
-            tenant_id: tenantId
-          });
-
-          org.training_fund_balance = newBalance;
-          reversalResults.trainingFund.push({ bookingId: booking.id, amount: refundTrainingAmount, success: true });
-          console.log(`[GroupApproval] Training fund reinstated: £${refundTrainingAmount} for booking ${booking.id}`);
-          }
-        } catch (err) {
-          console.error(`[GroupApproval] Training fund reinstatement error for booking ${booking.id}:`, err);
-          reversalResults.trainingFund.push({ bookingId: booking.id, amount: booking.training_fund_amount, success: false, error: err.message });
-        }
+      if (!result.success) {
+        return { success: false, error: `Failed to cancel booking ${booking.id}: ${result.error}` };
       }
 
-      if (booking.event_id && booking.member_id && org && !isComplex) {
-        try {
-          const { data: event } = await supabase
-            .from('event')
-            .select('program_tag, title')
-            .eq('id', booking.event_id)
-            .single();
-
-          if (event?.program_tag) {
-            const currentBalances = org.program_ticket_balances || {};
-            const currentBalance = currentBalances[event.program_tag] || 0;
-            const newProgramBalances = { ...currentBalances, [event.program_tag]: currentBalance + 1 };
-
-            await supabase
-              .from('organization')
-              .update({
-                program_ticket_balances: newProgramBalances,
-                last_synced: new Date().toISOString()
-              })
-              .eq('id', org.id);
-
-            org.program_ticket_balances = newProgramBalances;
-
-            await supabase.from('program_ticket_transaction').insert({
-              organization_id: org.id,
-              program_name: event.program_tag,
-              transaction_type: 'refund',
-              quantity: 1,
-              booking_reference: booking.booking_reference || booking.backstage_order_id || booking.id,
-              event_name: event.title || 'Unknown Event',
-              member_email: booking.attendee_email || 'unknown',
-              notes: `Ticket refunded via approved group cancellation request`
-            });
-
-            reversalResults.programTickets.push({ bookingId: booking.id, programTag: event.program_tag, success: true });
-            console.log(`[GroupApproval] Program ticket refunded for ${event.program_tag} (booking ${booking.id})`);
-          }
-        } catch (err) {
-          console.error(`[GroupApproval] Program ticket refund error for booking ${booking.id}:`, err);
-          reversalResults.programTickets.push({ bookingId: booking.id, success: false, error: err.message });
-        }
+      const tf = result.reversalResults?.trainingFund;
+      if (tf) {
+        reversalResults.trainingFund.push({ bookingId: booking.id, ...tf });
       }
+      const pt = result.reversalResults?.programTicket;
+      if (pt) {
+        reversalResults.programTickets.push({ bookingId: booking.id, ...pt });
+      }
+      newlyCancelledBookings.push(booking);
     }
 
-    // --- Restore available seats for newly cancelled bookings ---
-    if (newlyCancelledCount > 0 && firstBooking.event_id) {
+    // --- Restore available seats (consolidated for the whole group) ---
+    if (newlyCancelledBookings.length > 0 && firstBooking.event_id) {
       if (isComplex) {
         try {
-          const newlyCancelledBookings = bookings.filter(b => b.status !== 'cancelled');
-          await restoreComplexEventSeatsMultiple(newlyCancelledBookings, newlyCancelledCount);
+          await restoreComplexEventSeatsMultiple(newlyCancelledBookings, newlyCancelledBookings.length);
         } catch (err) {
           console.error(`[GroupApproval] Complex event seat restoration error (non-blocking):`, err.message);
         }
@@ -356,15 +320,15 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
           if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
             const { data: newSeatCount, error: rpcError } = await supabase
-              .rpc('adjust_event_seats', { p_event_id: firstBooking.event_id, p_delta: newlyCancelledCount });
+              .rpc('adjust_event_seats', { p_event_id: firstBooking.event_id, p_delta: newlyCancelledBookings.length });
 
             if (rpcError) {
               console.error(`[GroupApproval] RPC seat increment failed:`, rpcError.message);
-              const newCount = eventForSeats.available_seats + newlyCancelledCount;
+              const newCount = eventForSeats.available_seats + newlyCancelledBookings.length;
               await supabase.from('event').update({ available_seats: newCount }).eq('id', firstBooking.event_id);
-              console.log(`[GroupApproval] Fallback: Incremented seats by ${newlyCancelledCount} to ${newCount}`);
+              console.log(`[GroupApproval] Fallback: Incremented seats by ${newlyCancelledBookings.length} to ${newCount}`);
             } else {
-              console.log(`[GroupApproval] Seats restored by ${newlyCancelledCount}, new count: ${newSeatCount}`);
+              console.log(`[GroupApproval] Seats restored by ${newlyCancelledBookings.length}, new count: ${newSeatCount}`);
             }
           }
         } catch (err) {
@@ -373,10 +337,10 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
-    if (newlyCancelledCount > 0 && firstBooking.event_id) {
+    // --- Cancel Zoom registrants (consolidated for the whole group) ---
+    if (newlyCancelledBookings.length > 0 && firstBooking.event_id) {
       if (isComplex) {
         try {
-          const newlyCancelledBookings = bookings.filter(b => b.status !== 'cancelled');
           await cancelComplexEventZoomRegistrationsMultiple(newlyCancelledBookings, tenantId);
         } catch (err) {
           console.error(`[GroupApproval] Complex event Zoom cancellation error (non-blocking):`, err.message);
@@ -392,10 +356,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           if (eventForZoom) {
             const webinar = await resolveEventZoomWebinar(eventForZoom);
             if (webinar && webinar.zoom_webinar_id) {
-              for (const booking of bookings) {
-                if (booking.status === 'cancelled') {
-                  continue;
-                }
+              for (const booking of newlyCancelledBookings) {
                 if (booking.attendee_email) {
                   try {
                     await cancelZoomRegistrant(tenantId, webinar.zoom_webinar_id, booking.attendee_email);
@@ -413,8 +374,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
-    const groupRef = firstBooking.booking_group_reference || firstBooking.booking_reference;
-
+    // --- Voucher reinstatement (single call for the whole group) ---
     const hasVoucher = bookings.some(b => parseFloat(b.voucher_amount) > 0);
     if (hasVoucher) {
       try {
@@ -431,6 +391,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
+    // --- Discount code reversal (single decrement for the whole group) ---
     const firstBookingWithDiscount = bookings.find(b => b.discount_code_id && parseFloat(b.discount_code_amount) > 0);
     if (firstBookingWithDiscount) {
       try {
@@ -506,9 +467,9 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
+    // --- Consolidated Stripe refund (one refund covering the whole group) ---
     let totalCardAmount = 0;
     let stripePaymentIntentId = null;
-    const groupRequestIds = requests.map(r => r.id).sort().join('-');
 
     for (const booking of bookings) {
       if (booking.stripe_payment_intent_id && booking.payment_method === 'card') {
@@ -612,6 +573,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
+    // --- Consolidated Xero credit note (one credit note for the group) ---
     const bookingsWithXero = bookings.filter(b => b.xero_invoice_id);
     if (bookingsWithXero.length > 0) {
       try {

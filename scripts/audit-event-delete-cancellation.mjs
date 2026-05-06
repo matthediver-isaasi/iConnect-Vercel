@@ -102,6 +102,19 @@ check('Legacy entity DELETE points callers to /delete-with-cancellations',
 check('Legacy entity DELETE no longer hard-deletes bookings by event_id',
   entityDelete && !/from\('booking'\)\s*\.delete\(\)\s*\.eq\('event_id'/.test(entityDelete));
 
+// task-706: single cancellation engine shared across the three approval paths.
+check('Shared engine exports cancelBooking + back-compat alias',
+  bookingCancel && /export async function cancelBooking\(/.test(bookingCancel)
+    && bookingCancel.includes('cancelBookingForEventDeletion = cancelBooking'));
+const reqEp = read('api/booking-cancellation-requests/[requestId].js');
+check('[requestId] approval endpoint uses shared cancelBooking engine',
+  reqEp && reqEp.includes("from '../_lib/bookingCancellation.js'") && reqEp.includes('cancelBooking({')
+    && !/async function processCancellation\(/.test(reqEp));
+const groupEp = read('api/booking-cancellation-requests/approve-group.js');
+check('approve-group endpoint uses shared cancelBooking engine for per-booking work',
+  groupEp && groupEp.includes("from '../_lib/bookingCancellation.js'") && groupEp.includes('cancelBooking({')
+    && groupEp.includes('skipStripeRefund: true') && groupEp.includes('skipXeroCreditNote: true'));
+
 const fnFile = read('api/functions/[functionName].js');
 const cancellingChecks = (fnFile || '').match(/event\.status === 'cancelling'/g) || [];
 check('createBooking + createOneOffEventBooking both block status=cancelling',
