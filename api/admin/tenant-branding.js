@@ -42,7 +42,7 @@ export default async function handler(req, res) {
     try {
       const { data: tenant, error } = await supabase
         .from('tenant')
-        .select('id, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
+        .select('id, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
         .eq('id', tenantId)
         .single();
 
@@ -61,6 +61,8 @@ export default async function handler(req, res) {
         'primary_color',
         'secondary_color', 
         'tagline',
+        'description',
+        'social_image_url',
         'logo_url',
         'header_logo_url',
         'header_config',
@@ -203,7 +205,7 @@ export default async function handler(req, res) {
         .from('tenant')
         .update(updates)
         .eq('id', tenantId)
-        .select('id, slug, domain, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
+        .select('id, slug, domain, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
         .single();
 
       if (error) {

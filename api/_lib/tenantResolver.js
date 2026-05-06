@@ -78,7 +78,7 @@ export async function resolveTenantFromHost(hostname) {
       console.log('[TenantResolver] Looking up by slug:', slug);
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, branding_config, platform_branding, settings')
         .eq('slug', slug)
         .eq('status', 'active')
         .single();
@@ -94,7 +94,7 @@ export async function resolveTenantFromHost(hostname) {
       console.log('[TenantResolver] Looking up by domain:', customDomain);
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, branding_config, platform_branding, settings')
         .eq('domain', customDomain)
         .eq('status', 'active')
         .single();
@@ -131,7 +131,7 @@ export function getHostFromRequest(req) {
 }
 
 export async function resolveTenantFromRequest(req) {
-  const TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings';
+  const TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, branding_config, platform_branding, settings';
   
   console.log('[TenantResolver] resolveTenantFromRequest called');
   

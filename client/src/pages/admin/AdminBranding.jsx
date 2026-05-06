@@ -52,6 +52,8 @@ export default function AdminBranding() {
     primary_color: '#5C0085',
     secondary_color: '#BA0087',
     tagline: '',
+    description: '',
+    social_image_url: '',
     logo_url: '',
     header_logo_url: '',
     header_config: {
@@ -159,6 +161,8 @@ export default function AdminBranding() {
               primary_color: t?.primary_color || '#5C0085',
               secondary_color: t?.secondary_color || '#BA0087',
               tagline: t?.tagline || '',
+              description: t?.description || '',
+              social_image_url: t?.social_image_url || '',
               logo_url: t?.logo_url || '',
               header_logo_url: t?.header_logo_url || '',
               header_config: {
@@ -1207,6 +1211,46 @@ export default function AdminBranding() {
                 placeholder="Empowering professionals worldwide"
                 data-testid="input-tagline"
               />
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Type className="w-5 h-5" />
+                Link Previews (SEO &amp; Social Sharing)
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Used when your site is shared on Slack, WhatsApp, iMessage, Facebook, X/Twitter, LinkedIn, and shown in Google search results.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="description" className="text-slate-200">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="bg-slate-900/50 border-slate-600 text-white"
+                  placeholder="A short description of your organisation (1-2 sentences, ~155 characters)."
+                  rows={3}
+                  maxLength={300}
+                  data-testid="input-seo-description"
+                />
+                <p className="text-xs text-slate-500">Shown as the meta description and link-preview subtitle. Aim for under 160 characters.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="social_image_url" className="text-slate-200">Social Image URL</Label>
+                <Input
+                  id="social_image_url"
+                  value={formData.social_image_url}
+                  onChange={(e) => setFormData({ ...formData, social_image_url: e.target.value })}
+                  className="bg-slate-900/50 border-slate-600 text-white"
+                  placeholder="https://… (1200×630 PNG/JPG)"
+                  data-testid="input-social-image-url"
+                />
+                <p className="text-xs text-slate-500">If empty, your logo is used as the link-preview image.</p>
+              </div>
             </CardContent>
           </Card>
 

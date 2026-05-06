@@ -40,7 +40,8 @@
   "rewrites": [
     { "source": "/robots.txt", "destination": "/api/public/robots.txt" },
     { "source": "/sitemap.xml", "destination": "/api/public/sitemap.xml" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|assets/|favicon\\.ico|favicon[^/]*\\.png|apple-touch-icon\\.png|og-image\\.png|site\\.webmanifest|robots\\.txt|sitemap\\.xml).*\\.[a-zA-Z0-9]+)", "destination": "/$1" },
+    { "source": "/((?!api/).*)", "destination": "/api/render" }
   ],
   "headers": [
     {
