@@ -270,31 +270,74 @@ export default function EventsPage({
     queryFn: () => publicClient.listSystemSettings()
   });
 
+  const [complexDeleteOrganiserMessage, setComplexDeleteOrganiserMessage] = useState("");
+  const [complexDeleteResultSummary, setComplexDeleteResultSummary] = useState(null);
+  const [complexDeletePreview, setComplexDeletePreview] = useState(null);
+  const [complexDeletePreviewLoading, setComplexDeletePreviewLoading] = useState(false);
+  const [complexDeletePreviewError, setComplexDeletePreviewError] = useState(null);
+
+  useEffect(() => {
+    if (!complexDeleteTarget?.id) {
+      setComplexDeletePreview(null);
+      setComplexDeletePreviewError(null);
+      return;
+    }
+    let cancelled = false;
+    setComplexDeletePreviewLoading(true);
+    setComplexDeletePreview(null);
+    setComplexDeletePreviewError(null);
+    fetch(`/api/complex-events/${complexDeleteTarget.id}/delete-preview`, { credentials: 'include' })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) setComplexDeletePreviewError(data.error || `Preview failed (${r.status})`);
+        else setComplexDeletePreview(data);
+      })
+      .catch((err) => { if (!cancelled) setComplexDeletePreviewError(err.message || 'Preview failed'); })
+      .finally(() => { if (!cancelled) setComplexDeletePreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [complexDeleteTarget?.id]);
+
   const deleteComplexEventMutation = useMutation({
     mutationFn: async (id) => {
-      const ticketClasses = await base44.entities.ComplexEventTicketClass.filter({ complex_event_id: id });
-      for (const tc of ticketClasses) {
-        await base44.entities.ComplexEventTicketClass.delete(tc.id);
+      const response = await fetch(`/api/complex-events/${id}/delete-with-cancellations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organiser_message: complexDeleteOrganiserMessage || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const err = new Error(data.error || `Delete failed (${response.status})`);
+        err.payload = data;
+        throw err;
       }
-      const tracks = await base44.entities.ComplexEventTrack.filter({ complex_event_id: id });
-      for (const track of tracks) {
-        const sessions = await base44.entities.ComplexEventSession.filter({ complex_event_track_id: track.id });
-        for (const session of sessions) {
-          await base44.entities.ComplexEventSession.delete(session.id);
-        }
-        await base44.entities.ComplexEventTrack.delete(track.id);
-      }
-      await base44.entities.ComplexEvent.delete(id);
+      return data;
     },
-    onSuccess: () => {
-      toast.success('Complex event deleted successfully');
+    onSuccess: (data) => {
+      const total = data.totalBookings || 0;
+      const succeeded = (data.succeeded || 0) + (data.alreadyCancelled || 0);
+      const manual = (data.requiresManualAction || []).length;
+      let msg = total === 0
+        ? 'Complex event deleted successfully'
+        : `Complex event deleted — ${succeeded}/${total} bookings cancelled`;
+      if (manual > 0) msg += ` (${manual} need manual refund/credit-note follow-up)`;
+      toast.success(msg);
       queryClient.invalidateQueries({ queryKey: ['complex-events-for-listing'] });
       setComplexDeleteTarget(null);
       setComplexDeleteConfirmText("");
+      setComplexDeleteOrganiserMessage("");
+      setComplexDeleteResultSummary(null);
     },
     onError: (error) => {
       console.error('Delete complex event error:', error);
-      toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+      const payload = error.payload;
+      if (payload && Array.isArray(payload.failed) && payload.failed.length > 0) {
+        setComplexDeleteResultSummary(payload);
+        toast.error(`${payload.failed.length} booking(s) failed to cancel — see details below. Resolve and re-run.`);
+      } else {
+        toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+      }
     }
   });
 
@@ -2036,16 +2079,56 @@ export default function EventsPage({
         if (!open) {
           setComplexDeleteTarget(null);
           setComplexDeleteConfirmText("");
+          setComplexDeleteOrganiserMessage("");
+          setComplexDeleteResultSummary(null);
         }
       }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Complex Event</DialogTitle>
             <DialogDescription>
-              This will permanently delete "{complexDeleteTarget?.title}" and all its tracks, sessions, and ticket classes. This action cannot be undone.
+              All active bookings for "{complexDeleteTarget?.title}" will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. The event and its tracks/sessions/ticket classes will then be deleted. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 py-4">
+          <div className="space-y-3 py-4">
+            {complexDeletePreviewLoading && (
+              <div className="text-sm text-slate-500" data-testid="text-complex-delete-preview-loading">Loading preview…</div>
+            )}
+            {complexDeletePreviewError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700" data-testid="text-complex-delete-preview-error">{complexDeletePreviewError}</div>
+            )}
+            {complexDeletePreview && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs space-y-1" data-testid="text-complex-delete-preview-summary">
+                <p><strong>{complexDeletePreview.activeBookings}</strong> active booking(s) will be cancelled
+                  {complexDeletePreview.alreadyCancelledBookings > 0 ? ` (${complexDeletePreview.alreadyCancelledBookings} already cancelled)` : ''}.</p>
+                {complexDeletePreview.stripeRefundCount > 0 && (
+                  <p>{complexDeletePreview.stripeRefundCount} card refund(s) — total {Object.entries(complexDeletePreview.refundByCurrency || {}).map(([c, a]) => `${c} ${Number(a).toFixed(2)}`).join(', ') || '£0.00'}</p>
+                )}
+                {complexDeletePreview.xeroCreditNoteCount > 0 && (
+                  <p>{complexDeletePreview.xeroCreditNoteCount} Xero credit note(s) — total £{Number(complexDeletePreview.totalCreditNote || 0).toFixed(2)}</p>
+                )}
+                {(complexDeletePreview.totalTrainingFundReinstatement > 0 || complexDeletePreview.totalVoucherReinstatement > 0) && (
+                  <p>Training fund: £{Number(complexDeletePreview.totalTrainingFundReinstatement || 0).toFixed(2)} · Vouchers: £{Number(complexDeletePreview.totalVoucherReinstatement || 0).toFixed(2)} reinstated</p>
+                )}
+                {complexDeletePreview.cleanup?.complexChildren && (
+                  <p className="text-slate-600">Will also delete {complexDeletePreview.cleanup.complexChildren.tracks} track(s), {complexDeletePreview.cleanup.complexChildren.sessions} session(s), {complexDeletePreview.cleanup.complexChildren.ticketClasses} ticket class(es).</p>
+                )}
+                {complexDeletePreview.requiresManualActionCount > 0 && (
+                  <p className="text-amber-700">⚠ {complexDeletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
+                )}
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
+              <textarea
+                className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
+                rows={3}
+                placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
+                value={complexDeleteOrganiserMessage}
+                onChange={(e) => setComplexDeleteOrganiserMessage(e.target.value)}
+                data-testid="textarea-complex-delete-organiser-message"
+              />
+            </div>
             <p className="text-sm text-slate-600">Type <span className="font-bold">DELETE EVENT</span> to confirm:</p>
             <Input
               value={complexDeleteConfirmText}
@@ -2053,6 +2136,17 @@ export default function EventsPage({
               placeholder="DELETE EVENT"
               data-testid="input-delete-confirm"
             />
+            {complexDeleteResultSummary && Array.isArray(complexDeleteResultSummary.failed) && complexDeleteResultSummary.failed.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs space-y-1" data-testid="text-complex-delete-failure-summary">
+                <p className="font-semibold text-red-700">{complexDeleteResultSummary.failed.length} booking(s) failed:</p>
+                <ul className="list-disc pl-4 text-red-700 max-h-32 overflow-auto">
+                  {complexDeleteResultSummary.failed.slice(0, 10).map((f, i) => (
+                    <li key={i}>{f.bookingReference || f.bookingId}: {f.error}</li>
+                  ))}
+                </ul>
+                <p className="text-red-700">Event left in 'cancelling' state. Resolve and re-run delete.</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setComplexDeleteTarget(null); setComplexDeleteConfirmText(""); }} data-testid="button-cancel-delete">

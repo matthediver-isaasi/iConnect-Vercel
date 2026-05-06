@@ -108,6 +108,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Registration for this event is closed' });
     }
 
+    // Block registration once an admin has started the safe-deletion flow
+    // (status='cancelling'). See task-700 / api/_lib/eventDeletion.js.
+    if (event.status === 'cancelling') {
+      return res.status(400).json({ error: 'This event is being cancelled and is no longer accepting bookings' });
+    }
+
     const { data: ticketClassRows } = await supabase
       .from('complex_event_ticket_class')
       .select('*')

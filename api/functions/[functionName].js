@@ -1012,7 +1012,15 @@ const functionHandlers = {
       console.log('[createBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
     }
-    
+
+    // Block registration once an admin has started the safe-deletion flow
+    // (status='cancelling'). This prevents racing a refund pipeline against
+    // a brand-new charge. See task-700 / api/_lib/eventDeletion.js.
+    if (event.status === 'cancelling') {
+      console.log('[createBooking] Blocking registration - event is being cancelled:', eventId);
+      return { success: false, error: 'This event is being cancelled and is no longer accepting bookings' };
+    }
+
     if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
       console.log('[createBooking] Blocking registration - past registration deadline:', eventId);
       return { success: false, error: 'Registration deadline has passed for this event' };
@@ -1575,7 +1583,14 @@ const functionHandlers = {
       console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
     }
-    
+
+    // Block registration once an admin has started the safe-deletion flow
+    // (status='cancelling'). See task-700 / api/_lib/eventDeletion.js.
+    if (event.status === 'cancelling') {
+      console.log('[createOneOffEventBooking] Blocking registration - event is being cancelled:', eventId);
+      return { success: false, error: 'This event is being cancelled and is no longer accepting bookings' };
+    }
+
     if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
       console.log('[createOneOffEventBooking] Blocking registration - past registration deadline:', eventId);
       return { success: false, error: 'Registration deadline has passed for this event' };

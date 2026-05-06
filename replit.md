@@ -1,62 +1,60 @@
-# Overview
-This project is a multi-tenant SaaS platform for comprehensive membership management, unifying member, event, booking, resource, and blog post management. It features a unified identity system, dynamic page builder, custom forms with workflow automation, and a robust Due Diligence process. The platform supports a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) for access control and data isolation, aiming to streamline operations for organizations while offering advanced customization and automation capabilities. Key ambitions include providing a versatile platform for various organizational types, enhancing user engagement through personalized experiences, and simplifying complex administrative tasks.
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
-# User Preferences
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build`
+-   **Typecheck:** `npm run typecheck`
+-   **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`)
+-   **Env Vars:** `DATABASE_URL`, `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`
+
+## Stack
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js, PostgreSQL, Drizzle ORM
+-   **Deployment:** Vercel (serverless functions)
+-   **Runtime:** Node.js (Vercel)
+
+## Where things live
+-   `/client`: Frontend source code
+-   `/api`: Backend API endpoints (Vercel serverless functions)
+-   `/supabase`: Database migrations (`/supabase/migrations`), RLS policies, and functions
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html`: Main HTML file, handles SEO/OG tag injection via `api/render.js`
+-   `supabase/schema.prisma`: Database schema (source of truth for Drizzle)
+-   `client/src/design-system`: Custom "new-york" design system components
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation enforced at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id`.
+-   **Dynamic SEO:** Server-side rendering (SSR) of HTML for link previews and SEO, with dynamic replacement of meta tags based on tenant context.
+-   **Identity Management:** Unified identity system with per-tenant password isolation, Google OAuth, and feature-based role management.
+-   **Event Deletion Safety:** Event deletion uses a cancellation flow that ensures refunds, reinstatements, and Zoom unregistration are processed before event data is purged.
+-   **Strict Tenant Context:** Shared entity API hard-fails requests without a valid tenant context to prevent cross-tenant data leaks.
+
+## Product
+-   **Core Platform:** Member, Event, Booking, Resource, Blog Management.
+-   **User Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Dynamic Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe integration for membership payments, Xero for invoicing, Fundraising Module with Gift Aid.
+-   **Communication:** Email template system, campaigns, communication preferences.
+-   **Integration:** WordPress Sync, Zoom integration for events/sessions, Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports with analytics, configurable Member/Organization Directories.
+-   **Community:** Tenant-scoped discussion forums, Member Group email campaigns.
+
+## User preferences
 Preferred communication style: Simple, everyday language.
 
-# System Architecture
-The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS, utilizing a custom "new-york" design system. The backend uses Express.js, PostgreSQL, and Drizzle ORM, with API endpoints deployed as Vercel serverless functions.
+## Gotchas
+-   The API hard-fails any TENANT- or ORGANIZATION-scoped request that arrives without a usable tenant context.
+-   The workflow runner strips `dd_owner` placeholders to empty if no submission context is available, preventing token leaks.
+-   Event deletion is a multi-step cancellation process; direct deletion of events is deprecated for UI flows.
+-   Server-side no length validation for `event.summary` and `complex_event.summary` - client-side `event_summary_max_length` (default 150) system setting is the primary control.
 
-## Multi-Tenant Architecture
-Data isolation is enforced across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id`. The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, facilitated by a tenant resolver for domain-to-tenant mapping.
-
-## SSR HTML / Link-Preview Handler (task-697)
-The Vercel SPA catch-all rewrites HTML requests to `api/render.js` (NOT static `dist/public/index.html`). `api/render.js` calls `api/_lib/renderHtml.js` which loads `dist/public/index.html` once at cold start, resolves the tenant via `resolveTenantFromRequest`, and string-replaces `<title>`, meta description, OG (`og:site_name|title|description|image|url`), Twitter Card tags, and the 32×32/192×192 favicon `<link>` hrefs with tenant values (`tenant.name`, `tenant.tagline`, `tenant.description`, `tenant.social_image_url` falling back to `tenant.logo_url`, `tenant.favicon_url`). Defaults in `client/index.html` cover the platform owner site and any unbranded tenant. Static assets (`/assets/*`, `/favicon*.png`, `/favicon.ico`, `/apple-touch-icon.png`, `/og-image.png`, `/site.webmanifest`, `/robots.txt`, `/sitemap.xml`, plus any other extensioned file) are excluded from the catch-all so they keep being served from `dist/public` directly. Tenant SEO fields live in `supabase/migrations/20260506_add_tenant_seo_fields.sql` (`tenant.description`, `tenant.social_image_url`) and are editable via `AdminBranding` → "Link Previews" card / `PATCH /api/admin/tenant-branding`. The dynamic-favicon JS swap inside `client/index.html` is preserved for logged-in SPA users but no longer the only mechanism — crawlers see a static, properly-sized (192×192) favicon.
-
-The shared entity API (`api/entities/[entity]/index.js`) hard-fails any TENANT- or ORGANIZATION-scoped request that arrives without a usable tenant context: TENANT entities (e.g. `PreferenceField`, `Role`, `Organization`) require `tenantCtx.tenantId`; ORGANIZATION entities that grant tenant-wide read access (e.g. `OrganizationPreferenceValue` joined via `organization!inner(tenant_id)`) require `tenantCtx.effectiveTenantId`. Without these the handler returns 403 instead of degrading to an unscoped query - this prevents the cross-tenant leak observed in the `/organisations` and `/members` filter sidebars (task-631). The matching regression guard lives at `scripts/audit-cross-tenant-crm-leaks.mjs` and the one-off data repair at `scripts/migrations/repair-cross-tenant-preference-leaks.sql`.
-
-## Identity and Access Management
-A unified identity system manages user authentication, multi-tenant ownership, and organization memberships, including per-tenant password isolation, Google OAuth, and feature-based role management for granular control over UI visibility, backend access, and field access.
-
-## Key Features
--   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
--   **Content Management:** Features event/booking management, general content management, a dynamic page builder, custom forms with conditional logic and uniqueness validation, and blog posts.
--   **Membership Payment:** Integrates Stripe for membership fees, supporting auto-submission, year 2 rollover logic, Xero invoice attachment, and configurable invoice address sourcing.
--   **Communication:** Includes an email template system, communication preferences, and email campaigns with list-based targeting.
--   **Workflow Automation:** Provides tenant-scoped workflows for automating actions.
--   **Field Visibility Rules:** Implements conditional show/hide rules for fields and cards, with role-based read/write control.
--   **Branding & Customization:** Supports per-tenant branding for public-facing pages and embeddable forms.
--   **Fundraising Module:** Supports tenant-scoped campaigns with donation pages, Stripe processing, and UK Gift Aid.
--   **Dynamic Directory:** Configurable member/organisation directories with filtering and field visibility settings.
--   **WordPress Sync:** iConnect articles sync to WordPress sites via a dedicated plugin and webhook system.
--   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access, image attachments, and real-time subscriptions.
--   **Membership Tier System:** Supports pricing based on organization or member attributes with historical versioning, pro-rata pricing, and cron-based renewals.
--   **Complex Events Module:** Multi-track events (conferences, courses) with separate entities for ComplexEvent, ComplexEventTrack, ComplexEventSession, and ComplexEventTicketClass.
--   **Booking Cancellation and Transfer Requests:** Members and admins can initiate cancellation or transfer requests for tickets or groups, which go through an admin review queue.
--   **Complex Event Sessions with Zoom Integration:** Multi-session events support individual sessions with per-session Zoom meeting/webinar integration, including auto-registration for attendees.
--   **Discount Codes:** Supports targeting discounts by organization, member, role, or member group, with per-member usage tracking and event restrictions.
--   **Zoom Attendance Tracking:** Fetches participant data from Zoom Reports API post-event, matches to bookings, and displays attendance status in reports with CSV export.
--   **Event-Linked Resource Access:** Resources can be linked to events/sessions, restricting access to members with confirmed bookings.
--   **Organization Directory Type Filter:** Allows filtering visible organizations based on their type.
--   **CRM Tags:** Free-text tagging on Organisation and Member records with a tag management page.
--   **Article Brief Management:** Admin-configurable workflow stages, brief categories, email notifications, and support for external writers.
--   **Case Study Uploads:** Supports versioned image/document uploads for article briefs from internal teams and external providers via token-authenticated public pages.
--   **Brief Copyright Assignment Form:** Workflow for collecting copyright assignment from writers, with configurable templates and tracking.
--   **Brief Send Email Templates:** Allows editors to select tenant-scoped email templates for Case Study Permission form sends and Copyright Assignment sends, supporting placeholders.
--   **Zoho Inbound Update Toast:** Provides real-time notifications via toast messages on detail pages when an organization or member record is updated by an inbound Zoho sync.
--   **External Writers:** Dedicated management for external (non-member) writers for article briefs, including CRUD operations, email validation, and NDA document uploads.
--   **Brief Management Inbox:** Tenant-scoped pseudo-inbox on `/BriefManagement` to surface case-study Permission/Copyright form submissions and attached files against existing briefs.
--   **LMIC Country Settings & Default Dashboard Widgets:** Per-tenant World Bank LMIC country list (admin page at `/admin/lmic-countries`, table `tenant_lmic_country`) seeded on first read. Dashboard widget builder gains an "LMIC only" filter operator that resolves to the saved list at query time, plus a `count_distinct` aggregator and time-bucket support for custom date fields. Widget measures support `additionalFields` (per-row sum across multiple fields) and a new `fifth` width (`md:col-span-2`) for 5-card top rows. `scripts/seed-default-dashboard-widgets.mjs` ensures the required custom fields exist (region, org_type, total_schools, children_impacted_direct, children_impacted_indirect, member.go_live) and idempotently seeds shared dashboard widgets for a given `TENANT_ID`.
--   **Member Group Email Campaigns:** Trusted roles inside a `MemberGroup` (configured via `member_group.ems_enabled_roles`) get a member-facing `/GroupEmail` page that reuses the existing campaign sending pipeline + ReactQuill editor to email the rest of their group. New `/api/member-campaigns/*` endpoints (qualifying-groups, list/create, get/patch/delete, send, test-send) all hard-fail when the caller isn't a qualifying member; ownership is enforced via `email_campaign.created_by_member_id` + `member_group_id` and audience is server-locked to `target_audiences=[{type:'member_group',ids:[id],roles?}]`. Test-send is capped at 5 recipients. The recipient resolver in `campaignService.js` honours the optional in-group role filter and silently applies global opt-outs/bounces. Tenant `/api/email-campaigns/*` is untouched; the tenant table renders an audit badge ("By <member> · <group>") on member-originated rows. Schema: migration `supabase/migrations/20260505_add_member_group_ems_campaigns.sql`. Regression script: `scripts/audit-member-campaign-isolation.mjs`.
--   **DD Owner Placeholder Resolution:** All DD/contract email senders — `_stageActions.js` (contract send / meeting requests / generic stage emails), `api/contracts/send-original.js`, `resend.js`, `send-to-signers.js`, the two crons (`send-contract-reminders.js`, `send-contract-timeout-notifications.js`), and the test-fire endpoints — resolve `{{dd_owner}}`/`{{dd_owner_email}}` (and `[[dd_owner]]`) via the shared helper `api/_lib/ddOwner.js` (`resolveDdOwnerForSubmission`/`applyDdOwnerPlaceholders`). The helper mirrors the canonical lookup (submission `owner_name` → `form_due_diligence_config.default_owner_name` → `member.email` for `owner_member_id`). The workflow runner (`api/_lib/workflows.js`) has no submission context, so it strips dd_owner placeholders to empty rather than leaking raw tokens. Keeps `/emailplaceholders` preview and real outbound emails in sync (task-689).
--   **Event Summary Length:** `event.summary` and `complex_event.summary` are `text` columns (migration `supabase/migrations/20260506_widen_event_summary.sql`). The only enforced cap is the tenant `event_summary_max_length` system setting (default 150) applied client-side in `EditEvent`, `CreateEvent`, and `CreateComplexEvent`; server has no length validation. `EditEvent` does NOT trim the loaded summary on mount — the previous trim-on-load effect ran before SystemSettings resolved (default cap 150) and silently chopped over-cap stored values; instead the counter turns red and the submit-time check requires the admin to consciously shorten any legacy over-cap summary (task-696).
--   **Always-editable Zoom Links (events & sessions):** Both `EditEvent` and the `CreateComplexEvent` session-edit dialog render an always-on Zoom Link admin panel — Attach when no Zoom is linked, Change/Detach when one is — that drives the shared `client/src/components/events/ChangeZoomDialog.jsx` against `${endpointBase}/change-zoom`. The CreateComplexEvent bypass PATCH (`PATCH /api/complex-event-sessions/:id?skipOverlapCheck=true`) now strips `zoom_meeting_id`, `zoom_webinar_id`, `zoom_join_url`, `zoom_start_url`, `zoom_registration_url`, `auto_create_zoom`, `zoom_link_mode`, and `link_existing_zoom_id` from the payload for any saved session, forcing all Zoom mutations through `change-zoom` so confirmed registrants are correctly cancelled/re-registered. Regression guard: `scripts/audit-event-duplication.mjs` (task-692 block).
--   **Due Diligence Reports:** Per-form analytics page (`/DueDiligenceReports`) with 4 cards (Application Funnel, Verification, DD Meetings, Decisions) sourcing `workflow_status`/score/risk from `form_submission_due_diligence` and deriving stage-transition timestamps from `history_log`. Supports form selector, period filters incl. custom date range, per-card SLA inputs, drill-through links to `DueDiligenceDashboard` (status/riskLevel/reviewer/outstandingDays URL params), CSV export per card, and a Funnel/Bar chart toggle. Includes monthly throughput, risk-level distribution, score-vs-outcome, reviewer breakdown, per-document stats, and real meeting metrics (booked/cancelled/no-show/rescheduled/lead-time) sourced from `dd_meeting_request` + `agent_booking`.
-
-# External Dependencies
--   **Supabase:** PostgreSQL database and file storage.
--   **Stripe:** Payment processing.
--   **Xero:** Invoice generation.
--   **Microsoft Graph API:** Outlook email integration.
--   **Mailgun:** Tenant-specific email sending, delivery, native Email Marketing System (EMS), and scheduled event sync (cron every 6h via `api/cron/sync-mailgun-campaign-events.js`, shared logic in `api/_lib/mailgunEventSync.js`).
--   **Zoho Campaigns:** Syncing member communication preferences.
+## Pointers
+-   **React Docs:** `https://react.dev/`
+-   **Tailwind CSS:** `https://tailwindcss.com/docs`
+-   **Drizzle ORM:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Serverless Functions:** `https://vercel.com/docs/functions/overview`
+-   **Supabase Docs:** `https://supabase.com/docs`
+-   **Stripe API:** `https://stripe.com/docs/api`
+-   **Mailgun API:** `https://documentation.mailgun.com/en/latest/api_reference.html`

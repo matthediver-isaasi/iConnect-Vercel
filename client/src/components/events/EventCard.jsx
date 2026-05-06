@@ -404,22 +404,55 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   // Combine both role-based permission and system setting
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
+  const [deleteOrganiserMessage, setDeleteOrganiserMessage] = useState("");
+  const [deleteResultSummary, setDeleteResultSummary] = useState(null);
+  const [deletePreview, setDeletePreview] = useState(null);
+  const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
+  const [deletePreviewError, setDeletePreviewError] = useState(null);
+
   const deleteEventMutation = useMutation({
     mutationFn: async () => {
-      return base44.entities.Event.delete(event.id);
+      const response = await fetch(`/api/events/${event.id}/delete-with-cancellations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organiser_message: deleteOrganiserMessage || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const err = new Error(data.error || `Delete failed (${response.status})`);
+        err.payload = data;
+        throw err;
+      }
+      return data;
     },
-    onSuccess: () => {
-      toast.success('Event deleted successfully');
+    onSuccess: (data) => {
+      const total = data.totalBookings || 0;
+      const succeeded = (data.succeeded || 0) + (data.alreadyCancelled || 0);
+      const manual = (data.requiresManualAction || []).length;
+      let msg = total === 0
+        ? 'Event deleted successfully'
+        : `Event deleted — ${succeeded}/${total} bookings cancelled`;
+      if (manual > 0) msg += ` (${manual} need manual refund/credit-note follow-up)`;
+      toast.success(msg);
       queryClient.invalidateQueries({ queryKey: ['events'] });
       setShowDeleteDialog(false);
       setDeleteConfirmText("");
+      setDeleteOrganiserMessage("");
+      setDeleteResultSummary(null);
       if (onEventDeleted) {
         onEventDeleted(event.id);
       }
     },
     onError: (error) => {
       console.error('Delete event error:', error);
-      toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+      const payload = error.payload;
+      if (payload && Array.isArray(payload.failed) && payload.failed.length > 0) {
+        setDeleteResultSummary(payload);
+        toast.error(`${payload.failed.length} booking(s) failed to cancel — see details below. Resolve and re-run.`);
+      } else {
+        toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
+      }
     }
   });
 
@@ -601,9 +634,25 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     });
   };
 
-  const handleDeleteClick = (e) => {
+  const handleDeleteClick = async (e) => {
     e.stopPropagation();
     setShowDeleteDialog(true);
+    setDeletePreview(null);
+    setDeletePreviewError(null);
+    setDeletePreviewLoading(true);
+    try {
+      const r = await fetch(`/api/events/${event.id}/delete-preview`, { credentials: 'include' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setDeletePreviewError(data.error || `Preview failed (${r.status})`);
+      } else {
+        setDeletePreview(data);
+      }
+    } catch (err) {
+      setDeletePreviewError(err.message || 'Failed to load delete preview');
+    } finally {
+      setDeletePreviewLoading(false);
+    }
   };
 
   const handleEditClick = (e) => {
@@ -951,7 +1000,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
       {/* Delete Confirmation Dialog - Only render for admins */}
       {isAdmin && (
-        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setDeleteConfirmText("");
+            setDeleteOrganiserMessage("");
+            setDeleteResultSummary(null);
+          }
+        }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="text-red-600">Delete Event</DialogTitle>
@@ -960,14 +1016,49 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   Are you sure you want to delete <strong>"{event.title}"</strong>?
                 </p>
                 <p className="text-red-600 font-medium">
-                  This action cannot be undone. All bookings and registrations for this event will also be affected.
+                  All active bookings will be cancelled, refunds processed, credit notes raised, Zoom registrations removed, and attendees emailed. This cannot be undone.
                 </p>
                 <p>
                   To confirm deletion, please type <strong>DELETE EVENT</strong> below:
                 </p>
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4">
+            <div className="py-4 space-y-3">
+              {deletePreviewLoading && (
+                <div className="text-sm text-slate-500" data-testid="text-delete-preview-loading">Loading preview…</div>
+              )}
+              {deletePreviewError && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700" data-testid="text-delete-preview-error">{deletePreviewError}</div>
+              )}
+              {deletePreview && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs space-y-1" data-testid="text-delete-preview-summary">
+                  <p><strong>{deletePreview.activeBookings}</strong> active booking(s) will be cancelled
+                    {deletePreview.alreadyCancelledBookings > 0 ? ` (${deletePreview.alreadyCancelledBookings} already cancelled)` : ''}.</p>
+                  {deletePreview.stripeRefundCount > 0 && (
+                    <p>{deletePreview.stripeRefundCount} card refund(s) — total {Object.entries(deletePreview.refundByCurrency || {}).map(([c, a]) => `${c} ${Number(a).toFixed(2)}`).join(', ') || '£0.00'}</p>
+                  )}
+                  {deletePreview.xeroCreditNoteCount > 0 && (
+                    <p>{deletePreview.xeroCreditNoteCount} Xero credit note(s) — total £{Number(deletePreview.totalCreditNote || 0).toFixed(2)}</p>
+                  )}
+                  {(deletePreview.totalTrainingFundReinstatement > 0 || deletePreview.totalVoucherReinstatement > 0) && (
+                    <p>Training fund: £{Number(deletePreview.totalTrainingFundReinstatement || 0).toFixed(2)} · Vouchers: £{Number(deletePreview.totalVoucherReinstatement || 0).toFixed(2)} reinstated</p>
+                  )}
+                  {deletePreview.requiresManualActionCount > 0 && (
+                    <p className="text-amber-700">⚠ {deletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
+                  )}
+                </div>
+              )}
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Optional message to attendees</label>
+                <textarea
+                  className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-slate-400 focus:outline-none"
+                  rows={3}
+                  placeholder="e.g. We're very sorry — the venue had to cancel at short notice."
+                  value={deleteOrganiserMessage}
+                  onChange={(e) => setDeleteOrganiserMessage(e.target.value)}
+                  data-testid="textarea-delete-organiser-message"
+                />
+              </div>
               <Input
                 placeholder="Type DELETE EVENT to confirm"
                 value={deleteConfirmText}
@@ -975,6 +1066,17 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 className="border-red-200 focus:border-red-400"
                 data-testid="input-delete-confirmation"
               />
+              {deleteResultSummary && Array.isArray(deleteResultSummary.failed) && deleteResultSummary.failed.length > 0 && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs space-y-1" data-testid="text-delete-failure-summary">
+                  <p className="font-semibold text-red-700">{deleteResultSummary.failed.length} booking(s) failed:</p>
+                  <ul className="list-disc pl-4 text-red-700 max-h-32 overflow-auto">
+                    {deleteResultSummary.failed.slice(0, 10).map((f, i) => (
+                      <li key={i}>{f.bookingReference || f.bookingId}: {f.error}</li>
+                    ))}
+                  </ul>
+                  <p className="text-red-700">Event left in 'cancelling' state. Resolve and re-run delete.</p>
+                </div>
+              )}
             </div>
             <DialogFooter className="flex gap-2">
               <Button
