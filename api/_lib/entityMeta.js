@@ -195,6 +195,47 @@ async function resolveForm(tenantId, slug) {
   };
 }
 
+// task-710: section/list routes — for any of these we return a
+// descriptive title + description so the page does not unfurl with just
+// the bare tenant name. image is left null so renderHtml falls back to
+// tenant.social_image_url. The matched array is the *first* element to
+// match the pathname (case-insensitive, exact + optional trailing slash).
+const LIST_ROUTE_META = [
+  { paths: ['/Events', '/PublicEvents', '/EventsList'], label: 'Events', blurb: 'Upcoming events and bookings' },
+  { paths: ['/Articles', '/Blog'], label: 'Articles', blurb: 'Latest articles and insights' },
+  { paths: ['/News'], label: 'News', blurb: 'Latest news and announcements' },
+  { paths: ['/Resources', '/PublicResources'], label: 'Resources', blurb: 'Resources and downloads' },
+  { paths: ['/JobBoard'], label: 'Job Board', blurb: 'Latest job opportunities' },
+  { paths: ['/Forum'], label: 'Community Forum', blurb: 'Discussions from the community' },
+  { paths: ['/CampaignsPage', '/Fundraising', '/Donate', '/DonatePage'], label: 'Support us', blurb: 'Fundraising campaigns and ways to give' },
+  { paths: ['/PhotoGalleries', '/Galleries'], label: 'Photo Galleries', blurb: 'Photo galleries and albums' },
+  { paths: ['/MemberDirectory'], label: 'Member Directory', blurb: 'Browse our members' },
+  { paths: ['/PublicAbout'], label: 'About', blurb: 'About us' },
+  { paths: ['/PublicContact'], label: 'Contact', blurb: 'Get in touch' },
+];
+
+function resolveListRouteMeta(pathname, tenant) {
+  if (!pathname) return null;
+  const lower = pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  for (const entry of LIST_ROUTE_META) {
+    const match = entry.paths.some((p) => p.toLowerCase() === lower);
+    if (match) {
+      const tenantName = tenant?.name || '';
+      const blurb = tenant?.tagline
+        ? `${entry.blurb} at ${tenantName} — ${tenant.tagline}`
+        : tenantName
+          ? `${entry.blurb} at ${tenantName}`
+          : entry.blurb;
+      return {
+        title: entry.label,
+        description: truncate(blurb, 300),
+        image: null,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Resolve per-page metadata for the request URL on the given tenant.
  * Returns { title, description, image, canonicalPath } or null when no
@@ -268,5 +309,6 @@ export async function resolveEntityMeta(req, tenant) {
     console.error('[entityMeta] resolution failed:', err?.message);
   }
 
-  return null;
+  // Fallback: section/list routes get a descriptive title.
+  return resolveListRouteMeta(pathname, tenant);
 }

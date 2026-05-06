@@ -72,6 +72,32 @@ function makeAbsolute(url, req) {
   return `${proto}://${host}/${url}`;
 }
 
+// task-710: og:image URLs that live on vault.iconn.app or any *.supabase.co
+// host get served behind Cloudflare bot management (__cf_bm Set-Cookie +
+// x-robots-tag: none). Many social unfurl bots refuse to follow that
+// challenge and report "image not found" even when the bytes are
+// reachable. Rewrite those URLs to a same-origin /api/og-image proxy so
+// unfurlers always see a clean, indexable response.
+const PROXY_HOSTS = new Set(['vault.iconn.app']);
+const PROXY_HOST_SUFFIXES = ['.supabase.co'];
+
+function shouldProxyOgImage(absoluteUrl) {
+  if (!absoluteUrl) return false;
+  try {
+    const u = new URL(absoluteUrl);
+    if (PROXY_HOSTS.has(u.hostname)) return true;
+    return PROXY_HOST_SUFFIXES.some((s) => u.hostname.endsWith(s));
+  } catch {
+    return false;
+  }
+}
+
+function proxyOgImage(absoluteUrl, req) {
+  const host = getHostFromRequest(req) || 'iconn.app';
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  return `${proto}://${host}/api/og-image?url=${encodeURIComponent(absoluteUrl)}`;
+}
+
 function replaceOrInsert(html, regex, tag) {
   if (regex.test(html)) return html.replace(regex, tag);
   return html.replace('</head>', `    ${tag}\n  </head>`);
@@ -196,11 +222,14 @@ export async function renderTenantHtml(req) {
     ? (tenant?.name ? `${entity.title} — ${tenant.name}` : entity.title)
     : null;
 
+  let ogImage = makeAbsolute(entity?.image, req) || tenantOgImage;
+  if (shouldProxyOgImage(ogImage)) ogImage = proxyOgImage(ogImage, req);
+
   const values = {
     siteName: tenantSiteName,
     title: entityTitle || tenantTitle,
     description: entity?.description || tenantDescription,
-    ogImage: makeAbsolute(entity?.image, req) || tenantOgImage,
+    ogImage,
     ogUrl,
     favicon32: tenant?.favicon_url || DEFAULTS.favicon32,
     favicon192: tenant?.favicon_url || DEFAULTS.favicon192,
