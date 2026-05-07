@@ -167,8 +167,8 @@ async function scheduleReminderEmails(eventId) {
       .eq('id', eventId)
       .single();
 
-    if (eventError || !event || !event.start_date) {
-      console.log('[scheduleReminderEmails] No event or start_date found');
+    if (eventError || !event) {
+      console.log('[scheduleReminderEmails] No event found');
       return;
     }
 
@@ -195,9 +195,14 @@ async function scheduleReminderEmails(eventId) {
       return;
     }
 
-    const eventStart = new Date(event.start_date);
-    
+    const eventStart = event.start_date ? new Date(event.start_date) : null;
+
     for (const email of reminderEmails) {
+      const isAbsolute = isAbsoluteReminder(email);
+      if (!isAbsolute && !eventStart) {
+        console.log('[scheduleReminderEmails] Skipping relative reminder; event has no start_date');
+        continue;
+      }
       const scheduledTime = calculateScheduledTime(eventStart, email);
 
       if (!scheduledTime || scheduledTime <= new Date()) {
@@ -301,6 +306,45 @@ async function scheduleComplexEventReminderEmails(eventId) {
     }
 
     for (const email of reminderEmails) {
+      if (isAbsoluteReminder(email)) {
+        const scheduledTime = calculateScheduledTime(null, email);
+        if (!scheduledTime || scheduledTime <= new Date()) {
+          continue;
+        }
+
+        for (const booking of bookings) {
+          const { data: existing } = await supabase
+            .from('scheduled_email')
+            .select('id')
+            .eq('event_email_id', email.id)
+            .eq('booking_id', booking.id)
+            .is('session_id', null)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from('scheduled_email')
+              .update({
+                scheduled_send_time: scheduledTime.toISOString(),
+                status: 'pending'
+              })
+              .eq('id', existing.id);
+          } else {
+            await supabase
+              .from('scheduled_email')
+              .insert({
+                event_email_id: email.id,
+                booking_id: booking.id,
+                attendee_email: booking.attendee_email,
+                scheduled_send_time: scheduledTime.toISOString(),
+                session_id: null,
+                status: 'pending'
+              });
+          }
+        }
+        continue;
+      }
+
       for (const session of sessions) {
         if (!session.start_time) continue;
 
@@ -359,6 +403,15 @@ async function scheduleComplexEventReminderEmails(eventId) {
   }
 }
 
+function isAbsoluteReminder(email) {
+  return (
+    email &&
+    email.timing_type === 'custom' &&
+    email.custom_unit === 'specific_datetime' &&
+    !!email.custom_send_at
+  );
+}
+
 function calculateScheduledTime(eventStart, email) {
   const { timing_type, custom_hours_before, custom_unit, custom_send_at } = email;
 
@@ -369,6 +422,7 @@ function calculateScheduledTime(eventStart, email) {
     return null;
   }
 
+  if (!eventStart) return null;
   const hoursBeforeEvent = getHoursFromTimingType(timing_type, custom_hours_before, custom_unit);
   return new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
 }

@@ -281,31 +281,45 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail, 
       .eq('id', eventId)
       .single();
 
-    if (eventError || !event || !event.start_date) {
-      console.log('[scheduleBookingReminderEmails] No event or start_date found');
+    if (eventError || !event) {
+      console.log('[scheduleBookingReminderEmails] No event found');
       return;
     }
 
-    let startDateStr = event.start_date;
-    if (!startDateStr.endsWith('Z') && !startDateStr.includes('+') && !startDateStr.includes('-', 10)) {
-      startDateStr = startDateStr + 'Z';
-    }
-    const eventStartMs = new Date(startDateStr).getTime();
-    
-    if (isNaN(eventStartMs)) {
-      console.error('[scheduleBookingReminderEmails] Invalid event start_date:', event.start_date);
-      return;
+    let eventStartMs = null;
+    if (event.start_date) {
+      let startDateStr = event.start_date;
+      if (!startDateStr.endsWith('Z') && !startDateStr.includes('+') && !startDateStr.includes('-', 10)) {
+        startDateStr = startDateStr + 'Z';
+      }
+      const parsedMs = new Date(startDateStr).getTime();
+      if (!isNaN(parsedMs)) {
+        eventStartMs = parsedMs;
+        console.log(`[scheduleBookingReminderEmails] Event start: ${startDateStr}, now: ${new Date().toISOString()}`);
+      } else {
+        console.error('[scheduleBookingReminderEmails] Invalid event start_date:', event.start_date);
+      }
+    } else {
+      console.log('[scheduleBookingReminderEmails] Event has no start_date; only absolute reminders will be scheduled');
     }
     const nowMs = Date.now();
-    
-    console.log(`[scheduleBookingReminderEmails] Event start: ${startDateStr}, now: ${new Date().toISOString()}`);
-    
+
     for (let i = 0; i < reminderEmails.length; i++) {
       const email = reminderEmails[i];
       console.log(`[scheduleBookingReminderEmails] Processing email ${i + 1}/${reminderEmails.length}: id=${email.id}, timing_type=${email.timing_type}`);
-      
-      const hoursBeforeEvent = getHoursFromTimingType(email.timing_type, email.custom_hours_before);
-      const scheduledTimeMs = eventStartMs - (hoursBeforeEvent * 60 * 60 * 1000);
+
+      const isAbsolute = isAbsoluteReminder(email);
+      let scheduledTimeMs;
+      if (isAbsolute) {
+        scheduledTimeMs = calculateScheduledTimeMs(0, email);
+      } else {
+        if (eventStartMs == null) {
+          console.log(`[scheduleBookingReminderEmails] Skipping relative reminder (${email.timing_type}) - event has no start_date`);
+          continue;
+        }
+        scheduledTimeMs = calculateScheduledTimeMs(eventStartMs, email);
+      }
+      if (scheduledTimeMs == null) continue;
       const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
 
       if (scheduledTimeMs <= nowMs) {
@@ -400,6 +414,46 @@ async function scheduleBookingComplexReminders(bookingId, eventId, attendeeEmail
     const nowMs = Date.now();
 
     for (const email of reminderEmails) {
+      if (isAbsoluteReminder(email)) {
+        const scheduledTimeMs = calculateScheduledTimeMs(0, email);
+        if (scheduledTimeMs == null || scheduledTimeMs <= nowMs) {
+          console.log(`[scheduleBookingComplexReminders] Skipping absolute reminder - already passed or invalid`);
+          continue;
+        }
+        const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
+
+        const { data: existing } = await supabase
+          .from('scheduled_email')
+          .select('id')
+          .eq('event_email_id', email.id)
+          .eq('booking_id', bookingId)
+          .is('session_id', null)
+          .maybeSingle();
+
+        if (existing) {
+          console.log(`[scheduleBookingComplexReminders] Absolute reminder already scheduled for booking ${bookingId}`);
+          continue;
+        }
+
+        const { error: insertError } = await supabase
+          .from('scheduled_email')
+          .insert({
+            event_email_id: email.id,
+            booking_id: bookingId,
+            attendee_email: attendeeEmail,
+            scheduled_send_time: scheduledTimeISO,
+            session_id: null,
+            status: 'pending'
+          });
+
+        if (insertError) {
+          console.error(`[scheduleBookingComplexReminders] Failed to insert absolute reminder:`, insertError.message);
+        } else {
+          console.log(`[scheduleBookingComplexReminders] Scheduled absolute reminder for booking ${bookingId} at ${scheduledTimeISO}`);
+        }
+        continue;
+      }
+
       for (const session of accessibleSessions) {
         if (!session.start_time) continue;
 
@@ -471,6 +525,15 @@ function getHoursFromTimingType(timingType, customHours) {
     case 'custom': return customHours || 24;
     default: return 24;
   }
+}
+
+function isAbsoluteReminder(email) {
+  return (
+    email &&
+    email.timing_type === 'custom' &&
+    email.custom_unit === 'specific_datetime' &&
+    !!email.custom_send_at
+  );
 }
 
 function calculateScheduledTimeMs(referenceMs, email) {

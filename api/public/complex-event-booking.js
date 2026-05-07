@@ -1235,6 +1235,38 @@ async function scheduleBookingComplexReminders(supabase, bookingId, eventId, att
     const nowMs = Date.now();
 
     for (const email of reminderEmails) {
+      if (isAbsoluteReminder(email)) {
+        const scheduledTimeMs = calculateScheduledTimeMs(0, email);
+        if (scheduledTimeMs == null || scheduledTimeMs <= nowMs) continue;
+        const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
+
+        const { data: existing } = await supabase
+          .from('scheduled_email')
+          .select('id')
+          .eq('event_email_id', email.id)
+          .eq('booking_id', bookingId)
+          .is('session_id', null)
+          .maybeSingle();
+
+        if (existing) continue;
+
+        const { error: insertError } = await supabase
+          .from('scheduled_email')
+          .insert({
+            event_email_id: email.id,
+            booking_id: bookingId,
+            attendee_email: attendeeEmail,
+            scheduled_send_time: scheduledTimeISO,
+            session_id: null,
+            status: 'pending'
+          });
+
+        if (insertError) {
+          console.error(`[Complex Event Booking] Failed to schedule absolute reminder:`, insertError.message);
+        }
+        continue;
+      }
+
       for (const session of accessibleSessions) {
         if (!session.start_time) continue;
 
@@ -1295,6 +1327,15 @@ function getHoursFromTimingType(timingType, customHours) {
     case 'custom': return customHours || 24;
     default: return 24;
   }
+}
+
+function isAbsoluteReminder(email) {
+  return (
+    email &&
+    email.timing_type === 'custom' &&
+    email.custom_unit === 'specific_datetime' &&
+    !!email.custom_send_at
+  );
 }
 
 function calculateScheduledTimeMs(referenceMs, email) {
