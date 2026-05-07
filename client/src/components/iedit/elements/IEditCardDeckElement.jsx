@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Upload, ArrowRight, ChevronDown, ChevronUp, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
@@ -92,8 +93,8 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
   } = content || {};
 
   const { data: allCards = [] } = useQuery({
-    queryKey: ['card-deck-renderer'],
-    queryFn: async () => await base44.entities.CardDeck.list('display_order') || [],
+    queryKey: ['/api/public/card-decks'],
+    queryFn: async () => (await publicClient.listCardDecks()) || [],
     staleTime: 60000,
   });
 

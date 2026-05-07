@@ -333,6 +333,11 @@ class PublicClient {
   async listBanners() {
     return this._fetch('/api/public/banners');
   }
+
+  // Card Decks (active cards for the current tenant; used by IEdit Card Deck renderer)
+  async listCardDecks() {
+    return this._fetch('/api/public/card-decks');
+  }
   
   // Button Styles
   async listButtonStyles() {
