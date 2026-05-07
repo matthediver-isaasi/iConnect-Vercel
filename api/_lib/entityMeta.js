@@ -74,7 +74,7 @@ async function resolveEvent(tenantId, { id, slug }) {
   if (!supabase || (!id && !slug)) return null;
   let q = supabase
     .from('event')
-    .select('id, title, slug, summary, description, image_url, start_date, location, status, tenant_id')
+    .select('id, title, slug, summary, description, image_url, start_date, location, status, tenant_id, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .in('status', ['published', 'tbc']);
   if (slug) q = q.eq('slug', slug);
@@ -83,11 +83,21 @@ async function resolveEvent(tenantId, { id, slug }) {
   if (error?.code === '42703') {
     let fb = supabase
       .from('event')
-      .select('id, title, slug, summary, description, image_url, start_date, location, status')
+      .select('id, title, slug, summary, description, image_url, start_date, location, status, seo_title, seo_description, og_image_url')
       .in('status', ['published', 'tbc']);
     if (slug) fb = fb.eq('slug', slug);
     else fb = fb.eq('id', id);
-    const r = await fb.maybeSingle();
+    let r = await fb.maybeSingle();
+    if (r.error?.code === '42703') {
+      // Even older schemas without any seo_* columns.
+      let fb2 = supabase
+        .from('event')
+        .select('id, title, slug, summary, description, image_url, start_date, location, status')
+        .in('status', ['published', 'tbc']);
+      if (slug) fb2 = fb2.eq('slug', slug);
+      else fb2 = fb2.eq('id', id);
+      r = await fb2.maybeSingle();
+    }
     data = r.data;
   }
   if (!data) return null;
@@ -95,14 +105,14 @@ async function resolveEvent(tenantId, { id, slug }) {
     ? new Date(data.start_date).toLocaleDateString('en-GB', { dateStyle: 'long' })
     : '';
   const descBase = stripHtml(data.summary || data.description);
-  const description = truncate(
+  const autoDescription = truncate(
     [dateStr, data.location, descBase].filter(Boolean).join(' · '),
     300
   );
   return {
-    title: data.title,
-    description,
-    image: data.image_url || null,
+    title: (data.seo_title?.trim() || data.title) || null,
+    description: data.seo_description?.trim() || autoDescription,
+    image: data.og_image_url?.trim() || data.image_url || null,
     canonicalPath: data.slug ? `/events/${data.slug}` : `/EventDetails?id=${data.id}`,
   };
 }
@@ -112,7 +122,7 @@ async function resolveBlogPostBySlug(tenantId, slug, authorHandle, articleBasePa
   let q = supabase
     .from('blog_post')
     .select(
-      'id, title, slug, summary, content, feature_image_url, status, tenant_id, author_id, guest_writer_id'
+      'id, title, slug, summary, content, feature_image_url, status, tenant_id, author_id, guest_writer_id, seo_title, seo_description, og_image_url'
     )
     .eq('tenant_id', tenantId)
     .eq('status', 'published')
@@ -149,9 +159,10 @@ async function resolveBlogPostBySlug(tenantId, slug, authorHandle, articleBasePa
   }
 
   const result = {
-    title: data.title,
-    description: truncate(stripHtml(data.summary || data.content), 300),
-    image: data.feature_image_url || null,
+    title: data.seo_title?.trim() || data.title,
+    description: data.seo_description?.trim()
+      || truncate(stripHtml(data.summary || data.content), 300),
+    image: data.og_image_url?.trim() || data.feature_image_url || null,
   };
   if (articleBasePath && resolvedAuthorHandle) {
     result.canonicalPath = `${articleBasePath}/${encodeURIComponent(resolvedAuthorHandle)}/${encodeURIComponent(data.slug)}`;
@@ -163,16 +174,17 @@ async function resolveNews(tenantId, slug) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
     .from('news_post')
-    .select('id, title, slug, summary, content, feature_image_url')
+    .select('id, title, slug, summary, content, feature_image_url, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('status', 'published')
     .maybeSingle();
   if (!data) return null;
   return {
-    title: data.title,
-    description: truncate(stripHtml(data.summary || data.content), 300),
-    image: data.feature_image_url || null,
+    title: data.seo_title?.trim() || data.title,
+    description: data.seo_description?.trim()
+      || truncate(stripHtml(data.summary || data.content), 300),
+    image: data.og_image_url?.trim() || data.feature_image_url || null,
     canonicalPath: `/NewsView?slug=${encodeURIComponent(data.slug)}`,
   };
 }
@@ -181,7 +193,7 @@ async function resolveComplexEvent(tenantId, { id, slug }) {
   if (!supabase || (!id && !slug)) return null;
   let q = supabase
     .from('complex_event')
-    .select('id, title, slug, summary, description, image_url, start_date, location, status')
+    .select('id, title, slug, summary, description, image_url, start_date, location, status, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .in('status', ['published', 'tbc']);
   if (slug) q = q.eq('slug', slug);
@@ -192,14 +204,14 @@ async function resolveComplexEvent(tenantId, { id, slug }) {
     ? new Date(data.start_date).toLocaleDateString('en-GB', { dateStyle: 'long' })
     : '';
   const descBase = stripHtml(data.summary || data.description);
-  const description = truncate(
+  const autoDescription = truncate(
     [dateStr, data.location, descBase].filter(Boolean).join(' · '),
     300
   );
   return {
-    title: data.title,
-    description,
-    image: data.image_url || null,
+    title: data.seo_title?.trim() || data.title,
+    description: data.seo_description?.trim() || autoDescription,
+    image: data.og_image_url?.trim() || data.image_url || null,
     canonicalPath: data.slug ? `/complex-event/${data.slug}` : `/ComplexEventDetail?id=${data.id}`,
   };
 }
@@ -269,7 +281,7 @@ async function resolveResource(tenantId, identifier) {
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
   let q = supabase
     .from('resource')
-    .select('id, title, description, image_url, slug, status, author_name, resource_type')
+    .select('id, title, description, image_url, slug, status, author_name, resource_type, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .eq('status', 'active');
   q = isUUID ? q.eq('id', identifier) : q.eq('slug', identifier);
@@ -277,11 +289,11 @@ async function resolveResource(tenantId, identifier) {
   if (!data) return null;
   const descParts = [data.resource_type, data.author_name].filter(Boolean).join(' · ');
   const descBase = stripHtml(data.description);
-  const description = truncate([descParts, descBase].filter(Boolean).join(' — '), 300);
+  const autoDescription = truncate([descParts, descBase].filter(Boolean).join(' — '), 300);
   return {
-    title: data.title,
-    description,
-    image: data.image_url || null,
+    title: data.seo_title?.trim() || data.title,
+    description: data.seo_description?.trim() || autoDescription,
+    image: data.og_image_url?.trim() || data.image_url || null,
     canonicalPath: data.slug ? `/resources/${data.slug}` : `/Resources?resourceId=${data.id}`,
   };
 }
@@ -290,16 +302,16 @@ async function resolveDynamicDirectory(tenantId, slug) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
     .from('dynamic_directory')
-    .select('id, name, description, slug, is_active, entity_type')
+    .select('id, name, description, slug, is_active, entity_type, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('is_active', true)
     .maybeSingle();
   if (!data) return null;
   return {
-    title: data.name,
-    description: truncate(stripHtml(data.description), 300),
-    image: null,
+    title: data.seo_title?.trim() || data.name,
+    description: data.seo_description?.trim() || truncate(stripHtml(data.description), 300),
+    image: data.og_image_url?.trim() || null,
     canonicalPath: `/directory/${encodeURIComponent(data.slug)}`,
   };
 }
@@ -347,16 +359,17 @@ async function resolveCampaign(tenantId, slug) {
   if (!supabase || !slug) return null;
   const { data } = await supabase
     .from('fundraising_campaign')
-    .select('id, name, slug, description, public_description, cover_image_url, status')
+    .select('id, name, slug, description, public_description, cover_image_url, status, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('status', 'active')
     .maybeSingle();
   if (!data) return null;
   return {
-    title: data.name,
-    description: truncate(stripHtml(data.public_description || data.description), 300),
-    image: data.cover_image_url || null,
+    title: data.seo_title?.trim() || data.name,
+    description: data.seo_description?.trim()
+      || truncate(stripHtml(data.public_description || data.description), 300),
+    image: data.og_image_url?.trim() || data.cover_image_url || null,
     canonicalPath: `/fundraise/${encodeURIComponent(data.slug)}`,
   };
 }

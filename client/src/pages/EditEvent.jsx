@@ -188,6 +188,7 @@ export default function EditEvent() {
   // SEO state
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
 
   const [donationConfig, setDonationConfig] = useState({
     enabled: false,
@@ -825,6 +826,7 @@ export default function EditEvent() {
       setSlug(event.slug || "");
       setSeoTitle(event.seo_title || "");
       setSeoDescription(event.seo_description || "");
+      setOgImageUrl(event.og_image_url || "");
       setInitialDataLoaded(true);
 
       if (event.donation_config) {
@@ -1282,7 +1284,8 @@ export default function EditEvent() {
       timezone: eventTimezone,
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
-      seo_description: seoDescription || null
+      seo_description: seoDescription || null,
+      og_image_url: ogImageUrl || null
     };
 
     // Add ticket classes for one-off events
@@ -1831,6 +1834,8 @@ export default function EditEvent() {
                 onSeoTitleChange={setSeoTitle}
                 seoDescription={seoDescription}
                 onSeoDescriptionChange={setSeoDescription}
+                ogImageUrl={ogImageUrl}
+                onOgImageUrlChange={setOgImageUrl}
                 defaultTitle={formData.title}
                 defaultDescription={formData.summary}
               />

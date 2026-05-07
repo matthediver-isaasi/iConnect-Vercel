@@ -96,6 +96,7 @@ export default async function handler(req, res) {
         feature_image_focal_point,
         seo_title,
         seo_description,
+        og_image_url,
         tenant_id
       `)
       .eq('tenant_id', tenant.id)

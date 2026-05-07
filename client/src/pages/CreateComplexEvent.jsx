@@ -705,6 +705,7 @@ export default function CreateComplexEvent() {
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [isDirtyState, setIsDirtyState] = useState(false);
   const baselineSnapshotRef = useRef(null);
@@ -945,8 +946,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1026,6 +1027,7 @@ export default function CreateComplexEvent() {
       setSlugManuallyEdited(true);
       setSeoTitle(existingEvent.seo_title || "");
       setSeoDescription(existingEvent.seo_description || "");
+      setOgImageUrl(existingEvent.og_image_url || "");
       if (existingEvent.program_tag) {
         setIsProgramEvent(true);
       }
@@ -1584,6 +1586,7 @@ export default function CreateComplexEvent() {
           : null,
         seo_title: seoTitle || null,
         seo_description: seoDescription || null,
+        og_image_url: ogImageUrl || null,
         program_tag: formData.program_tag || null,
       };
 
@@ -2111,6 +2114,8 @@ export default function CreateComplexEvent() {
                   onSeoTitleChange={setSeoTitle}
                   seoDescription={seoDescription}
                   onSeoDescriptionChange={setSeoDescription}
+                  ogImageUrl={ogImageUrl}
+                  onOgImageUrlChange={setOgImageUrl}
                   defaultTitle={formData.title}
                   defaultDescription={formData.summary}
                 />

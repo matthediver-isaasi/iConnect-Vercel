@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check, Copy, Code, ExternalLink } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import SEOSettings from "@/components/blog/SEOSettings";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -971,7 +972,10 @@ export default function ResourceManagementPage() {
       author_id: editingResource.author_id || "",
       author_name: editingResource.author_name || "",
       folder_id: editingResource.folder_id || null, // Include folder_id in save payload
-      status: editingResource.status || "active" // Include status in payload
+      status: editingResource.status || "active", // Include status in payload
+      seo_title: editingResource.seo_title || null,
+      seo_description: editingResource.seo_description || null,
+      og_image_url: editingResource.og_image_url || null
     };
 
     if (editingResource.id) {
@@ -2214,6 +2218,17 @@ export default function ResourceManagementPage() {
                     </div>
                   )}
                 </div>
+
+                <SEOSettings
+                  seoTitle={editingResource.seo_title || ''}
+                  onSeoTitleChange={(v) => setEditingResource({ ...editingResource, seo_title: v })}
+                  seoDescription={editingResource.seo_description || ''}
+                  onSeoDescriptionChange={(v) => setEditingResource({ ...editingResource, seo_description: v })}
+                  ogImageUrl={editingResource.og_image_url || ''}
+                  onOgImageUrlChange={(v) => setEditingResource({ ...editingResource, og_image_url: v })}
+                  defaultTitle={editingResource.title}
+                  defaultDescription={editingResource.description}
+                />
 
                 <div className="space-y-2">
                   <Label>Tags</Label>

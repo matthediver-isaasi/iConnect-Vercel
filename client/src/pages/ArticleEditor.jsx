@@ -40,6 +40,7 @@ export default function ArticleEditorPage() {
   const [status, setStatus] = useState("draft");
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
   const [publishedDate, setPublishedDate] = useState(new Date().toISOString());
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
@@ -150,6 +151,7 @@ export default function ArticleEditorPage() {
       setPublishedDate(article.published_date || new Date().toISOString());
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
+      setOgImageUrl(article.og_image_url || "");
       setSharePassword(article.share_password || "");
       if (article.feature_image_focal_point) {
         setFocalPoint(article.feature_image_focal_point);
@@ -374,6 +376,7 @@ export default function ArticleEditorPage() {
             published_date: publishedDate,
             seo_title: seoTitle,
             seo_description: seoDescription,
+            og_image_url: ogImageUrl,
           };
 
           // New folder-based URL structure: store clean slugs
@@ -411,7 +414,7 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
@@ -465,6 +468,7 @@ export default function ArticleEditorPage() {
           published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
+          og_image_url: ogImageUrl,
         };
         // For new articles with guest writer, set original_author_id to the creating member
         // so they retain visibility/access to their article
@@ -488,6 +492,7 @@ export default function ArticleEditorPage() {
           published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
+          og_image_url: ogImageUrl,
         };
         // Preserve existing original_author_id, or set it if this is the first save
         if (!isEditing) {
@@ -511,6 +516,7 @@ export default function ArticleEditorPage() {
           published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
+          og_image_url: ogImageUrl,
         };
         // original_author_id stays unchanged
       } else {
@@ -534,6 +540,7 @@ export default function ArticleEditorPage() {
           published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
+          og_image_url: ogImageUrl,
         };
         
         // For new articles: set original_author_id to the creating member
@@ -1189,6 +1196,10 @@ export default function ArticleEditorPage() {
               seoDescription={seoDescription}
               onSeoTitleChange={setSeoTitle}
               onSeoDescriptionChange={setSeoDescription}
+              ogImageUrl={ogImageUrl}
+              onOgImageUrlChange={setOgImageUrl}
+              defaultTitle={title}
+              defaultDescription={summary}
             />
 
             {/* Delete Button - show if user has admin delete permission OR is the author */}

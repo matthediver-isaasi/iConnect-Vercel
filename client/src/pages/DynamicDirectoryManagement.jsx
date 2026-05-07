@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter, Shield, Mail } from "lucide-react";
 import { toast } from "sonner";
+import SEOSettings from "@/components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
@@ -48,6 +49,9 @@ export default function DynamicDirectoryManagementPage() {
   const [allowedRoleIds, setAllowedRoleIds] = useState([]);
   const [emailSourceType, setEmailSourceType] = useState('');
   const [emailSourceField, setEmailSourceField] = useState('');
+  const [seoTitle, setSeoTitle] = useState('');
+  const [seoDescription, setSeoDescription] = useState('');
+  const [ogImageUrl, setOgImageUrl] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -204,6 +208,9 @@ export default function DynamicDirectoryManagementPage() {
     setAllowedRoleIds([]);
     setEmailSourceType('');
     setEmailSourceField('');
+    setSeoTitle('');
+    setSeoDescription('');
+    setOgImageUrl('');
   };
 
   const handleOpenCreateDialog = () => {
@@ -224,6 +231,9 @@ export default function DynamicDirectoryManagementPage() {
     setAllowedRoleIds(directory.allowed_role_ids || []);
     setEmailSourceType(directory.email_source_type || '');
     setEmailSourceField(directory.email_source_field || '');
+    setSeoTitle(directory.seo_title || '');
+    setSeoDescription(directory.seo_description || '');
+    setOgImageUrl(directory.og_image_url || '');
     setIsDialogOpen(true);
   };
 
@@ -298,7 +308,10 @@ export default function DynamicDirectoryManagementPage() {
       selected_filter_fields: selectedFilterFields || [],  // Always include, defaults to empty array
       allowed_role_ids: allowedRoleIds,
       email_source_type: emailSourceType || null,
-      email_source_field: emailSourceField || null
+      email_source_field: emailSourceField || null,
+      seo_title: seoTitle || null,
+      seo_description: seoDescription || null,
+      og_image_url: ogImageUrl || null
     };
 
     if (editingDirectory) {
@@ -690,6 +703,18 @@ export default function DynamicDirectoryManagementPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="px-1">
+            <SEOSettings
+              seoTitle={seoTitle}
+              onSeoTitleChange={setSeoTitle}
+              seoDescription={seoDescription}
+              onSeoDescriptionChange={setSeoDescription}
+              ogImageUrl={ogImageUrl}
+              onOgImageUrlChange={setOgImageUrl}
+              defaultTitle={name}
+            />
           </div>
 
           <DialogFooter className="pt-4 border-t">

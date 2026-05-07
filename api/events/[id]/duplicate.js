@@ -12,7 +12,7 @@ const FIELDS_TO_COPY = [
   'is_unlimited_registration', 'show_ticket_availability', 'show_seat_count',
   'is_online', 'pricing_config', 'speaker_ids', 'filter_tags',
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
-  'donation_config', 'seo_title', 'seo_description', 'event_timing', 'timezone',
+  'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'event_timing', 'timezone',
   'organization_id', 'program_id'
 ];
 

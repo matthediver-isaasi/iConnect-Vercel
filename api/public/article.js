@@ -65,7 +65,8 @@ export default async function handler(req, res) {
             subcategories,
             tags,
             seo_title,
-            seo_description
+            seo_description,
+            og_image_url
           `)
           .eq('tenant_id', tenant.id)
           .eq('status', 'published')
@@ -93,7 +94,8 @@ export default async function handler(req, res) {
           subcategories,
           tags,
           seo_title,
-          seo_description
+          seo_description,
+          og_image_url
         `)
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
@@ -120,7 +122,8 @@ export default async function handler(req, res) {
           subcategories,
           tags,
           seo_title,
-          seo_description
+          seo_description,
+          og_image_url
         `)
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')

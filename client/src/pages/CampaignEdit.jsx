@@ -16,6 +16,7 @@ import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield, Sparkl
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
 import ImageSelector from "@/components/ImageSelector";
+import SEOSettings from "@/components/blog/SEOSettings";
 
 const CURRENCIES = [
   { value: 'GBP', label: 'GBP', symbol: '\u00a3' },
@@ -44,6 +45,9 @@ export default function CampaignEdit() {
     registration_open: false,
     registration_message: '',
     public_description: '',
+    seo_title: '',
+    seo_description: '',
+    og_image_url: '',
     auto_create_members: false,
     member_role_id: '',
     allow_org_signup: false,
@@ -144,6 +148,9 @@ export default function CampaignEdit() {
         registration_open: campaignData.registration_open || false,
         registration_message: campaignData.registration_message || '',
         public_description: campaignData.public_description || '',
+        seo_title: campaignData.seo_title || '',
+        seo_description: campaignData.seo_description || '',
+        og_image_url: campaignData.og_image_url || '',
         auto_create_members: campaignData.auto_create_members || false,
         member_role_id: campaignData.member_role_id || '',
         allow_org_signup: campaignData.allow_org_signup || false,
@@ -202,6 +209,9 @@ export default function CampaignEdit() {
       privacy_statement: form.privacy_statement || null,
       registration_message: form.registration_message || null,
       public_description: form.public_description || null,
+      seo_title: form.seo_title || null,
+      seo_description: form.seo_description || null,
+      og_image_url: form.og_image_url || null,
       auto_create_members: form.auto_create_members || false,
       member_role_id: form.auto_create_members ? (form.member_role_id || null) : null
     });
@@ -673,6 +683,17 @@ export default function CampaignEdit() {
             )}
           </CardContent>
         </Card>
+
+        <SEOSettings
+          seoTitle={form.seo_title}
+          onSeoTitleChange={(v) => setForm(f => ({ ...f, seo_title: v }))}
+          seoDescription={form.seo_description}
+          onSeoDescriptionChange={(v) => setForm(f => ({ ...f, seo_description: v }))}
+          ogImageUrl={form.og_image_url}
+          onOgImageUrlChange={(v) => setForm(f => ({ ...f, og_image_url: v }))}
+          defaultTitle={form.name}
+          defaultDescription={form.public_description || form.description}
+        />
 
         <div className="flex items-center justify-end gap-3">
           <Button

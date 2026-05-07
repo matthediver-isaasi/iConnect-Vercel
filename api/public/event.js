@@ -57,6 +57,7 @@ export default async function handler(req, res) {
         slug,
         seo_title,
         seo_description,
+        og_image_url,
         is_complex
       `)
       .eq('tenant_id', tenant.id)
@@ -143,6 +144,7 @@ export default async function handler(req, res) {
       slug: event.slug || null,
       seo_title: event.seo_title || null,
       seo_description: event.seo_description || null,
+      og_image_url: event.og_image_url || null,
       is_complex: event.is_complex || false
     };
 

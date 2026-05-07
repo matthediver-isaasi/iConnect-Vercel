@@ -8,7 +8,7 @@ const EVENT_FIELDS = [
   'image_focal_point', 'available_seats', 'is_unlimited_registration',
   'show_ticket_availability', 'is_online', 'speaker_ids', 'filter_tags',
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
-  'donation_config', 'seo_title', 'seo_description', 'timezone',
+  'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'timezone',
   'organization_id', 'program_id', 'pricing_config'
 ];
 

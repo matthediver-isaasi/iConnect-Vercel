@@ -40,6 +40,7 @@ export default function NewsEditorPage() {
   const [status, setStatus] = useState("draft");
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
   const [publishedDate, setPublishedDate] = useState(new Date().toISOString());
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
@@ -104,6 +105,7 @@ export default function NewsEditorPage() {
       setPublishedDate(news.published_date || new Date().toISOString());
       setSeoTitle(news.seo_title || "");
       setSeoDescription(news.seo_description || "");
+      setOgImageUrl(news.og_image_url || "");
       setSharePassword(news.share_password || "");
       if (news.feature_image_focal_point) {
         setFocalPoint(news.feature_image_focal_point);
@@ -143,6 +145,7 @@ export default function NewsEditorPage() {
             published_date: publishedDate,
             seo_title: seoTitle,
             seo_description: seoDescription,
+            og_image_url: ogImageUrl,
           });
           setLastSaved(new Date());
         } catch (error) {
@@ -154,7 +157,7 @@ export default function NewsEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, newsId, memberInfo, currentMember]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, newsId, memberInfo, currentMember]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ publishNow }) => {
@@ -177,6 +180,7 @@ export default function NewsEditorPage() {
         published_date: publishedDate,
         seo_title: seoTitle,
         seo_description: seoDescription,
+        og_image_url: ogImageUrl,
       };
 
       if (isEditing) {
@@ -618,6 +622,10 @@ export default function NewsEditorPage() {
                 seoDescription={seoDescription}
                 onSeoTitleChange={setSeoTitle}
                 onSeoDescriptionChange={setSeoDescription}
+                ogImageUrl={ogImageUrl}
+                onOgImageUrlChange={setOgImageUrl}
+                defaultTitle={title}
+                defaultDescription={summary}
               />
             )}
 
