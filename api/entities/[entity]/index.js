@@ -789,7 +789,7 @@ export default async function handler(req, res) {
               'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
               'ExternalWriter', 'ExternalWriterDocument',
               'CrmTagColor',
-              'Gallery', 'GalleryPhoto'
+              'Gallery', 'GalleryPhoto', 'CardDeck'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -989,7 +989,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto'
+            'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

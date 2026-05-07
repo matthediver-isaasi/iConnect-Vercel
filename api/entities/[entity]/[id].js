@@ -234,7 +234,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto'
+            'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -318,7 +318,7 @@ export default async function handler(req, res) {
                 'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
                 'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor',
-                'Gallery', 'GalleryPhoto'
+                'Gallery', 'GalleryPhoto', 'CardDeck'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -502,7 +502,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto'
+            'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -872,7 +872,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Gallery', 'GalleryPhoto'
+            'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
