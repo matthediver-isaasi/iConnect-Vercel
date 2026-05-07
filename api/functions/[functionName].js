@@ -1875,9 +1875,23 @@ const functionHandlers = {
             // Clamp amount to remaining cost
             const amountToUse = Math.min(voucher.value, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
             if (amountToUse > 0) {
+              // Resolve tenant_id BEFORE any voucher mutation. If we cannot
+              // resolve it, abort before touching voucher.value so we don't
+              // leave the voucher debited without a matching transaction row.
+              const vtxTenantId = event.tenant_id || org.tenant_id || null;
+              if (!vtxTenantId) {
+                console.error('[createOneOffEventBooking] Refusing to write voucher_transaction with NULL tenant_id', {
+                  eventId: event.id,
+                  orgId: org.id,
+                  voucherId,
+                  bookingReference,
+                });
+                return res.status(500).json({ error: 'Could not resolve tenant context for voucher transaction' });
+              }
+
               voucherAmountApplied += amountToUse;
               voucherDeductions.push({ voucherId, amount: amountToUse });
-              
+
               // Update voucher balance in the voucher table
               const newValue = voucher.value - amountToUse;
               console.log('[createOneOffEventBooking] Updating voucher', voucherId, 'from', voucher.value, 'to', newValue);
@@ -1893,8 +1907,6 @@ const functionHandlers = {
                 console.error('[createOneOffEventBooking] Failed to update voucher:', updateError.message);
               } else {
                 console.log('[createOneOffEventBooking] Voucher updated successfully');
-                
-                // Create voucher transaction record for history tracking
                 const { error: vtxError } = await supabase
                   .from('voucher_transaction')
                   .insert({
@@ -1910,7 +1922,7 @@ const functionHandlers = {
                     balance_after: newValue,
                     type: 'booking_usage',
                     created_at: new Date().toISOString(),
-                    tenant_id: event.tenant_id || org.tenant_id || null
+                    tenant_id: vtxTenantId
                   });
                 
                 if (vtxError) {
@@ -1929,7 +1941,21 @@ const functionHandlers = {
       // Process training fund deduction if any (use validated amount)
       if (validatedTrainingFundAmount > 0) {
         const newTrainingFundBalance = org.training_fund_balance - validatedTrainingFundAmount;
-        
+
+        // Resolve a non-null tenant_id BEFORE mutating any balances. Writing a
+        // training_fund_transaction with tenant_id = NULL would silently exclude
+        // it from /TrainingFundManagement reconciliation while still deducting
+        // the org balance. Fail loudly instead.
+        const tfTenantId = event.tenant_id || org.tenant_id || null;
+        if (!tfTenantId) {
+          console.error('[createOneOffEventBooking] Refusing to write training_fund_transaction with NULL tenant_id', {
+            eventId: event.id,
+            orgId: org.id,
+            bookingReference,
+          });
+          return res.status(500).json({ error: 'Could not resolve tenant context for training fund transaction' });
+        }
+
         await supabase
           .from('organization')
           .update({
@@ -1950,7 +1976,7 @@ const functionHandlers = {
             reason: `Event booking: ${event.title || 'One-off Event'} (${bookingReference})`,
             created_by: member?.id || null,
             created_date: new Date().toISOString(),
-            tenant_id: event.tenant_id || org.tenant_id || null
+            tenant_id: tfTenantId
           })
           .select('id')
           .single();

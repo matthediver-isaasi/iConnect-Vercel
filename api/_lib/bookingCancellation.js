@@ -218,6 +218,9 @@ export async function cancelBooking({
         reversalResults.trainingFund = { amount: 0, success: true, skipped: true };
         console.log(`${LP} Training fund refund skipped per allocation`);
       } else {
+        if (!tenantId) {
+          throw new Error('Refusing to write training_fund_transaction with NULL tenant_id during cancellation refund');
+        }
         const currentBalance = org.training_fund_balance || 0;
         const newBalance = currentBalance + refundAmount;
         await supabase.from('organization').update({ training_fund_balance: newBalance }).eq('id', org.id);

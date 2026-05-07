@@ -756,6 +756,17 @@ export default async function handler(req, res) {
         } else {
           voucherDeductions.push(v);
 
+          if (!tenant?.id) {
+            console.error('[Complex Event Booking] Refusing to write voucher_transaction with NULL tenant_id', {
+              eventId: event.id,
+              orgId: org.id,
+              voucherId: v.voucherId,
+              firstBookingRef,
+            });
+            await rollbackFinancialDeductions();
+            await rollbackBookingsAndSeats();
+            return res.status(500).json({ error: 'Could not resolve tenant context for voucher transaction' });
+          }
           const { error: vtxError } = await supabase
             .from('voucher_transaction')
             .insert({
@@ -805,6 +816,16 @@ export default async function handler(req, res) {
         } else {
           actualTrainingFundApplied = validatedTrainingFundAmount;
 
+          if (!tenant?.id) {
+            console.error('[Complex Event Booking] Refusing to write training_fund_transaction with NULL tenant_id', {
+              eventId: event.id,
+              orgId: org.id,
+              firstBookingRef,
+            });
+            await rollbackFinancialDeductions();
+            await rollbackBookingsAndSeats();
+            return res.status(500).json({ error: 'Could not resolve tenant context for training fund transaction' });
+          }
           const { error: tfTxError } = await supabase
             .from('training_fund_transaction')
             .insert({

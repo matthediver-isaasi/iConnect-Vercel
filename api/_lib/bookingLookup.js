@@ -166,6 +166,9 @@ export async function reinstateVoucherDirect(booking, refund_allocation, reversa
   }
 
   if (!isExpired) {
+    if (!tenantId) {
+      throw new Error('Refusing to write voucher_transaction with NULL tenant_id during direct voucher reinstatement');
+    }
     const newValue = voucher.value + refundAmount;
     await supabase
       .from('voucher')
@@ -270,6 +273,9 @@ export async function reinstateVoucherFromTransactions(booking, refund_allocatio
     }
 
     if (!isExpired) {
+      if (!tenantId) {
+        throw new Error('Refusing to write voucher_transaction with NULL tenant_id during voucher reinstatement');
+      }
       const newValue = voucher.value + voucherRefundAmount;
       await supabase
         .from('voucher')
