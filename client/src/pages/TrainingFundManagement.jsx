@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2 } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -80,9 +81,39 @@ export default function TrainingFundManagementPage() {
     refetchOnMount: true,
   });
 
-  const { data: allTransactions = [], isLoading: loadingTransactions } = useQuery({
-    queryKey: ['training-fund-transactions'],
-    queryFn: () => base44.entities.TrainingFundTransaction.list('-created_date'),
+  const { data: driftSummaryData, isLoading: loadingDriftSummary } = useQuery({
+    queryKey: ['training-fund-transactions', 'drift-summary'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/training-fund-transactions/drift-summary', {
+        credentials: 'include'
+      });
+      if (!res.ok) {
+        let msg = 'Failed to load drift summary';
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch {}
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+    enabled: !!accessChecked,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: orgTransactionsData, isLoading: loadingOrgTransactions } = useQuery({
+    queryKey: ['training-fund-transactions', 'by-organization', selectedOrg?.id],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/training-fund-transactions/by-organization?organization_id=${encodeURIComponent(selectedOrg.id)}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) {
+        let msg = 'Failed to load transactions';
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch {}
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+    enabled: !!selectedOrg?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -99,10 +130,78 @@ export default function TrainingFundManagementPage() {
     return map;
   }, [members]);
 
-  const selectedOrgTransactions = useMemo(() => {
+  // Server returns transactions oldest -> newest for the selected org. Display the card list newest -> oldest.
+  const selectedOrgTransactionsAsc = useMemo(() => {
     if (!selectedOrg) return [];
-    return allTransactions.filter(t => t.organization_id === selectedOrg.id);
-  }, [allTransactions, selectedOrg]);
+    const fromServer = orgTransactionsData?.transactions;
+    return Array.isArray(fromServer) ? fromServer : [];
+  }, [orgTransactionsData, selectedOrg]);
+
+  const selectedOrgTransactions = useMemo(
+    () => [...selectedOrgTransactionsAsc].reverse(),
+    [selectedOrgTransactionsAsc]
+  );
+
+  const signedAmountFor = (transaction) => {
+    const beforeRaw = transaction.balance_before;
+    const afterRaw = transaction.balance_after;
+    const before = beforeRaw === null || beforeRaw === undefined || beforeRaw === '' ? NaN : Number(beforeRaw);
+    const after = afterRaw === null || afterRaw === undefined || afterRaw === '' ? NaN : Number(afterRaw);
+    if (Number.isFinite(before) && Number.isFinite(after)) {
+      return { value: after - before, verified: true };
+    }
+    const amount = Math.abs(Number(transaction.amount) || 0);
+    const sign = transaction.type === 'add' ? 1 : -1;
+    return { value: sign * amount, verified: false };
+  };
+
+  const reconciliation = useMemo(() => {
+    if (!selectedOrg) return null;
+    const txns = selectedOrgTransactionsAsc;
+    const currentBalance = Number(
+      orgTransactionsData?.current_balance ?? selectedOrg.training_fund_balance ?? 0
+    );
+    const sumDeltas = txns.reduce((acc, t) => acc + signedAmountFor(t).value, 0);
+    const opening = txns.length > 0 ? Number(txns[0].balance_before) || 0 : 0;
+    const sumWithOpening = opening + sumDeltas;
+    const drift = currentBalance - sumWithOpening;
+    return {
+      currentBalance,
+      opening,
+      sumDeltas,
+      sumWithOpening,
+      drift,
+      hasDrift: Math.abs(drift) > 0.005
+    };
+  }, [selectedOrg, selectedOrgTransactionsAsc, orgTransactionsData]);
+
+  // Compute drift per organisation from the server-side drift summary so we
+  // are not subject to the generic entity endpoint's row cap.
+  const orgDriftMap = useMemo(() => {
+    const summary = driftSummaryData?.summary || {};
+    const result = {};
+    organizations.forEach(org => {
+      const balance = Number(org.training_fund_balance) || 0;
+      const bucket = summary[org.id];
+      if (!bucket) {
+        // No transactions for this org. Any non-zero stored balance is drift.
+        result[org.id] = {
+          drift: balance,
+          hasDrift: Math.abs(balance) > 0.005,
+          unknown: !driftSummaryData
+        };
+        return;
+      }
+      const expected = (Number(bucket.opening) || 0) + (Number(bucket.sum_deltas) || 0);
+      const drift = balance - expected;
+      result[org.id] = {
+        drift,
+        hasDrift: Math.abs(drift) > 0.005,
+        unknown: false
+      };
+    });
+    return result;
+  }, [organizations, driftSummaryData]);
 
   const filteredOrgs = useMemo(() => {
     let filtered = organizations;
@@ -134,17 +233,19 @@ export default function TrainingFundManagementPage() {
   }, [searchTerm, balanceFilter]);
 
   const totalFunds = useMemo(() => {
-    return organizations.reduce((sum, org) => sum + (org.training_fund_balance || 0), 0);
-  }, [organizations]);
+    return filteredOrgs.reduce((sum, org) => sum + (org.training_fund_balance || 0), 0);
+  }, [filteredOrgs]);
 
   const orgsWithFunds = useMemo(() => {
-    return organizations.filter(org => (org.training_fund_balance || 0) > 0).length;
-  }, [organizations]);
+    return filteredOrgs.filter(org => (org.training_fund_balance || 0) > 0).length;
+  }, [filteredOrgs]);
 
   const createTransactionMutation = useMutation({
     mutationFn: (transactionData) => base44.entities.TrainingFundTransaction.create(transactionData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions', 'by-organization'] });
+      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions', 'drift-summary'] });
     }
   });
 
@@ -287,7 +388,9 @@ export default function TrainingFundManagementPage() {
   }
 
   if (selectedOrg) {
-    const orgBalance = selectedOrg.training_fund_balance || 0;
+    const orgBalance = Number(
+      orgTransactionsData?.current_balance ?? selectedOrg.training_fund_balance ?? 0
+    );
     
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
@@ -321,7 +424,7 @@ export default function TrainingFundManagementPage() {
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardContent className="p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <History className="w-5 h-5 text-slate-500" />
                   <span className="font-medium text-slate-700">
@@ -339,7 +442,58 @@ export default function TrainingFundManagementPage() {
             </CardContent>
           </Card>
 
-          {loadingTransactions ? (
+          {reconciliation && (
+            <Card className="border-slate-200 shadow-sm mb-6" data-testid="card-reconciliation">
+              <CardContent className="p-4">
+                <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Sum of transactions</p>
+                    <p className="text-lg font-semibold text-slate-900" data-testid="text-sum-transactions">
+                      £{reconciliation.sumWithOpening.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Current balance</p>
+                    <p className="text-lg font-semibold text-slate-900" data-testid="text-current-balance">
+                      £{reconciliation.currentBalance.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Status</p>
+                    {reconciliation.hasDrift ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span data-testid="badge-drift-warning">
+                              <Badge className="bg-amber-100 text-amber-900">
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                Out of sync by £{Math.abs(reconciliation.drift).toFixed(2)}
+                              </Badge>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p>
+                              The stored balance does not match the sum of recorded transactions.
+                              Likely causes: an opening balance that predates the transaction log,
+                              direct edits to the balance column without a transaction row, or
+                              deleted transactions. The displayed list is shown as-is — no balances
+                              are silently rewritten.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge className="bg-green-100 text-green-800" data-testid="badge-reconciled">
+                        Reconciled
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {loadingOrgTransactions ? (
             <div className="text-center py-12">Loading transaction history...</div>
           ) : selectedOrgTransactions.length === 0 ? (
             <Card className="border-slate-200 shadow-sm">
@@ -359,10 +513,43 @@ export default function TrainingFundManagementPage() {
             </Card>
           ) : (
             <div className="space-y-3">
+              {reconciliation && reconciliation.opening !== 0 && (
+                <Card
+                  className="border-slate-200 shadow-sm bg-slate-50"
+                  data-testid="card-opening-balance"
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <Badge className="bg-slate-200 text-slate-800">
+                            Opening balance
+                          </Badge>
+                          <span className="text-sm text-slate-500">
+                            Before earliest recorded transaction
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                          Synthetic row so the displayed list visibly ties to the current balance.
+                          Not stored as a real transaction.
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-xl font-bold ${reconciliation.opening >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {reconciliation.opening >= 0 ? '+' : '−'}£{Math.abs(reconciliation.opening).toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {selectedOrgTransactions.map((transaction) => {
                 const typeInfo = formatTransactionType(transaction.type);
                 const createdBy = transaction.created_by ? memberMap[transaction.created_by] : null;
-                
+                const { value: signedValue, verified } = signedAmountFor(transaction);
+                const isCredit = signedValue >= 0;
+
                 return (
                   <Card 
                     key={transaction.id} 
@@ -374,10 +561,15 @@ export default function TrainingFundManagementPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                             <Badge className={typeInfo.color}>
-                              {transaction.type === 'add' && <Plus className="w-3 h-3 mr-1" />}
-                              {transaction.type === 'deduct' && <Minus className="w-3 h-3 mr-1" />}
+                              {isCredit ? <Plus className="w-3 h-3 mr-1" /> : <Minus className="w-3 h-3 mr-1" />}
                               {typeInfo.label}
                             </Badge>
+                            {!verified && (
+                              <Badge className="bg-amber-100 text-amber-900" data-testid={`badge-unverified-${transaction.id}`}>
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                Unverified
+                              </Badge>
+                            )}
                             <span className="text-sm text-slate-500">
                               {transaction.created_date ? format(new Date(transaction.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
                             </span>
@@ -405,8 +597,8 @@ export default function TrainingFundManagementPage() {
                         </div>
                         
                         <div className="text-right flex-shrink-0">
-                          <p className={`text-xl font-bold ${transaction.type === 'add' ? 'text-green-600' : 'text-red-600'}`}>
-                            {transaction.type === 'add' ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+                          <p className={`text-xl font-bold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                            {isCredit ? '+' : '−'}£{Math.abs(signedValue).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -662,7 +854,7 @@ export default function TrainingFundManagementPage() {
           <div className="space-y-3">
             {paginatedOrgs.map((org) => {
               const balance = org.training_fund_balance || 0;
-              const orgTransactionCount = allTransactions.filter(t => t.organization_id === org.id).length;
+              const orgTransactionCount = driftSummaryData?.summary?.[org.id]?.transaction_count || 0;
               
               return (
                 <Card 
@@ -693,7 +885,26 @@ export default function TrainingFundManagementPage() {
                       
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="text-sm text-slate-500">Balance</p>
+                          <div className="flex items-center justify-end gap-1">
+                            <p className="text-sm text-slate-500">Balance</p>
+                            {driftSummaryData && orgDriftMap[org.id]?.hasDrift && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span data-testid={`drift-indicator-${org.id}`}>
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    <p>
+                                      Out of sync by £{Math.abs(orgDriftMap[org.id].drift).toFixed(2)}.
+                                      The stored balance does not match the sum of recorded transactions.
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                           <p className={`text-xl font-bold ${balance > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                             £{balance.toFixed(2)}
                           </p>
