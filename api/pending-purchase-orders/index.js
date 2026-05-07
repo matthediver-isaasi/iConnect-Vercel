@@ -4,6 +4,125 @@ import { getValidXeroAccessToken, pushPurchaseOrderToXero } from '../_lib/xero.j
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { replacePlaceholders } from '../_lib/emailService.js';
 
+// Parse a consolidated record id from the GET response. Format is either
+//   id:<xero_invoice_uuid>      — preferred, present whenever Xero pushed a
+//                                 GUID to our local row
+//   num:<xero_invoice_number>   — fallback when only the human number exists
+// Anything else is treated as not-an-invoice (legacy per-row id).
+function parseInvoiceKey(key) {
+  if (typeof key !== 'string') return null;
+  if (key.startsWith('id:')) return { xeroInvoiceId: key.slice(3) };
+  if (key.startsWith('num:')) return { xeroInvoiceNumber: key.slice(4) };
+  return null;
+}
+
+// Find every booking + program_ticket_transaction row in this tenant that
+// shares the given Xero invoice. Tenant scope is enforced by joining through
+// `organization` (and, for null-org bookings, through the booker's member ->
+// organization link).
+async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
+  const parsed = parseInvoiceKey(invoiceKey);
+  if (!parsed) return null;
+
+  const { data: tenantOrgs } = await client
+    .from('organization')
+    .select('id')
+    .eq('tenant_id', tenantId);
+  const tenantOrgIds = (tenantOrgs || []).map((o) => o.id);
+  if (tenantOrgIds.length === 0) {
+    return { bookings: [], transactions: [], xeroInvoiceId: null, xeroInvoiceNumber: null };
+  }
+
+  const { data: tenantMembers } = await client
+    .from('member')
+    .select('id')
+    .in('organization_id', tenantOrgIds);
+  const tenantMemberIds = (tenantMembers || []).map((m) => m.id);
+
+  const matchInvoice = (q) => {
+    if (parsed.xeroInvoiceId) return q.eq('xero_invoice_id', parsed.xeroInvoiceId);
+    return q.eq('xero_invoice_number', parsed.xeroInvoiceNumber);
+  };
+
+  const bookingsByOrg = matchInvoice(
+    client
+      .from('booking')
+      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
+      .in('organization_id', tenantOrgIds)
+      .neq('status', 'cancelled'),
+  );
+  const { data: bookingsOrgRows } = await bookingsByOrg;
+
+  let bookingsByMember = [];
+  if (tenantMemberIds.length > 0) {
+    // Chunk member id list to avoid URL-length issues, mirroring the GET path.
+    const MEMBER_CHUNK = 500;
+    for (let i = 0; i < tenantMemberIds.length; i += MEMBER_CHUNK) {
+      const chunk = tenantMemberIds.slice(i, i + MEMBER_CHUNK);
+      const { data } = await matchInvoice(
+        client
+          .from('booking')
+          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
+          .is('organization_id', null)
+          .in('member_id', chunk)
+          .neq('status', 'cancelled'),
+      );
+      if (data) bookingsByMember.push(...data);
+    }
+  }
+
+  const seenBooking = new Set();
+  const bookings = [...(bookingsOrgRows || []), ...bookingsByMember].filter((b) => {
+    if (seenBooking.has(b.id)) return false;
+    seenBooking.add(b.id);
+    return true;
+  });
+
+  const { data: transactions } = await matchInvoice(
+    client
+      .from('program_ticket_transaction')
+      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+      .in('organization_id', tenantOrgIds)
+      .eq('transaction_type', 'purchase')
+      .neq('status', 'cancelled'),
+  );
+
+  // Resolve canonical Xero invoice id from any matching row so we can push
+  // to Xero even when the consolidated key was the human-readable number.
+  const firstWithId = bookings.find((b) => b.xero_invoice_id) || (transactions || []).find((t) => t.xero_invoice_id);
+  const xeroInvoiceId = parsed.xeroInvoiceId || firstWithId?.xero_invoice_id || null;
+  const firstWithNum = bookings.find((b) => b.xero_invoice_number) || (transactions || []).find((t) => t.xero_invoice_number);
+  const xeroInvoiceNumber = parsed.xeroInvoiceNumber || firstWithNum?.xero_invoice_number || null;
+
+  return {
+    bookings: bookings || [],
+    transactions: transactions || [],
+    xeroInvoiceId,
+    xeroInvoiceNumber,
+  };
+}
+
+// Pick a single representative row for invoice-level reminder sending.
+// Bookings preferred over transactions; oldest first so the placeholder data
+// reflects the original sign-up.
+async function resolveInvoiceRepresentative(client, tenantId, invoiceKey) {
+  const found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
+  if (!found) return null;
+  const sortedBookings = (found.bookings || []).slice().sort((a, b) => {
+    const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ad - bd;
+  });
+  if (sortedBookings.length > 0) return { entityType: 'booking', id: sortedBookings[0].id };
+  const sortedTx = (found.transactions || []).slice().sort((a, b) => {
+    const ad = a.created_date ? new Date(a.created_date).getTime() : 0;
+    const bd = b.created_date ? new Date(b.created_date).getTime() : 0;
+    return ad - bd;
+  });
+  if (sortedTx.length > 0) return { entityType: 'transaction', id: sortedTx[0].id };
+  return null;
+}
+
 export default async function handler(req, res) {
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
@@ -471,10 +590,94 @@ export default async function handler(req, res) {
         }
       }
 
-      console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${records.length} records (${transactions.length} tx + ${bookings.length} bookings scanned), xeroChecked=${xeroCheckPerformed}, paidInXero=${paidCount}`);
+      // Consolidate per-row records into one entry per Xero invoice. Multiple
+      // bookings under a single invoice (common for multi-attendee event sign
+      // ups) collapse into a single card so the chase action is taken once
+      // per invoice, not once per attendee.
+      const invoiceKeyOf = (r) => {
+        if (r.xero_invoice_id) return `id:${r.xero_invoice_id}`;
+        if (r.xero_invoice_number) return `num:${r.xero_invoice_number}`;
+        return `row:${r.entityType}-${r.id}`;
+      };
+
+      const grouped = new Map();
+      records.forEach((r) => {
+        const key = invoiceKeyOf(r);
+        let g = grouped.get(key);
+        if (!g) {
+          g = {
+            id: key,
+            entityType: 'invoice',
+            organization_id: r.organization_id,
+            source_name: r.source_name,
+            source_type: r.source_type,
+            xero_invoice_id: r.xero_invoice_id || null,
+            xero_invoice_number: r.xero_invoice_number || null,
+            xero_invoice_pdf_uri: r.xero_invoice_pdf_uri || null,
+            xero_status: r.xero_status ?? null,
+            created_date: r.created_date || null,
+            quantity: 0,
+            total_cost: 0,
+            member_email: r.member_email || null,
+            booking_group_reference: r.booking_group_reference || null,
+            attendees: [],
+            items: [],
+            _sourceNames: new Set(),
+            _sourceTypes: new Set(),
+            _orgIds: new Set(),
+          };
+          grouped.set(key, g);
+        }
+        g.quantity += Number(r.quantity) || 0;
+        g.total_cost += Number(r.total_cost) || 0;
+        if (r.created_date) {
+          if (!g.created_date || new Date(r.created_date) < new Date(g.created_date)) {
+            g.created_date = r.created_date;
+          }
+        }
+        if (!g.xero_invoice_pdf_uri && r.xero_invoice_pdf_uri) {
+          g.xero_invoice_pdf_uri = r.xero_invoice_pdf_uri;
+        }
+        if (r.source_name) g._sourceNames.add(r.source_name);
+        if (r.source_type) g._sourceTypes.add(r.source_type);
+        if (r.organization_id) g._orgIds.add(r.organization_id);
+        g.attendees.push({
+          email: r.member_email || null,
+          source_name: r.source_name || null,
+          entityType: r.entityType,
+          id: r.id,
+        });
+        g.items.push({ entityType: r.entityType, id: r.id });
+      });
+
+      const consolidatedRecords = [];
+      grouped.forEach((g) => {
+        if (g._sourceNames.size > 1) {
+          g.source_name = `${g._sourceNames.size} items`;
+        }
+        if (g._sourceTypes.size > 1) {
+          g.source_type = 'Mixed';
+        }
+        // If the constituent rows span more than one organisation we leave
+        // organization_id at the first-seen value (the UI will still show one
+        // org name). This is rare in practice — invoices are per-org.
+        delete g._sourceNames;
+        delete g._sourceTypes;
+        delete g._orgIds;
+        consolidatedRecords.push(g);
+      });
+
+      // Recompute paidCount against the consolidated set so the header badge
+      // reflects distinct invoices, not constituent bookings.
+      paidCount = consolidatedRecords.reduce(
+        (n, r) => n + (r.xero_status === 'PAID' ? 1 : 0),
+        0,
+      );
+
+      console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${consolidatedRecords.length} invoices (${records.length} rows, ${transactions.length} tx + ${bookings.length} bookings scanned), xeroChecked=${xeroCheckPerformed}, paidInXero=${paidCount}`);
 
       return res.json({
-        records,
+        records: consolidatedRecords,
         organizations: orgMap,
         xeroCheckPerformed,
         xeroError,
@@ -538,15 +741,28 @@ export default async function handler(req, res) {
       
       // Handle send_reminder action
       if (action === 'send_reminder') {
-        const { recordId, entityType: reminderEntityType, emailTemplateId: reminderTemplateId } = req.body;
+        let { recordId, entityType: reminderEntityType, emailTemplateId: reminderTemplateId } = req.body;
         
         if (!recordId || !reminderEntityType || !reminderTemplateId) {
           return res.status(400).json({ error: 'recordId, entityType, and emailTemplateId are required' });
         }
         
+        // Invoice-level reminders: resolve the canonical invoice key to a
+        // single representative booking/transaction (preferring bookings) and
+        // continue with the existing per-row logic so we send exactly one
+        // email per invoice rather than one per attendee.
+        if (reminderEntityType === 'invoice') {
+          const resolved = await resolveInvoiceRepresentative(supabase, tenantId, recordId);
+          if (!resolved) {
+            return res.status(404).json({ error: 'Invoice not found for this tenant' });
+          }
+          recordId = resolved.id;
+          reminderEntityType = resolved.entityType;
+        }
+
         // Validate entityType strictly
         if (!['booking', 'transaction'].includes(reminderEntityType)) {
-          return res.status(400).json({ error: 'Invalid entityType. Must be "booking" or "transaction"' });
+          return res.status(400).json({ error: 'Invalid entityType. Must be "booking", "transaction", or "invoice"' });
         }
         
         // Fetch email template
@@ -580,14 +796,35 @@ export default async function handler(req, res) {
           return res.status(404).json({ error: 'Record not found' });
         }
         
-        // Verify record belongs to tenant
-        const { data: org, error: orgError } = await supabase
-          .from('organization')
-          .select('id, name, tenant_id')
-          .eq('id', record.organization_id)
-          .single();
-        
-        if (orgError || !org || org.tenant_id !== tenantId) {
+        // Verify record belongs to tenant. Bookings may legitimately have a
+        // null organization_id (the report path falls back to the booker's
+        // member -> organization link), so mirror that fallback here so that
+        // invoice-level reminders for null-org bookings can still send.
+        let org = null;
+        if (record.organization_id) {
+          const { data: orgRow } = await supabase
+            .from('organization')
+            .select('id, name, tenant_id')
+            .eq('id', record.organization_id)
+            .single();
+          if (orgRow && orgRow.tenant_id === tenantId) org = orgRow;
+        }
+        if (!org && reminderEntityType === 'booking' && record.member_id) {
+          const { data: memberRow } = await supabase
+            .from('member')
+            .select('organization_id')
+            .eq('id', record.member_id)
+            .single();
+          if (memberRow?.organization_id) {
+            const { data: orgRow } = await supabase
+              .from('organization')
+              .select('id, name, tenant_id')
+              .eq('id', memberRow.organization_id)
+              .single();
+            if (orgRow && orgRow.tenant_id === tenantId) org = orgRow;
+          }
+        }
+        if (!org) {
           return res.status(403).json({ error: 'Access denied' });
         }
         
@@ -719,6 +956,80 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'No organizations found for tenant' });
       }
       
+      // Invoice-level update_po: write the PO across every booking +
+      // transaction row in this tenant that shares the consolidated invoice,
+      // then push to Xero exactly once.
+      if (entityType === 'invoice' && action === 'update_po') {
+        if (!purchaseOrderNumber || !purchaseOrderNumber.trim()) {
+          return res.status(400).json({ error: 'Purchase order number required' });
+        }
+        const found = await findInvoiceRowsForTenant(supabase, tenantId, entityId);
+        if (!found) {
+          return res.status(400).json({ error: 'Invalid invoice key' });
+        }
+        if (found.bookings.length === 0 && found.transactions.length === 0) {
+          return res.status(404).json({ error: 'Invoice not found for this tenant' });
+        }
+        const trimmedPO = purchaseOrderNumber.trim();
+
+        // Update every constituent row, but only when the local PO column is
+        // still empty so we never clobber a manually-entered value.
+        let bookingsUpdated = 0;
+        if (found.bookings.length > 0) {
+          const ids = found.bookings.map((b) => b.id);
+          const { data: updated, error: bErr } = await supabase
+            .from('booking')
+            .update({ purchase_order_number: trimmedPO, po_to_follow: false })
+            .in('id', ids)
+            .or('purchase_order_number.is.null,purchase_order_number.eq.')
+            .select('id');
+          if (bErr) {
+            console.error('[PendingPO] Invoice update_po booking error:', bErr);
+            return res.status(500).json({ error: 'Failed to update bookings' });
+          }
+          bookingsUpdated = updated?.length || 0;
+        }
+        let transactionsUpdated = 0;
+        if (found.transactions.length > 0) {
+          const ids = found.transactions.map((t) => t.id);
+          const { data: updated, error: tErr } = await supabase
+            .from('program_ticket_transaction')
+            .update({ purchase_order_number: trimmedPO })
+            .in('id', ids)
+            .or('purchase_order_number.is.null,purchase_order_number.eq.')
+            .select('id');
+          if (tErr) {
+            console.error('[PendingPO] Invoice update_po transaction error:', tErr);
+            return res.status(500).json({ error: 'Failed to update transactions' });
+          }
+          transactionsUpdated = updated?.length || 0;
+        }
+
+        let xeroUpdated = false;
+        let xeroError = null;
+        if (found.xeroInvoiceId) {
+          const result = await pushPurchaseOrderToXero({
+            appTenantId: tenantId,
+            xeroInvoiceId: found.xeroInvoiceId,
+            purchaseOrderNumber: trimmedPO,
+            contextLabel: `PendingPO invoice ${entityId}`,
+          });
+          xeroUpdated = result.xeroUpdated;
+          xeroError = result.xeroError;
+        } else {
+          xeroError = 'No Xero invoice ID on file — could not push PO to Xero';
+        }
+
+        return res.json({
+          success: true,
+          purchase_order_number: trimmedPO,
+          bookingsUpdated,
+          transactionsUpdated,
+          xeroUpdated,
+          xeroError,
+        });
+      }
+
       if (!['booking', 'transaction'].includes(entityType)) {
         return res.status(400).json({ error: 'Invalid entity type' });
       }

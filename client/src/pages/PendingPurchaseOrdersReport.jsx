@@ -260,7 +260,8 @@ export default function PendingPurchaseOrdersReport() {
     setFailedKeys(new Set());
   }, [searchQuery, selectedSource, hidePaidInvoices, xeroCheckPerformed]);
 
-  const getRecordKey = (record) => `${record.entityType}-${record.id}`;
+  const getRecordKey = (record) =>
+    record.entityType === 'invoice' ? record.id : `${record.entityType}-${record.id}`;
 
   const filteredKeys = useMemo(
     () => filteredAndSortedData.map(getRecordKey),
@@ -483,7 +484,7 @@ export default function PendingPurchaseOrdersReport() {
       return;
     }
 
-    const recordKey = `${record.entityType}-${record.id}`;
+    const recordKey = getRecordKey(record);
     setSendingReminderId(recordKey);
 
     try {
@@ -904,10 +905,17 @@ export default function PendingPurchaseOrdersReport() {
             <div className="space-y-3">
               {paginatedData.map((record) => {
                 const orgName = organizations[record.organization_id] || 'Unknown Organisation';
-                const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
-                const recordKey = `${record.entityType}-${record.id}`;
+                const TypeIcon = record.source_type === 'Event'
+                  ? Ticket
+                  : record.source_type === 'Mixed'
+                    ? FileText
+                    : GraduationCap;
+                const recordKey = getRecordKey(record);
                 const rowSelected = isSelected(record);
                 const rowFailed = failedKeys.has(recordKey);
+                const attendees = Array.isArray(record.attendees) ? record.attendees : [];
+                const attendeeCount = attendees.length || 1;
+                const isMultiAttendee = attendeeCount > 1;
                 return (
                   <div
                     key={recordKey}
@@ -959,21 +967,54 @@ export default function PendingPurchaseOrdersReport() {
                                 : 'Unknown date'}
                             </span>
                           </span>
-                          {record.quantity && (
+                          {record.quantity ? (
                             <span data-testid={`text-quantity-${record.id}`}>
                               Qty: {record.quantity}
                             </span>
-                          )}
+                          ) : null}
                           {record.total_cost > 0 && (
                             <span className="font-medium" data-testid={`text-cost-${record.id}`}>
                               £{record.total_cost.toLocaleString()}
                             </span>
                           )}
+                          {isMultiAttendee && (
+                            <Badge variant="outline" data-testid={`badge-bookings-count-${record.id}`}>
+                              {attendeeCount} bookings
+                            </Badge>
+                          )}
                         </div>
-                        {record.member_email && (
-                          <div className="text-sm text-muted-foreground" data-testid={`text-email-${record.id}`}>
-                            Booked by: {record.member_email}
-                          </div>
+                        {isMultiAttendee ? (
+                          <Collapsible>
+                            <CollapsibleTrigger asChild>
+                              <button
+                                type="button"
+                                className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline"
+                                data-testid={`button-toggle-attendees-${record.id}`}
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                                Show {attendeeCount} attendees
+                              </button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <ul className="mt-2 space-y-1 text-sm text-muted-foreground border-l pl-3">
+                                {attendees.map((a, idx) => (
+                                  <li
+                                    key={`${a.entityType}-${a.id}-${idx}`}
+                                    data-testid={`text-attendee-${record.id}-${idx}`}
+                                  >
+                                    {a.email || 'Unknown'}
+                                    {a.source_name ? ` — ${a.source_name}` : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        ) : (
+                          record.member_email && (
+                            <div className="text-sm text-muted-foreground" data-testid={`text-email-${record.id}`}>
+                              Booked by: {record.member_email}
+                            </div>
+                          )
                         )}
                         {rowFailed && (
                           <div
@@ -1002,15 +1043,15 @@ export default function PendingPurchaseOrdersReport() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleSendReminder(record)}
-                          disabled={sendingReminderId === `${record.entityType}-${record.id}`}
+                          disabled={sendingReminderId === recordKey}
                           data-testid={`button-send-reminder-${record.id}`}
                         >
-                          {sendingReminderId === `${record.entityType}-${record.id}` ? (
+                          {sendingReminderId === recordKey ? (
                             <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
                           ) : (
                             <Send className="h-4 w-4 mr-1" />
                           )}
-                          {sendingReminderId === `${record.entityType}-${record.id}` ? 'Sending...' : 'Send Reminder'}
+                          {sendingReminderId === recordKey ? 'Sending...' : 'Send Reminder'}
                         </Button>
                         <Button
                           size="sm"
