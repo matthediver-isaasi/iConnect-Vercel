@@ -143,6 +143,7 @@ export default async function handler(req, res) {
     ));
 
     const internalRefByBookingId = {};
+    const eventDateByBookingId = {};
     if (bookingIds.length > 0) {
       const batchSize = 100;
       const resolvedAsBooking = new Set();
@@ -167,7 +168,7 @@ export default async function handler(req, res) {
 
         const { data: eventsRaw, error: eErr } = await supabase
           .from('event')
-          .select('id, internal_reference, tenant_id')
+          .select('id, internal_reference, start_date, tenant_id')
           .in('id', eventIds);
         if (eErr) {
           console.warn('[TrainingFundExportCSV] Events lookup error (non-blocking):', eErr.message);
@@ -175,12 +176,16 @@ export default async function handler(req, res) {
         }
         const events = (eventsRaw || []).filter(e => !e.tenant_id || e.tenant_id === tenantId);
         const eventRefMap = {};
+        const eventDateMap = {};
         events.forEach(e => {
           if (e.internal_reference) eventRefMap[e.id] = e.internal_reference;
+          if (e.start_date) eventDateMap[e.id] = e.start_date;
         });
         bookings.forEach(b => {
           const ref = eventRefMap[b.event_id];
           if (ref) internalRefByBookingId[b.id] = ref;
+          const sd = eventDateMap[b.event_id];
+          if (sd) eventDateByBookingId[b.id] = sd;
         });
       }
 
@@ -202,9 +207,10 @@ export default async function handler(req, res) {
         if (ceIds.length === 0) continue;
 
         const ceRefMap = {};
+        const ceDateMap = {};
         const { data: ces, error: ceErr } = await supabase
           .from('complex_event')
-          .select('id, internal_reference, tenant_id')
+          .select('id, internal_reference, start_date, tenant_id')
           .in('id', ceIds);
         if (ceErr) {
           if (ceErr.code !== '42703') {
@@ -215,11 +221,14 @@ export default async function handler(req, res) {
             .filter(e => !e.tenant_id || e.tenant_id === tenantId)
             .forEach(e => {
               if (e.internal_reference) ceRefMap[e.id] = e.internal_reference;
+              if (e.start_date) ceDateMap[e.id] = e.start_date;
             });
         }
         complexBookings.forEach(b => {
           const ref = ceRefMap[b.event_id];
           if (ref) internalRefByBookingId[b.id] = ref;
+          const sd = ceDateMap[b.event_id];
+          if (sd) eventDateByBookingId[b.id] = sd;
         });
       }
     }
@@ -238,12 +247,13 @@ export default async function handler(req, res) {
       'Organisation',
       'Date',
       'Type',
-      'Amount',
       'Balance Before',
+      'Amount',
       'Balance After',
       'Reason',
       'Created By',
-      'Event Internal Reference'
+      'Event Internal Reference',
+      'Event Date'
     ];
 
     const headerRow = headers.map(escapeCSV).join(',');
@@ -253,16 +263,20 @@ export default async function handler(req, res) {
       const internalRef = (t.type === 'booking_usage' && t.booking_id)
         ? (internalRefByBookingId[t.booking_id] || '')
         : '';
+      const eventDate = (t.type === 'booking_usage' && t.booking_id)
+        ? formatDate(eventDateByBookingId[t.booking_id])
+        : '';
       return [
         orgName,
         formatDate(t.created_date),
         formatTransactionTypeLabel(t.type),
-        formatSignedAmount(t),
         formatBalance(t.balance_before),
+        formatSignedAmount(t),
         formatBalance(t.balance_after),
         t.reason || '',
         memberDisplayName(member),
-        internalRef
+        internalRef,
+        eventDate
       ].map(escapeCSV).join(',');
     });
 
