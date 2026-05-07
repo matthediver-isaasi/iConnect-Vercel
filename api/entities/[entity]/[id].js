@@ -345,6 +345,19 @@ export default async function handler(req, res) {
           sanitizedBody[field] = null;
         }
       }
+
+      // CardDeck: normalize and cap the links array (max 10 rows of { text, url })
+      if (entityNormalized === 'carddeck' && 'links' in sanitizedBody) {
+        const raw = Array.isArray(sanitizedBody.links) ? sanitizedBody.links : [];
+        const cleaned = raw
+          .map(l => ({
+            text: typeof l?.text === 'string' ? l.text.trim() : '',
+            url: typeof l?.url === 'string' ? l.url.trim() : ''
+          }))
+          .filter(l => l.text && l.url)
+          .slice(0, 10);
+        sanitizedBody.links = cleaned;
+      }
       
       // SECURITY: Strip tenant linkage fields from PATCH body to prevent tenant reassignment attacks
       // tenant_id and member_id should never be changed via PATCH

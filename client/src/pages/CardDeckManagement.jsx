@@ -9,10 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Search, X, Image as ImageIcon, GripVertical, ExternalLink, FileText, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, Image as ImageIcon, GripVertical, ExternalLink, FileText, ArrowUp, ArrowDown, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+
+const MAX_CARD_LINKS = 10;
 
 export default function CardDeckManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -125,13 +127,14 @@ export default function CardDeckManagementPage() {
       target_url: "",
       button_text: "Learn More",
       status: "active",
-      display_order: cards.length
+      display_order: cards.length,
+      links: []
     });
     setShowDialog(true);
   };
 
   const handleEdit = (card) => {
-    setEditingCard({ ...card });
+    setEditingCard({ ...card, links: Array.isArray(card.links) ? card.links : [] });
     const isImageFromRepo = card.image_url ? repositoryFiles.some(f => f.file_url === card.image_url) : false;
     setImageFromRepository(isImageFromRepo);
     setShowDialog(true);
@@ -143,6 +146,21 @@ export default function CardDeckManagementPage() {
       return;
     }
 
+    const rawLinks = Array.isArray(editingCard.links) ? editingCard.links : [];
+    const cleanedLinks = rawLinks
+      .map(l => ({ text: (l?.text || '').trim(), url: (l?.url || '').trim() }))
+      .filter(l => l.text || l.url);
+    for (const l of cleanedLinks) {
+      if (!l.text || !l.url) {
+        toast.error('Each link needs both display text and a URL');
+        return;
+      }
+    }
+    if (cleanedLinks.length > MAX_CARD_LINKS) {
+      toast.error(`A card can have at most ${MAX_CARD_LINKS} links`);
+      return;
+    }
+
     const payload = {
       title: editingCard.title,
       description: editingCard.description || "",
@@ -150,7 +168,8 @@ export default function CardDeckManagementPage() {
       target_url: editingCard.target_url || null,
       button_text: editingCard.button_text || "Learn More",
       status: editingCard.status || "active",
-      display_order: editingCard.display_order || 0
+      display_order: editingCard.display_order || 0,
+      links: cleanedLinks
     };
 
     if (editingCard.id) {
@@ -172,6 +191,34 @@ export default function CardDeckManagementPage() {
     setShowFileSelector(false);
     setFileSelectorSearch("");
     setFileSelectorPage(1);
+  };
+
+  const updateLink = (index, field, value) => {
+    const links = Array.isArray(editingCard.links) ? [...editingCard.links] : [];
+    links[index] = { ...(links[index] || { text: '', url: '' }), [field]: value };
+    setEditingCard({ ...editingCard, links });
+  };
+
+  const addLink = () => {
+    const links = Array.isArray(editingCard.links) ? [...editingCard.links] : [];
+    if (links.length >= MAX_CARD_LINKS) return;
+    setEditingCard({ ...editingCard, links: [...links, { text: '', url: '' }] });
+  };
+
+  const removeLink = (index) => {
+    const links = Array.isArray(editingCard.links) ? [...editingCard.links] : [];
+    links.splice(index, 1);
+    setEditingCard({ ...editingCard, links });
+  };
+
+  const moveLink = (index, direction) => {
+    const links = Array.isArray(editingCard.links) ? [...editingCard.links] : [];
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= links.length) return;
+    const tmp = links[index];
+    links[index] = links[newIndex];
+    links[newIndex] = tmp;
+    setEditingCard({ ...editingCard, links });
   };
 
   const handleClearImage = () => {
@@ -293,6 +340,12 @@ export default function CardDeckManagementPage() {
                         <span className="truncate">{card.button_text || 'Learn More'}</span>
                       </div>
                     )}
+                    {Array.isArray(card.links) && card.links.length > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-slate-500 mb-3" data-testid={`text-card-link-count-${card.id}`}>
+                        <Link2 className="w-3 h-3" />
+                        <span>{card.links.length} {card.links.length === 1 ? 'link' : 'links'}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <Button
@@ -380,6 +433,79 @@ export default function CardDeckManagementPage() {
                     rows={3}
                     data-testid="input-card-description"
                   />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Links</Label>
+                    <span className="text-xs text-slate-500">
+                      {(editingCard.links?.length || 0)} / {MAX_CARD_LINKS}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Optional list of links shown below the card description. Each row needs both display text and a URL.
+                  </p>
+                  {(editingCard.links || []).map((link, index) => (
+                    <div key={index} className="flex items-start gap-2" data-testid={`row-card-link-${index}`}>
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Input
+                          value={link.text || ''}
+                          onChange={(e) => updateLink(index, 'text', e.target.value)}
+                          placeholder="Display text"
+                          data-testid={`input-card-link-text-${index}`}
+                        />
+                        <Input
+                          value={link.url || ''}
+                          onChange={(e) => updateLink(index, 'url', e.target.value)}
+                          placeholder="https://example.com"
+                          data-testid={`input-card-link-url-${index}`}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => moveLink(index, 'up')}
+                          disabled={index === 0}
+                          data-testid={`button-card-link-up-${index}`}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => moveLink(index, 'down')}
+                          disabled={index === (editingCard.links?.length || 0) - 1}
+                          data-testid={`button-card-link-down-${index}`}
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLink(index)}
+                          className="text-slate-600 hover:text-red-600"
+                          data-testid={`button-card-link-remove-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addLink}
+                    disabled={(editingCard.links?.length || 0) >= MAX_CARD_LINKS}
+                    data-testid="button-add-card-link"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add link
+                  </Button>
                 </div>
 
                 <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg">

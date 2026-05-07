@@ -877,7 +877,20 @@ export default async function handler(req, res) {
           sanitizedBody[field] = null;
         }
       }
-      
+
+      // CardDeck: normalize and cap the links array (max 10 rows of { text, url })
+      if (entityNorm === 'carddeck' && 'links' in sanitizedBody) {
+        const raw = Array.isArray(sanitizedBody.links) ? sanitizedBody.links : [];
+        const cleaned = raw
+          .map(l => ({
+            text: typeof l?.text === 'string' ? l.text.trim() : '',
+            url: typeof l?.url === 'string' ? l.url.trim() : ''
+          }))
+          .filter(l => l.text && l.url)
+          .slice(0, 10);
+        sanitizedBody.links = cleaned;
+      }
+
       // Apply tenant context for tenant-scoped entities
       // SECURITY: Force-set tenant_id/organization_id/member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {

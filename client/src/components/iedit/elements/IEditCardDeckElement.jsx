@@ -252,7 +252,7 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
                   )}
                   {showCardDescription && card.description && (
                     <p 
-                      className="m-0 mb-4 flex-1"
+                      className="m-0 mb-4"
                       style={{
                         fontSize: `${cardDescriptionFontSize}px`,
                         color: cardDescriptionColor,
@@ -265,6 +265,29 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
                       {card.description}
                     </p>
                   )}
+                  {Array.isArray(card.links) && card.links.length > 0 && (
+                    <ul className="list-none p-0 m-0 mb-4 space-y-1 flex-1">
+                      {card.links.map((link, idx) => (
+                        link?.url && link?.text ? (
+                          <li key={idx} className="m-0">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline hover:no-underline"
+                              style={{
+                                fontSize: `${cardDescriptionFontSize}px`,
+                                color: cardButtonBgColor
+                              }}
+                            >
+                              {link.text}
+                            </a>
+                          </li>
+                        ) : null
+                      ))}
+                    </ul>
+                  )}
+                  {(!Array.isArray(card.links) || card.links.length === 0) && <div className="flex-1" />}
                   {showCardButton && card.target_url && (
                     <a
                       href={card.target_url}
