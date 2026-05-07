@@ -1126,6 +1126,22 @@ export default async function handler(req, res) {
           }
         }
 
+        // Nullify member references that should be preserved (history kept, just unlinked)
+        const memberNullifyTables = [
+          { table: 'form_submission', column: 'created_member_id' },
+        ];
+        for (const { table, column } of memberNullifyTables) {
+          const { error: nullifyError } = await supabase
+            .from(table)
+            .update({ [column]: null })
+            .eq(column, id);
+          if (nullifyError) {
+            console.log(`[Member Delete] Note: Could not nullify ${table}.${column}: ${nullifyError.message}`);
+          } else {
+            console.log(`[Member Delete] Nullified ${table}.${column} references for member ${id}`);
+          }
+        }
+
         // article_view and article_reaction track members via user_identifier+is_member
         // (no member_id column). Only delete member rows; leave guest rows (is_member=false) alone.
         for (const memberTrackedTable of ['article_view', 'article_reaction']) {
@@ -1251,6 +1267,22 @@ export default async function handler(req, res) {
             }
           }
 
+          // Nullify member references that should be preserved (history kept, just unlinked)
+          const memberNullifyTables = [
+            { table: 'form_submission', column: 'created_member_id' },
+          ];
+          for (const { table, column } of memberNullifyTables) {
+            const { error: nullifyError } = await supabase
+              .from(table)
+              .update({ [column]: null })
+              .in(column, memberIds);
+            if (nullifyError) {
+              console.log(`[Organization Delete] Note: Could not nullify ${table}.${column}: ${nullifyError.message}`);
+            } else {
+              console.log(`[Organization Delete] Nullified ${table}.${column} references for ${memberIds.length} members`);
+            }
+          }
+
           // article_view and article_reaction track members via user_identifier+is_member
           // (no member_id column). Only delete member rows; leave guest rows alone.
           for (const memberTrackedTable of ['article_view', 'article_reaction']) {
@@ -1328,6 +1360,7 @@ export default async function handler(req, res) {
         // Nullify organization references in other tables (don't delete, just unlink)
         const nullifyTables = [
           { table: 'form_submission', column: 'organization_id' },
+          { table: 'form_submission', column: 'created_organization_id' },
           { table: 'booking', column: 'organization_id' },
           { table: 'job_posting', column: 'posted_by_organization_id' },
           { table: 'discount_code', column: 'organization_id' },
