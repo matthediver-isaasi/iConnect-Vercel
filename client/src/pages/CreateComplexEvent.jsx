@@ -1011,8 +1011,12 @@ export default function CreateComplexEvent() {
         summary: existingEvent.summary || "",
         image_url: existingEvent.image_url || "",
         image_focal_point: existingEvent.image_focal_point || null,
-        start_date: existingEvent.start_date ? existingEvent.start_date.slice(0, 16) : "",
-        end_date: existingEvent.end_date ? existingEvent.end_date.slice(0, 16) : "",
+        start_date: existingEvent.start_date
+          ? (toDateTz(existingEvent.start_date, existingEvent.timezone || DEFAULT_TIMEZONE)?.toISOString() || "")
+          : "",
+        end_date: existingEvent.end_date
+          ? (toDateTz(existingEvent.end_date, existingEvent.timezone || DEFAULT_TIMEZONE)?.toISOString() || "")
+          : "",
         location: existingEvent.location || "",
         status: loadedStatus,
         event_state: loadedEventState,
@@ -1022,7 +1026,9 @@ export default function CreateComplexEvent() {
         internal_reference: existingEvent.internal_reference || "",
         xero_account_code: existingEvent.xero_account_code || "",
         event_type: parseEventTypes(existingEvent.event_type),
-        registration_closes_at: existingEvent.registration_closes_at ? existingEvent.registration_closes_at.slice(0, 16) : "",
+        registration_closes_at: existingEvent.registration_closes_at
+          ? (toDateTz(existingEvent.registration_closes_at, existingEvent.timezone || DEFAULT_TIMEZONE)?.toISOString() || "")
+          : "",
         program_tag: existingEvent.program_tag || "",
       });
       setSlugManuallyEdited(true);
@@ -1155,32 +1161,28 @@ export default function CreateComplexEvent() {
 
   useEffect(() => {
     if (formData.status === 'tbc') return;
+    const tz = formData.timezone || DEFAULT_TIMEZONE;
     const allTimes = sessions
       .filter(s => s.start_time || s.end_time)
       .flatMap(s => {
         const times = [];
-        if (s.start_time) times.push(new Date(s.start_time));
-        if (s.end_time) times.push(new Date(s.end_time));
+        if (s.start_time) times.push(toDateTz(s.start_time, tz));
+        if (s.end_time) times.push(toDateTz(s.end_time, tz));
         return times;
       })
-      .filter(d => !isNaN(d.getTime()));
+      .filter(d => d && !isNaN(d.getTime()));
 
     if (allTimes.length === 0) return;
 
     const earliest = new Date(Math.min(...allTimes.map(d => d.getTime())));
     const latest = new Date(Math.max(...allTimes.map(d => d.getTime())));
 
-    const toLocal = (d) => {
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    };
-
     setFormData(prev => ({
       ...prev,
-      start_date: toLocal(earliest),
-      end_date: toLocal(latest),
+      start_date: earliest.toISOString(),
+      end_date: latest.toISOString(),
     }));
-  }, [sessions, formData.status]);
+  }, [sessions, formData.status, formData.timezone]);
 
   const updateField = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -2375,10 +2377,11 @@ export default function CreateComplexEvent() {
                     <Label htmlFor="start_date">
                       Start Date & Time
                     </Label>
-                    <Input
+                    <TimezoneAwareDateTimeInput
                       id="start_date"
-                      type="datetime-local"
+                      tz={formData.timezone || DEFAULT_TIMEZONE}
                       value={formData.start_date}
+                      onChange={() => {}}
                       disabled
                       className="bg-slate-100 cursor-not-allowed"
                       data-testid="input-start-date"
@@ -2391,10 +2394,11 @@ export default function CreateComplexEvent() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="end_date">End Date & Time</Label>
-                    <Input
+                    <TimezoneAwareDateTimeInput
                       id="end_date"
-                      type="datetime-local"
+                      tz={formData.timezone || DEFAULT_TIMEZONE}
                       value={formData.end_date}
+                      onChange={() => {}}
                       disabled
                       className="bg-slate-100 cursor-not-allowed"
                       data-testid="input-end-date"
@@ -2440,17 +2444,16 @@ export default function CreateComplexEvent() {
 
                 <div className="space-y-2">
                   <Label htmlFor="registration_closes_at">Registration Closes On (Optional)</Label>
-                  <Input
+                  <TimezoneAwareDateTimeInput
                     id="registration_closes_at"
-                    type="datetime-local"
+                    tz={formData.timezone || DEFAULT_TIMEZONE}
                     value={formData.registration_closes_at}
-                    onChange={(e) => {
-                      const newValue = e.target.value;
-                      if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
+                    onChange={(iso) => {
+                      if (iso && formData.end_date && new Date(iso) > new Date(formData.end_date)) {
                         toast.error('Registration close date cannot be after the event end date');
                         return;
                       }
-                      updateField("registration_closes_at", newValue);
+                      updateField("registration_closes_at", iso);
                     }}
                     max={formData.end_date || undefined}
                     disabled={formData.status === 'tbc'}
