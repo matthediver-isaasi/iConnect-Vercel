@@ -50,7 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
@@ -2234,7 +2234,7 @@ export default function EditEvent() {
                     id="start_date"
                     type="datetime-local"
                     value={formatDateForInput(formData.start_date)}
-                    onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
+                    onChange={(e) => handleInputChange('start_date', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '')}
                     required={eventTiming !== 'tbc'}
                     disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
                     className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
@@ -2253,7 +2253,7 @@ export default function EditEvent() {
                     id="end_date"
                     type="datetime-local"
                     value={formatDateForInput(formData.end_date)}
-                    onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
+                    onChange={(e) => handleInputChange('end_date', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '')}
                     disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
                     className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
@@ -2337,7 +2337,7 @@ export default function EditEvent() {
                   type="datetime-local"
                   value={formatDateForInput(formData.registration_closes_at)}
                   onChange={(e) => {
-                    const newValue = e.target.value ? new Date(e.target.value).toISOString() : '';
+                    const newValue = e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '';
                     // Validate: registration close cannot be after event end
                     if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
                       toast.error('Registration close date cannot be after the event end date');
@@ -3687,8 +3687,8 @@ export default function EditEvent() {
                                 <div>
                                   <Input
                                     type="datetime-local"
-                                    value={email.custom_send_at ? email.custom_send_at.slice(0, 16) : ''}
-                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                                    value={formatDateForInput(email.custom_send_at)}
+                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : null)}
                                     className="w-full bg-white"
                                     data-testid={`input-custom-datetime-${email.id}`}
                                   />

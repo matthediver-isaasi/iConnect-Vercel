@@ -3770,8 +3770,8 @@ export default function CreateComplexEvent() {
                                 <div>
                                   <Input
                                     type="datetime-local"
-                                    value={email.custom_send_at ? email.custom_send_at.slice(0, 16) : ''}
-                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                                    value={toLocalDatetimeStr(email.custom_send_at)}
+                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? fromZonedTime(e.target.value, formData.timezone || DEFAULT_TIMEZONE).toISOString() : null)}
                                     className="w-full bg-white"
                                     data-testid={`input-custom-datetime-${email.id}`}
                                   />

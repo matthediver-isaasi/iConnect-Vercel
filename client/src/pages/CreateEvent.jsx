@@ -43,7 +43,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -525,17 +525,17 @@ export default function CreateEvent() {
   // Check if we have an active Zoom selection (webinar or meeting)
   const hasZoomSelection = isOnline && (selectedWebinar || selectedMeeting);
 
-  // Format datetime for input fields - use Zoom timezone if available, otherwise browser local
+  // Effective timezone for datetime-local inputs: Zoom timezone takes precedence
+  // when a Zoom selection is locked in, otherwise the user-selected event timezone.
+  const effectiveTimezone = activeZoomTimezone || formData.timezone || "Europe/London";
+
+  // Format datetime for input fields in the effective timezone so the picker
+  // always displays the wall-clock time as it will be saved.
   const formatDateTimeForInput = (isoString) => {
     if (!isoString) return "";
     try {
       const date = new Date(isoString);
-      if (activeZoomTimezone) {
-        // Format in the Zoom event's timezone
-        return formatInTimeZone(date, activeZoomTimezone, "yyyy-MM-dd'T'HH:mm");
-      }
-      // Default: format in browser local timezone
-      return format(date, "yyyy-MM-dd'T'HH:mm");
+      return formatInTimeZone(date, effectiveTimezone, "yyyy-MM-dd'T'HH:mm");
     } catch {
       return "";
     }
@@ -1644,7 +1644,7 @@ export default function CreateEvent() {
                     id="start_date"
                     type="datetime-local"
                     value={formatDateTimeForInput(formData.start_date)}
-                    onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
+                    onChange={(e) => handleInputChange('start_date', e.target.value ? fromZonedTime(e.target.value, effectiveTimezone).toISOString() : '')}
                     required={eventTiming !== 'tbc'}
                     disabled={eventTiming === 'tbc'}
                     readOnly={hasZoomSelection}
@@ -1664,7 +1664,7 @@ export default function CreateEvent() {
                     id="end_date"
                     type="datetime-local"
                     value={formatDateTimeForInput(formData.end_date)}
-                    onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
+                    onChange={(e) => handleInputChange('end_date', e.target.value ? fromZonedTime(e.target.value, effectiveTimezone).toISOString() : '')}
                     disabled={eventTiming === 'tbc'}
                     readOnly={hasZoomSelection}
                     className={(eventTiming === 'tbc' || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
@@ -1714,9 +1714,9 @@ export default function CreateEvent() {
                 <Input
                   id="registration_closes_at"
                   type="datetime-local"
-                  value={formData.registration_closes_at ? format(new Date(formData.registration_closes_at), "yyyy-MM-dd'T'HH:mm") : ""}
+                  value={formatDateTimeForInput(formData.registration_closes_at)}
                   onChange={(e) => {
-                    const newValue = e.target.value ? new Date(e.target.value).toISOString() : '';
+                    const newValue = e.target.value ? fromZonedTime(e.target.value, effectiveTimezone).toISOString() : '';
                     // Validate: registration close cannot be after event end
                     if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
                       toast.error('Registration close date cannot be after the event end date');
@@ -1724,7 +1724,7 @@ export default function CreateEvent() {
                     }
                     handleInputChange('registration_closes_at', newValue);
                   }}
-                  max={formData.end_date ? format(new Date(formData.end_date), "yyyy-MM-dd'T'HH:mm") : undefined}
+                  max={formatDateTimeForInput(formData.end_date) || undefined}
                   disabled={eventTiming === 'tbc'}
                   className={eventTiming === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
                   data-testid="input-registration-closes-at"
