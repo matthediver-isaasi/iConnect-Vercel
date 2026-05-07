@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { isOrgAdminColumnVisible, isOrgAdminFilterVisible } from "@/pages/CustomFieldsAdmin";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
@@ -245,7 +246,7 @@ export default function OrganisationsListPage() {
     }
   });
 
-  const { data: orgCustomFields = [] } = useQuery({
+  const { data: orgCustomFields = [], isSuccess: orgCustomFieldsLoaded } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'crm'],
     enabled: accessChecked,
     queryFn: async () => {
@@ -254,21 +255,32 @@ export default function OrganisationsListPage() {
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        // Filter for fields visible in Admin CRM list
-        return (fields || []).filter(f => f.entity_scope === 'organization' && f.show_in_admin_list !== false);
+        // Include any field admin-visible as either a column or a filter; consumers below split further.
+        return (fields || []).filter(f => f.entity_scope === 'organization' && (isOrgAdminColumnVisible(f) || isOrgAdminFilterVisible(f)));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && f.show_in_admin_list !== false);
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && (isOrgAdminColumnVisible(f) || isOrgAdminFilterVisible(f)));
         } catch {
           return [];
         }
       }
     }
   });
+
+  // Fields available as columns in the CRM table (column picker, table cells, card back).
+  const orgColumnFields = useMemo(
+    () => orgCustomFields.filter(f => isOrgAdminColumnVisible(f)),
+    [orgCustomFields]
+  );
+  // Fields available in the sidebar filter list.
+  const orgFilterFields = useMemo(
+    () => orgCustomFields.filter(f => isOrgAdminFilterVisible(f)),
+    [orgCustomFields]
+  );
 
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values-crm'],
@@ -640,34 +652,34 @@ export default function OrganisationsListPage() {
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(v => v && v !== 'all' && v.trim() !== '');
 
-  // Track if custom fields have been merged into columns
-  const customFieldsMergedRef = useRef(false);
-
-  // Update columns when custom fields are loaded - merge with saved preferences
+  // Reconcile columns when custom fields load or when their column-visibility changes:
+  // add any newly column-visible fields, and prune custom columns whose field is no
+  // longer column-visible (or no longer exists). Gated on the query having loaded so
+  // an in-flight empty default doesn't wipe saved preferences.
   useEffect(() => {
-    if (orgCustomFields.length > 0 && !customFieldsMergedRef.current) {
-      customFieldsMergedRef.current = true;
-      setColumns(prev => {
-        const existingIds = prev.map(c => c.id);
-        const newCustomFieldColumns = orgCustomFields
-          .filter(f => !existingIds.includes(`cf_${f.id}`))
-          .map(f => ({
-            id: `cf_${f.id}`,
-            label: f.label,
-            visible: false,
-            locked: false,
-            isCustomField: true,
-            fieldId: f.id
-          }));
-        if (newCustomFieldColumns.length > 0) {
-          const updated = [...prev, ...newCustomFieldColumns];
-          saveLocalColumns(updated, tenantSlug);
-          return updated;
-        }
-        return prev;
-      });
-    }
-  }, [orgCustomFields]);
+    if (!orgCustomFieldsLoaded) return;
+    setColumns(prev => {
+      const allowedFieldIds = new Set(orgColumnFields.map(f => f.id));
+      const existingFieldIds = new Set(
+        prev.filter(c => c.isCustomField && c.fieldId).map(c => c.fieldId)
+      );
+      const pruned = prev.filter(c => !c.isCustomField || allowedFieldIds.has(c.fieldId));
+      const additions = orgColumnFields
+        .filter(f => !existingFieldIds.has(f.id))
+        .map(f => ({
+          id: `cf_${f.id}`,
+          label: f.label,
+          visible: false,
+          locked: false,
+          isCustomField: true,
+          fieldId: f.id
+        }));
+      if (pruned.length === prev.length && additions.length === 0) return prev;
+      const updated = [...pruned, ...additions];
+      saveLocalColumns(updated, tenantSlug);
+      return updated;
+    });
+  }, [orgColumnFields, orgCustomFieldsLoaded, tenantSlug]);
 
   // Save columns to localStorage when they change (only after initial load)
   useEffect(() => {
@@ -713,7 +725,7 @@ export default function OrganisationsListPage() {
   };
 
   const resetColumns = () => {
-    const customFieldCols = orgCustomFields.map(f => ({
+    const customFieldCols = orgColumnFields.map(f => ({
       id: `cf_${f.id}`,
       label: f.label,
       visible: false,
@@ -879,13 +891,13 @@ export default function OrganisationsListPage() {
               </div>
 
               {/* Custom Fields */}
-              {orgCustomFields.length > 0 && (
+              {orgFilterFields.length > 0 && (
                 <>
                   <Separator />
                   <div className="space-y-3">
                     <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
                     
-                    {orgCustomFields.map(field => {
+                    {orgFilterFields.map(field => {
                       // Filter out title options (is_title=true or no value)
                       const validOptions = (field.options || []).filter(opt => 
                         !opt.is_title && opt.value && opt.value.trim() !== ''
@@ -1463,7 +1475,7 @@ export default function OrganisationsListPage() {
                         )}
                       </div>
 
-                      {orgCustomFields.slice(0, 2).map(field => {
+                      {orgColumnFields.slice(0, 2).map(field => {
                         const value = orgValuesMap[org.id]?.[field.id];
                         if (!value) return null;
                         let displayValue = value;

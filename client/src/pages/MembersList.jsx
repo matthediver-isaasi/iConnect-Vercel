@@ -49,6 +49,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { isMemberAdminColumnVisible, isMemberAdminFilterVisible } from "@/pages/CustomFieldsAdmin";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
@@ -236,7 +237,7 @@ export default function MembersListPage() {
     }
   });
 
-  const { data: memberCustomFields = [] } = useQuery({
+  const { data: memberCustomFields = [], isSuccess: memberCustomFieldsLoaded } = useQuery({
     queryKey: ['member-custom-fields-crm'],
     enabled: accessChecked,
     queryFn: async () => {
@@ -245,20 +246,29 @@ export default function MembersListPage() {
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_admin_list !== false);
+        return (fields || []).filter(f => f.entity_scope === 'member' && (isMemberAdminColumnVisible(f) || isMemberAdminFilterVisible(f)));
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_admin_list !== false);
+          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && (isMemberAdminColumnVisible(f) || isMemberAdminFilterVisible(f)));
         } catch {
           return [];
         }
       }
     }
   });
+
+  const memberColumnFields = useMemo(
+    () => memberCustomFields.filter(f => isMemberAdminColumnVisible(f)),
+    [memberCustomFields]
+  );
+  const memberFilterFields = useMemo(
+    () => memberCustomFields.filter(f => isMemberAdminFilterVisible(f)),
+    [memberCustomFields]
+  );
 
   const { data: allMemberPreferenceValues = [] } = useQuery({
     queryKey: ['all-member-preference-values-crm'],
@@ -526,32 +536,34 @@ export default function MembersListPage() {
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(v => v && v !== 'all' && v.trim() !== '');
 
-  const customFieldsMergedRef = useRef(false);
-
+  // Reconcile columns when custom fields load or when their column-visibility changes:
+  // add any newly column-visible fields and prune custom columns whose field is no
+  // longer column-visible (or no longer exists). Gated on the query having loaded so
+  // an in-flight empty default doesn't wipe saved preferences.
   useEffect(() => {
-    if (memberCustomFields.length > 0 && !customFieldsMergedRef.current) {
-      customFieldsMergedRef.current = true;
-      setColumns(prev => {
-        const existingIds = prev.map(c => c.id);
-        const newCustomFieldColumns = memberCustomFields
-          .filter(f => !existingIds.includes(`cf_${f.id}`))
-          .map(f => ({
-            id: `cf_${f.id}`,
-            label: f.label,
-            visible: false,
-            locked: false,
-            isCustomField: true,
-            fieldId: f.id
-          }));
-        if (newCustomFieldColumns.length > 0) {
-          const updated = [...prev, ...newCustomFieldColumns];
-          saveLocalColumns(updated, tenantSlug);
-          return updated;
-        }
-        return prev;
-      });
-    }
-  }, [memberCustomFields]);
+    if (!memberCustomFieldsLoaded) return;
+    setColumns(prev => {
+      const allowedFieldIds = new Set(memberColumnFields.map(f => f.id));
+      const existingFieldIds = new Set(
+        prev.filter(c => c.isCustomField && c.fieldId).map(c => c.fieldId)
+      );
+      const pruned = prev.filter(c => !c.isCustomField || allowedFieldIds.has(c.fieldId));
+      const additions = memberColumnFields
+        .filter(f => !existingFieldIds.has(f.id))
+        .map(f => ({
+          id: `cf_${f.id}`,
+          label: f.label,
+          visible: false,
+          locked: false,
+          isCustomField: true,
+          fieldId: f.id
+        }));
+      if (pruned.length === prev.length && additions.length === 0) return prev;
+      const updated = [...pruned, ...additions];
+      saveLocalColumns(updated, tenantSlug);
+      return updated;
+    });
+  }, [memberColumnFields, memberCustomFieldsLoaded, tenantSlug]);
 
   const visibleColumns = columns.filter(c => c.visible);
 
@@ -590,9 +602,17 @@ export default function MembersListPage() {
   };
 
   const resetColumns = () => {
-    setColumns(DEFAULT_COLUMNS);
-    saveLocalColumns(DEFAULT_COLUMNS, tenantSlug);
-    customFieldsMergedRef.current = false;
+    const customFieldCols = memberColumnFields.map(f => ({
+      id: `cf_${f.id}`,
+      label: f.label,
+      visible: false,
+      locked: false,
+      isCustomField: true,
+      fieldId: f.id
+    }));
+    const newColumns = [...DEFAULT_COLUMNS, ...customFieldCols];
+    setColumns(newColumns);
+    saveLocalColumns(newColumns, tenantSlug);
   };
 
   const getCellValue = (member, col) => {
@@ -823,13 +843,13 @@ export default function MembersListPage() {
                 </div>
               </div>
 
-              {memberCustomFields.length > 0 && (
+              {memberFilterFields.length > 0 && (
                 <>
                   <Separator />
                   <div className="space-y-3">
                     <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
                     
-                    {memberCustomFields.map(field => {
+                    {memberFilterFields.map(field => {
                       const validOptions = (field.options || []).filter(opt => 
                         !opt.is_title && opt.value && opt.value.trim() !== ''
                       );

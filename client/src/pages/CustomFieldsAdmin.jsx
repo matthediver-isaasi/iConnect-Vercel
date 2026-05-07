@@ -141,15 +141,47 @@ export default function CustomFieldsAdminPage() {
 const VISIBILITY_LOCATIONS = [
   { key: 'show_in_my_organisation', label: 'My Organisation', description: 'Member\'s own organisation page' },
   { key: 'show_in_directory_card', label: 'Directory Card', description: 'Organisation directory flip card' },
-  { key: 'show_in_admin_list', label: 'Admin List', description: 'Admin organisations CRM page' }
+  { key: 'show_in_admin_column', label: 'Show as column in CRM list', description: 'Available as a column in the Admin organisations CRM table' },
+  { key: 'show_in_admin_filter', label: 'Show as filter in CRM list', description: 'Appears in the filter sidebar on the Admin organisations CRM page' }
 ];
 
 // Visibility location options for member fields
 const MEMBER_VISIBILITY_LOCATIONS = [
   { key: 'show_in_my_preferences', label: 'My Preferences', description: 'Member\'s own preferences page' },
   { key: 'show_in_member_directory', label: 'Member Directory', description: 'Member directory listing' },
-  { key: 'show_in_member_admin_list', label: 'Admin List', description: 'Admin members CRM page' }
+  { key: 'show_in_member_admin_column', label: 'Show as column in CRM list', description: 'Available as a column in the Admin members CRM table' },
+  { key: 'show_in_member_admin_filter', label: 'Show as filter in CRM list', description: 'Appears in the filter sidebar on the Admin members CRM page' }
 ];
+
+// Helpers: derive the new column/filter flags with backward-compatible
+// fallback to the legacy show_in_admin_list / show_in_member_admin_list
+// flags. A field where the legacy flag is true (or unset) is treated as
+// both column-visible and filter-visible until an admin explicitly
+// changes either toggle.
+export function isOrgAdminColumnVisible(field) {
+  if (!field) return false;
+  if (field.show_in_admin_column === false) return false;
+  if (field.show_in_admin_column === true) return true;
+  return field.show_in_admin_list !== false;
+}
+export function isOrgAdminFilterVisible(field) {
+  if (!field) return false;
+  if (field.show_in_admin_filter === false) return false;
+  if (field.show_in_admin_filter === true) return true;
+  return field.show_in_admin_list !== false;
+}
+export function isMemberAdminColumnVisible(field) {
+  if (!field) return false;
+  if (field.show_in_member_admin_column === false) return false;
+  if (field.show_in_member_admin_column === true) return true;
+  return field.show_in_member_admin_list !== false;
+}
+export function isMemberAdminFilterVisible(field) {
+  if (!field) return false;
+  if (field.show_in_member_admin_filter === false) return false;
+  if (field.show_in_member_admin_filter === true) return true;
+  return field.show_in_member_admin_list !== false;
+}
 
 function parseDirectoryVisibility(field, scope) {
   if (field.directory_visibility) {
@@ -188,10 +220,12 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [defaultCountries, setDefaultCountries] = useState([]);
   // Visibility toggles for organization fields
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
-  const [showInAdminList, setShowInAdminList] = useState(true);
+  const [showInAdminColumn, setShowInAdminColumn] = useState(true);
+  const [showInAdminFilter, setShowInAdminFilter] = useState(true);
   // Visibility toggles for member fields
   const [showInMyPreferences, setShowInMyPreferences] = useState(true);
-  const [showInMemberAdminList, setShowInMemberAdminList] = useState(true);
+  const [showInMemberAdminColumn, setShowInMemberAdminColumn] = useState(true);
+  const [showInMemberAdminFilter, setShowInMemberAdminFilter] = useState(true);
   // Per-directory visibility (replaces single directory toggle)
   const [directoryVisibility, setDirectoryVisibility] = useState(['main']);
 
@@ -331,9 +365,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setDefaultCountry('');
     setDefaultCountries([]);
     setShowInMyOrganisation(true);
-    setShowInAdminList(true);
+    setShowInAdminColumn(true);
+    setShowInAdminFilter(true);
     setShowInMyPreferences(true);
-    setShowInMemberAdminList(true);
+    setShowInMemberAdminColumn(true);
+    setShowInMemberAdminFilter(true);
     setDirectoryVisibility(['main']);
   };
 
@@ -384,9 +420,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     }
     setDefaultCountries(Array.isArray(parsedDefaultCountries) ? parsedDefaultCountries : []);
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
-    setShowInAdminList(field.show_in_admin_list !== false);
+    setShowInAdminColumn(isOrgAdminColumnVisible(field));
+    setShowInAdminFilter(isOrgAdminFilterVisible(field));
     setShowInMyPreferences(field.show_in_my_preferences !== false);
-    setShowInMemberAdminList(field.show_in_member_admin_list !== false);
+    setShowInMemberAdminColumn(isMemberAdminColumnVisible(field));
+    setShowInMemberAdminFilter(isMemberAdminFilterVisible(field));
     setDirectoryVisibility(parseDirectoryVisibility(field, entityScope));
     setIsDialogOpen(true);
   };
@@ -466,10 +504,15 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       default_countries: validDefaultCountries,
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? directoryVisibility.includes('main') : true,
-      show_in_admin_list: entityScope === 'organization' ? showInAdminList : true,
+      show_in_admin_column: entityScope === 'organization' ? showInAdminColumn : true,
+      show_in_admin_filter: entityScope === 'organization' ? showInAdminFilter : true,
+      // Mirror the legacy admin-list flag so any other readers keep working.
+      show_in_admin_list: entityScope === 'organization' ? (showInAdminColumn || showInAdminFilter) : true,
       show_in_my_preferences: entityScope === 'member' ? showInMyPreferences : true,
       show_in_member_directory: entityScope === 'member' ? directoryVisibility.includes('main') : true,
-      show_in_member_admin_list: entityScope === 'member' ? showInMemberAdminList : true,
+      show_in_member_admin_column: entityScope === 'member' ? showInMemberAdminColumn : true,
+      show_in_member_admin_filter: entityScope === 'member' ? showInMemberAdminFilter : true,
+      show_in_member_admin_list: entityScope === 'member' ? (showInMemberAdminColumn || showInMemberAdminFilter) : true,
       directory_visibility: JSON.stringify(directoryVisibility)
     };
 
@@ -570,7 +613,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                             <p className="text-sm text-slate-500 mt-1">Field name: {field.name}</p>
                             {entityScope === 'organization' && (() => {
                               const dirVis = parseDirectoryVisibility(field, 'organization');
-                              const hasAnyVisibility = field.show_in_my_organisation !== false || dirVis.length > 0 || field.show_in_admin_list !== false;
+                              const adminCol = isOrgAdminColumnVisible(field);
+                              const adminFilter = isOrgAdminFilterVisible(field);
+                              const hasAnyVisibility = field.show_in_my_organisation !== false || dirVis.length > 0 || adminCol || adminFilter;
                               return (
                                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                                   <span className="text-xs text-slate-400">Visible in:</span>
@@ -588,8 +633,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                       </span>
                                     );
                                   })}
-                                  {field.show_in_admin_list !== false && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                  {adminCol && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin column</span>
+                                  )}
+                                  {adminFilter && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>
@@ -599,7 +647,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                             })()}
                             {entityScope === 'member' && (() => {
                               const dirVis = parseDirectoryVisibility(field, 'member');
-                              const hasAnyVisibility = field.show_in_my_preferences !== false || dirVis.length > 0 || field.show_in_member_admin_list !== false;
+                              const adminCol = isMemberAdminColumnVisible(field);
+                              const adminFilter = isMemberAdminFilterVisible(field);
+                              const hasAnyVisibility = field.show_in_my_preferences !== false || dirVis.length > 0 || adminCol || adminFilter;
                               return (
                                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                                   <span className="text-xs text-slate-400">Visible in:</span>
@@ -617,8 +667,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                       </span>
                                     );
                                   })}
-                                  {field.show_in_member_admin_list !== false && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                  {adminCol && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin column</span>
+                                  )}
+                                  {adminFilter && (
+                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>
@@ -1173,14 +1226,26 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label htmlFor="showInAdmin" className="cursor-pointer text-sm">Admin List</Label>
-                      <p className="text-xs text-slate-400">Admin organisations CRM page</p>
+                      <Label htmlFor="showInAdminColumn" className="cursor-pointer text-sm">Show as column in CRM list</Label>
+                      <p className="text-xs text-slate-400">Available as a column in the Admin organisations CRM table</p>
                     </div>
                     <Switch
-                      id="showInAdmin"
-                      checked={showInAdminList}
-                      onCheckedChange={setShowInAdminList}
-                      data-testid="switch-show-admin"
+                      id="showInAdminColumn"
+                      checked={showInAdminColumn}
+                      onCheckedChange={setShowInAdminColumn}
+                      data-testid="switch-show-admin-column"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInAdminFilter" className="cursor-pointer text-sm">Show as filter in CRM list</Label>
+                      <p className="text-xs text-slate-400">Appears in the filter sidebar on the Admin organisations CRM page</p>
+                    </div>
+                    <Switch
+                      id="showInAdminFilter"
+                      checked={showInAdminFilter}
+                      onCheckedChange={setShowInAdminFilter}
+                      data-testid="switch-show-admin-filter"
                     />
                   </div>
                 </div>
@@ -1255,14 +1320,26 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label htmlFor="showInMemberAdmin" className="cursor-pointer text-sm">Admin List</Label>
-                      <p className="text-xs text-slate-400">Admin members CRM page</p>
+                      <Label htmlFor="showInMemberAdminColumn" className="cursor-pointer text-sm">Show as column in CRM list</Label>
+                      <p className="text-xs text-slate-400">Available as a column in the Admin members CRM table</p>
                     </div>
                     <Switch
-                      id="showInMemberAdmin"
-                      checked={showInMemberAdminList}
-                      onCheckedChange={setShowInMemberAdminList}
-                      data-testid="switch-show-member-admin"
+                      id="showInMemberAdminColumn"
+                      checked={showInMemberAdminColumn}
+                      onCheckedChange={setShowInMemberAdminColumn}
+                      data-testid="switch-show-member-admin-column"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMemberAdminFilter" className="cursor-pointer text-sm">Show as filter in CRM list</Label>
+                      <p className="text-xs text-slate-400">Appears in the filter sidebar on the Admin members CRM page</p>
+                    </div>
+                    <Switch
+                      id="showInMemberAdminFilter"
+                      checked={showInMemberAdminFilter}
+                      onCheckedChange={setShowInMemberAdminFilter}
+                      data-testid="switch-show-member-admin-filter"
                     />
                   </div>
                 </div>
