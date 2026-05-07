@@ -308,6 +308,7 @@ export default async function handler(req, res) {
       let xeroCheckPerformed = false;
       let xeroError = null;
       let paidCount = 0;
+      let voidedExcluded = 0;
 
       const invoiceIdsToCheck = [...new Set(records.map(r => r.xero_invoice_id).filter(Boolean))];
 
@@ -350,14 +351,31 @@ export default async function handler(req, res) {
           records.forEach(r => {
             if (r.xero_invoice_id && xeroStatusById.has(r.xero_invoice_id)) {
               r.xero_status = xeroStatusById.get(r.xero_invoice_id);
-              if (r.xero_status === 'PAID') paidCount += 1;
             } else {
               r.xero_status = null;
             }
           });
 
+          // Drop any record whose Xero invoice has been cancelled in Xero.
+          // We only filter when the Xero status was actually resolved — records
+          // with unresolved status (no token / API error / batch failure) are
+          // left in place since we cannot confirm they are voided.
+          for (let i = records.length - 1; i >= 0; i--) {
+            const status = records[i].xero_status;
+            if (status === 'VOIDED' || status === 'DELETED') {
+              records.splice(i, 1);
+              voidedExcluded += 1;
+            }
+          }
+
+          // Recompute paidCount from the post-filter set so the summary stays
+          // consistent with what we actually return.
+          records.forEach(r => {
+            if (r.xero_status === 'PAID') paidCount += 1;
+          });
+
           xeroCheckPerformed = true;
-          console.log(`[PendingPO] Xero annotation: ${records.length} records, ${paidCount} paid in Xero (kept in report)`);
+          console.log(`[PendingPO] Xero annotation: ${records.length} records after filter, ${paidCount} paid in Xero (kept in report), ${voidedExcluded} voided/deleted excluded`);
         } catch (xeroErr) {
           console.error('[PendingPO] Xero status check error:', xeroErr.message);
           xeroError = xeroErr.message;
@@ -378,6 +396,7 @@ export default async function handler(req, res) {
         // succeeds. `paidInXero` exposes the new annotated count.
         paidExcluded: 0,
         paidInXero: paidCount,
+        voidedExcluded,
         pagination: paginationStats,
       });
       
