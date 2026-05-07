@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
+import UnfurlPreview from "@/components/UnfurlPreview";
 
 export default function AdminBranding() {
   const navigate = useNavigate();
@@ -1431,6 +1432,21 @@ export default function AdminBranding() {
                   <p className="text-xs text-amber-400" data-testid="text-social-image-warning">{socialImageDimWarning}</p>
                 ) : null}
                 <p className="text-xs text-slate-500">Recommended size: 1200×630 PNG/JPG. If empty, your logo is used as the link-preview image.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-200">Preview</Label>
+                <p className="text-xs text-slate-500">
+                  See how your homepage will appear when shared on Slack, iMessage, and X. Switch to <em>Live (server)</em> to fetch the actual meta tags returned by the SSR pipeline that real unfurl bots see.
+                </p>
+                <UnfurlPreview
+                  title={tenant?.tagline ? `${tenant?.name || ''} — ${tenant.tagline}` : (tenant?.name || '')}
+                  description={formData.description || tenant?.tagline || ''}
+                  image={formData.social_image_url || formData.logo_url || ''}
+                  url={typeof window !== 'undefined' ? window.location.origin : ''}
+                  siteName={tenant?.name || ''}
+                  previewPath="/"
+                />
               </div>
             </CardContent>
           </Card>

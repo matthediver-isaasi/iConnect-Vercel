@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Save, Upload, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/components/ui/use-toast";
+import UnfurlPreview from "@/components/UnfurlPreview";
 
 export default function IEditPageSettings({ page, onClose, onSave }) {
   const [editedPage, setEditedPage] = useState({ ...page });
@@ -332,26 +333,13 @@ export default function IEditPageSettings({ page, onClose, onSave }) {
               <p className="text-xs text-slate-500 mt-1">Recommended size: 1200×630 PNG/JPG.</p>
             </div>
 
-            {(editedPage.seo_title || editedPage.seo_description || editedPage.og_image_url) && (
-              <div className="rounded-md border border-slate-200 overflow-hidden" data-testid="preview-unfurl-card">
-                <p className="text-xs uppercase tracking-wide text-slate-500 px-3 pt-2">Unfurl preview</p>
-                {editedPage.og_image_url ? (
-                  <img
-                    src={editedPage.og_image_url}
-                    alt=""
-                    className="w-full h-40 object-cover"
-                  />
-                ) : null}
-                <div className="p-3 space-y-1 bg-slate-50">
-                  <p className="text-sm font-semibold text-slate-900 truncate">
-                    {editedPage.seo_title || editedPage.meta_title || editedPage.title || 'Page title'}
-                  </p>
-                  <p className="text-xs text-slate-600 line-clamp-2">
-                    {editedPage.seo_description || editedPage.meta_description || 'Page description shown in the link preview.'}
-                  </p>
-                </div>
-              </div>
-            )}
+            <UnfurlPreview
+              title={editedPage.seo_title || editedPage.meta_title || editedPage.title || ''}
+              description={editedPage.seo_description || editedPage.meta_description || ''}
+              image={editedPage.og_image_url || ''}
+              url={typeof window !== 'undefined' && editedPage.slug ? `${window.location.origin}/${editedPage.slug}` : ''}
+              previewPath={editedPage.slug ? `/${editedPage.slug}` : null}
+            />
           </div>
         </div>
 
