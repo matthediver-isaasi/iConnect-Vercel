@@ -50,7 +50,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone } from "date-fns-tz";
+import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
@@ -1377,20 +1378,6 @@ export default function EditEvent() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const formatDateForInput = (dateStr) => {
-    if (!dateStr) return "";
-    // Don't format until timezone is resolved for Zoom events
-    if (isTimezoneLoading) return "";
-    try {
-      // Format the date in the event's timezone (not browser local time)
-      // This ensures the displayed time matches what was intended when the event was created
-      return formatInTimeZone(new Date(dateStr), eventTimezone, "yyyy-MM-dd'T'HH:mm");
-    } catch (e) {
-      console.error('Error formatting date:', e, dateStr, eventTimezone);
-      return "";
-    }
-  };
-
   const renderContent = () => {
     if (!eventId) {
       return (
@@ -2230,11 +2217,12 @@ export default function EditEvent() {
                   <Label htmlFor="start_date">
                     Start Date & Time {eventTiming !== 'tbc' && '*'}
                   </Label>
-                  <Input
+                  <TimezoneAwareDateTimeInput
                     id="start_date"
-                    type="datetime-local"
-                    value={formatDateForInput(formData.start_date)}
-                    onChange={(e) => handleInputChange('start_date', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '')}
+                    tz={eventTimezone}
+                    isReady={!isTimezoneLoading}
+                    value={formData.start_date}
+                    onChange={(iso) => handleInputChange('start_date', iso)}
                     required={eventTiming !== 'tbc'}
                     disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
                     className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
@@ -2249,11 +2237,12 @@ export default function EditEvent() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="end_date">End Date & Time</Label>
-                  <Input
+                  <TimezoneAwareDateTimeInput
                     id="end_date"
-                    type="datetime-local"
-                    value={formatDateForInput(formData.end_date)}
-                    onChange={(e) => handleInputChange('end_date', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '')}
+                    tz={eventTimezone}
+                    isReady={!isTimezoneLoading}
+                    value={formData.end_date}
+                    onChange={(iso) => handleInputChange('end_date', iso)}
                     disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
                     className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
@@ -2332,20 +2321,20 @@ export default function EditEvent() {
               {/* Registration Closes At - Optional */}
               <div className="space-y-2 mt-4">
                 <Label htmlFor="registration_closes_at">Registration Closes On (Optional)</Label>
-                <Input
+                <TimezoneAwareDateTimeInput
                   id="registration_closes_at"
-                  type="datetime-local"
-                  value={formatDateForInput(formData.registration_closes_at)}
-                  onChange={(e) => {
-                    const newValue = e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : '';
+                  tz={eventTimezone}
+                  isReady={!isTimezoneLoading}
+                  value={formData.registration_closes_at}
+                  onChange={(iso) => {
                     // Validate: registration close cannot be after event end
-                    if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
+                    if (iso && formData.end_date && new Date(iso) > new Date(formData.end_date)) {
                       toast.error('Registration close date cannot be after the event end date');
                       return;
                     }
-                    handleInputChange('registration_closes_at', newValue);
+                    handleInputChange('registration_closes_at', iso);
                   }}
-                  max={formData.end_date ? formatDateForInput(formData.end_date) : undefined}
+                  max={formData.end_date || undefined}
                   disabled={eventTiming === 'tbc'}
                   className={eventTiming === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
                   data-testid="input-registration-closes-at"
@@ -3685,10 +3674,11 @@ export default function EditEvent() {
                                 </div>
                               ) : (
                                 <div>
-                                  <Input
-                                    type="datetime-local"
-                                    value={formatDateForInput(email.custom_send_at)}
-                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? fromZonedTime(e.target.value, eventTimezone).toISOString() : null)}
+                                  <TimezoneAwareDateTimeInput
+                                    tz={eventTimezone}
+                                    isReady={!isTimezoneLoading}
+                                    value={email.custom_send_at}
+                                    onChange={(iso) => updateEventEmail(email.id, 'custom_send_at', iso || null)}
                                     className="w-full bg-white"
                                     data-testid={`input-custom-datetime-${email.id}`}
                                   />

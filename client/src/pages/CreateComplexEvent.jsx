@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -3768,10 +3769,10 @@ export default function CreateComplexEvent() {
                                 </div>
                               ) : (
                                 <div>
-                                  <Input
-                                    type="datetime-local"
-                                    value={toLocalDatetimeStr(email.custom_send_at)}
-                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? fromZonedTime(e.target.value, formData.timezone || DEFAULT_TIMEZONE).toISOString() : null)}
+                                  <TimezoneAwareDateTimeInput
+                                    tz={formData.timezone || DEFAULT_TIMEZONE}
+                                    value={email.custom_send_at}
+                                    onChange={(iso) => updateEventEmail(email.id, 'custom_send_at', iso || null)}
                                     className="w-full bg-white"
                                     data-testid={`input-custom-datetime-${email.id}`}
                                   />
