@@ -309,6 +309,8 @@ export default async function handler(req, res) {
       let xeroError = null;
       let paidCount = 0;
       let voidedExcluded = 0;
+      let xeroPoBackfilled = 0;
+      let xeroPoExcluded = 0;
 
       const invoiceIdsToCheck = [...new Set(records.map(r => r.xero_invoice_id).filter(Boolean))];
 
@@ -317,7 +319,27 @@ export default async function handler(req, res) {
           const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
 
           const xeroStatusById = new Map();
+          const xeroPoById = new Map();
           const batchSize = 50;
+
+          // Treat Xero's `Reference` field as a PO when it looks like one rather
+          // than blindly accepting any free text. Pure whitespace, the literal
+          // strings "n/a"/"none"/"tbc"/"tbd" etc. should not auto-clear the row.
+          const looksLikePoReference = (raw) => {
+            if (!raw) return false;
+            const s = String(raw).trim();
+            if (!s) return false;
+            const lower = s.toLowerCase();
+            const blacklist = new Set([
+              'n/a', 'na', 'none', 'no po', 'no-po', 'nopo',
+              'tbc', 'tbd', 'pending', 'awaiting po', 'awaiting',
+              'po to follow', 'po-to-follow', 'tofollow', 'to follow',
+              '-', '--', '0',
+            ]);
+            if (blacklist.has(lower)) return false;
+            // Require at least one alphanumeric character.
+            return /[a-z0-9]/i.test(s);
+          };
 
           for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
             const batch = invoiceIdsToCheck.slice(i, i + batchSize);
@@ -341,6 +363,15 @@ export default async function handler(req, res) {
               invoices.forEach(inv => {
                 if (inv.InvoiceID) {
                   xeroStatusById.set(inv.InvoiceID, inv.Status || null);
+                  // Prefer Xero's first-class PurchaseOrderNumber field when
+                  // present, otherwise fall back to the free-form Reference
+                  // (which is where most of our customers actually type the PO).
+                  const candidate = (inv.PurchaseOrderNumber && String(inv.PurchaseOrderNumber).trim())
+                    || (inv.Reference && String(inv.Reference).trim())
+                    || null;
+                  if (candidate && looksLikePoReference(candidate)) {
+                    xeroPoById.set(inv.InvoiceID, candidate);
+                  }
                 }
               });
             } else {
@@ -368,6 +399,63 @@ export default async function handler(req, res) {
             }
           }
 
+          // Auto-clear records when Xero already shows a PO/Reference against
+          // the invoice. We backfill the local row's purchase_order_number so
+          // the row stays cleared on subsequent loads (and so other reports
+          // that key off this column see the value too), then drop the record
+          // from the response. Backfill is best-effort: failures are logged
+          // but do not block the response.
+          const bookingBackfills = [];
+          const transactionBackfills = [];
+          for (let i = records.length - 1; i >= 0; i--) {
+            const rec = records[i];
+            if (!rec.xero_invoice_id) continue;
+            const poFromXero = xeroPoById.get(rec.xero_invoice_id);
+            if (!poFromXero) continue;
+            if (rec.entityType === 'booking') {
+              bookingBackfills.push({ id: rec.id, po: poFromXero });
+            } else if (rec.entityType === 'transaction') {
+              transactionBackfills.push({ id: rec.id, po: poFromXero });
+            }
+            records.splice(i, 1);
+            xeroPoExcluded += 1;
+          }
+
+          const runBackfill = async (table, rows) => {
+            // Group ids by PO value so we can issue one UPDATE per distinct PO
+            // (typically one per row, but bookings sharing a Xero invoice will
+            // share a PO and collapse together).
+            const byPo = new Map();
+            rows.forEach(({ id, po }) => {
+              if (!byPo.has(po)) byPo.set(po, []);
+              byPo.get(po).push(id);
+            });
+            for (const [po, ids] of byPo) {
+              // Re-assert the "missing PO" predicate inside the UPDATE so we
+              // never clobber a value that another writer has set between our
+              // initial SELECT and this backfill. We also avoid no-op writes
+              // when the existing value already equals the Xero value.
+              const { data: updated, error } = await supabase
+                .from(table)
+                .update({ purchase_order_number: po })
+                .in('id', ids)
+                .or('purchase_order_number.is.null,purchase_order_number.eq.')
+                .select('id');
+              if (error) {
+                console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
+              } else {
+                xeroPoBackfilled += (updated || []).length;
+              }
+            }
+          };
+
+          if (bookingBackfills.length > 0) {
+            await runBackfill('booking', bookingBackfills);
+          }
+          if (transactionBackfills.length > 0) {
+            await runBackfill('program_ticket_transaction', transactionBackfills);
+          }
+
           // Recompute paidCount from the post-filter set so the summary stays
           // consistent with what we actually return.
           records.forEach(r => {
@@ -375,7 +463,7 @@ export default async function handler(req, res) {
           });
 
           xeroCheckPerformed = true;
-          console.log(`[PendingPO] Xero annotation: ${records.length} records after filter, ${paidCount} paid in Xero (kept in report), ${voidedExcluded} voided/deleted excluded`);
+          console.log(`[PendingPO] Xero annotation: ${records.length} records after filter, ${paidCount} paid in Xero (kept in report), ${voidedExcluded} voided/deleted excluded, ${xeroPoExcluded} cleared via Xero PO/Reference (${xeroPoBackfilled} backfilled locally)`);
         } catch (xeroErr) {
           console.error('[PendingPO] Xero status check error:', xeroErr.message);
           xeroError = xeroErr.message;
@@ -397,6 +485,8 @@ export default async function handler(req, res) {
         paidExcluded: 0,
         paidInXero: paidCount,
         voidedExcluded,
+        xeroPoExcluded,
+        xeroPoBackfilled,
         pagination: paginationStats,
       });
       
