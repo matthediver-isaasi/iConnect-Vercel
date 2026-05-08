@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi, ArrowLeft, History } from "lucide-react";
+import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi, ArrowLeft, History, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -35,6 +35,7 @@ export default function VoucherManagementPage() {
   const [voucherToDelete, setVoucherToDelete] = useState(null);
   const [orgSearchOpen, setOrgSearchOpen] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -235,6 +236,38 @@ export default function VoucherManagementPage() {
       toast.error('Failed to delete voucher: ' + error.message);
     }
   });
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch('/api/admin/voucher-transactions/export-csv', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        let message = 'Export failed';
+        try {
+          const errBody = await response.json();
+          if (errBody?.error) message = errBody.error;
+        } catch {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      link.download = `training_voucher_transactions_${today}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('CSV file downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export transactions: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleCreateNew = () => {
     setEditingVoucher({
@@ -528,10 +561,28 @@ export default function VoucherManagementPage() {
               Create and manage training vouchers for organisations
             </p>
           </div>
-          <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700" data-testid="button-create-voucher">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Voucher
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isAdmin && (
+              <Button
+                variant="outline"
+                onClick={handleExportCSV}
+                disabled={isExporting}
+                className="gap-2"
+                data-testid="button-export-training-voucher-transactions-csv"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Export CSV
+              </Button>
+            )}
+            <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700" data-testid="button-create-voucher">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Voucher
+            </Button>
+          </div>
         </div>
 
         <Card className="border-slate-200 shadow-sm mb-6">
