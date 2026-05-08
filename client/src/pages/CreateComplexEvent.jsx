@@ -17,7 +17,7 @@ import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
-  Layers, Building2, Handshake, AlertTriangle, Mail, Bell, Download, FileText, Code
+  Layers, Building2, Handshake, AlertTriangle, AlertCircle, Mail, Bell, Download, FileText, Code
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
@@ -716,6 +716,7 @@ export default function CreateComplexEvent() {
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
   const [emailCodeViewMode, setEmailCodeViewMode] = useState({});
+  const [emailSaveErrors, setEmailSaveErrors] = useState({}); // Per-email inline save errors keyed by email.id
 
   const TIMING_OPTIONS = [
     { value: '7_days_before', label: '7 days before session' },
@@ -874,6 +875,28 @@ export default function CreateComplexEvent() {
     setEventEmails(prev => prev.map(e =>
       e.id === emailId ? { ...e, [field]: value } : e
     ));
+    // Clear any prior save error for this email once the admin edits it.
+    setEmailSaveErrors(prev => {
+      if (!prev[emailId]) return prev;
+      const { [emailId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  // Build a human-friendly label for an email row, used in inline error messaging.
+  const getEmailRowLabel = (email) => {
+    if (email.email_type === 'booking_confirmation') return 'Booking confirmation email';
+    if (email.email_type === 'reminder') {
+      if (email.timing_type === 'custom') {
+        const unit = email.custom_unit || 'hours';
+        if (unit === 'specific_datetime') return 'Reminder — Absolute date/time';
+        const n = email.custom_hours_before;
+        return `Reminder — Custom (${n ? `${n} ${unit}` : unit} before session)`;
+      }
+      const opt = TIMING_OPTIONS.find(o => o.value === email.timing_type);
+      return `Reminder — ${opt ? opt.label : (email.timing_type || 'unscheduled')}`;
+    }
+    return email.email_type || 'Email';
   };
 
   const loadTemplateIntoEmail = (emailId, templateId) => {
@@ -903,29 +926,93 @@ export default function CreateComplexEvent() {
         return;
       }
     }
+    setEmailSaveErrors({});
     setIsSavingEmails(true);
+    const requestEmails = eventEmails;
     try {
       const response = await fetch(`/api/event-emails/${editId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ emails: eventEmails, is_complex_event: true })
+        body: JSON.stringify({ emails: requestEmails, is_complex_event: true })
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to save email configurations');
+      if (response.ok) {
+        if (Array.isArray(result) && result.length > 0) {
+          setEventEmails(result);
+        } else if (Array.isArray(result) && result.length === 0 && requestEmails.length > 0) {
+          throw new Error('Server returned empty response — emails may not have been saved');
+        }
+        queryClient.invalidateQueries({ queryKey: ['event-emails', editId] });
+        toast.success('Email configurations saved');
+        return;
       }
 
-      if (Array.isArray(result) && result.length > 0) {
-        setEventEmails(result);
-      } else if (Array.isArray(result) && result.length === 0 && eventEmails.length > 0) {
-        throw new Error('Server returned empty response — emails may not have been saved');
-      }
+      // Failure path. The API returns { error, details: [{email_type, error, request_index}], savedEmails }
+      // when one or more rows fail to insert/update. Each `details` entry includes the
+      // `request_index` (position in the PUT body) so we can map errors back to rows
+      // deterministically — even when multiple rows share the same `email_type`.
+      const details = Array.isArray(result?.details) ? result.details : [];
+      const savedEmails = Array.isArray(result?.savedEmails) ? result.savedEmails : [];
 
-      queryClient.invalidateQueries({ queryKey: ['event-emails', editId] });
-      toast.success('Email configurations saved');
+      if (details.length > 0) {
+        const errMap = {};
+        const failedIndexes = new Set();
+        const unindexedDetails = [];
+        for (const detail of details) {
+          if (typeof detail.request_index === 'number' && requestEmails[detail.request_index]) {
+            failedIndexes.add(detail.request_index);
+            errMap[requestEmails[detail.request_index].id] = detail.error || 'Unknown error';
+          } else {
+            unindexedDetails.push(detail);
+          }
+        }
+        // Fallback for older API responses without request_index — match by email_type
+        // in request order.
+        if (unindexedDetails.length > 0) {
+          const typeErrCursor = {};
+          for (const detail of unindexedDetails) {
+            const seen = typeErrCursor[detail.email_type] || 0;
+            let count = 0;
+            let foundIdx = -1;
+            for (let i = 0; i < requestEmails.length; i++) {
+              if (failedIndexes.has(i)) continue;
+              if (requestEmails[i].email_type === detail.email_type) {
+                if (count === seen) { foundIdx = i; break; }
+                count++;
+              }
+            }
+            typeErrCursor[detail.email_type] = seen + 1;
+            if (foundIdx >= 0) {
+              failedIndexes.add(foundIdx);
+              errMap[requestEmails[foundIdx].id] = detail.error || 'Unknown error';
+            }
+          }
+        }
+        setEmailSaveErrors(errMap);
+
+        // Merge any successfully-saved rows back in. The API loop processes emails in
+        // request order and pushes successes to `savedEmails` in that same order, so
+        // walking the non-failed request rows lines up exactly with `savedEmails`.
+        if (savedEmails.length > 0 && failedIndexes.size > 0) {
+          let savedCursor = 0;
+          setEventEmails(prev => prev.map((e, i) => {
+            if (failedIndexes.has(i)) return e;
+            const saved = savedEmails[savedCursor++];
+            return saved ? { ...saved } : e;
+          }));
+        }
+
+        const total = requestEmails.length;
+        const failed = details.length;
+        toast.error(
+          `${failed} of ${total} email${total === 1 ? '' : 's'} failed to save — see details below`
+        );
+      } else {
+        toast.error(result?.error || 'Failed to save email configurations');
+      }
     } catch (error) {
       console.error('Error saving emails:', error);
       toast.error(error.message || 'Failed to save email configurations');
@@ -3711,6 +3798,23 @@ export default function CreateComplexEvent() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
+
+                      {emailSaveErrors[email.id] && (
+                        <div
+                          className="mb-3 flex items-start gap-2 p-3 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm"
+                          data-testid={`email-save-error-${email.id}`}
+                        >
+                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              Failed to save: {getEmailRowLabel(email)}
+                            </div>
+                            <div className="text-xs mt-0.5 break-words">
+                              {emailSaveErrors[email.id]}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {email.email_type === 'reminder' && (
                         <div className="mb-3">

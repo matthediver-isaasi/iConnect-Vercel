@@ -80,7 +80,8 @@ export default async function handler(req, res) {
       const savedEmails = [];
       const errors = [];
 
-      for (const email of emails) {
+      for (let i = 0; i < emails.length; i++) {
+        const email = emails[i];
         const resolvedUnit = email.timing_type === 'custom' ? (email.custom_unit || 'hours') : null;
         const resolvedSendAt = (email.timing_type === 'custom' && resolvedUnit === 'specific_datetime' && email.custom_send_at)
           ? email.custom_send_at : null;
@@ -113,7 +114,7 @@ export default async function handler(req, res) {
 
           if (insertError) {
             console.error('[event-emails] Insert error:', insertError);
-            errors.push({ email_type: email.email_type, error: insertError.message });
+            errors.push({ email_type: email.email_type, error: insertError.message, request_index: i });
             continue;
           }
           savedEmails.push(inserted);
@@ -127,7 +128,7 @@ export default async function handler(req, res) {
 
           if (updateError) {
             console.error('[event-emails] Update error:', updateError);
-            errors.push({ email_type: email.email_type, error: updateError.message });
+            errors.push({ email_type: email.email_type, error: updateError.message, request_index: i });
             continue;
           }
           savedEmails.push(updated);
