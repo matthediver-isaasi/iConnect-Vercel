@@ -1,4 +1,8 @@
 import { supabase } from '../_lib/database.js';
+import {
+  scheduleReminderEmails,
+  scheduleComplexEventReminderEmails,
+} from '../_lib/scheduleReminders.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -137,20 +141,31 @@ export default async function handler(req, res) {
 
       if (errors.length > 0) {
         console.error('[event-emails] Failed to save some emails:', errors);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: `Failed to save ${errors.length} email configuration(s)`,
           details: errors,
-          savedEmails 
+          savedEmails
         });
       }
 
-      if (is_complex_event) {
-        await scheduleComplexEventReminderEmails(eventId);
-      } else {
-        await scheduleReminderEmails(eventId);
-      }
+      const schedulingResult = is_complex_event
+        ? await scheduleComplexEventReminderEmails(eventId)
+        : await scheduleReminderEmails(eventId);
 
-      return res.status(200).json(savedEmails);
+      // Response body now includes scheduling outcomes alongside the existing
+      // `savedEmails` field. Clients that only read `savedEmails` keep working
+      // (the previous 200 shape was a bare array; the legacy editor reader
+      // tolerates both via `Array.isArray(result) ? result : result.savedEmails`).
+      return res.status(200).json({
+        savedEmails,
+        errors: [],
+        requeued: schedulingResult.requeued || 0,
+        bookingsScheduled: schedulingResult.bookingsScheduled || 0,
+        bookingsConsidered: schedulingResult.bookingsConsidered || 0,
+        schedulingFailures: schedulingResult.schedulingFailures || [],
+        skipped: schedulingResult.skipped || [],
+        schedulerError: schedulingResult.error || null,
+      });
     } catch (err) {
       console.error('[event-emails] Error:', err);
       return res.status(500).json({ error: 'Internal server error' });
@@ -158,294 +173,4 @@ export default async function handler(req, res) {
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
-}
-
-async function scheduleReminderEmails(eventId) {
-  try {
-    const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('id, start_date, title')
-      .eq('id', eventId)
-      .single();
-
-    if (eventError || !event) {
-      console.log('[scheduleReminderEmails] No event found');
-      return;
-    }
-
-    const { data: reminderEmails, error: emailsError } = await supabase
-      .from('event_email')
-      .select('*')
-      .eq('event_id', eventId)
-      .eq('email_type', 'reminder')
-      .eq('is_enabled', true);
-
-    if (emailsError || !reminderEmails || reminderEmails.length === 0) {
-      console.log('[scheduleReminderEmails] No reminder emails configured');
-      return;
-    }
-
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('booking')
-      .select('id, attendee_email')
-      .eq('event_id', eventId)
-      .neq('status', 'cancelled');
-
-    if (bookingsError || !bookings || bookings.length === 0) {
-      console.log('[scheduleReminderEmails] No active bookings found');
-      return;
-    }
-
-    const eventStart = event.start_date ? new Date(event.start_date) : null;
-
-    for (const email of reminderEmails) {
-      const isAbsolute = isAbsoluteReminder(email);
-      if (!isAbsolute && !eventStart) {
-        console.log('[scheduleReminderEmails] Skipping relative reminder; event has no start_date');
-        continue;
-      }
-      const scheduledTime = calculateScheduledTime(eventStart, email);
-
-      if (!scheduledTime || scheduledTime <= new Date()) {
-        continue;
-      }
-
-      for (const booking of bookings) {
-        const { data: existing } = await supabase
-          .from('scheduled_email')
-          .select('id')
-          .eq('event_email_id', email.id)
-          .eq('booking_id', booking.id)
-          .single();
-
-        if (existing) {
-          await supabase
-            .from('scheduled_email')
-            .update({ 
-              scheduled_send_time: scheduledTime.toISOString(),
-              status: 'pending'
-            })
-            .eq('id', existing.id);
-        } else {
-          await supabase
-            .from('scheduled_email')
-            .insert({
-              event_email_id: email.id,
-              booking_id: booking.id,
-              attendee_email: booking.attendee_email,
-              scheduled_send_time: scheduledTime.toISOString(),
-              status: 'pending'
-            });
-        }
-      }
-    }
-
-    console.log(`[scheduleReminderEmails] Scheduled reminders for event ${eventId}`);
-  } catch (err) {
-    console.error('[scheduleReminderEmails] Error:', err);
-  }
-}
-
-async function scheduleComplexEventReminderEmails(eventId) {
-  try {
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('complex_event_session')
-      .select('id, title, start_time')
-      .eq('complex_event_id', eventId)
-      .order('start_time', { ascending: true });
-
-    if (sessionsError || !sessions || sessions.length === 0) {
-      console.log('[scheduleComplexEventReminderEmails] No sessions found for complex event');
-      return;
-    }
-
-    const sessionIds = sessions.map(s => s.id);
-    const { data: junctions } = await supabase
-      .from('complex_event_session_track')
-      .select('complex_event_session_id, complex_event_track_id')
-      .in('complex_event_session_id', sessionIds);
-
-    const sessionTrackMap = {};
-    for (const j of (junctions || [])) {
-      if (!sessionTrackMap[j.complex_event_session_id]) {
-        sessionTrackMap[j.complex_event_session_id] = [];
-      }
-      sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
-    }
-
-    const { data: reminderEmails, error: emailsError } = await supabase
-      .from('event_email')
-      .select('*')
-      .eq('event_id', eventId)
-      .eq('email_type', 'reminder')
-      .eq('is_enabled', true);
-
-    if (emailsError || !reminderEmails || reminderEmails.length === 0) {
-      console.log('[scheduleComplexEventReminderEmails] No reminder emails configured');
-      return;
-    }
-
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('booking')
-      .select('id, attendee_email, ticket_class_id')
-      .eq('event_id', eventId)
-      .neq('status', 'cancelled');
-
-    if (bookingsError || !bookings || bookings.length === 0) {
-      console.log('[scheduleComplexEventReminderEmails] No active bookings found');
-      return;
-    }
-
-    const { data: ticketClasses } = await supabase
-      .from('complex_event_ticket_class')
-      .select('id, linked_track_ids, all_tracks')
-      .eq('complex_event_id', eventId);
-
-    const ticketClassMap = {};
-    for (const tc of (ticketClasses || [])) {
-      ticketClassMap[tc.id] = tc;
-    }
-
-    for (const email of reminderEmails) {
-      if (isAbsoluteReminder(email)) {
-        const scheduledTime = calculateScheduledTime(null, email);
-        if (!scheduledTime || scheduledTime <= new Date()) {
-          continue;
-        }
-
-        for (const booking of bookings) {
-          const { data: existing } = await supabase
-            .from('scheduled_email')
-            .select('id')
-            .eq('event_email_id', email.id)
-            .eq('booking_id', booking.id)
-            .is('session_id', null)
-            .maybeSingle();
-
-          if (existing) {
-            await supabase
-              .from('scheduled_email')
-              .update({
-                scheduled_send_time: scheduledTime.toISOString(),
-                status: 'pending'
-              })
-              .eq('id', existing.id);
-          } else {
-            await supabase
-              .from('scheduled_email')
-              .insert({
-                event_email_id: email.id,
-                booking_id: booking.id,
-                attendee_email: booking.attendee_email,
-                scheduled_send_time: scheduledTime.toISOString(),
-                session_id: null,
-                status: 'pending'
-              });
-          }
-        }
-        continue;
-      }
-
-      for (const session of sessions) {
-        if (!session.start_time) continue;
-
-        const sessionStart = new Date(session.start_time);
-        const scheduledTime = calculateScheduledTime(sessionStart, email);
-
-        if (!scheduledTime || scheduledTime <= new Date()) {
-          continue;
-        }
-
-        const sessionTrackIds = sessionTrackMap[session.id] || [];
-
-        for (const booking of bookings) {
-          const tc = booking.ticket_class_id ? ticketClassMap[booking.ticket_class_id] : null;
-          if (tc && !tc.all_tracks && tc.linked_track_ids?.length > 0) {
-            const hasAccess = sessionTrackIds.length === 0 || 
-              sessionTrackIds.some(tid => tc.linked_track_ids.includes(tid));
-            if (!hasAccess) continue;
-          }
-
-          const { data: existing } = await supabase
-            .from('scheduled_email')
-            .select('id')
-            .eq('event_email_id', email.id)
-            .eq('booking_id', booking.id)
-            .eq('session_id', session.id)
-            .maybeSingle();
-
-          if (existing) {
-            await supabase
-              .from('scheduled_email')
-              .update({
-                scheduled_send_time: scheduledTime.toISOString(),
-                status: 'pending'
-              })
-              .eq('id', existing.id);
-          } else {
-            await supabase
-              .from('scheduled_email')
-              .insert({
-                event_email_id: email.id,
-                booking_id: booking.id,
-                attendee_email: booking.attendee_email,
-                scheduled_send_time: scheduledTime.toISOString(),
-                session_id: session.id,
-                status: 'pending'
-              });
-          }
-        }
-      }
-    }
-
-    console.log(`[scheduleComplexEventReminderEmails] Scheduled per-session reminders for complex event ${eventId}`);
-  } catch (err) {
-    console.error('[scheduleComplexEventReminderEmails] Error:', err);
-  }
-}
-
-function isAbsoluteReminder(email) {
-  return (
-    email &&
-    email.timing_type === 'custom' &&
-    email.custom_unit === 'specific_datetime' &&
-    !!email.custom_send_at
-  );
-}
-
-function calculateScheduledTime(eventStart, email) {
-  const { timing_type, custom_hours_before, custom_unit, custom_send_at } = email;
-
-  if (timing_type === 'custom' && custom_unit === 'specific_datetime') {
-    if (custom_send_at) {
-      return new Date(custom_send_at);
-    }
-    return null;
-  }
-
-  if (!eventStart) return null;
-  const hoursBeforeEvent = getHoursFromTimingType(timing_type, custom_hours_before, custom_unit);
-  return new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
-}
-
-function getHoursFromTimingType(timingType, customValue, customUnit) {
-  switch (timingType) {
-    case '7_days_before': return 7 * 24;
-    case '3_days_before': return 3 * 24;
-    case '1_day_before': return 24;
-    case '12_hours_before': return 12;
-    case '6_hours_before': return 6;
-    case '1_hour_before': return 1;
-    case '30_minutes_before': return 0.5;
-    case 'custom': {
-      const value = customValue || 24;
-      switch (customUnit) {
-        case 'days': return value * 24;
-        case 'minutes': return value / 60;
-        case 'hours':
-        default: return value;
-      }
-    }
-    default: return 24;
-  }
 }

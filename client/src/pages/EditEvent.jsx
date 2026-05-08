@@ -179,6 +179,7 @@ export default function EditEvent() {
   // Email configuration state
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
+  const [isRequeueingEmails, setIsRequeueingEmails] = useState(false);
   const [emailCodeViewMode, setEmailCodeViewMode] = useState({}); // Track code view mode per email
   const [emailSaveErrors, setEmailSaveErrors] = useState({}); // Per-email inline save errors keyed by email.id
 
@@ -711,6 +712,56 @@ export default function EditEvent() {
     return option ? option.label : timingType;
   };
 
+  const formatSchedulingFailures = (scheduling) => {
+    const parts = [];
+    const failures = scheduling.schedulingFailures || [];
+    if (failures.length > 0) {
+      const totalBookings = failures.reduce((s, f) => s + (f.failed_booking_count || 0), 0);
+      const reasons = Array.from(new Set(failures.map(f => f.reason).filter(Boolean))).slice(0, 2).join('; ');
+      parts.push(`${failures.length} reminder(s) could not be queued for ${totalBookings} booking(s)${reasons ? ` — ${reasons}` : ''}`);
+    }
+    if (scheduling.error) parts.push(`scheduler error: ${scheduling.error}`);
+    return parts.join(' · ') || 'reminders could not be queued';
+  };
+
+  const formatSkippedSummary = (skipped) => {
+    const counts = {};
+    for (const s of skipped) {
+      counts[s.reason] = (counts[s.reason] || 0) + 1;
+    }
+    return Object.entries(counts).map(([r, n]) => `${n} skipped: ${r}`).join(', ');
+  };
+
+  const requeueReminders = async () => {
+    setIsRequeueingEmails(true);
+    try {
+      const response = await fetch(`/api/event-emails/${eventId}/reschedule`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to re-queue reminders');
+      }
+      if (result.schedulingFailures?.length || result.error) {
+        toast.error(formatSchedulingFailures(result));
+      } else if ((result.requeued || 0) === 0 && result.skipped?.length > 0) {
+        toast.error(`No reminders queued — ${formatSkippedSummary(result.skipped)}`);
+      } else {
+        const skippedSuffix = result.skipped?.length
+          ? ` (${formatSkippedSummary(result.skipped)})`
+          : '';
+        toast.success(`Queued ${result.requeued} reminder(s) for ${result.bookingsScheduled} booking(s)${skippedSuffix}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['event-emails', eventId] });
+    } catch (err) {
+      console.error('Re-queue reminders error:', err);
+      toast.error(err.message || 'Failed to re-queue reminders');
+    } finally {
+      setIsRequeueingEmails(false);
+    }
+  };
+
   const saveEventEmails = async () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     for (const e of eventEmails) {
@@ -736,13 +787,26 @@ export default function EditEvent() {
       const result = await response.json();
 
       if (response.ok) {
-        if (Array.isArray(result) && result.length > 0) {
-          setEventEmails(result);
-        } else if (Array.isArray(result) && result.length === 0 && requestEmails.length > 0) {
+        const savedFromOk = Array.isArray(result)
+          ? result
+          : (Array.isArray(result?.savedEmails) ? result.savedEmails : []);
+        if (savedFromOk.length > 0) {
+          setEventEmails(savedFromOk);
+        } else if (savedFromOk.length === 0 && requestEmails.length > 0) {
           throw new Error('Server returned empty response — emails may not have been saved');
         }
         queryClient.invalidateQueries({ queryKey: ['event-emails', eventId] });
-        toast.success('Email configurations saved');
+        const scheduling = !Array.isArray(result) ? result : null;
+        const failures = scheduling?.schedulingFailures || [];
+        const skipped = scheduling?.skipped || [];
+        const schedulerError = scheduling?.schedulerError || scheduling?.error;
+        if (failures.length > 0 || schedulerError) {
+          toast.error(`Saved, but ${formatSchedulingFailures({ schedulingFailures: failures, error: schedulerError })}`);
+        } else if (skipped.length > 0) {
+          toast.success(`Email configurations saved (${formatSkippedSummary(skipped)})`);
+        } else {
+          toast.success('Email configurations saved');
+        }
         return;
       }
 
@@ -3918,8 +3982,24 @@ export default function EditEvent() {
                     </div>
                   ))}
                   
-                  {/* Save Emails Button */}
-                  <div className="flex justify-end pt-2">
+                  {/* Save / Re-queue Buttons */}
+                  <div className="flex flex-wrap justify-end gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={requeueReminders}
+                      disabled={isRequeueingEmails || isSavingEmails}
+                      data-testid="button-requeue-reminders"
+                    >
+                      {isRequeueingEmails ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Re-queueing...
+                        </>
+                      ) : (
+                        <>Re-queue reminders</>
+                      )}
+                    </Button>
                     <Button
                       type="button"
                       onClick={saveEventEmails}
