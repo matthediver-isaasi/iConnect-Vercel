@@ -40,7 +40,7 @@ function formatTransactionTypeLabel(type) {
 
 function formatSignedAmount(txn) {
   const amt = Math.abs(parseFloat(txn.amount || 0));
-  const sign = txn.type === 'add' ? '+' : '-';
+  const sign = txn.type === 'add' ? '' : '-';
   return `${sign}${amt.toFixed(2)}`;
 }
 
@@ -266,18 +266,19 @@ export default async function handler(req, res) {
       const eventDate = (t.type === 'booking_usage' && t.booking_id)
         ? formatDate(eventDateByBookingId[t.booking_id])
         : '';
-      return [
-        orgName,
-        formatDate(t.created_date),
-        formatTransactionTypeLabel(t.type),
-        formatBalance(t.balance_before),
+      const cells = [
+        escapeCSV(orgName),
+        escapeCSV(formatDate(t.created_date)),
+        escapeCSV(formatTransactionTypeLabel(t.type)),
+        escapeCSV(formatBalance(t.balance_before)),
         formatSignedAmount(t),
-        formatBalance(t.balance_after),
-        t.reason || '',
-        memberDisplayName(member),
-        internalRef,
-        eventDate
-      ].map(escapeCSV).join(',');
+        escapeCSV(formatBalance(t.balance_after)),
+        escapeCSV(t.reason || ''),
+        escapeCSV(memberDisplayName(member)),
+        escapeCSV(internalRef),
+        escapeCSV(eventDate)
+      ];
+      return cells.join(',');
     });
 
     const csv = [headerRow, ...dataRows].join('\n');
