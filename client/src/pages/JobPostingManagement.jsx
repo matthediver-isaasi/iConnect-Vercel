@@ -13,6 +13,7 @@ import { Search, CheckCircle, XCircle, Briefcase, MapPin, Building2, Clock, Glob
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import DOMPurify from 'dompurify';
@@ -166,10 +167,9 @@ export default function JobPostingManagementPage() {
 
   const isJobExpired = useCallback((job) => {
     if (!job.closing_date) return false;
-    const closing = new Date(job.closing_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return closing < today;
+    const closing = parseJobClosingDate(job.closing_date);
+    if (!closing) return false;
+    return closing < startOfLocalToday();
   }, []);
 
   const getStatusBadge = (status, job) => {
@@ -264,7 +264,9 @@ export default function JobPostingManagementPage() {
 
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
@@ -373,7 +375,8 @@ export default function JobPostingManagementPage() {
                 <div className="grid md:grid-cols-2 gap-6 mb-8">
                   {paginatedJobs.map((job) => {
                     const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-                    const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+                    const closingDateParsed = parseJobClosingDate(job.closing_date);
+                    const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
                     const hasAttachments = job.attachment_urls && job.attachment_urls.length > 0;
 
                     return (
@@ -472,7 +475,7 @@ export default function JobPostingManagementPage() {
                               <div className="flex items-center gap-2 text-sm">
                                 <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
                                 <span className={closingSoon ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                                  Closes {format(new Date(job.closing_date), 'MMM d, yyyy')}
+                                  Closes {format(closingDateParsed, 'MMM d, yyyy')}
                                 </span>
                               </div>
                             )}
@@ -644,7 +647,7 @@ export default function JobPostingManagementPage() {
                   {selectedJob.closing_date && (
                     <div>
                       <p className="text-sm text-slate-500">Closing Date</p>
-                      <p className="font-medium">{format(new Date(selectedJob.closing_date), 'MMM d, yyyy')}</p>
+                      <p className="font-medium">{format(parseJobClosingDate(selectedJob.closing_date), 'MMM d, yyyy')}</p>
                     </div>
                   )}
                   <div>

@@ -5,6 +5,7 @@ import { ArrowRight, MapPin, Building2, Clock, Briefcase, Calendar, Banknote } f
 import { Link } from "react-router-dom";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 
 export default function IEditFeaturedJobElement({ content, variant, settings }) {
@@ -128,9 +129,14 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         return job ? [job] : [];
       }
       
-      const now = new Date();
+      const today = startOfLocalToday();
       const activeJobs = allJobs
-        .filter(job => job.status === 'active' && (!job.closing_date || new Date(job.closing_date) > now))
+        .filter(job => {
+          if (job.status !== 'active') return false;
+          if (!job.closing_date) return true;
+          const closing = parseJobClosingDate(job.closing_date);
+          return closing && closing >= today;
+        })
         .sort((a, b) => {
           if (a.featured && !b.featured) return -1;
           if (!a.featured && b.featured) return 1;
@@ -150,7 +156,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   const formatClosingDate = (date) => {
     if (!date) return null;
     try {
-      return format(new Date(date), 'do MMMM yyyy');
+      const parsed = parseJobClosingDate(date);
+      return parsed ? format(parsed, 'do MMMM yyyy') : date;
     } catch {
       return date;
     }
@@ -158,7 +165,9 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
 
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const days = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const days = differenceInDays(parsed, startOfLocalToday());
     return days >= 0 && days <= 7;
   };
 

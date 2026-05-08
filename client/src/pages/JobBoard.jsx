@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Building2, Clock, Briefcase, Plus, Star, AlertCircle, ArrowUpDown } from "lucide-react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { Link } from "react-router-dom";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
@@ -41,11 +42,12 @@ export default function JobBoardPage() {
       } else {
         allJobs = await publicClient.listJobPostings();
       }
-      // Filter out expired jobs (based on closing_date)
-      const now = new Date();
+      // Filter out expired jobs (based on closing_date, treated as a local calendar date)
+      const today = startOfLocalToday();
       return (allJobs || []).filter(job => {
         if (!job.closing_date) return true; // Keep jobs without closing date
-        return new Date(job.closing_date) > now;
+        const closing = parseJobClosingDate(job.closing_date);
+        return closing && closing >= today;
       });
     },
     staleTime: 0,
@@ -128,18 +130,24 @@ export default function JobBoardPage() {
           return new Date(b.created_date) - new Date(a.created_date);
         case 'posted-oldest':
           return new Date(a.created_date) - new Date(b.created_date);
-        case 'closing-soonest':
+        case 'closing-soonest': {
           // Jobs without closing date go to the end
-          if (!a.closing_date && !b.closing_date) return 0;
-          if (!a.closing_date) return 1;
-          if (!b.closing_date) return -1;
-          return new Date(a.closing_date) - new Date(b.closing_date);
-        case 'closing-latest':
+          const ad = parseJobClosingDate(a.closing_date);
+          const bd = parseJobClosingDate(b.closing_date);
+          if (!ad && !bd) return 0;
+          if (!ad) return 1;
+          if (!bd) return -1;
+          return ad - bd;
+        }
+        case 'closing-latest': {
           // Jobs without closing date go to the end
-          if (!a.closing_date && !b.closing_date) return 0;
-          if (!a.closing_date) return 1;
-          if (!b.closing_date) return -1;
-          return new Date(b.closing_date) - new Date(a.closing_date);
+          const ad = parseJobClosingDate(a.closing_date);
+          const bd = parseJobClosingDate(b.closing_date);
+          if (!ad && !bd) return 0;
+          if (!ad) return 1;
+          if (!bd) return -1;
+          return bd - ad;
+        }
         default:
           return new Date(b.created_date) - new Date(a.created_date);
       }
@@ -151,7 +159,9 @@ export default function JobBoardPage() {
   // Helper to check if job is closing soon (within 7 days)
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
@@ -278,7 +288,8 @@ export default function JobBoardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {filteredJobs.map((job) => {
               const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-              const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+              const closingDateParsed = parseJobClosingDate(job.closing_date);
+              const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
 
               return (
                 <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)} className="min-w-0">
@@ -338,7 +349,7 @@ export default function JobBoardPage() {
                           <div className="flex items-center gap-2 text-sm">
                             <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
                             <span className={closingSoon ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                              Closes {format(new Date(job.closing_date), 'd MMM, yyyy')}
+                              Closes {format(closingDateParsed, 'd MMM, yyyy')}
                             </span>
                           </div>
                         )}

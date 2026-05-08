@@ -10,6 +10,7 @@ import { MapPin, Building2, Clock, Mail, ExternalLink, Briefcase, PoundSterling,
 import AGCASButton from "@/components/ui/AGCASButton";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import DOMPurify from 'dompurify';
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
@@ -92,8 +93,9 @@ export default function JobDetailsPage() {
   };
 
   // Check if closing soon (within 7 days)
-  const isClosingSoon = job.closing_date && differenceInDays(new Date(job.closing_date), new Date()) <= 7;
-  const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+  const closingDate = parseJobClosingDate(job.closing_date);
+  const isClosingSoon = closingDate && differenceInDays(closingDate, startOfLocalToday()) <= 7;
+  const daysUntilClosing = closingDate ? differenceInDays(closingDate, startOfLocalToday()) : null;
 
   // Share handlers
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -174,7 +176,7 @@ export default function JobDetailsPage() {
                       Applications closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                     </p>
                     <p className="text-sm text-amber-700 mt-1">
-                      Submit your application before {format(new Date(job.closing_date), 'd MMM, yyyy')}
+                      Submit your application before {format(closingDate, 'd MMM, yyyy')}
                     </p>
                   </div>
                 </div>
@@ -291,7 +293,7 @@ export default function JobDetailsPage() {
                             Application Deadline
                           </div>
                           <div className={`text-sm font-medium ${isClosingSoon ? 'text-amber-900' : 'text-slate-900'}`}>
-                            {format(new Date(job.closing_date), 'd MMM, yyyy')}
+                            {format(closingDate, 'd MMM, yyyy')}
                           </div>
                           {isClosingSoon && daysUntilClosing !== null && (
                             <div className="text-xs text-amber-700 mt-1">

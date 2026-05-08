@@ -13,6 +13,7 @@ import { Briefcase, MapPin, Building2, Clock, Star, AlertCircle, Pencil, FileTex
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
+import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MyJobPostingsPage() {
@@ -224,7 +225,9 @@ export default function MyJobPostingsPage() {
 
   const isClosingSoon = (closingDate) => {
     if (!closingDate) return false;
-    const daysUntilClosing = differenceInDays(new Date(closingDate), new Date());
+    const parsed = parseJobClosingDate(closingDate);
+    if (!parsed) return false;
+    const daysUntilClosing = differenceInDays(parsed, startOfLocalToday());
     return daysUntilClosing >= 0 && daysUntilClosing <= 7;
   };
 
@@ -393,7 +396,8 @@ export default function MyJobPostingsPage() {
           <div className="grid md:grid-cols-2 gap-6">
             {filteredJobs.map((job) => {
               const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
-              const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
+              const closingDateParsed = parseJobClosingDate(job.closing_date);
+              const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
               const hasAttachments = job.attachment_urls && job.attachment_urls.length > 0;
               
               // Allow editing if job is pending or active
@@ -458,7 +462,7 @@ export default function MyJobPostingsPage() {
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
                           <span className={closingSoon && job.status === 'active' ? 'font-semibold text-amber-700' : 'text-slate-600'}>
-                            Closes {format(new Date(job.closing_date), 'MMM d, yyyy')}
+                            Closes {format(closingDateParsed, 'MMM d, yyyy')}
                           </span>
                         </div>
                       )}
