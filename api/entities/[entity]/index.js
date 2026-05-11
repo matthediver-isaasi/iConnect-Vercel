@@ -63,12 +63,23 @@ async function sendFormSubmissionEmail(submissionData) {
       body = body.replace(placeholder, String(value || ''));
     }
 
-    // Also support simple {{field_id}} format for form values
-    subject = subject.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
-      return String(formValues[fieldId] || '');
+    // Also support simple {{field_id}} format for form values, BUT only
+    // consume tokens whose key actually exists in the submission's form
+    // values. Previously this stripped every unknown {{token}} to '',
+    // which destroyed system tokens like {{set_password_url}} and the
+    // {{member.*}} / {{organization.*}} tokens before any downstream
+    // resolver could see them. Unknown tokens are now preserved so the
+    // generic placeholder helper below (and any future system-token
+    // resolver) can attempt to fill them.
+    subject = subject.replace(/\{\{(\w+)\}\}/g, (match, fieldId) => {
+      return Object.prototype.hasOwnProperty.call(formValues, fieldId)
+        ? String(formValues[fieldId] || '')
+        : match;
     });
-    body = body.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
-      return String(formValues[fieldId] || '');
+    body = body.replace(/\{\{(\w+)\}\}/g, (match, fieldId) => {
+      return Object.prototype.hasOwnProperty.call(formValues, fieldId)
+        ? String(formValues[fieldId] || '')
+        : match;
     });
 
     // Resolve member + organization context for the submission so generic

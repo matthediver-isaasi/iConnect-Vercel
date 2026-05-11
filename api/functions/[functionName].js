@@ -4611,12 +4611,22 @@ const functionHandlers = {
     finalSubject = finalSubject.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
     finalSubject = finalSubject.replace(/\{\{organization_name\}\}/gi, organizationName);
 
+    // Underscore aliases (member_first_name, organization_name, ...) are
+    // included so prefix-less tokens like [[member_first_name]] continue to
+    // resolve via the helper's direct-lookup fallback path. The previous
+    // hand-rolled .replace ladder supported those aliases — preserving them
+    // here prevents a regression in existing user-edited invite templates.
     const inviterMemberContext = {
       id: inviter?.id || '',
       first_name: inviter?.first_name || '',
       last_name: inviter?.last_name || '',
       full_name: inviterFullName,
       email: inviterEmail,
+      member_id: inviter?.id || '',
+      member_first_name: inviter?.first_name || '',
+      member_last_name: inviter?.last_name || '',
+      member_full_name: inviterFullName,
+      member_email: inviterEmail,
       organization_id: organizationId || '',
       organization_name: organizationName,
       organization_invoicing_email: organizationInvoicingEmail,

@@ -85,9 +85,19 @@ export default async function handler(req, res) {
 
     const { data: agentMember } = await supabase
       .from('member')
-      .select('id, handle, first_name, last_name')
+      .select('id, handle, first_name, last_name, email, organization_id')
       .eq('id', agentMembership.member_id)
       .single();
+
+    let agentOrganization = null;
+    if (agentMember?.organization_id) {
+      const { data: orgRow } = await supabase
+        .from('organization')
+        .select('id, name, invoicing_email, phone')
+        .eq('id', agentMember.organization_id)
+        .maybeSingle();
+      agentOrganization = orgRow || null;
+    }
 
     const agentHandle = agentMember?.handle;
     if (!agentHandle) {
@@ -119,14 +129,27 @@ export default async function handler(req, res) {
       .replace(/\{\{booking_url\}\}/gi, bookingUrl)
       .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
 
-    // Run agent's member row through the generic placeholder helper so any
-    // [[member.*]] tokens (e.g. signature blocks the agent has set up that
-    // reference themselves) resolve in the template body and subject.
+    // Run agent's member + org row through the generic placeholder helper
+    // so any [[member.*]] / [[organization.*]] tokens (e.g. signature blocks
+    // the agent has set up referencing themselves or their org) resolve in
+    // the template body and subject. Underscore aliases (member_first_name,
+    // organization_name, etc.) are added explicitly so that prefix-less
+    // tokens like [[member_first_name]] also resolve via the helper's
+    // direct-lookup fallback path.
     const agentMemberContext = {
       id: agentMember?.id || '',
       first_name: agentMember?.first_name || '',
       last_name: agentMember?.last_name || '',
-      email: meetingRequest.agent?.email || '',
+      email: agentMember?.email || meetingRequest.agent?.email || '',
+      member_id: agentMember?.id || '',
+      member_first_name: agentMember?.first_name || '',
+      member_last_name: agentMember?.last_name || '',
+      member_full_name: `${agentMember?.first_name || ''} ${agentMember?.last_name || ''}`.trim(),
+      member_email: agentMember?.email || meetingRequest.agent?.email || '',
+      organization_id: agentOrganization?.id || '',
+      organization_name: agentOrganization?.name || '',
+      organization_invoicing_email: agentOrganization?.invoicing_email || '',
+      organization_phone: agentOrganization?.phone || '',
     };
     subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
     body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });

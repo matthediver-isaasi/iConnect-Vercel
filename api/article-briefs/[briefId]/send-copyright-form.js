@@ -57,6 +57,7 @@ export default async function handler(req, res) {
     let writerEmail = null;
     let writerFirstName = null;
     let writerLastName = null;
+    let writerOrganizationId = null;
 
     if (brief.external_writer_id) {
       const { data: ext } = await supabase
@@ -73,7 +74,7 @@ export default async function handler(req, res) {
     } else if (brief.assigned_writer_id) {
       const { data: mem } = await supabase
         .from('member')
-        .select('first_name, last_name, email')
+        .select('first_name, last_name, email, organization_id')
         .eq('id', brief.assigned_writer_id)
         .eq('tenant_id', tenantCtx.tenantId)
         .single();
@@ -81,6 +82,7 @@ export default async function handler(req, res) {
         writerEmail = mem.email || null;
         writerFirstName = mem.first_name || null;
         writerLastName = mem.last_name || null;
+        writerOrganizationId = mem.organization_id || null;
       }
     } else {
       return res.status(400).json({ error: 'No writer is assigned to this brief' });
@@ -176,15 +178,34 @@ export default async function handler(req, res) {
     // When the writer is an internal member, also run the template through
     // the generic [[member.*]] / [[organization.*]] resolver so those tokens
     // do not leak as literals. External-writer path skips this — there is no
-    // member context to resolve.
+    // member context to resolve. The writer's organization is fetched (if
+    // any) so [[organization.name]] etc. also fill in.
+    let writerOrganization = null;
+    if (template && brief.assigned_writer_id && !brief.external_writer_id && writerOrganizationId) {
+      const { data: orgRow } = await supabase
+        .from('organization')
+        .select('id, name, invoicing_email, phone')
+        .eq('id', writerOrganizationId)
+        .maybeSingle();
+      writerOrganization = orgRow || null;
+    }
+    const writerMemberContext = {
+      id: brief.assigned_writer_id || '',
+      first_name: writerFirstName || '',
+      last_name: writerLastName || '',
+      email: writerEmail || '',
+      member_id: brief.assigned_writer_id || '',
+      member_first_name: writerFirstName || '',
+      member_last_name: writerLastName || '',
+      member_full_name: `${writerFirstName || ''} ${writerLastName || ''}`.trim(),
+      member_email: writerEmail || '',
+      organization_id: writerOrganization?.id || '',
+      organization_name: writerOrganization?.name || '',
+      organization_invoicing_email: writerOrganization?.invoicing_email || '',
+      organization_phone: writerOrganization?.phone || '',
+    };
     if (template && brief.assigned_writer_id && !brief.external_writer_id) {
-      const memberRow = {
-        id: brief.assigned_writer_id,
-        first_name: writerFirstName || '',
-        last_name: writerLastName || '',
-        email: writerEmail || '',
-      };
-      templateBodyRendered = replacePlaceholders(templateBodyRendered, 'member', memberRow, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+      templateBodyRendered = replacePlaceholders(templateBodyRendered, 'member', writerMemberContext, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
     }
 
     const bodyHtml = template
@@ -203,12 +224,7 @@ export default async function handler(req, res) {
       : `Copyright Assignment Form: ${brief.title || 'Article Brief'}`;
 
     if (template && brief.assigned_writer_id && !brief.external_writer_id) {
-      subject = replacePlaceholders(subject, 'member', {
-        id: brief.assigned_writer_id,
-        first_name: writerFirstName || '',
-        last_name: writerLastName || '',
-        email: writerEmail || '',
-      }, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+      subject = replacePlaceholders(subject, 'member', writerMemberContext, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
     }
 
     const emailResult = await sendEmail({

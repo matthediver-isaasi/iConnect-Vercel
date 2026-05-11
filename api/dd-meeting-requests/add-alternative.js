@@ -174,16 +174,37 @@ export default async function handler(req, res) {
           .replace(/\{\{booking_url\}\}/gi, finalBookingUrl)
           .replace(/\{\{booking_link\}\}/gi, `<a href="${finalBookingUrl}">Book a meeting</a>`);
 
-        // Run agent's identity through the generic placeholder helper so any
-        // [[member.*]] tokens (e.g. agent signature blocks) resolve too.
+        // Resolve agent's organization (if any) so [[organization.*]] tokens
+        // also fill in. Then run subject + body through the generic helper
+        // with both member and organization fields available, plus the
+        // underscore aliases (member_first_name, organization_name, ...) so
+        // prefix-less tokens hit the helper's direct-lookup fallback path.
+        let agentOrganization = null;
+        if (agent?.organization_id) {
+          const { data: orgRow } = await supabase
+            .from('organization')
+            .select('id, name, invoicing_email, phone')
+            .eq('id', agent.organization_id)
+            .maybeSingle();
+          agentOrganization = orgRow || null;
+        }
         const agentMemberContext = {
           id: agent?.id || '',
           first_name: agent?.first_name || '',
           last_name: agent?.last_name || '',
           email: agent?.email || '',
+          member_id: agent?.id || '',
+          member_first_name: agent?.first_name || '',
+          member_last_name: agent?.last_name || '',
+          member_full_name: `${agent?.first_name || ''} ${agent?.last_name || ''}`.trim(),
+          member_email: agent?.email || '',
+          organization_id: agentOrganization?.id || '',
+          organization_name: agentOrganization?.name || '',
+          organization_invoicing_email: agentOrganization?.invoicing_email || '',
+          organization_phone: agentOrganization?.phone || '',
         };
-        subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId });
-        body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId });
+        subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agent?.id || null });
+        body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agent?.id || null });
 
         try {
           await sendEmail({

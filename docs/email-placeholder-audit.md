@@ -34,7 +34,7 @@ DD-owner helper (small, focused):
 | Sender | File | Coverage | Notes |
 |---|---|---|---|
 | Form submission emails (page-builder forms) | `api/forms/send-submission-email.js` | ✅ | Comprehensive bespoke `replacePlaceholders` covers form fields + member.* + organization.* + `{{set_password_url}}` |
-| Generic entity form auto-reply | `api/entities/[entity]/index.js` `sendFormSubmissionEmail` | ✅ (was ❌) | **FIXED** — now resolves member/org from the submission and calls generic helper |
+| Generic entity form auto-reply | `api/entities/[entity]/index.js` `sendFormSubmissionEmail` | ✅ (was ❌) | **FIXED** — resolves member/org from the submission and calls generic helper. Pre-pass form-field substitution now ONLY consumes `{{token}}` matches whose key exists in `formValues` so unknown system tokens (e.g. `{{member.first_name}}`, `{{set_password_url}}`) survive to downstream resolvers instead of being silently blanked. (`{{set_password_url}}` itself remains the responsibility of `api/forms/send-submission-email.js`, which is the only sender that mints the crypto-signed reset URL — see §5.) |
 | Workflow engine emails | `api/_lib/workflows.js` `sendEmailAction` | ✅ | Delegates to generic helper after building entity context; covers DD owner |
 | Workflow engine (TS path) | `server/workflowEngine.ts` | ⚠️ | Uses minimal local replace ladder — flagged for follow-up (out of scope here) |
 | Event confirmation | `api/_lib/eventConfirmationEmail.js` | ✅ | Event-specific helper covers all `{{event.*}}` + member.* via dedicated function |
@@ -45,11 +45,11 @@ DD-owner helper (small, focused):
 | Contract timeout notifications cron | `api/cron/send-contract-timeout-notifications.js` | ✅ | Same pattern |
 | Due-diligence test fires | `api/due-diligence/test-fire-{reminder,timeout}.js` | ✅ | Replaces all DD reminder/timeout tokens |
 | Campaigns (manual + scheduled + batched cron) | `api/_lib/campaignService.js` `sendToRecipient` | ✅ (was ⚠️) | **FIXED** — added generic helper pass so `[[member.first_name]]`, `[[member.email]]`, etc. all resolve from the recipient row |
-| DD meeting request — resend | `api/dd-meeting-requests/resend.js` | ✅ (was ⚠️) | **FIXED** — generic helper pass covers `[[member.*]]` in agent's email template |
-| DD meeting request — add alternative | `api/dd-meeting-requests/add-alternative.js` | ✅ (was ⚠️) | **FIXED** — generic helper pass; agent identity is taken from the already-resolved `agent` row used to build `agentName` (sourced via the `tenant_identity`/agent join earlier in the handler) |
-| Article brief — send copyright form | `api/article-briefs/[briefId]/send-copyright-form.js` | ✅ (was ⚠️) | **FIXED** — generic helper pass for `[[member.*]]`/`[[organization.*]]` when writer is internal |
-| Article brief — send case study form | `api/article-briefs/[briefId]/send-case-study-form.js` | ✅ (was ⚠️) | **FIXED** — generic helper pass (no member context — provider is external — but tenant context preferences link still resolves) |
-| Team member invite | `api/functions/[functionName].js` `sendTeamMemberInvite` | ✅ (was ⚠️) | **FIXED** — kept hand-rolled bespoke tokens (`{{invite_link}}`, `{{inviter_name}}`, `{{organization_name}}`) but replaced the `[[member.*]]` ladder with one generic helper call so every member token is covered |
+| DD meeting request — resend | `api/dd-meeting-requests/resend.js` | ✅ (was ⚠️) | **FIXED** — generic helper pass covers `[[member.*]]` AND `[[organization.*]]` for the agent (member row extended to fetch `email` + `organization_id`; org row fetched and added to context, including underscore aliases) |
+| DD meeting request — add alternative | `api/dd-meeting-requests/add-alternative.js` | ✅ (was ⚠️) | **FIXED** — same pattern as resend; agent's organization is fetched and merged into the placeholder context so `[[organization.*]]` resolves |
+| Article brief — send copyright form | `api/article-briefs/[briefId]/send-copyright-form.js` | ✅ (was ⚠️) | **FIXED** — internal-writer query extended to include `organization_id`; org row fetched; generic helper pass now resolves `[[member.*]]` AND `[[organization.*]]` (external-writer path skipped, no member context exists) |
+| Article brief — send case study form | `api/article-briefs/[briefId]/send-case-study-form.js` | ✅ (was ⚠️) | **FIXED** — generic helper called with empty record entity; explicit regex strip removes any leftover `[[member.*]]` / `[[organization.*]]` so external-provider emails never leak literal placeholders |
+| Team member invite | `api/functions/[functionName].js` `sendTeamMemberInvite` | ✅ (was ⚠️) | **FIXED** — kept bespoke tokens (`{{invite_link}}`, `{{inviter_name}}`, `{{organization_name}}`); generic helper pass now covers every member.* / organization.* token (with `member_*` / `organization_*` underscore aliases preserved to prevent regression in existing user templates) |
 | Booking cancellation request emails | `api/booking-cancellation-requests/*`, `api/_lib/bookingCancellation.js` | ❌ | Hardcoded HTML — no template editor, so no placeholders to substitute. Out of scope. |
 | Booking transfer request | `api/booking-transfer-requests/[requestId].js` | ❌ | Hardcoded HTML — same |
 | Fundraising / public book confirmations | `api/fundraising/*`, `api/public-book/*` | ❌ | Hardcoded HTML — no editor, no placeholders. Out of scope. |
@@ -103,22 +103,37 @@ the matrix against the catalog source.)
 2. **`api/entities/[entity]/index.js` `sendFormSubmissionEmail`** — now
    loads the submission's `member_id`/`organization_id`, fetches the
    relevant rows, and runs subject + body through the generic helper as a
-   `record` entity. Form-field tokens still substitute first; the helper
-   then fills `[[member.*]]` / `[[organization.*]]` so generic auto-reply
-   templates work.
+   `record` entity. Additionally, the pre-pass that handles raw
+   `{{field_id}}` form-field tokens now skips any token whose key is not
+   present in `formValues` — previously every unknown `{{token}}` was
+   silently stripped to '', which would have prevented the generic helper
+   below from ever seeing tokens like `{{member.first_name}}`. Form-field
+   tokens still substitute first; the generic helper then fills
+   `[[member.*]]` / `[[organization.*]]` so generic auto-reply templates
+   work. (`{{set_password_url}}` is intentionally not duplicated here —
+   it requires the crypto-signed reset URL minted by
+   `api/forms/send-submission-email.js`. The pre-pass change at least
+   keeps the literal token visible if a tenant pastes the wrong template
+   into the wrong sender, instead of silently swallowing it.)
 
 3. **`api/dd-meeting-requests/resend.js` and `add-alternative.js`** — keep
    the bespoke `{{recipient_name}}` / `{{agent_name}}` / `{{booking_*}}`
-   ladder, then run the agent's member row (resolved via
-   `tenant_membership` → `member`) through the generic helper as a
-   `member` entity so `[[member.*]]` tokens (e.g. an agent's signature
-   block referencing themselves) resolve.
+   ladder, then resolve the agent's member row (extended to include
+   `email` + `organization_id`) and the agent's organization row, and
+   run subject + body through the generic helper as a `member` entity
+   with both member and organization fields available (plus underscore
+   aliases like `member_first_name`, `organization_name`, ...). This
+   covers every catalog `[[member.*]]` / `[[organization.*]]` token an
+   agent might paste into their meeting-request template — including
+   prefix-less aliases like `[[member_first_name]]`.
 
 4. **`api/article-briefs/[briefId]/send-copyright-form.js`** — when the
-   writer is an internal `member` (not an `external_writer`), pass the
-   loaded member row through the generic helper as a `member` entity
-   after the bespoke `{{writer.*}}` substitutions. External-writer path
-   skips the generic call (no `[[member.*]]` data exists for that case).
+   writer is an internal `member` (not an `external_writer`), the writer
+   query is extended to fetch `organization_id`; the org row is fetched
+   if present; both are merged into a member-entity context (with
+   underscore aliases) and passed through the generic helper after the
+   bespoke `{{writer.*}}` substitutions. External-writer path skips the
+   generic call (no `[[member.*]]` data exists for that case).
 
 5. **`api/article-briefs/[briefId]/send-case-study-form.js`** — providers
    are always external (no member row). The generic helper is called with
@@ -132,9 +147,13 @@ the matrix against the catalog source.)
    bespoke `{{invite_link}}` / `{{inviter_name}}` / `{{organization_name}}`
    substitutions verbatim, then **deleted** the long hand-rolled
    `[[member.*]]` / `[[organization.*]]` `.replace` ladder and replaced it
-   with one `replacePlaceholders(text, 'member', { …inviter, organization_name })`
-   call so every member/org token in the catalog stays in sync without
-   needing per-token maintenance.
+   with one `replacePlaceholders(text, 'member', { …inviter, organization fields })`
+   call so every member/org token in the catalog stays in sync. The
+   organization fetch was extended to also load `invoicing_email` and
+   `phone` so those `[[organization.*]]` tokens resolve, and underscore
+   aliases (`member_first_name`, `member_full_name`, `organization_name`,
+   …) are added to the context to preserve compatibility with existing
+   user templates that use the prefix-less form like `[[member_first_name]]`.
 
 ---
 
