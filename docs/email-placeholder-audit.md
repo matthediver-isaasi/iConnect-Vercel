@@ -391,3 +391,31 @@ either the generic `replacePlaceholders` helper or a bespoke helper
 that documents its own catalog. Senders marked ❌ (`hardcoded HTML, no
 template editor`) are intentionally excluded from this task's scope —
 there is no template surface for tenants to add tokens to.
+
+### Caveats on "✅" coverage
+
+The ✅ marks above mean "the sender invokes a placeholder-resolution
+helper for tokens in its scope". They do **not** guarantee that every
+token defined in `client/src/lib/emailPlaceholders.js` will resolve
+in every sender — resolution is always context-dependent:
+
+- **Campaign recipients** carry only `member_id`, `email`, `first_name`,
+  `last_name` from `email_campaign_recipient`. We synthesise
+  `full_name` from first/last but per-recipient organization fields
+  (`[[organization.invoicing_email]]`, `[[organization.phone]]`) are
+  NOT joined and will resolve to ''. Adding the join is a documented
+  follow-up.
+- **DD meeting** templates resolve `[[member.*]]` / `[[organization.*]]`
+  against the **agent's** member + org row, not the requester's, by
+  design (the email is sent to the requester about the agent).
+- **Article brief** copyright/case-study external-writer paths have
+  no member context; `[[member.*]]` / `{{member.*}}` /
+  `[[organization.*]]` / `{{organization.*}}` are explicitly stripped
+  rather than left literal.
+- **Generic entity auto-reply** only resolves `set_password_url` when
+  `VITE_APP_URL` (or `APP_URL`) is configured AND the submission has a
+  resolvable `created_member_id` / `member_id`.
+
+If a token from §7 needs to resolve in a sender where it currently
+collapses to '', the fix is almost always "add the data lookup", not
+"change the helper".

@@ -206,6 +206,14 @@ export default async function handler(req, res) {
     };
     if (template && brief.assigned_writer_id && !brief.external_writer_id) {
       templateBodyRendered = replacePlaceholders(templateBodyRendered, 'member', writerMemberContext, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+    } else if (template) {
+      // External-writer path has no member/org context — strip any remaining
+      // [[member.*]] / {{member.*}} / [[organization.*]] / {{organization.*}}
+      // tokens so they collapse to '' instead of leaking as literals.
+      // Mirrors the policy applied in send-case-study-form.js.
+      templateBodyRendered = templateBodyRendered
+        .replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '')
+        .replace(/\{\{(?:member|organization)\.\w+\}\}/gi, '');
     }
 
     const bodyHtml = template
@@ -225,6 +233,10 @@ export default async function handler(req, res) {
 
     if (template && brief.assigned_writer_id && !brief.external_writer_id) {
       subject = replacePlaceholders(subject, 'member', writerMemberContext, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+    } else if (template) {
+      subject = subject
+        .replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '')
+        .replace(/\{\{(?:member|organization)\.\w+\}\}/gi, '');
     }
 
     const emailResult = await sendEmail({

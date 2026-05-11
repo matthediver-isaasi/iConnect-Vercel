@@ -2135,6 +2135,7 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       id: recipient.member_id || '',
       first_name: recipient.first_name || '',
       last_name: recipient.last_name || '',
+      full_name: `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim(),
       email: recipient.email || '',
     };
     const placeholderContext = {
