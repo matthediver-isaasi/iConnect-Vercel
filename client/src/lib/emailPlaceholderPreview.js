@@ -406,6 +406,19 @@ function buildResolverMap(s) {
     facebook_url: text(social.facebook_url),
     instagram_url: text(social.instagram_url),
     youtube_url: text(social.youtube_url),
+
+    // Article Briefs
+    'brief.title': text(s.brief?.title),
+    'writer.first_name': text(s.writer?.first_name),
+    'writer.last_name': text(s.writer?.last_name),
+    'writer.full_name': text(s.writer?.full_name),
+    'writer.email': text(s.writer?.email),
+    'provider.first_name': text(s.provider?.first_name),
+    'provider.last_name': text(s.provider?.last_name),
+    'provider.full_name': text(s.provider?.full_name),
+    'provider.email': text(s.provider?.email),
+    form_url: text(s.form_url),
+    upload_url: text(s.upload_url),
   };
 }
 

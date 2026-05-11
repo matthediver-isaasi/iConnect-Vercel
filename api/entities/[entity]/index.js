@@ -147,11 +147,7 @@ async function sendFormSubmissionEmail(submissionData) {
     subject = replacePlaceholders(subject, 'record', recordContext, placeholderContext);
     body = replacePlaceholders(body, 'record', recordContext, placeholderContext);
 
-    // Resolve {{set_password_url}} / [[set_password_url]] for the member
-    // resolved above. Mint ONE token per email and reuse the same URL across
-    // both subject and body — calling the generator twice would store only
-    // the latest reset_token in member_credentials, silently invalidating
-    // any URL that was already substituted into the other field.
+    // Mint set_password_url once and reuse for both subject + body.
     if (hasSetPasswordToken(subject, body) && memberRow?.id && memberRow?.email) {
       const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
       if (baseUrl) {

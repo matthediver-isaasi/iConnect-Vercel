@@ -2124,15 +2124,9 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
     html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
 
-    // Now run the recipient row through the generic placeholder helper so
-    // [[member.first_name]], [[member.last_name]], [[member.email]] and the
-    // {{member.*}} variants resolve in any campaign template without each
-    // sender having to maintain its own .replace ladder. We also enrich the
-    // recipient with their organization row (single embed query) so that
-    // [[organization.name]], [[organization.id]], [[organization.phone]]
-    // and [[organization.invoicing_email]] resolve too. Bulk campaigns
-    // intentionally do NOT mint per-recipient {{set_password_url}} tokens
-    // (see docs/email-placeholder-audit.md §"Caveats").
+    // Resolve [[member.*]] / [[organization.*]] tokens for this recipient.
+    // {{set_password_url}} is intentionally not minted in bulk campaigns
+    // (see docs/email-placeholder-audit.md caveats).
     let recipientOrg = null;
     if (recipient.member_id) {
       try {

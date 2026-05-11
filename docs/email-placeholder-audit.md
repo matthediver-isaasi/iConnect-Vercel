@@ -413,18 +413,16 @@ helper for tokens in its scope". They do **not** guarantee that every
 token defined in `client/src/lib/emailPlaceholders.js` will resolve
 in every sender — resolution is always context-dependent:
 
-- **Campaign recipients** carry only `member_id`, `email`, `first_name`,
+- **Campaign recipients** carry `member_id`, `email`, `first_name`,
   `last_name` from `email_campaign_recipient`. We synthesise
-  `full_name` from first/last but per-recipient organization fields
-  (`[[organization.invoicing_email]]`, `[[organization.phone]]`,
-  `[[organization.name]]`, `[[organization.id]]`) are NOT joined and
-  will resolve to ''. `{{set_password_url}}` is also NOT supported in
-  campaigns by design — campaigns are bulk-send and minting per-
-  recipient password-setup tokens for an unbounded list is out of
-  scope. Custom-field tokens (`{{record.<field>}}` etc.) are likewise
-  not supported in campaigns: campaigns target members, not form
-  submissions. Adding the org-join enrichment is a documented
-  follow-up; the other two are intentional non-goals for this sender.
+  `full_name` from first/last and, per-recipient, look up the member's
+  organization row (`organization.id|name|phone|invoicing_email`) via
+  a single Supabase embed so `[[organization.*]]` tokens resolve.
+  `{{set_password_url}}` is NOT supported in campaigns by design —
+  campaigns are bulk-send and minting per-recipient password-setup
+  tokens for an unbounded list is out of scope. Custom-field tokens
+  (`{{record.<field>}}` etc.) are likewise not supported in campaigns:
+  campaigns target members, not form submissions.
 - **DD meeting** templates resolve `[[member.*]]` / `[[organization.*]]`
   against the **agent's** member + org row, not the requester's, by
   design (the email is sent to the requester about the agent).
