@@ -1,95 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../_lib/emailService.js';
 import { fetchXeroInvoicePdf } from '../_lib/xero.js';
-import crypto from 'crypto';
+import { generatePasswordSetupUrl } from '../_lib/passwordSetupUrl.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-const supabase = supabaseUrl && supabaseServiceKey 
+const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
-// Generate a password setup URL for new members (7 day validity)
-async function generatePasswordSetupUrl(memberId, memberEmail, baseUrl) {
-  if (!supabase || !memberId || !memberEmail) return null;
-  
-  try {
-    const email = memberEmail.toLowerCase();
-    const resetToken = crypto.randomUUID();
-    const resetTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    
-    // Check if credentials record exists for this member_id
-    const { data: existingCredsByMember } = await supabase
-      .from('member_credentials')
-      .select('id, email')
-      .eq('member_id', memberId)
-      .single();
-    
-    // Also check if credentials exist for this email (potentially different member)
-    const { data: existingCredsByEmail } = await supabase
-      .from('member_credentials')
-      .select('id, member_id')
-      .eq('email', email)
-      .single();
-    
-    if (existingCredsByMember) {
-      // Update existing record for this member
-      console.log(`[FormSubmissionEmail] Updating existing credentials for member_id ${memberId}`);
-      const { error: updateError } = await supabase
-        .from('member_credentials')
-        .update({
-          email: email,
-          reset_token: resetToken,
-          reset_token_expires: resetTokenExpires.toISOString()
-        })
-        .eq('member_id', memberId);
-      
-      if (updateError) {
-        console.error('[FormSubmissionEmail] Error updating reset token:', updateError);
-        return null;
-      }
-    } else if (existingCredsByEmail) {
-      // Credentials exist with this email but different member_id
-      console.log(`[FormSubmissionEmail] Found credentials by email, updating member_id`);
-      const { error: updateError } = await supabase
-        .from('member_credentials')
-        .update({
-          member_id: memberId,
-          reset_token: resetToken,
-          reset_token_expires: resetTokenExpires.toISOString()
-        })
-        .eq('email', email);
-      
-      if (updateError) {
-        console.error('[FormSubmissionEmail] Error updating credentials by email:', updateError);
-        return null;
-      }
-    } else {
-      // No existing credentials - create new record
-      console.log(`[FormSubmissionEmail] Creating new credentials for member ${memberId}`);
-      const { error: insertError } = await supabase
-        .from('member_credentials')
-        .insert({
-          member_id: memberId,
-          email: email,
-          reset_token: resetToken,
-          reset_token_expires: resetTokenExpires.toISOString()
-        });
-      
-      if (insertError) {
-        console.error('[FormSubmissionEmail] Error inserting credentials with reset token:', insertError);
-        return null;
-      }
-    }
-    
-    console.log(`[FormSubmissionEmail] Generated password setup token for member ${memberId} (${email})`);
-    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
-  } catch (error) {
-    console.error('[FormSubmissionEmail] Error generating password setup URL:', error);
-    return null;
-  }
-}
+// Password setup URL generation lives in api/_lib/passwordSetupUrl.js so the
+// generic-entity auto-reply path (api/entities/[entity]/index.js) can mint
+// the same crypto-signed reset link as this sender. Both helpers operate on
+// the same `member_credentials` table via the shared supabase client.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
