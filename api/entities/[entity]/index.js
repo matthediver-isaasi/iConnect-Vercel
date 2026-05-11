@@ -1,4 +1,5 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
+import { applySetPasswordUrl } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
@@ -135,6 +136,19 @@ async function sendFormSubmissionEmail(submissionData) {
     };
     subject = replacePlaceholders(subject, 'record', recordContext, placeholderContext);
     body = replacePlaceholders(body, 'record', recordContext, placeholderContext);
+
+    // Resolve {{set_password_url}} / [[set_password_url]] for the member
+    // resolved above. Mirrors the behaviour of api/forms/send-submission-email.js
+    // so generic-entity auto-reply templates that include this token actually
+    // mint a password-setup link instead of leaking the literal placeholder.
+    if (memberRow?.id && memberRow?.email) {
+      const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
+      if (baseUrl) {
+        body = await applySetPasswordUrl(body, memberRow, baseUrl);
+      } else {
+        console.warn('[FormSubmission] {{set_password_url}} present but no APP_URL/VITE_APP_URL configured');
+      }
+    }
 
     // Send the email with tenant context for proper email domain
     const result = await sendEmail({

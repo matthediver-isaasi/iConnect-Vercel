@@ -34,7 +34,7 @@ DD-owner helper (small, focused):
 | Sender | File | Coverage | Notes |
 |---|---|---|---|
 | Form submission emails (page-builder forms) | `api/forms/send-submission-email.js` | ✅ | Comprehensive bespoke `replacePlaceholders` covers form fields + member.* + organization.* + `{{set_password_url}}` |
-| Generic entity form auto-reply | `api/entities/[entity]/index.js` `sendFormSubmissionEmail` | ✅ (was ❌) | **FIXED** — resolves member/org from the submission and calls generic helper. Pre-pass form-field substitution now ONLY consumes `{{token}}` matches whose key exists in `formValues` so unknown system tokens (e.g. `{{member.first_name}}`, `{{set_password_url}}`) survive to downstream resolvers instead of being silently blanked. (`{{set_password_url}}` itself remains the responsibility of `api/forms/send-submission-email.js`, which is the only sender that mints the crypto-signed reset URL — see §5.) |
+| Generic entity form auto-reply | `api/entities/[entity]/index.js` `sendFormSubmissionEmail` | ✅ (was ❌) | **FIXED** — resolves member/org from the submission and calls generic helper. Pre-pass form-field substitution now ONLY consumes `{{token}}` matches whose key exists in `formValues` so unknown system tokens (e.g. `{{member.first_name}}`, `{{set_password_url}}`) survive to downstream resolvers instead of being silently blanked. After the generic helper pass, `{{set_password_url}}` / `[[set_password_url]]` are now also resolved via the shared `api/_lib/passwordSetupUrl.js` helper (extracted from `api/forms/send-submission-email.js`) so generic-entity templates that use this token actually mint a password-setup link. |
 | Workflow engine emails | `api/_lib/workflows.js` `sendEmailAction` | ✅ | Delegates to generic helper after building entity context; covers DD owner |
 | Workflow engine (TS path) | `server/workflowEngine.ts` | ⚠️ | Uses minimal local replace ladder — flagged for follow-up (out of scope here) |
 | Event confirmation | `api/_lib/eventConfirmationEmail.js` | ✅ | Event-specific helper covers all `{{event.*}}` + member.* via dedicated function |
@@ -184,3 +184,164 @@ For each fix, the operator should:
 | 8 | DD-owner workflow email (regression) | `{{dd_owner}}` and `[[dd_owner]]` still resolve via `applyDdOwnerPlaceholders` |
 | 9 | Contract reminders cron (regression) | `[[organization.name]]`, `{{signer_name}}`, `{{sign_url}}`, `{{dd_owner}}` all still resolve |
 | 10 | Event confirmation email (regression) | `{{event.title}}`, `{{event.start_date}}`, `{{member.first_name}}` all still resolve |
+
+---
+
+## 7. Full token inventory (extracted from `client/src/lib/emailPlaceholders.js`)
+
+This section is auto-extracted from the canonical catalog
+(`EMAIL_PLACEHOLDERS`). It groups every documented token by category so the
+sender×helper matrix in §3 can be cross-checked against the source-of-truth
+list. If a token is missing from the catalog but referenced in a sender, it
+should be added there (no edits to `emailPlaceholders.js` were required for
+this audit — every token below is already enumerated).
+
+
+### Contracts (15 tokens)
+- `[[contract.name]]` — Name of the contract / form being signed.
+- `{{contract_name}}` — Contract name (curly alias).
+- `[[signer.name]]` — Full name of the contract signer.
+- `[[signer.first_name]]` — First name of the contract signer.
+- `[[signer.last_name]]` — Last name of the contract signer.
+- `[[signer.email]]` — Email of the contract signer.
+- `{{signer_name}}` — Full signer name (curly alias).
+- `{{signer_first_name}}` — Signer first name (curly alias).
+- `{{signer_last_name}}` — Signer last name (curly alias).
+- `{{signer_email}}` — Signer email (curly alias).
+- `{{sign_url}}` — Direct URL to the contract signing page for the recipient.
+- `{{signing_url}}` — Alias of {{sign_url}}.
+- `{{days_remaining}}` — Days remaining until the contract expiry deadline.
+- `{{days_since_sent}}` — Days since the contract invitation was sent.
+- `[[applicant.name]]` — Applicant full name in contract timeout notifications.
+
+### Due Diligence (24 tokens)
+- `{{due_diligence_status}}` — Current DD workflow status (e.g. submitted, in_review, approved).
+- `{{due_diligence_stage}}` — Name of the current DD stage.
+- `{{due_diligence_score}}` — Computed DD score for the application.
+- `{{due_diligence_risk_level}}` — Calculated DD risk level (Low/Medium/High).
+- `{{due_diligence_form_name}}` — Name of the DD form/application.
+- `{{due_diligence_reviewer}}` — Name of the DD reviewer.
+- `{{due_diligence_review_date}}` — Date the DD review was completed.
+- `{{custom_message}}` — Free-text custom message entered when triggering a DD stage action (when prompt_custom_message is enabled).
+- `{{dd_owner}}` — Display name of the DD owner (or default fallback).
+- `{{dd_owner_email}}` — Email address of the DD owner.
+- `[[dd_owner]]` — DD owner display name (bracket alias).
+- `{{recipient_name}}` — Recipient full name for DD-triggered emails.
+- `{{recipient_first_name}}` — Recipient first name.
+- `{{recipient_last_name}}` — Recipient last name.
+- `{{recipient_email}}` — Recipient email address.
+- `[[recipient.name]]` — Recipient full name (bracket alias).
+- `[[recipient.first_name]]` — Recipient first name (bracket alias).
+- `[[recipient.last_name]]` — Recipient last name (bracket alias).
+- `[[recipient.email]]` — Recipient email (bracket alias).
+- `{{submission.id}}` — Internal ID of the DD application submission.
+- `{{submission.application_uid}}` — Public application UID for the DD submission.
+- `{{submission.workflow_status}}` — Workflow status string for the submission.
+- `{{submission.due_diligence_score}}` — Computed DD score on the submission record.
+- `{{submission.risk_level}}` — Computed risk level on the submission record.
+
+### Event Confirmation & Reminder (22 tokens)
+- `[[attendee.first_name]]` — Attendee first name on the booking.
+- `[[attendee.last_name]]` — Attendee last name.
+- `[[attendee.email]]` — Attendee email address.
+- `[[event.name]]` — Event name (alias of [[event.title]]).
+- `[[event.title]]` — Event title.
+- `[[event.date]]` — Localised event start date.
+- `[[event.location]]` — Event location, or "Online Event" for online events.
+- `[[booking.id]]` — Internal booking record ID.
+- `[[booking.reference]]` — Human-friendly booking reference.
+- `[[booking.booking_reference]]` — Alias of [[booking.reference]].
+- `{{booking_id}}` — Booking ID (curly form).
+- `{{booking_reference}}` — Booking reference (curly form).
+- `[[booking.ticket_class]]` — Ticket class name (defaults to "Standard").
+- `[[booking.ticket_price]]` — Per-ticket price formatted in GBP, or "Free".
+- `[[booking.total_cost]]` — Total booking cost formatted in GBP, or "Free".
+- `[[booking.offer_discount_description]]` — Description of the discount/offer applied to the booking.
+- `[[booking.offer_discount_amount]]` — Saving amount from the applied discount/offer.
+- `[[booking.track_name]]` — Comma-separated list of track names the attendee is registered for.
+- `[[track_name]]` — Alias of [[booking.track_name]].
+- `[[zoom_link]]` — Zoom join link for the event (online events only).
+- `[[session_schedule]]` — Pre-rendered HTML schedule of the attendee’s sessions.
+- `[[session_zoom_links]]` — Pre-rendered HTML list of per-session Zoom links.
+
+### Footer & Socials (5 tokens)
+- `{{linkedin_url}}` — Tenant LinkedIn profile URL configured under Social Icons.
+- `{{twitter_url}}` — Tenant Twitter / X profile URL.
+- `{{facebook_url}}` — Tenant Facebook page URL.
+- `{{instagram_url}}` — Tenant Instagram profile URL.
+- `{{youtube_url}}` — Tenant YouTube channel URL.
+
+### Form Submissions (4 tokens)
+- `{{<field_id>}}` — Resolves to the value submitted for the form field whose ID (UUID) is between the braces.
+- `{{<field_label>}}` — Resolves to the value of the field whose label matches the token (case-sensitive).
+- `{{record.<field>}}` — Generic record-scoped lookup against the trigger entity (workflow context).
+- `[[record.<field>]]` — Generic record-scoped DB lookup against the trigger entity.
+
+### Meetings & Bookings (18 tokens)
+- `{{recipient_name}}` — Invitee name in meeting-booking invitation emails.
+- `{{recipient_email}}` — Invitee email in meeting-booking invitation emails.
+- `{{meeting_type}}` — Name of the meeting type / template.
+- `{{duration}}` — Meeting duration (e.g. "30 minutes").
+- `{{agent_name}}` — Host / booking agent display name.
+- `{{booking_url}}` — Plain URL to the public booking page for this meeting type.
+- `{{booking_link}}` — Pre-rendered HTML anchor ("Book a meeting") pointing at the booking URL.
+- `{{attendee_name}}` — Confirmed attendee full name.
+- `{{attendee_email}}` — Confirmed attendee email address.
+- `{{attendee_notes}}` — Notes the attendee submitted with the booking.
+- `{{meeting_title}}` — Title of the booked meeting.
+- `{{meeting_date}}` — Localised meeting date (e.g. "Monday, 3 March 2026").
+- `{{meeting_time}}` — Meeting start time.
+- `{{meeting_end_time}}` — Meeting end time.
+- `{{meeting_timezone}}` — Timezone the meeting times are expressed in.
+- `{{zoom_join_url}}` — Zoom meeting join URL.
+- `{{zoom_password}}` — Zoom meeting password.
+- `{{teams_join_url}}` — Microsoft Teams meeting join URL.
+
+### Member (19 tokens)
+- `[[member.id]]` — Internal member record ID for the recipient (or trigger member).
+- `[[member.full_name]]` — Member full name (first + last).
+- `[[member.first_name]]` — Member first name. Also resolved from booking.attendee_first_name in event emails.
+- `[[member.last_name]]` — Member last name.
+- `[[member.email]]` — Member email address.
+- `[[member.phone]]` — Member phone number.
+- `[[member_full_name]]` — Inviter full name in member/team invite emails (alias of [[member.full_name]]).
+- `[[member_first_name]]` — Inviter first name in member/team invite emails.
+- `[[member_last_name]]` — Inviter last name in member/team invite emails.
+- `[[member_email]]` — Inviter email in member/team invite emails.
+- `{{first_name}}` — Recipient first name. Resolved from member or DD/contract recipient.
+- `{{last_name}}` — Recipient last name.
+- `{{full_name}}` — Recipient full name.
+- `{{name}}` — Generic recipient name (member or organization, depending on context).
+- `{{email}}` — Recipient email address.
+- `{{member_first_name}}` — New member first name (DD-created member emails).
+- `{{member_last_name}}` — New member last name (DD-created member emails).
+- `{{member_email}}` — New member email (DD-created member emails).
+- `{{member.first_name}}` — Workflow placeholder resolved against the member entity.
+
+### Organisation (11 tokens)
+- `[[organization.id]]` — Organisation record ID.
+- `[[organization.name]]` — Organisation display name.
+- `[[organization.invoicing_email]]` — Organisation invoicing/billing email address.
+- `[[organization.phone]]` — Organisation phone number.
+- `[[organization_id]]` — Organisation ID alias used by member-invite handler.
+- `[[organization_name]]` — Organisation name alias used by member-invite handler.
+- `{{organization.name}}` — Workflow placeholder resolved against the organisation entity.
+- `{{organization_name}}` — Organisation name in DD-created member emails and member invites.
+- `{{organization_id}}` — Organisation ID for member-invite emails.
+- `[[tenant.name]]` — Tenant (workspace / iConnect site) display name.
+- `{{tenant_name}}` — Tenant display name (curly alias). Also resolves in booking confirmations.
+
+### System & Links (5 tokens)
+- `{{set_password_url}}` — Generates a one-time password-setup link for the recipient member and replaces the placeholder with an HTML "Set your password" anchor.
+- `[[set_password_url]]` — Bracket alias of {{set_password_url}} — same generation logic.
+- `{{communication_preferences_link}}` — Pre-rendered HTML link ("Manage communication preferences") to the recipient’s preference centre.
+- `{{communication_preferences_url}}` — Plain URL to the recipient’s communication-preferences page.
+- `{{timestamp}}` — ISO timestamp emitted by the email engine for diagnostic / audit purposes.
+
+### Workflow Triggers & Invites (6 tokens)
+- `{{invite_link}}` — Member/team signup link for invite emails.
+- `{{inviter_name}}` — Display name of the inviting member.
+- `{{invitee_email}}` — Email of the invitee.
+- `[[job_posting.status]]` — Status of the job posting entity (workflow context only).
+- `{{current_date}}` — Date when the workflow runs. Used as a workflow action value (set_field source) and form field source.
+- `{{current_datetime}}` — Date and time when the workflow runs (workflow action value).

@@ -78,6 +78,30 @@ export default async function handler(req, res) {
       .eq('id', agentIdentityId)
       .single();
 
+    // Resolve agent's member row (and therefore organization_id) via
+    // tenant_membership — tenant_identity itself does not carry an
+    // organization_id column. This populates the `agent.organization_id`
+    // path consumed below so the org-context lookup actually fires.
+    if (agent) {
+      const { data: agentMembership } = await supabase
+        .from('tenant_membership')
+        .select('member_id')
+        .eq('identity_id', agentIdentityId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (agentMembership?.member_id) {
+        const { data: agentMember } = await supabase
+          .from('member')
+          .select('id, organization_id')
+          .eq('id', agentMembership.member_id)
+          .maybeSingle();
+        if (agentMember) {
+          agent.id = agentMember.id;
+          agent.organization_id = agentMember.organization_id || null;
+        }
+      }
+    }
+
     if (!agent) {
       return res.status(404).json({ error: 'Agent not found' });
     }
