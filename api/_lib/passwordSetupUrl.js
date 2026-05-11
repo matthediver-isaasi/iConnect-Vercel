@@ -69,18 +69,33 @@ export async function generatePasswordSetupUrl(memberId, memberEmail, baseUrl) {
   }
 }
 
+export function hasSetPasswordToken(...inputs) {
+  const re = /\{\{\s*set_password_url\s*\}\}|\[\[\s*set_password_url\s*\]\]/i;
+  return inputs.some((s) => typeof s === 'string' && re.test(s));
+}
+
+export function replaceSetPasswordToken(html, url) {
+  if (!html || typeof html !== 'string' || !url) return html;
+  const link = `<a href="${url}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
+  return html
+    .replace(/\{\{\s*set_password_url\s*\}\}/gi, link)
+    .replace(/\[\[\s*set_password_url\s*\]\]/gi, link);
+}
+
+// Convenience helper used by the form-submission sender — mints a fresh URL
+// and applies it to a single string. Callers that need to substitute the
+// SAME URL into multiple strings (e.g. subject + body) should instead call
+// `generatePasswordSetupUrl` once and then `replaceSetPasswordToken` per
+// string, otherwise minting a second URL silently invalidates the first
+// (only the latest reset_token is stored).
 export async function applySetPasswordUrl(html, memberData, baseUrl) {
   if (!html || typeof html !== 'string') return html;
-  const re = /\{\{\s*set_password_url\s*\}\}|\[\[\s*set_password_url\s*\]\]/i;
-  if (!re.test(html)) return html;
+  if (!hasSetPasswordToken(html)) return html;
   if (!memberData?.id || !memberData?.email || !baseUrl) {
     console.warn('[passwordSetupUrl] token present but missing member data or baseUrl');
     return html;
   }
   const url = await generatePasswordSetupUrl(memberData.id, memberData.email, baseUrl);
   if (!url) return html;
-  const link = `<a href="${url}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
-  return html
-    .replace(/\{\{\s*set_password_url\s*\}\}/gi, link)
-    .replace(/\[\[\s*set_password_url\s*\]\]/gi, link);
+  return replaceSetPasswordToken(html, url);
 }

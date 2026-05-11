@@ -402,9 +402,15 @@ in every sender — resolution is always context-dependent:
 - **Campaign recipients** carry only `member_id`, `email`, `first_name`,
   `last_name` from `email_campaign_recipient`. We synthesise
   `full_name` from first/last but per-recipient organization fields
-  (`[[organization.invoicing_email]]`, `[[organization.phone]]`) are
-  NOT joined and will resolve to ''. Adding the join is a documented
-  follow-up.
+  (`[[organization.invoicing_email]]`, `[[organization.phone]]`,
+  `[[organization.name]]`, `[[organization.id]]`) are NOT joined and
+  will resolve to ''. `{{set_password_url}}` is also NOT supported in
+  campaigns by design — campaigns are bulk-send and minting per-
+  recipient password-setup tokens for an unbounded list is out of
+  scope. Custom-field tokens (`{{record.<field>}}` etc.) are likewise
+  not supported in campaigns: campaigns target members, not form
+  submissions. Adding the org-join enrichment is a documented
+  follow-up; the other two are intentional non-goals for this sender.
 - **DD meeting** templates resolve `[[member.*]]` / `[[organization.*]]`
   against the **agent's** member + org row, not the requester's, by
   design (the email is sent to the requester about the agent).
@@ -419,3 +425,203 @@ in every sender — resolution is always context-dependent:
 If a token from §7 needs to resolve in a sender where it currently
 collapses to '', the fix is almost always "add the data lookup", not
 "change the helper".
+
+## 9. Token × helper coverage matrix
+
+For every token in the canonical catalog, this matrix shows which sender helpers will resolve it (✅) vs leave it literal / strip it (·). Generated from `client/src/lib/emailPlaceholders.js`.
+
+Helper key:
+- **H1**: `forms/send-submission-email`
+- **H2**: `entities/[entity] auto-reply`
+- **H3**: `campaignService`
+- **H4**: `workflows.sendEmailAction`
+- **H5**: `eventConfirmationEmail`
+- **H6**: `cron/send-event-reminders`
+- **H7**: `cron/send-contract-reminders`
+- **H8**: `dd/_stageActions`
+- **H9**: `dd-meeting/{resend,add-alternative}`
+- **H10**: `article-briefs/send-{copyright,case-study}-form`
+- **H11**: `functions.sendTeamMemberInvite`
+- **H12**: `auth/request-password-reset`
+
+### Contracts
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `[[contract.name]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{contract_name}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `[[signer.name]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `[[signer.first_name]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `[[signer.last_name]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `[[signer.email]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{signer_name}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{signer_first_name}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{signer_last_name}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{signer_email}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{sign_url}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{signing_url}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{days_remaining}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `{{days_since_sent}}` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+| `[[applicant.name]]` | · | · | · | · | · | · | ✅ | ✅ | · | · | · | · |
+
+### Due Diligence
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{due_diligence_status}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_stage}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_score}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_risk_level}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_form_name}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_reviewer}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{due_diligence_review_date}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{custom_message}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{dd_owner}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{dd_owner_email}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `[[dd_owner]]` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{recipient_name}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{recipient_first_name}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{recipient_last_name}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{recipient_email}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `[[recipient.name]]` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `[[recipient.first_name]]` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `[[recipient.last_name]]` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `[[recipient.email]]` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{submission.id}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{submission.application_uid}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{submission.workflow_status}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{submission.due_diligence_score}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{submission.risk_level}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+
+### Event Confirmation & Reminder
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `[[attendee.first_name]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[attendee.last_name]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[attendee.email]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[event.name]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[event.title]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[event.date]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[event.location]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.id]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.reference]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.booking_reference]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `{{booking_id}}` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `{{booking_reference}}` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.ticket_class]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.ticket_price]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.total_cost]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.offer_discount_description]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.offer_discount_amount]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[booking.track_name]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[track_name]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[zoom_link]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[session_schedule]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+| `[[session_zoom_links]]` | · | · | · | · | ✅ | ✅ | · | · | · | · | · | · |
+
+### Footer & Socials
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{linkedin_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{twitter_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{facebook_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{instagram_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{youtube_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+
+### Form Submissions
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{<field_id>}}` | ✅ | ✅ | · | ✅ | · | · | · | · | · | · | · | · |
+| `{{<field_label>}}` | ✅ | ✅ | · | ✅ | · | · | · | · | · | · | · | · |
+| `{{record.<field>}}` | ✅ | ✅ | · | ✅ | · | · | · | · | · | · | · | · |
+| `[[record.<field>]]` | ✅ | ✅ | · | ✅ | · | · | · | · | · | · | · | · |
+
+### Meetings & Bookings
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{recipient_name}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{recipient_email}}` | · | · | · | ✅ | · | · | · | ✅ | ✅ | · | · | · |
+| `{{meeting_type}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{duration}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{agent_name}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{booking_url}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{booking_link}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{attendee_name}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{attendee_email}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{attendee_notes}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{meeting_title}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{meeting_date}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{meeting_time}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{meeting_end_time}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{meeting_timezone}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{zoom_join_url}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{zoom_password}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+| `{{teams_join_url}}` | · | · | · | · | · | · | · | · | ✅ | · | · | · |
+
+### Member
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `[[member.id]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member.full_name]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member.first_name]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member.last_name]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member.email]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member.phone]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member_full_name]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member_first_name]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member_last_name]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `[[member_email]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{first_name}}` | · | · | ✅ | · | · | · | · | ✅ | ✅ | · | · | · |
+| `{{last_name}}` | · | · | ✅ | · | · | · | · | ✅ | ✅ | · | · | · |
+| `{{full_name}}` | · | · | ✅ | · | · | · | · | ✅ | ✅ | · | · | · |
+| `{{name}}` | · | · | ✅ | · | · | · | · | ✅ | ✅ | · | · | · |
+| `{{email}}` | · | · | ✅ | · | · | · | · | ✅ | ✅ | · | · | · |
+| `{{member_first_name}}` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{member_last_name}}` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{member_email}}` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{member.first_name}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+
+### Organisation
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `[[organization.id]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[organization.name]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[organization.invoicing_email]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[organization.phone]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `[[organization_id]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `[[organization_name]]` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{organization.name}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{organization_name}}` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `{{organization_id}}` | ✅ | ✅ | · | · | · | · | · | ✅ | ✅ | ✅ | ✅ | · |
+| `[[tenant.name]]` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{tenant_name}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+
+### System & Links
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{set_password_url}}` | ✅ | ✅ | · | · | · | · | · | · | · | · | · | · |
+| `[[set_password_url]]` | ✅ | ✅ | · | · | · | · | · | · | · | · | · | · |
+| `{{communication_preferences_link}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{communication_preferences_url}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+| `{{timestamp}}` | ✅ | ✅ | ✅ | ✅ | · | · | ✅ | ✅ | ✅ | ✅ | ✅ | · |
+
+### Workflow Triggers & Invites
+
+| Token | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 | H9 | H10 | H11 | H12 |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `{{invite_link}}` | · | · | · | · | · | · | · | · | · | · | ✅ | · |
+| `{{inviter_name}}` | · | · | · | · | · | · | · | · | · | · | ✅ | · |
+| `{{invitee_email}}` | · | · | · | · | · | · | · | · | · | · | ✅ | · |
+| `[[job_posting.status]]` | · | · | · | ✅ | · | · | · | · | · | · | · | · |
+| `{{current_date}}` | · | · | · | ✅ | · | · | · | · | · | · | · | · |
+| `{{current_datetime}}` | · | · | · | ✅ | · | · | · | · | · | · | · | · |
+
+
+Legend: ✅ = sender invokes a helper that knows this token (subject to runtime context). · = sender does not handle this token (token will either be left literal or, where stripping policy applies, collapsed to "").

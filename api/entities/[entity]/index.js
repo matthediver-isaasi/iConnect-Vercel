@@ -1,5 +1,5 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
-import { applySetPasswordUrl } from '../../_lib/passwordSetupUrl.js';
+import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
@@ -148,14 +148,18 @@ async function sendFormSubmissionEmail(submissionData) {
     body = replacePlaceholders(body, 'record', recordContext, placeholderContext);
 
     // Resolve {{set_password_url}} / [[set_password_url]] for the member
-    // resolved above. Mirrors the behaviour of api/forms/send-submission-email.js
-    // so generic-entity auto-reply templates that include this token actually
-    // mint a password-setup link instead of leaking the literal placeholder.
-    if (memberRow?.id && memberRow?.email) {
+    // resolved above. Mint ONE token per email and reuse the same URL across
+    // both subject and body — calling the generator twice would store only
+    // the latest reset_token in member_credentials, silently invalidating
+    // any URL that was already substituted into the other field.
+    if (hasSetPasswordToken(subject, body) && memberRow?.id && memberRow?.email) {
       const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
       if (baseUrl) {
-        body = await applySetPasswordUrl(body, memberRow, baseUrl);
-        subject = await applySetPasswordUrl(subject, memberRow, baseUrl);
+        const setPasswordUrl = await generatePasswordSetupUrl(memberRow.id, memberRow.email, baseUrl);
+        if (setPasswordUrl) {
+          body = replaceSetPasswordToken(body, setPasswordUrl);
+          subject = replaceSetPasswordToken(subject, setPasswordUrl);
+        }
       } else {
         console.warn('[FormSubmission] {{set_password_url}} present but no APP_URL/VITE_APP_URL configured');
       }
