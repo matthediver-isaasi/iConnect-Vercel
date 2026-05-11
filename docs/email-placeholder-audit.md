@@ -78,10 +78,13 @@ historically only resolved in one — are listed below.
 | `{{provider.first_name}}` / `{{provider.last_name}}` / `{{provider.email}}` / `{{provider.full_name}}` / `{{upload_url}}` | ✅ | article-briefs/send-case-study-form | |
 | `{{form.name}}` / `{{submission.date}}` | ✅ | send-submission-email | |
 
-`emailPlaceholders.js` and `emailPlaceholderPreview.js` already enumerate
-every token above — no entries were missing — so no edits to the catalog
-files are needed in this task. (Verified by grepping each token name from
-the matrix against the catalog source.)
+**Catalog status:** the article-brief tokens
+(`{{brief.title}}`, `{{writer.*}}`, `{{provider.*}}`, `{{form_url}}`,
+`{{upload_url}}`) were missing from `client/src/lib/emailPlaceholders.js`
+and have been added under a new `Article Briefs` category, with matching
+fixture sample data added to `client/src/lib/emailPlaceholderPreview.js`.
+All other tokens listed in the matrix above were already enumerated in
+the catalog. See §6 for the per-token gap fixes shipped in this task.
 
 ---
 

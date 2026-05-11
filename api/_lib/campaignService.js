@@ -2127,24 +2127,46 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     // Now run the recipient row through the generic placeholder helper so
     // [[member.first_name]], [[member.last_name]], [[member.email]] and the
     // {{member.*}} variants resolve in any campaign template without each
-    // sender having to maintain its own .replace ladder. Only fields that
-    // exist on email_campaign_recipient (id, member_id, email, first_name,
-    // last_name) are populated here — richer organization context would
-    // require a per-recipient join and is left as a follow-up.
+    // sender having to maintain its own .replace ladder. We also enrich the
+    // recipient with their organization row (single embed query) so that
+    // [[organization.name]], [[organization.id]], [[organization.phone]]
+    // and [[organization.invoicing_email]] resolve too. Bulk campaigns
+    // intentionally do NOT mint per-recipient {{set_password_url}} tokens
+    // (see docs/email-placeholder-audit.md §"Caveats").
+    let recipientOrg = null;
+    if (recipient.member_id) {
+      try {
+        const { data: memberRow } = await supabase
+          .from('member')
+          .select('organization_id, organization:organization_id(id,name,phone,invoicing_email)')
+          .eq('id', recipient.member_id)
+          .maybeSingle();
+        if (memberRow?.organization) recipientOrg = memberRow.organization;
+      } catch (orgErr) {
+        console.warn('[Campaign] organization enrichment failed for recipient', recipient.id, orgErr?.message);
+      }
+    }
     const memberLikeRecipient = {
       id: recipient.member_id || '',
       first_name: recipient.first_name || '',
       last_name: recipient.last_name || '',
       full_name: `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim(),
       email: recipient.email || '',
+      organization_id: recipientOrg?.id || null,
+      organization: recipientOrg || null,
     };
     const placeholderContext = {
       tenantId,
       memberId: recipient.member_id || null,
+      organizationId: recipientOrg?.id || null,
       tenantBaseUrl,
     };
     html = replacePlaceholders(html, 'member', memberLikeRecipient, placeholderContext);
     subject = replacePlaceholders(subject, 'member', memberLikeRecipient, placeholderContext);
+    if (recipientOrg) {
+      html = replacePlaceholders(html, 'organization', recipientOrg, placeholderContext);
+      subject = replacePlaceholders(subject, 'organization', recipientOrg, placeholderContext);
+    }
 
     html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
 
