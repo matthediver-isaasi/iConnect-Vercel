@@ -1,4 +1,4 @@
-import { sendEmail } from '../../_lib/emailService.js';
+import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
@@ -70,6 +70,60 @@ async function sendFormSubmissionEmail(submissionData) {
     body = body.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
       return String(formValues[fieldId] || '');
     });
+
+    // Resolve member + organization context for the submission so generic
+    // [[member.*]] / [[organization.*]] placeholders in the template body
+    // are filled in (previously only form-field tokens were substituted,
+    // leaving any [[member.first_name]] / [[organization.name]] etc. as
+    // literal placeholders in the auto-reply email).
+    let memberRow = null;
+    let organizationRow = null;
+    try {
+      const memberId = submissionData.member_id || submissionData.created_by_member_id || null;
+      const orgId = submissionData.organization_id || submissionData.created_organization_id || null;
+      if (memberId) {
+        const { data: m } = await supabase
+          .from('member')
+          .select('id, first_name, last_name, email, organization_id')
+          .eq('id', memberId)
+          .maybeSingle();
+        memberRow = m || null;
+      }
+      const effectiveOrgId = orgId || memberRow?.organization_id || null;
+      if (effectiveOrgId) {
+        const { data: o } = await supabase
+          .from('organization')
+          .select('id, name, invoicing_email, phone')
+          .eq('id', effectiveOrgId)
+          .maybeSingle();
+        organizationRow = o || null;
+      }
+    } catch (lookupErr) {
+      console.warn('[FormSubmission] Failed to resolve member/org context for placeholders:', lookupErr.message);
+    }
+
+    const recordContext = {
+      ...(memberRow ? {
+        member_id: memberRow.id,
+        member_first_name: memberRow.first_name || '',
+        member_last_name: memberRow.last_name || '',
+        member_full_name: `${memberRow.first_name || ''} ${memberRow.last_name || ''}`.trim(),
+        member_email: memberRow.email || '',
+      } : {}),
+      ...(organizationRow ? {
+        organization_id: organizationRow.id,
+        organization_name: organizationRow.name || '',
+        organization_invoicing_email: organizationRow.invoicing_email || '',
+        organization_phone: organizationRow.phone || '',
+      } : {}),
+    };
+
+    const placeholderContext = {
+      tenantId: formTenantId,
+      memberId: memberRow?.id || null,
+    };
+    subject = replacePlaceholders(subject, 'record', recordContext, placeholderContext);
+    body = replacePlaceholders(body, 'record', recordContext, placeholderContext);
 
     // Send the email with tenant context for proper email domain
     const result = await sendEmail({

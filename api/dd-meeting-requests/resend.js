@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { sendEmail } from '../_lib/emailService.js';
+import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -118,6 +118,18 @@ export default async function handler(req, res) {
       .replace(/\{\{agent_name\}\}/gi, agentName)
       .replace(/\{\{booking_url\}\}/gi, bookingUrl)
       .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+
+    // Run agent's member row through the generic placeholder helper so any
+    // [[member.*]] tokens (e.g. signature blocks the agent has set up that
+    // reference themselves) resolve in the template body and subject.
+    const agentMemberContext = {
+      id: agentMember?.id || '',
+      first_name: agentMember?.first_name || '',
+      last_name: agentMember?.last_name || '',
+      email: meetingRequest.agent?.email || '',
+    };
+    subject = replacePlaceholders(subject, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
+    body = replacePlaceholders(body, 'member', agentMemberContext, { tenantId, memberId: agentMember?.id || null });
 
     await sendEmail({
       to: meetingRequest.recipient_email,

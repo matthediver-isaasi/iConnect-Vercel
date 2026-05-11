@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
-import { sendEmail } from '../_lib/emailService.js';
+import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
@@ -4566,15 +4566,21 @@ const functionHandlers = {
       console.log(`[sendTeamMemberInvite] Invitee ${email} already exists, sending invite anyway`);
     }
     
-    // Fetch organization details
+    // Fetch organization details (extra fields supplied so the generic
+    // placeholder helper below can resolve [[organization.invoicing_email]]
+    // and [[organization.phone]] in invite templates).
     let organizationName = '';
+    let organizationInvoicingEmail = '';
+    let organizationPhone = '';
     if (organizationId) {
       const { data: org } = await supabase
         .from('organization')
-        .select('id, name')
+        .select('id, name, invoicing_email, phone')
         .eq('id', organizationId)
         .maybeSingle();
       organizationName = org?.name || '';
+      organizationInvoicingEmail = org?.invoicing_email || '';
+      organizationPhone = org?.phone || '';
     }
     
     // Build the signup/login link with organization_id parameter
@@ -4598,25 +4604,30 @@ const functionHandlers = {
     finalBody = finalBody.replace(/\{\{organization_name\}\}/gi, organizationName);
     finalBody = finalBody.replace(/\{\{organization_id\}\}/gi, organizationId || '');
     
-    // Replace [[placeholder]] syntax (core database values) - support both dot and underscore separators
-    finalBody = finalBody.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
-    finalBody = finalBody.replace(/\[\[member_full_name\]\]/gi, inviterFullName);
-    finalBody = finalBody.replace(/\[\[member\.first_name\]\]/gi, inviter?.first_name || '');
-    finalBody = finalBody.replace(/\[\[member_first_name\]\]/gi, inviter?.first_name || '');
-    finalBody = finalBody.replace(/\[\[member\.last_name\]\]/gi, inviter?.last_name || '');
-    finalBody = finalBody.replace(/\[\[member_last_name\]\]/gi, inviter?.last_name || '');
-    finalBody = finalBody.replace(/\[\[member\.email\]\]/gi, inviterEmail);
-    finalBody = finalBody.replace(/\[\[member_email\]\]/gi, inviterEmail);
-    finalBody = finalBody.replace(/\[\[organization\.id\]\]/gi, organizationId || '');
-    finalBody = finalBody.replace(/\[\[organization_id\]\]/gi, organizationId || '');
-    finalBody = finalBody.replace(/\[\[organization\.name\]\]/gi, organizationName);
-    finalBody = finalBody.replace(/\[\[organization_name\]\]/gi, organizationName);
-    
-    // Also replace in subject
+    // Run subject + body through the generic placeholder helper so every
+    // [[member.*]] / [[organization.*]] token in the catalog stays in sync
+    // without each new field requiring a hand-rolled .replace pair here.
+    // The helper supports both `{{member.field}}` and `[[member.field]]`.
     finalSubject = finalSubject.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
     finalSubject = finalSubject.replace(/\{\{organization_name\}\}/gi, organizationName);
-    finalSubject = finalSubject.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
-    finalSubject = finalSubject.replace(/\[\[organization\.name\]\]/gi, organizationName);
+
+    const inviterMemberContext = {
+      id: inviter?.id || '',
+      first_name: inviter?.first_name || '',
+      last_name: inviter?.last_name || '',
+      full_name: inviterFullName,
+      email: inviterEmail,
+      organization_id: organizationId || '',
+      organization_name: organizationName,
+      organization_invoicing_email: organizationInvoicingEmail,
+      organization_phone: organizationPhone,
+    };
+    const placeholderContext = {
+      tenantId: inviter?.tenant_id || resolvedTenantId || null,
+      memberId: inviter?.id || null,
+    };
+    finalBody = replacePlaceholders(finalBody, 'member', inviterMemberContext, placeholderContext);
+    finalSubject = replacePlaceholders(finalSubject, 'member', inviterMemberContext, placeholderContext);
     
     // Send email via Mailgun with tenant context for proper email domain
     const emailResult = await sendEmail({

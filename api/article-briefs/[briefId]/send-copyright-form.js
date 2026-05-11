@@ -1,6 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
-import { sendEmail } from '../../_lib/emailService.js';
+import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 
 function applyBriefPlaceholders(input, vars) {
   if (typeof input !== 'string' || !input) return input || '';
@@ -171,8 +171,24 @@ export default async function handler(req, res) {
         </div>
     `;
 
+    let templateBodyRendered = template ? applyBriefPlaceholders(template.body || '', placeholderVars) : '';
+
+    // When the writer is an internal member, also run the template through
+    // the generic [[member.*]] / [[organization.*]] resolver so those tokens
+    // do not leak as literals. External-writer path skips this — there is no
+    // member context to resolve.
+    if (template && brief.assigned_writer_id && !brief.external_writer_id) {
+      const memberRow = {
+        id: brief.assigned_writer_id,
+        first_name: writerFirstName || '',
+        last_name: writerLastName || '',
+        email: writerEmail || '',
+      };
+      templateBodyRendered = replacePlaceholders(templateBodyRendered, 'member', memberRow, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+    }
+
     const bodyHtml = template
-      ? `<div style="color: #333; font-size: 15px; line-height: 1.6;">${applyBriefPlaceholders(template.body || '', placeholderVars)}</div>`
+      ? `<div style="color: #333; font-size: 15px; line-height: 1.6;">${templateBodyRendered}</div>`
       : defaultBody;
 
     const emailHtml = `
@@ -182,9 +198,18 @@ export default async function handler(req, res) {
       </div>
     `;
 
-    const subject = template?.subject
+    let subject = template?.subject
       ? applyBriefPlaceholders(template.subject, placeholderVars)
       : `Copyright Assignment Form: ${brief.title || 'Article Brief'}`;
+
+    if (template && brief.assigned_writer_id && !brief.external_writer_id) {
+      subject = replacePlaceholders(subject, 'member', {
+        id: brief.assigned_writer_id,
+        first_name: writerFirstName || '',
+        last_name: writerLastName || '',
+        email: writerEmail || '',
+      }, { tenantId: tenantCtx.tenantId, memberId: brief.assigned_writer_id });
+    }
 
     const emailResult = await sendEmail({
       to: writerEmail,

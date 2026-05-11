@@ -1,5 +1,5 @@
 import { supabase } from './database.js';
-import { sendEmail } from './emailService.js';
+import { sendEmail, replacePlaceholders } from './emailService.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -2104,7 +2104,28 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
     subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
+    // Run the recipient row through the generic placeholder helper so
+    // [[member.first_name]], [[member.last_name]], [[member.email]] and the
+    // {{member.*}} variants resolve in any campaign template without each
+    // sender having to maintain its own .replace ladder. Only fields that
+    // exist on email_campaign_recipient (id, member_id, email, first_name,
+    // last_name) are populated here — richer organization context would
+    // require a per-recipient join and is left as a follow-up.
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+    const memberLikeRecipient = {
+      id: recipient.member_id || '',
+      first_name: recipient.first_name || '',
+      last_name: recipient.last_name || '',
+      email: recipient.email || '',
+    };
+    const placeholderContext = {
+      tenantId,
+      memberId: recipient.member_id || null,
+      tenantBaseUrl,
+    };
+    html = replacePlaceholders(html, 'member', memberLikeRecipient, placeholderContext);
+    subject = replacePlaceholders(subject, 'member', memberLikeRecipient, placeholderContext);
+
     const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
     const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
     const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;

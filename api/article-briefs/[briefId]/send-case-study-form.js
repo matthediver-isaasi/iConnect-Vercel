@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
-import { sendEmail } from '../../_lib/emailService.js';
+import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 
 function applyBriefPlaceholders(input, vars) {
   if (typeof input !== 'string' || !input) return input || '';
@@ -140,9 +140,18 @@ export default async function handler(req, res) {
       </p>
     `;
 
-    const bodyHtml = template
+    let bodyHtml = template
       ? applyBriefPlaceholders(template.body || '', placeholderVars)
       : email_content;
+
+    // Providers are always external (no member row). Run the generic helper
+    // first (resolves any preference link tokens via context), THEN strip
+    // any remaining [[member.*]] / [[organization.*]] tokens so they do not
+    // leak as literal placeholders. (`replacePlaceholders` returns the
+    // original match when a value is missing, so an explicit strip pass is
+    // required for the no-member-context case.)
+    bodyHtml = replacePlaceholders(bodyHtml, 'record', {}, { tenantId: tenantCtx.tenantId });
+    bodyHtml = bodyHtml.replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '');
 
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -154,9 +163,11 @@ export default async function handler(req, res) {
       </div>
     `;
 
-    const subject = template?.subject
+    let subject = template?.subject
       ? applyBriefPlaceholders(template.subject, placeholderVars)
       : `Case Study Form: ${brief.title || 'Article Brief'}`;
+    subject = replacePlaceholders(subject, 'record', {}, { tenantId: tenantCtx.tenantId });
+    subject = subject.replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '');
 
     const emailResult = await sendEmail({
       to: provider.email,
