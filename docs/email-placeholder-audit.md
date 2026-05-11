@@ -97,11 +97,12 @@ the catalog. See §6 for the per-token gap fixes shipped in this task.
    `replacePlaceholders(html|subject, 'member', recipient)` helper. Because
    recipient rows already carry `first_name`, `last_name`, `email`, this
    resolves `[[member.first_name]]`, `[[member.last_name]]`, `[[member.email]]`
-   in any campaign template. (Per-recipient organization joins are NOT
-   added — that's a hot path of up to 100 sends per cron tick and would add
-   N database round-trips. If a tenant needs `[[organization.name]]` in
-   campaigns, the audience-resolution step can be extended to enrich
-   recipients with org name in a single batched join — left as follow-up.)
+   in any campaign template. Each recipient is also enriched with their
+   organization row (`id`, `name`, `phone`, `invoicing_email`) via a
+   single Supabase embed query, so `[[organization.*]]` tokens resolve
+   per-recipient as well. This adds one DB round-trip per send; a
+   batched audience-resolution enrichment is filed as a follow-up if
+   campaign volumes ever make this latency-sensitive.
 
 2. **`api/entities/[entity]/index.js` `sendFormSubmissionEmail`** — now
    loads the submission's `member_id`/`organization_id`, fetches the
@@ -168,7 +169,8 @@ the catalog. See §6 for the per-token gap fixes shipped in this task.
 - Booking cancellation / transfer / fundraising / public-book emails —
   hardcoded HTML, no template editor. If a user-facing template is added
   later, route the rendered output through the generic helper.
-- Per-recipient organization enrichment in campaigns (see fix #1 caveat).
+- Batched (per-audience) organization enrichment in campaigns — current
+  implementation issues one Supabase embed per recipient (see fix #1).
 
 ---
 
