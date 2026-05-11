@@ -110,11 +110,11 @@ the matrix against the catalog source.)
    below from ever seeing tokens like `{{member.first_name}}`. Form-field
    tokens still substitute first; the generic helper then fills
    `[[member.*]]` / `[[organization.*]]` so generic auto-reply templates
-   work. (`{{set_password_url}}` is intentionally not duplicated here —
-   it requires the crypto-signed reset URL minted by
-   `api/forms/send-submission-email.js`. The pre-pass change at least
-   keeps the literal token visible if a tenant pastes the wrong template
-   into the wrong sender, instead of silently swallowing it.)
+   work. `{{set_password_url}}` / `[[set_password_url]]` is now also
+   resolved in this sender via the shared `api/_lib/passwordSetupUrl.js`
+   helper (extracted from `api/forms/send-submission-email.js`) so
+   generic-entity auto-reply templates that use the token mint a real
+   crypto-signed reset link instead of leaking the literal placeholder.
 
 3. **`api/dd-meeting-requests/resend.js` and `add-alternative.js`** — keep
    the bespoke `{{recipient_name}}` / `{{agent_name}}` / `{{booking_*}}`
@@ -139,9 +139,10 @@ the matrix against the catalog source.)
    are always external (no member row). The generic helper is called with
    `entityType = 'record'` and an empty entity (resolves any communication-
    preferences-link tokens via context). Because `replacePlaceholders`
-   preserves the original match when a value is missing, an additional
-   regex strip pass `s/\[\[(?:member|organization)\.\w+\]\]//gi` is then
-   applied so those tokens collapse to '' instead of leaking as literals.
+   preserves the original match when a value is missing, two additional
+   regex strip passes are applied — one for `[[(?:member|organization)\.\w+]]`
+   and one for `{{(?:member|organization)\.\w+}}` — so member/organization
+   tokens in either syntax collapse to '' instead of leaking as literals.
 
 6. **`api/functions/[functionName].js` `sendTeamMemberInvite`** — kept the
    bespoke `{{invite_link}}` / `{{inviter_name}}` / `{{organization_name}}`

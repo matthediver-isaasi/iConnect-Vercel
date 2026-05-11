@@ -151,7 +151,9 @@ export default async function handler(req, res) {
     // original match when a value is missing, so an explicit strip pass is
     // required for the no-member-context case.)
     bodyHtml = replacePlaceholders(bodyHtml, 'record', {}, { tenantId: tenantCtx.tenantId });
-    bodyHtml = bodyHtml.replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '');
+    bodyHtml = bodyHtml
+      .replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '')
+      .replace(/\{\{(?:member|organization)\.\w+\}\}/gi, '');
 
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -167,7 +169,9 @@ export default async function handler(req, res) {
       ? applyBriefPlaceholders(template.subject, placeholderVars)
       : `Case Study Form: ${brief.title || 'Article Brief'}`;
     subject = replacePlaceholders(subject, 'record', {}, { tenantId: tenantCtx.tenantId });
-    subject = subject.replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '');
+    subject = subject
+      .replace(/\[\[(?:member|organization)\.\w+\]\]/gi, '')
+      .replace(/\{\{(?:member|organization)\.\w+\}\}/gi, '');
 
     const emailResult = await sendEmail({
       to: provider.email,
