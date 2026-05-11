@@ -155,6 +155,7 @@ async function sendFormSubmissionEmail(submissionData) {
       const baseUrl = process.env.VITE_APP_URL || process.env.APP_URL || '';
       if (baseUrl) {
         body = await applySetPasswordUrl(body, memberRow, baseUrl);
+        subject = await applySetPasswordUrl(subject, memberRow, baseUrl);
       } else {
         console.warn('[FormSubmission] {{set_password_url}} present but no APP_URL/VITE_APP_URL configured');
       }
