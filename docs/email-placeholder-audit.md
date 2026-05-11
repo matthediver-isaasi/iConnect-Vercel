@@ -194,8 +194,19 @@ This section is auto-extracted from the canonical catalog
 (`EMAIL_PLACEHOLDERS`). It groups every documented token by category so the
 sender×helper matrix in §3 can be cross-checked against the source-of-truth
 list. If a token is missing from the catalog but referenced in a sender, it
-should be added there (no edits to `emailPlaceholders.js` were required for
-this audit — every token below is already enumerated).
+should be added there.
+
+> **Update:** the original audit pass found that the article-brief
+> senders (`api/article-briefs/[briefId]/send-copyright-form.js` and
+> `send-case-study-form.js`) referenced 11 sender-specific tokens that
+> were NOT in the catalog: `{{brief.title}}`, `{{writer.first_name}}`,
+> `{{writer.last_name}}`, `{{writer.full_name}}`, `{{writer.email}}`,
+> `{{provider.first_name}}`, `{{provider.last_name}}`,
+> `{{provider.full_name}}`, `{{provider.email}}`, `{{form_url}}`,
+> `{{upload_url}}`. A new `Article Briefs` category has been added to
+> `client/src/lib/emailPlaceholders.js` (and corresponding fixture
+> sample data added to `client/src/lib/emailPlaceholderPreview.js`) to
+> enumerate them and surface them in the placeholder preview UI.
 
 
 ### Contracts (15 tokens)

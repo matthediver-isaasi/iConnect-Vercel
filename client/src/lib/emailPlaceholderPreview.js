@@ -137,6 +137,23 @@ export const FIXTURE_SAMPLE_DATA = {
     communication_preferences_url:
       'https://app.example.com/email-preferences?t=PREVIEW',
   },
+  brief: {
+    title: 'Spring 2026 Sustainability Feature',
+  },
+  writer: {
+    first_name: 'Sam',
+    last_name: 'Hughes',
+    full_name: 'Sam Hughes',
+    email: 'sam.hughes@example.com',
+  },
+  provider: {
+    first_name: 'Robin',
+    last_name: 'Carter',
+    full_name: 'Robin Carter',
+    email: 'robin.carter@example.com',
+  },
+  form_url: 'https://app.example.com/forms/preview-copyright-form',
+  upload_url: 'https://app.example.com/forms/preview-case-study-uploads',
 };
 
 function nowIso() {
