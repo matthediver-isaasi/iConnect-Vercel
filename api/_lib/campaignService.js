@@ -2104,14 +2104,33 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
     subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
-    // Run the recipient row through the generic placeholder helper so
+    // Build the campaign-specific tracking token + preference/unsubscribe
+    // links FIRST and substitute them BEFORE the generic placeholder helper
+    // runs. The generic helper would otherwise resolve
+    // {{communication_preferences_*}} via the per-member preference URL
+    // (which lacks campaign tracking), losing the per-send tracking token.
+    const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+    const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
+    const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
+    const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
+    const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
+
+    const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
+
+    html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
+    html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
+
+    const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+    html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
+    html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+
+    // Now run the recipient row through the generic placeholder helper so
     // [[member.first_name]], [[member.last_name]], [[member.email]] and the
     // {{member.*}} variants resolve in any campaign template without each
     // sender having to maintain its own .replace ladder. Only fields that
     // exist on email_campaign_recipient (id, member_id, email, first_name,
     // last_name) are populated here — richer organization context would
     // require a per-recipient join and is left as a follow-up.
-    const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
     const memberLikeRecipient = {
       id: recipient.member_id || '',
       first_name: recipient.first_name || '',
@@ -2125,20 +2144,6 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     };
     html = replacePlaceholders(html, 'member', memberLikeRecipient, placeholderContext);
     subject = replacePlaceholders(subject, 'member', memberLikeRecipient, placeholderContext);
-
-    const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
-    const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
-    const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
-    const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-
-    const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-
-    html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
-    html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-    
-    const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-    html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
-    html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
 
     html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
 

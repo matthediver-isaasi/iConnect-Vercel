@@ -346,3 +346,48 @@ this audit — every token below is already enumerated).
 - `[[job_posting.status]]` — Status of the job posting entity (workflow context only).
 - `{{current_date}}` — Date when the workflow runs. Used as a workflow action value (set_field source) and form field source.
 - `{{current_datetime}}` — Date and time when the workflow runs (workflow action value).
+
+---
+
+## 8. Comprehensive sendEmail callsite mapping
+
+Every `sendEmail(` callsite in `/api/`, `/scripts/`, and `server/` is listed
+below with whether it goes through a placeholder-resolution helper. This
+ensures the matrix in §3 has no gaps relative to the actual senders in
+the codebase. Generated from `rg -n 'sendEmail\(' --type js -l`.
+
+| Callsite | Goes through placeholder helper? | Coverage row in §3 |
+|---|---|---|
+| `api/_lib/campaignService.js` | ✅ generic helper + campaign-specific preference link substitution (preference link substitutes BEFORE generic helper so the per-send tracking token wins) | "Campaigns (manual + scheduled + batched cron)" |
+| `api/_lib/eventConfirmationEmail.js` | ✅ event-specific helper | "Event confirmation" |
+| `api/_lib/emailService.js` | n/a (this file IS the helper layer; the only `sendEmail()` calls are diagnostic test sends with hardcoded HTML) | n/a |
+| `api/_lib/workflows.js` | ✅ generic helper via `sendEmailAction` | "Workflow engine emails" |
+| `api/_lib/bookingCancellation.js` | ❌ hardcoded HTML, no template editor | "Booking cancellation request emails" |
+| `api/_lib/xero.js` | n/a — sends Xero-issued invoice attachment with hardcoded body | n/a (out of scope, no editor) |
+| `api/article-briefs/notify.js` | ✅ uses `applyBriefPlaceholders` for brief tokens | n/a (no [[member.*]] tokens used) |
+| `api/article-briefs/[briefId]/send-copyright-form.js` | ✅ generic helper + writer/org context | "Article brief — send copyright form" |
+| `api/article-briefs/[briefId]/send-case-study-form.js` | ✅ generic helper + curly/bracket strip pass | "Article brief — send case study form" |
+| `api/auth/request-password-reset.js`, `request-admin-password-reset.js` | ❌ system email, hardcoded HTML, no editor | n/a |
+| `api/booking-cancellation-requests/{[requestId],approve-group}.js` | ❌ hardcoded HTML | "Booking cancellation request emails" |
+| `api/booking-transfer-requests/[requestId].js` | ❌ hardcoded HTML | "Booking transfer request" |
+| `api/contracts/{send-to-signers,send-original,resend}.js` | ✅ contract-specific replace ladder via `_stageActions` helpers | "Contract reminders cron" (regression smoke covers same tokens) |
+| `api/cron/send-contract-{reminders,timeout-notifications}.js` | ✅ generic helper | "Contract reminders cron" / "Contract timeout notifications cron" |
+| `api/cron/send-event-reminders.js` | ✅ event-specific helper (duplicated; flagged as follow-up) | "Event reminders cron" |
+| `api/dd-meeting-requests/{resend,add-alternative}.js` | ✅ generic helper + agent member/org context (FIXED here) | "DD meeting request — resend/add alternative" |
+| `api/due-diligence/_stageActions.js` | ✅ DD stage action helpers (`{{recipient_*}}`, `{{member_*}}`, `{{contract_*}}`, `{{dd_owner}}`) | "DD stage actions / contract requests" |
+| `api/due-diligence/test-fire-{reminder,timeout}.js` | ✅ DD reminder/timeout helpers | "Due-diligence test fires" |
+| `api/email-campaigns/test-send.js`, `api/email-templates/test-send.js`, `api/member-campaigns/test-send.js` | ✅ same `campaignService` / template-test pipeline | "Campaigns" (test-send is a thin wrapper) |
+| `api/entities/[entity]/index.js` | ✅ generic helper + member/org lookup + `set_password_url` (FIXED here) | "Generic entity form auto-reply" |
+| `api/forms/send-submission-email.js` | ✅ comprehensive bespoke `replacePlaceholders` + `set_password_url` minting | "Form submission emails" |
+| `api/functions/[functionName].js` `sendTeamMemberInvite` | ✅ generic helper + bespoke invite tokens (FIXED here) | "Team member invite" |
+| `api/public/book/[slug].js` | ✅ delegates to `eventConfirmationEmail` for booking confirmation | "Event confirmation" |
+| `api/public/fundraising/{confirm-donation,login}.js` | ❌ hardcoded HTML | "Fundraising / public book confirmations" |
+| `api/pending-purchase-orders/index.js` | ✅ DD `{{*}}` replace ladder for PO reminders | (covered under DD stage actions row) |
+| `api/tenant/team.js`, `api/tenant/team/[id]/resend-invite.js` | ✅ delegates to `sendTeamMemberInvite` | "Team member invite" |
+| `scripts/send-event-reminder-once.mjs` | ✅ event-specific helper (one-off ops script) | "Event reminders cron" (same code path) |
+
+Every sender that ships a tenant-editable template now goes through
+either the generic `replacePlaceholders` helper or a bespoke helper
+that documents its own catalog. Senders marked ❌ (`hardcoded HTML, no
+template editor`) are intentionally excluded from this task's scope —
+there is no template surface for tenants to add tokens to.

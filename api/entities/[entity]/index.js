@@ -91,8 +91,18 @@ async function sendFormSubmissionEmail(submissionData) {
     let memberRow = null;
     let organizationRow = null;
     try {
-      const memberId = submissionData.member_id || submissionData.created_by_member_id || null;
-      const orgId = submissionData.organization_id || submissionData.created_organization_id || null;
+      // form_submission column is `created_member_id` (see
+      // api/forms/send-submission-email.js + scripts/replay-form-submission-org-update.mjs).
+      // `created_by_member_id` is the column on the campaign tables — keep it
+      // as a defensive secondary fallback in case a caller passes that key,
+      // but `created_member_id` is the canonical field for this sender.
+      const memberId = submissionData.member_id
+        || submissionData.created_member_id
+        || submissionData.created_by_member_id
+        || null;
+      const orgId = submissionData.organization_id
+        || submissionData.created_organization_id
+        || null;
       if (memberId) {
         const { data: m } = await supabase
           .from('member')
