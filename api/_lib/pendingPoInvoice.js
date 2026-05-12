@@ -8,81 +8,171 @@ export function parseInvoiceKey(key) {
   return null;
 }
 
+// Paginate through a Supabase query in PAGE_SIZE chunks. Supabase JS caps a
+// single response at 1000 rows by default, which is what historically caused
+// the helper to silently miss tenant members (and therefore null-org bookings)
+// for tenants with many members. Mirrors the report's GET-path behaviour.
+const PAGE_SIZE = 1000;
+async function fetchAllPages(label, invoiceKey, buildQuery) {
+  const all = [];
+  let from = 0;
+  let pageCount = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) {
+      console.error(
+        `[PendingPO] helper paginate error label=${label} invoiceKey=${invoiceKey} page=${pageCount}: ${error.message}`,
+      );
+      throw new Error(`Failed to load ${label}: ${error.message}`);
+    }
+    pageCount += 1;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
+}
+
 export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const parsed = parseInvoiceKey(invoiceKey);
   if (!parsed) return null;
 
-  const { data: tenantOrgs } = await client
-    .from('organization')
-    .select('id, name')
-    .eq('tenant_id', tenantId);
-  const tenantOrgIds = (tenantOrgs || []).map((o) => o.id);
-  const orgNameById = new Map((tenantOrgs || []).map((o) => [o.id, o.name]));
+  // 1. All organisations in this tenant (paginated).
+  let tenantOrgs;
+  try {
+    tenantOrgs = await fetchAllPages('organization', invoiceKey, () => client
+      .from('organization')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .order('id', { ascending: true }));
+  } catch (err) {
+    console.error(`[PendingPO] organization lookup failed for tenant ${tenantId} invoiceKey=${invoiceKey}: ${err.message}`);
+    throw err;
+  }
+  const tenantOrgIds = tenantOrgs.map((o) => o.id);
+  const orgNameById = new Map(tenantOrgs.map((o) => [o.id, o.name]));
   if (tenantOrgIds.length === 0) {
     return { bookings: [], transactions: [], xeroInvoiceId: null, xeroInvoiceNumber: null, orgNameById };
   }
 
-  const { data: tenantMembers } = await client
-    .from('member')
-    .select('id')
-    .in('organization_id', tenantOrgIds);
-  const tenantMemberIds = (tenantMembers || []).map((m) => m.id);
+  // 2. All members of those organisations (paginated). Required for the
+  // null-org booking fallback that the report uses, and now also for the
+  // transactions fallback so the helper can resolve any row the report shows.
+  let tenantMembers;
+  try {
+    tenantMembers = await fetchAllPages('member', invoiceKey, () => client
+      .from('member')
+      .select('id')
+      .in('organization_id', tenantOrgIds)
+      .order('id', { ascending: true }));
+  } catch (err) {
+    console.error(`[PendingPO] member lookup failed for tenant ${tenantId} invoiceKey=${invoiceKey}: ${err.message}`);
+    throw err;
+  }
+  const tenantMemberIds = tenantMembers.map((m) => m.id);
 
   const matchInvoice = (q) => {
     if (parsed.xeroInvoiceId) return q.eq('xero_invoice_id', parsed.xeroInvoiceId);
     return q.eq('xero_invoice_number', parsed.xeroInvoiceNumber);
   };
 
-  const bookingsByOrg = matchInvoice(
-    client
-      .from('booking')
-      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
-      .in('organization_id', tenantOrgIds)
-      .neq('status', 'cancelled'),
-  );
-  const { data: bookingsOrgRows } = await bookingsByOrg;
+  // 3. Bookings whose own organization_id is in the tenant.
+  let bookingsOrgRows;
+  try {
+    bookingsOrgRows = await fetchAllPages('booking (org-bound)', invoiceKey, () => matchInvoice(
+      client
+        .from('booking')
+        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
+        .in('organization_id', tenantOrgIds)
+        .neq('status', 'cancelled')
+        .order('id', { ascending: true }),
+    ));
+  } catch (err) {
+    throw err;
+  }
 
-  let bookingsByMember = [];
+  // 4. Bookings with org_id IS NULL whose member belongs to a tenant org.
+  // Iterate the member id list in 500-id chunks (matching the report) so the
+  // .in() filter never gets unwieldy, and paginate each chunk's results.
+  const MEMBER_CHUNK = 500;
+  const bookingsByMember = [];
   if (tenantMemberIds.length > 0) {
-    const MEMBER_CHUNK = 500;
     for (let i = 0; i < tenantMemberIds.length; i += MEMBER_CHUNK) {
       const chunk = tenantMemberIds.slice(i, i + MEMBER_CHUNK);
-      const { data } = await matchInvoice(
+      const rows = await fetchAllPages(`booking (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
         client
           .from('booking')
           .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
           .is('organization_id', null)
           .in('member_id', chunk)
-          .neq('status', 'cancelled'),
-      );
-      if (data) bookingsByMember.push(...data);
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+      bookingsByMember.push(...rows);
     }
   }
 
   const seenBooking = new Set();
-  const bookings = [...(bookingsOrgRows || []), ...bookingsByMember].filter((b) => {
+  const bookings = [...bookingsOrgRows, ...bookingsByMember].filter((b) => {
     if (seenBooking.has(b.id)) return false;
     seenBooking.add(b.id);
     return true;
   });
 
-  const { data: transactions } = await matchInvoice(
-    client
-      .from('program_ticket_transaction')
-      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
-      .in('organization_id', tenantOrgIds)
-      .eq('transaction_type', 'purchase')
-      .neq('status', 'cancelled'),
-  );
+  // 5. Transactions whose own organization_id is in the tenant.
+  let transactionsByOrg;
+  try {
+    transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
+      client
+        .from('program_ticket_transaction')
+        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+        .in('organization_id', tenantOrgIds)
+        .eq('transaction_type', 'purchase')
+        .neq('status', 'cancelled')
+        .order('id', { ascending: true }),
+    ));
+  } catch (err) {
+    throw err;
+  }
 
-  const firstWithId = bookings.find((b) => b.xero_invoice_id) || (transactions || []).find((t) => t.xero_invoice_id);
+  // 6. Transactions with org_id IS NULL whose member belongs to a tenant org.
+  // Mirrors the booking null-org fallback so any row visible in the report
+  // (or that becomes visible if the report later widens its scope) is findable.
+  const transactionsByMember = [];
+  if (tenantMemberIds.length > 0) {
+    for (let i = 0; i < tenantMemberIds.length; i += MEMBER_CHUNK) {
+      const chunk = tenantMemberIds.slice(i, i + MEMBER_CHUNK);
+      const rows = await fetchAllPages(`transaction (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
+        client
+          .from('program_ticket_transaction')
+          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+          .is('organization_id', null)
+          .in('member_id', chunk)
+          .eq('transaction_type', 'purchase')
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+      transactionsByMember.push(...rows);
+    }
+  }
+
+  const seenTx = new Set();
+  const transactions = [...transactionsByOrg, ...transactionsByMember].filter((t) => {
+    if (seenTx.has(t.id)) return false;
+    seenTx.add(t.id);
+    return true;
+  });
+
+  const firstWithId = bookings.find((b) => b.xero_invoice_id) || transactions.find((t) => t.xero_invoice_id);
   const xeroInvoiceId = parsed.xeroInvoiceId || firstWithId?.xero_invoice_id || null;
-  const firstWithNum = bookings.find((b) => b.xero_invoice_number) || (transactions || []).find((t) => t.xero_invoice_number);
+  const firstWithNum = bookings.find((b) => b.xero_invoice_number) || transactions.find((t) => t.xero_invoice_number);
   const xeroInvoiceNumber = parsed.xeroInvoiceNumber || firstWithNum?.xero_invoice_number || null;
 
   return {
-    bookings: bookings || [],
-    transactions: transactions || [],
+    bookings,
+    transactions,
     xeroInvoiceId,
     xeroInvoiceNumber,
     orgNameById,
@@ -101,7 +191,12 @@ export async function applyInvoicePoUpdate({
     return { ok: false, status: 400, error: 'Purchase order number required' };
   }
 
-  const found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
+  let found;
+  try {
+    found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
+  } catch (err) {
+    return { ok: false, status: 500, error: err.message || 'Failed to look up invoice rows' };
+  }
   if (!found) {
     return { ok: false, status: 400, error: 'Invalid invoice key' };
   }
@@ -123,6 +218,7 @@ export async function applyInvoicePoUpdate({
       .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (bErr) {
+      console.error(`[PendingPO] applyInvoicePoUpdate booking update failed invoiceKey=${invoiceKey}: ${bErr.message}`);
       return { ok: false, status: 500, error: 'Failed to update bookings' };
     }
     bookingsUpdated = updated?.length || 0;
@@ -138,6 +234,7 @@ export async function applyInvoicePoUpdate({
       .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (tErr) {
+      console.error(`[PendingPO] applyInvoicePoUpdate transaction update failed invoiceKey=${invoiceKey}: ${tErr.message}`);
       return { ok: false, status: 500, error: 'Failed to update transactions' };
     }
     transactionsUpdated = updated?.length || 0;
@@ -171,7 +268,13 @@ export async function applyInvoicePoUpdate({
 }
 
 export async function summariseInvoice(client, tenantId, invoiceKey) {
-  const found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
+  let found;
+  try {
+    found = await findInvoiceRowsForTenant(client, tenantId, invoiceKey);
+  } catch (err) {
+    console.error(`[PendingPO] summariseInvoice lookup failed tenant=${tenantId} invoiceKey=${invoiceKey}: ${err.message}`);
+    throw err;
+  }
   if (!found || (found.bookings.length === 0 && found.transactions.length === 0)) {
     return null;
   }
@@ -228,22 +331,31 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
 
   const bookerNames = [];
   if (bookerMemberIds.size > 0) {
-    const { data: members } = await client
+    const { data: members, error: bookerMembersErr } = await client
       .from('member')
-      .select('id, first_name, last_name, email')
+      .select('id, first_name, last_name, email, organization_id')
       .in('id', Array.from(bookerMemberIds));
+    if (bookerMembersErr) {
+      console.error(`[PendingPO] summariseInvoice booker member lookup failed invoiceKey=${invoiceKey}: ${bookerMembersErr.message}`);
+    }
     (members || []).forEach((m) => {
       const name = `${m.first_name || ''} ${m.last_name || ''}`.trim();
       if (name && !bookerNames.includes(name)) bookerNames.push(name);
       addBookerEmail(m.email);
+      // For null-org rows, fall back to the booker's organisation so the
+      // recipient lookup downstream can still resolve a primary contact.
+      if (m.organization_id) orgIds.add(m.organization_id);
     });
   }
 
   if (eventIds.size > 0) {
-    const { data: events } = await client
+    const { data: events, error: eventsErr } = await client
       .from('event')
       .select('id, title')
       .in('id', Array.from(eventIds));
+    if (eventsErr) {
+      console.error(`[PendingPO] summariseInvoice event lookup failed invoiceKey=${invoiceKey}: ${eventsErr.message}`);
+    }
     (events || []).forEach((e) => {
       if (e.title) {
         sourceNames.add(e.title);
@@ -252,10 +364,13 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     });
   }
   if (programTicketIds.size > 0) {
-    const { data: tickets } = await client
+    const { data: tickets, error: ticketsErr } = await client
       .from('program_ticket')
       .select('id, name, program:program_id(name)')
       .in('id', Array.from(programTicketIds));
+    if (ticketsErr) {
+      console.error(`[PendingPO] summariseInvoice ticket lookup failed invoiceKey=${invoiceKey}: ${ticketsErr.message}`);
+    }
     (tickets || []).forEach((t) => {
       const name = t.program?.name || t.name;
       if (name) {
@@ -266,15 +381,21 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
 
   let organizationName = null;
-  const firstOrgId = Array.from(orgIds)[0];
+  // Prefer a tenant-scoped org id (one we already know belongs to the tenant)
+  // over an arbitrary booker-org fallback.
+  const tenantScopedOrgId = Array.from(orgIds).find((id) => found.orgNameById?.has?.(id)) || null;
+  const firstOrgId = tenantScopedOrgId || Array.from(orgIds)[0];
   if (firstOrgId) {
     organizationName = found.orgNameById?.get?.(firstOrgId) || null;
     if (!organizationName) {
-      const { data: orgRow } = await client
+      const { data: orgRow, error: orgErr } = await client
         .from('organization')
         .select('name')
         .eq('id', firstOrgId)
         .single();
+      if (orgErr) {
+        console.error(`[PendingPO] summariseInvoice org lookup failed invoiceKey=${invoiceKey} orgId=${firstOrgId}: ${orgErr.message}`);
+      }
       organizationName = orgRow?.name || null;
     }
   }
@@ -296,7 +417,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
 
   return {
     organizationName,
-    organizationId: Array.from(orgIds)[0] || null,
+    organizationId: firstOrgId || null,
     invoiceNumber: found.xeroInvoiceNumber,
     xeroInvoiceId: found.xeroInvoiceId,
     invoiceDate: earliestDate,
