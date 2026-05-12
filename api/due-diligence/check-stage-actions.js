@@ -110,11 +110,16 @@ export default async function handler(req, res) {
 
       // Query agent assignments for this template
       console.log('[DD Check Stage Actions] Querying agent_meeting_template for template:', template.id);
-      const { data: agentAssignments, error: agentError } = await supabase
+      const { data: agentAssignmentsRaw, error: agentError } = await supabase
         .from('agent_meeting_template')
-        .select('identity_id')
+        .select('identity_id, tenant_identity:identity_id ( is_booking_agent )')
         .eq('meeting_template_id', template.id)
-        .eq('tenant_id', tenantCtx.tenantId);
+        .eq('tenant_id', tenantCtx.tenantId)
+        .eq('is_active', true);
+
+      const agentAssignments = (agentAssignmentsRaw || []).filter(
+        a => a.tenant_identity?.is_booking_agent === true
+      );
 
       stepDebug.agent_assignments = agentAssignments || [];
       stepDebug.agent_assignment_error = agentError?.message;
