@@ -90,6 +90,12 @@ const SORT_FIELD_TYPES = {
   event_date: 'date',
 };
 const SORT_FIELDS = new Set(Object.keys(SORT_FIELD_TYPES));
+// Fields that hold a date and can therefore be used as the source for the
+// from/to date-range filter. Mirrors entries with type === 'date' in
+// SORT_FIELD_TYPES so the two stay in sync.
+const DATE_FILTER_FIELDS = new Set(
+  Object.keys(SORT_FIELD_TYPES).filter(k => SORT_FIELD_TYPES[k] === 'date')
+);
 // Fields whose default sort direction is desc when no explicit direction is
 // supplied. All other allowed fields default to asc.
 const DEFAULT_DESC_SORT_FIELDS = new Set(['date', 'type', 'amount', 'balance_after']);
@@ -232,6 +238,30 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid "to" date' });
   }
 
+  // Which date column the from/to range applies to, plus an optional fallback
+  // date column used when the primary value is empty for a row. Defaults to
+  // the legacy behaviour: filter on `date` (created_date), no fallback.
+  const dateField = q.date_field || 'date';
+  if (!DATE_FILTER_FIELDS.has(dateField)) {
+    return res.status(400).json({ error: 'Invalid date_field' });
+  }
+  const dateFallbackField = q.date_fallback_field || null;
+  if (dateFallbackField !== null) {
+    if (!DATE_FILTER_FIELDS.has(dateFallbackField)) {
+      return res.status(400).json({ error: 'Invalid date_fallback_field' });
+    }
+    if (dateFallbackField === dateField) {
+      return res.status(400).json({ error: 'date_fallback_field must differ from date_field' });
+    }
+  }
+  const dateFilterActive = !!(fromIso || toIso);
+  // Only the legacy default (filter on created_date with no fallback) can be
+  // pushed into the SQL query. Any other configuration needs the auxiliary
+  // booking/event lookups to populate event_date before filtering, so we do
+  // it in JS after the fetch.
+  const canUseDbDateFilter =
+    dateField === 'date' && !dateFallbackField;
+
   // Build the ordered list of sort rules. Prefer the new `sort` param; fall
   // back to legacy `sort_field` / `sort_dir`; if nothing is supplied, default
   // to the legacy single-rule "Organisation asc".
@@ -251,12 +281,18 @@ export default async function handler(req, res) {
     sortRules = [{ field: 'organization', dir: 'asc', fallback: null }];
   }
 
-  // Determine which auxiliary lookups are needed based on selected columns
-  // *and* every sort/fallback field referenced by the rules.
+  // Determine which auxiliary lookups are needed based on selected columns,
+  // every sort/fallback field referenced by the rules, *and* the date-range
+  // filter's primary/fallback date field (so e.g. filtering by event_date
+  // still triggers the booking/event lookup).
   const sortFieldsReferenced = new Set();
   for (const r of sortRules) {
     sortFieldsReferenced.add(r.field);
     if (r.fallback) sortFieldsReferenced.add(r.fallback);
+  }
+  if (dateFilterActive) {
+    sortFieldsReferenced.add(dateField);
+    if (dateFallbackField) sortFieldsReferenced.add(dateFallbackField);
   }
 
   try {
@@ -269,8 +305,8 @@ export default async function handler(req, res) {
         .from('training_fund_transaction')
         .select('id, organization_id, type, amount, balance_before, balance_after, reason, booking_id, created_by, created_date')
         .eq('tenant_id', tenantId);
-      if (fromIso) query = query.gte('created_date', fromIso);
-      if (toIso) query = query.lte('created_date', toIso);
+      if (canUseDbDateFilter && fromIso) query = query.gte('created_date', fromIso);
+      if (canUseDbDateFilter && toIso) query = query.lte('created_date', toIso);
       if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
       query = query.range(from, from + pageSize - 1);
 
@@ -483,6 +519,28 @@ export default async function handler(req, res) {
       }
       return v;
     };
+
+    // ---- In-memory date filter (when not using the DB-level fast path) ----
+    // The DB query already enforced the from/to bounds when we were filtering
+    // on `date` (created_date) with no fallback. For any other configuration
+    // (e.g. filter on event_date, or with a fallback) we couldn't push the
+    // filter into the query because the value isn't on the row, so we apply
+    // it here using the same primary-then-fallback resolution as sort rules.
+    if (!canUseDbDateFilter && dateFilterActive) {
+      const filtered = allTransactions.filter((t) => {
+        let v = rawValue(t, dateField);
+        if (v === null && dateFallbackField) {
+          v = rawValue(t, dateFallbackField);
+        }
+        if (v === null) return false; // rows with no date value can't match a range
+        const iso = String(v);
+        if (fromIso && iso < fromIso) return false;
+        if (toIso && iso > toIso) return false;
+        return true;
+      });
+      allTransactions.length = 0;
+      allTransactions.push(...filtered);
+    }
 
     const compareTyped = (av, bv, type) => {
       // Empty values sort *after* non-empty values in ascending order so they

@@ -55,6 +55,12 @@ const EXPORT_SORT_FIELD_TYPES = {
 };
 const DEFAULT_EXPORT_SORT_RULES = [{ field: 'organization', dir: 'asc', fallback: '' }];
 
+// Date columns the from/to range filter can be applied against. Derived from
+// EXPORT_SORT_FIELD_TYPES so it stays in sync with the columns above.
+const EXPORT_DATE_FILTER_FIELDS = EXPORT_COLUMN_DEFS.filter(
+  c => EXPORT_SORT_FIELD_TYPES[c.key] === 'date'
+);
+
 export default function TrainingFundManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -70,6 +76,8 @@ export default function TrainingFundManagementPage() {
   const [exportOrgIds, setExportOrgIds] = useState(() => new Set());
   const [exportOrgSearch, setExportOrgSearch] = useState("");
   const [exportSortRules, setExportSortRules] = useState(() => DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
+  const [exportDateField, setExportDateField] = useState('date');
+  const [exportDateFallbackField, setExportDateFallbackField] = useState('');
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -393,6 +401,8 @@ export default function TrainingFundManagementPage() {
     setExportOrgIds(new Set());
     setExportOrgSearch("");
     setExportSortRules(DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
+    setExportDateField('date');
+    setExportDateFallbackField('');
     setExportEmptyMessage("");
     setShowExportDialog(true);
   };
@@ -486,6 +496,20 @@ export default function TrainingFundManagementPage() {
       toast.error('"From" date must be on or before "To" date');
       return;
     }
+    if (!EXPORT_DATE_FILTER_FIELDS.some(f => f.key === exportDateField)) {
+      toast.error('Invalid date field selected for the date range');
+      return;
+    }
+    if (exportDateFallbackField) {
+      if (!EXPORT_DATE_FILTER_FIELDS.some(f => f.key === exportDateFallbackField)) {
+        toast.error('Invalid fallback date field selected');
+        return;
+      }
+      if (exportDateFallbackField === exportDateField) {
+        toast.error('Fallback date field must differ from the primary date field');
+        return;
+      }
+    }
     if (exportSortRules.length === 0) {
       toast.error('Add at least one sort rule');
       return;
@@ -522,6 +546,12 @@ export default function TrainingFundManagementPage() {
       params.set('columns', orderedCols.join(','));
       if (exportFromDate) params.set('from', toIsoDateOnly(exportFromDate));
       if (exportToDate) params.set('to', toIsoDateOnly(exportToDate));
+      if (exportFromDate || exportToDate) {
+        params.set('date_field', exportDateField);
+        if (exportDateFallbackField) {
+          params.set('date_fallback_field', exportDateFallbackField);
+        }
+      }
       if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
       for (const rule of exportSortRules) {
         const parts = [rule.field, rule.dir];
@@ -1338,6 +1368,50 @@ export default function TrainingFundManagementPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Date field</Label>
+                  <Select
+                    value={exportDateField}
+                    onValueChange={(v) => {
+                      setExportDateField(v);
+                      if (exportDateFallbackField === v) setExportDateFallbackField('');
+                    }}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-export-date-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPORT_DATE_FILTER_FIELDS.map(f => (
+                        <SelectItem key={f.key} value={f.key} data-testid={`select-export-date-field-option-${f.key}`}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">If empty, use</Label>
+                  <Select
+                    value={exportDateFallbackField || '__none__'}
+                    onValueChange={(v) => setExportDateFallbackField(v === '__none__' ? '' : v)}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-export-date-fallback-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" data-testid="select-export-date-fallback-field-option-none">
+                        No fallback
+                      </SelectItem>
+                      {EXPORT_DATE_FILTER_FIELDS
+                        .filter(f => f.key !== exportDateField)
+                        .map(f => (
+                          <SelectItem key={f.key} value={f.key} data-testid={`select-export-date-fallback-field-option-${f.key}`}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div>
                   <Label className="text-sm font-medium">From date</Label>
                   <Popover open={exportFromOpen} onOpenChange={setExportFromOpen}>
