@@ -1637,7 +1637,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     // Get form submission data
     const { data: formSubmission, error: fsError } = await supabase
       .from('form_submission')
-      .select('submission_data, organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', ddSubmission.form_submission_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -1657,6 +1657,58 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     const originalData = formSubmission.submission_data || {};
     // Reviewed values from due diligence review (preferred when available)
     const reviewedData = ddSubmission.reviewed_form_values || {};
+
+    // Load source form fields so we can look up values by id, name, or key (mirrors
+    // what the contract-sending action does). The Field Mapping config saves
+    // source_field_id as `field.id || field.name`, but the submission data may be
+    // keyed differently depending on how the form was rendered.
+    const sourceFormId = formSubmission.form_id || ddSubmission.form_id || ddSubmission.form_submission?.form_id;
+    let sourceFormFields = [];
+    if (sourceFormId) {
+      const { data: sourceForm, error: sourceFormError } = await supabase
+        .from('form')
+        .select('fields')
+        .eq('id', sourceFormId)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (sourceFormError) {
+        console.warn('[DD Field Mapping] Could not load source form fields:', sourceFormError.message);
+      } else {
+        sourceFormFields = sourceForm?.fields || [];
+      }
+    }
+
+    // Resolve a value out of submission/reviewed data given any of: field id, name, or key.
+    const resolveValueByKey = (data, sourceKey) => {
+      if (!data || !sourceKey) return undefined;
+      if (data[sourceKey] !== undefined) return data[sourceKey];
+      const field = sourceFormFields.find(f => f.id === sourceKey || f.name === sourceKey || f.key === sourceKey);
+      if (field) {
+        if (field.id && data[field.id] !== undefined) return data[field.id];
+        if (field.name && data[field.name] !== undefined) return data[field.name];
+        if (field.key && data[field.key] !== undefined) return data[field.key];
+        if (field.id && data[`field_${field.id}`] !== undefined) return data[`field_${field.id}`];
+      }
+      return undefined;
+    };
+
+    // Some form field types submit wrapper objects (e.g. URL pickers, text inputs that
+    // serialize { url, value, href }). For simple text targets we want a plain string.
+    const unwrapPrimitiveValue = (value) => {
+      if (value === null || value === undefined) return value;
+      if (typeof value !== 'object') return value;
+      if (Array.isArray(value)) {
+        return value.length > 0 ? unwrapPrimitiveValue(value[0]) : null;
+      }
+      // Common wrapper shapes
+      const candidateKeys = ['url', 'href', 'value', 'text', 'label', 'name'];
+      for (const k of candidateKeys) {
+        if (value[k] !== undefined && value[k] !== null && typeof value[k] !== 'object') {
+          return value[k];
+        }
+      }
+      return value;
+    };
     
     // Get preference fields for custom field lookups
     const { data: preferenceFields } = await supabase
@@ -1751,8 +1803,10 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         } else {
           // Get the value: prefer REVIEWED value, fall back to ORIGINAL
           // Note: 0 and false are valid values; only undefined/null/empty-string means "not set"
-          const reviewedValue = reviewedData[source_field_id];
-          const originalValue = originalData[source_field_id];
+          // Use the field-aware resolver so that source_field_id stored as the field's id,
+          // name, or legacy key all work against the submission/reviewed data.
+          const reviewedValue = resolveValueByKey(reviewedData, source_field_id);
+          const originalValue = resolveValueByKey(originalData, source_field_id);
           
           // Check if reviewed value is truly present (0/false are valid, empty string is not)
           const hasReviewedValue = reviewedValue !== undefined && reviewedValue !== null && reviewedValue !== '';
@@ -1762,11 +1816,11 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           // Check if source value is usable (0/false are valid, empty string is not)
           const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
           if (isValueEmpty) {
-            console.log(`[DD Field Mapping] Field ${source_field_id}: no value in reviewed or original data, skipping`);
+            console.log(`[DD Field Mapping] Field ${source_field_id}: no value in reviewed or original data (keys checked: id/name/key), skipping`);
             continue;
           }
           
-          console.log(`[DD Field Mapping] Field ${source_field_id}: using ${valueSource} value`);
+          console.log(`[DD Field Mapping] Field ${source_field_id}: using ${valueSource} value (raw type: ${typeof sourceValue})`);
         }
         
         
@@ -1780,6 +1834,16 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           // For composite JSONB fields, use raw value (JSONB handles native types)
           // If sourceValue is a string, keep it as is; if object, store as-is in JSONB
           storedValue = sourceValue;
+        } else if (target_type === 'core' && target_field !== 'logo_url') {
+          // Simple core text/url fields (name, email, phone, website, description) need a
+          // plain string. Some form field types submit a wrapper object (e.g. { url: ".." })
+          // - unwrap it so we don't end up storing JSON in `organization.website`.
+          const unwrapped = unwrapPrimitiveValue(sourceValue);
+          if (unwrapped === null || unwrapped === undefined) {
+            console.log(`[DD Field Mapping] Field ${source_field_id} -> ${target_field}: value unwrapped to null, skipping`);
+            continue;
+          }
+          storedValue = typeof unwrapped === 'object' ? JSON.stringify(unwrapped) : String(unwrapped);
         } else if (typeof sourceValue === 'object') {
           storedValue = JSON.stringify(sourceValue);
         } else {
@@ -1917,7 +1981,12 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             // Update simple core organization field
             const updateData = {};
             updateData[target_field] = storedValue;
-            
+
+            const previewValue = typeof storedValue === 'string' && storedValue.length > 120
+              ? `${storedValue.slice(0, 120)}…`
+              : storedValue;
+            console.log(`[DD Field Mapping] Updating organization ${organizationId} core field ${target_field} = ${JSON.stringify(previewValue)}`);
+
             const { error: updateError } = await supabase
               .from('organization')
               .update(updateData)
@@ -1928,6 +1997,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
               mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
             } else {
+              console.log(`[DD Field Mapping] Successfully updated organization ${organizationId} field ${target_field}`);
               mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
             }
           }
