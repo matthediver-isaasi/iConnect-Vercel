@@ -728,29 +728,19 @@ export default async function handler(req, res) {
         return res.json({ success: true, settings: updatedSettings.poReminderSettings });
       }
       
-      // Handle send_reminder action — hardwired template + tokenised submit link
-      if (action === 'send_reminder') {
-        const { recordId, entityType: reminderEntityType } = req.body;
-
-        if (!recordId || !reminderEntityType) {
-          return res.status(400).json({ error: 'recordId and entityType are required' });
-        }
-
-        // Reminders are only sent at the consolidated invoice level. Per-row
-        // legacy callers are no longer supported.
-        if (reminderEntityType !== 'invoice') {
-          return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
-        }
-
+      // Shared helper: run all guardrails, resolve recipient, mint token, and
+      // build the rendered email for an invoice. Used by both preview_reminder
+      // and the legacy single-shot send_reminder path.
+      const prepareReminderForInvoice = async (recordId) => {
         const summary = await summariseInvoice(supabase, tenantId, recordId);
         if (!summary || summary.rowCount === 0) {
-          return res.status(404).json({ error: 'Invoice not found for this tenant' });
+          return { ok: false, status: 404, error: 'Invoice not found for this tenant' };
         }
         if (summary.existingPoNumber) {
-          return res.status(400).json({ error: 'A purchase order number has already been recorded for this invoice.' });
+          return { ok: false, status: 400, error: 'A purchase order number has already been recorded for this invoice.' };
         }
 
-        // Check if invoice is already paid in Xero before sending reminder
+        // Check if invoice is already paid in Xero before sending/previewing reminder
         if (summary.xeroInvoiceId) {
           try {
             const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
@@ -769,9 +759,11 @@ export default async function handler(req, res) {
               const invoiceData = await invoiceResponse.json();
               const invoice = invoiceData.Invoices?.[0];
               if (invoice?.Status === 'PAID') {
-                return res.status(400).json({
+                return {
+                  ok: false,
+                  status: 400,
                   error: 'Cannot send reminder - this invoice has already been paid in Xero'
-                });
+                };
               }
             }
           } catch (xeroErr) {
@@ -799,7 +791,7 @@ export default async function handler(req, res) {
         }
 
         if (!recipientEmail) {
-          return res.status(400).json({ error: 'No recipient email found for this invoice' });
+          return { ok: false, status: 400, error: 'No recipient email found for this invoice' };
         }
 
         // Mint a one-time submit-PO token for this invoice
@@ -818,7 +810,7 @@ export default async function handler(req, res) {
           });
         if (tokenInsertError) {
           console.error('[PendingPO] Token insert error:', tokenInsertError);
-          return res.status(500).json({ error: 'Failed to create submit link' });
+          return { ok: false, status: 500, error: 'Failed to create submit link' };
         }
 
         const { data: tenant } = await supabase
@@ -871,15 +863,177 @@ export default async function handler(req, res) {
           </div>
         `;
 
+        return {
+          ok: true,
+          recipientEmail,
+          subject,
+          html,
+          submitUrl,
+          token: submitToken,
+          expiresAt: expiresAt.toISOString(),
+        };
+      };
+
+      // Handle preview_reminder — runs all guardrails, mints the token, and
+      // returns the rendered email so the UI can show it before the user
+      // confirms send. The minted token is reused on the subsequent
+      // send_reminder confirm so no second token is created.
+      if (action === 'preview_reminder') {
+        const { recordId, entityType: previewEntityType } = req.body;
+        if (!recordId || !previewEntityType) {
+          return res.status(400).json({ error: 'recordId and entityType are required' });
+        }
+        if (previewEntityType !== 'invoice') {
+          return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
+        }
+
+        const prepared = await prepareReminderForInvoice(recordId);
+        if (!prepared.ok) {
+          return res.status(prepared.status).json({ error: prepared.error });
+        }
+
+        return res.json({
+          recipientEmail: prepared.recipientEmail,
+          subject: prepared.subject,
+          html: prepared.html,
+          submitUrl: prepared.submitUrl,
+          token: prepared.token,
+          expiresAt: prepared.expiresAt,
+        });
+      }
+
+      // Handle send_reminder action — supports two call shapes:
+      //   1. { token } — confirm-send a previously previewed reminder; reuses
+      //      the existing token (no second token minted).
+      //   2. { recordId, entityType } — legacy single-shot path used by the
+      //      bulk sender; mints a token + sends in one call.
+      if (action === 'send_reminder') {
+        const { recordId, entityType: reminderEntityType, token: providedToken } = req.body;
+
+        // Path 1: send via previously previewed token.
+        if (providedToken) {
+          await ensurePendingPoTokenTable();
+          const { data: tokenRow, error: tokenLookupError } = await supabase
+            .from('pending_po_token')
+            .select('token, tenant_id, invoice_key, status, recipient_email, expires_at')
+            .eq('token', providedToken)
+            .maybeSingle();
+          if (tokenLookupError) {
+            console.error('[PendingPO] Token lookup error:', tokenLookupError);
+            return res.status(500).json({ error: 'Failed to look up reminder token' });
+          }
+          if (!tokenRow || tokenRow.tenant_id !== tenantId) {
+            return res.status(404).json({ error: 'Reminder token not found' });
+          }
+          if (tokenRow.status !== 'pending') {
+            return res.status(400).json({ error: 'This reminder link has already been used or is no longer valid' });
+          }
+          if (tokenRow.expires_at && new Date(tokenRow.expires_at).getTime() < Date.now()) {
+            return res.status(400).json({ error: 'This reminder link has expired' });
+          }
+          if (!tokenRow.recipient_email) {
+            return res.status(400).json({ error: 'No recipient email found for this reminder' });
+          }
+
+          // Re-derive subject/html from the invoice summary so the email body
+          // is consistent with what was previewed. We deliberately reuse the
+          // stored token rather than minting a new one.
+          const summary = await summariseInvoice(supabase, tenantId, tokenRow.invoice_key);
+          if (!summary || summary.rowCount === 0) {
+            return res.status(404).json({ error: 'Invoice not found for this tenant' });
+          }
+          if (summary.existingPoNumber) {
+            return res.status(400).json({ error: 'A purchase order number has already been recorded for this invoice.' });
+          }
+
+          const { data: tenant } = await supabase
+            .from('tenant')
+            .select('name, slug, primary_color')
+            .eq('id', tenantId)
+            .single();
+          const tenantSlug = tenant?.slug;
+          const tenantName = tenant?.name || 'Organisation';
+          const primaryColor = tenant?.primary_color || '#5C0085';
+          const submitUrl = tenantSlug
+            ? `https://${tenantSlug}.${APP_DOMAIN}/submit-po/${tokenRow.token}`
+            : `https://${APP_DOMAIN}/submit-po/${tokenRow.token}`;
+          const expiresAtDate = tokenRow.expires_at ? new Date(tokenRow.expires_at) : new Date();
+          const invoiceDateText = summary.invoiceDate
+            ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+            : 'N/A';
+          const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
+          const orgName = summary.organizationName || 'your organisation';
+          const invoiceNumber = summary.invoiceNumber || 'N/A';
+          const sourceLine = summary.sourceName
+            ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
+            : '';
+          const subject = `Purchase order required for invoice ${invoiceNumber}`;
+          const html = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
+              <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
+              <p>Dear ${orgName},</p>
+              <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
+              <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 4px 0; color: #666;">Invoice Number</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceNumber}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #666;">Invoice Date</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceDateText}</td></tr>
+                  ${sourceLine ? `<tr><td style="padding: 4px 0; color: #666;">${summary.sourceType || 'For'}</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.sourceName}</td></tr>` : ''}
+                  ${summary.bookerNameDisplay ? `<tr><td style="padding: 4px 0; color: #666;">Booked by</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.bookerNameDisplay}</td></tr>` : ''}
+                  <tr><td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td></tr>
+                  <tr><td style="padding: 4px 0; color: #333; font-weight: 600;">Total</td><td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${totalText}</td></tr>
+                </table>
+              </div>
+              <p>Please use the secure link below to submit your purchase order number. The PO number will be applied to this invoice and forwarded to our accounting system automatically.</p>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${submitUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">Submit Purchase Order Number</a>
+              </div>
+              <p style="color: #999; font-size: 12px;">This link expires on ${expiresAtDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
+            </div>
+            <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${tenantName}</p>
+          </div>
+        `;
+
+          try {
+            await sendTenantEmail({
+              tenantId,
+              to: tokenRow.recipient_email,
+              subject,
+              html,
+            });
+            console.log(`[PendingPO] Reminder (preview-confirm) sent to ${tokenRow.recipient_email} for invoice ${tokenRow.invoice_key}`);
+            return res.json({ success: true, sentTo: tokenRow.recipient_email, submitUrl });
+          } catch (emailError) {
+            console.error('[PendingPO] Email send error:', emailError);
+            return res.status(500).json({ error: 'Failed to send reminder email' });
+          }
+        }
+
+        // Path 2: legacy bulk path — record-based call mints + sends in one shot.
+        if (!recordId || !reminderEntityType) {
+          return res.status(400).json({ error: 'recordId and entityType (or token) are required' });
+        }
+
+        // Reminders are only sent at the consolidated invoice level. Per-row
+        // legacy callers are no longer supported.
+        if (reminderEntityType !== 'invoice') {
+          return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
+        }
+
+        const prepared = await prepareReminderForInvoice(recordId);
+        if (!prepared.ok) {
+          return res.status(prepared.status).json({ error: prepared.error });
+        }
+
         try {
           await sendTenantEmail({
             tenantId,
-            to: recipientEmail,
-            subject,
-            html,
+            to: prepared.recipientEmail,
+            subject: prepared.subject,
+            html: prepared.html,
           });
-          console.log(`[PendingPO] Reminder sent to ${recipientEmail} for invoice ${recordId}`);
-          return res.json({ success: true, sentTo: recipientEmail, submitUrl });
+          console.log(`[PendingPO] Reminder sent to ${prepared.recipientEmail} for invoice ${recordId}`);
+          return res.json({ success: true, sentTo: prepared.recipientEmail, submitUrl: prepared.submitUrl });
         } catch (emailError) {
           console.error('[PendingPO] Email send error:', emailError);
           return res.status(500).json({ error: 'Failed to send reminder email' });

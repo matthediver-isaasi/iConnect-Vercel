@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info, Copy, X } from "lucide-react";
 // Note: email template picker removed; reminders use a hardwired in-code template.
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -55,6 +55,9 @@ export default function PendingPurchaseOrdersReport() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState(null);
+  const [reminderPreview, setReminderPreview] = useState(null);
+  const [previewLoadingKey, setPreviewLoadingKey] = useState(null);
+  const [confirmSending, setConfirmSending] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [failedKeys, setFailedKeys] = useState(() => new Set());
   const [bulkSending, setBulkSending] = useState(false);
@@ -458,15 +461,114 @@ export default function PendingPurchaseOrdersReport() {
 
   const handleSendReminder = async (record) => {
     const recordKey = getRecordKey(record);
-    setSendingReminderId(recordKey);
+    setPreviewLoadingKey(recordKey);
 
     try {
-      await sendReminderRequest(record);
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'preview_reminder',
+          recordId: record.id,
+          entityType: record.entityType,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to load reminder preview';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // ignore JSON parse errors
+        }
+        throw new Error(errorMessage);
+      }
+
+      const preview = await response.json();
       const orgName = organizations[record.organization_id] || 'the organisation';
+      setReminderPreview({
+        record,
+        recordKey,
+        orgName,
+        recipientEmail: preview.recipientEmail,
+        subject: preview.subject,
+        html: preview.html,
+        submitUrl: preview.submitUrl,
+        token: preview.token,
+        expiresAt: preview.expiresAt,
+      });
+    } catch (error) {
+      toast({
+        title: "Cannot send reminder",
+        description: error.message || "Failed to load reminder preview.",
+        variant: "destructive",
+      });
+    } finally {
+      setPreviewLoadingKey(null);
+    }
+  };
+
+  const handleCopySubmitLink = async () => {
+    if (!reminderPreview?.submitUrl) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reminderPreview.submitUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = reminderPreview.submitUrl;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'absolute';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      toast({
+        title: "Link copied",
+        description: "The submit-PO link has been copied to your clipboard.",
+      });
+    } catch (error) {
+      toast({
+        title: "Copy failed",
+        description: error.message || "Could not copy link to clipboard.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmSendReminder = async () => {
+    if (!reminderPreview?.token) return;
+    setConfirmSending(true);
+    try {
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'send_reminder',
+          token: reminderPreview.token,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to send reminder';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // ignore JSON parse errors
+        }
+        throw new Error(errorMessage);
+      }
+
       toast({
         title: "Reminder Sent",
-        description: `PO reminder email sent to ${orgName}.`,
+        description: `PO reminder email sent to ${reminderPreview.orgName}.`,
       });
+      setReminderPreview(null);
     } catch (error) {
       toast({
         title: "Error",
@@ -474,7 +576,7 @@ export default function PendingPurchaseOrdersReport() {
         variant: "destructive",
       });
     } finally {
-      setSendingReminderId(null);
+      setConfirmSending(false);
     }
   };
 
@@ -991,15 +1093,15 @@ export default function PendingPurchaseOrdersReport() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleSendReminder(record)}
-                          disabled={sendingReminderId === recordKey}
+                          disabled={previewLoadingKey === recordKey || sendingReminderId === recordKey}
                           data-testid={`button-send-reminder-${record.id}`}
                         >
-                          {sendingReminderId === recordKey ? (
+                          {previewLoadingKey === recordKey ? (
                             <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
                           ) : (
                             <Send className="h-4 w-4 mr-1" />
                           )}
-                          {sendingReminderId === recordKey ? 'Sending...' : 'Send Reminder'}
+                          {previewLoadingKey === recordKey ? 'Loading...' : 'Send Reminder'}
                         </Button>
                         <Button
                           size="sm"
@@ -1086,6 +1188,108 @@ export default function PendingPurchaseOrdersReport() {
               data-testid="button-save-po"
             >
               {updateTransactionMutation.isPending ? 'Saving...' : 'Save PO Number'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!reminderPreview}
+        onOpenChange={(open) => {
+          if (!open && !confirmSending) setReminderPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-reminder-preview">
+          <DialogHeader>
+            <DialogTitle>Send PO Reminder</DialogTitle>
+          </DialogHeader>
+          {reminderPreview && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-1 text-sm">
+                <div className="flex flex-wrap gap-x-2">
+                  <span className="text-muted-foreground">To:</span>
+                  <span className="font-medium" data-testid="text-preview-recipient">
+                    {reminderPreview.recipientEmail}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <span className="text-muted-foreground">Organisation:</span>
+                  <span className="font-medium" data-testid="text-preview-org">
+                    {reminderPreview.orgName}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <span className="text-muted-foreground">Subject:</span>
+                  <span className="font-medium" data-testid="text-preview-subject">
+                    {reminderPreview.subject}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Email preview</Label>
+                <div
+                  className="border rounded-md bg-white p-3 max-h-80 overflow-y-auto"
+                  data-testid="container-preview-html"
+                >
+                  <iframe
+                    title="Reminder email preview"
+                    srcDoc={reminderPreview.html}
+                    sandbox=""
+                    className="w-full h-72 border-0"
+                    data-testid="iframe-preview-html"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="submit-po-link">Submit PO link</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="submit-po-link"
+                    readOnly
+                    value={reminderPreview.submitUrl}
+                    onFocus={(e) => e.target.select()}
+                    data-testid="input-preview-submit-url"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCopySubmitLink}
+                    data-testid="button-copy-submit-url"
+                  >
+                    <Copy className="h-4 w-4 mr-1" />
+                    Copy Link
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Copy this link if you'd like to compose your own email instead of sending the
+                  preview above.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReminderPreview(null)}
+              disabled={confirmSending}
+              data-testid="button-cancel-reminder"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmSendReminder}
+              disabled={confirmSending}
+              data-testid="button-confirm-send-reminder"
+            >
+              {confirmSending ? (
+                <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-1" />
+              )}
+              {confirmSending ? 'Sending...' : 'Send Email'}
             </Button>
           </DialogFooter>
         </DialogContent>
