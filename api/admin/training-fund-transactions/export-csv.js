@@ -93,11 +93,20 @@ function parseDateBoundary(value, endOfDay) {
   if (!str) return null;
   // Accept YYYY-MM-DD or full ISO timestamps.
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-').map(n => parseInt(n, 10));
+    const probe = new Date(Date.UTC(y, m - 1, d));
+    if (
+      probe.getUTCFullYear() !== y ||
+      probe.getUTCMonth() !== m - 1 ||
+      probe.getUTCDate() !== d
+    ) {
+      return null;
+    }
     return endOfDay ? `${str}T23:59:59.999Z` : `${str}T00:00:00.000Z`;
   }
-  const d = new Date(str);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString();
+  const parsed = new Date(str);
+  if (isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 }
 
 export default async function handler(req, res) {
@@ -127,11 +136,15 @@ export default async function handler(req, res) {
   // ---- Parse + validate config params ----
   const q = req.query || {};
 
+  const columnsParamProvided = Object.prototype.hasOwnProperty.call(q, 'columns');
   const requestedColumns = parseList(q.columns);
   let columnKeys;
-  if (requestedColumns.length === 0) {
+  if (!columnsParamProvided) {
     columnKeys = ALL_COLUMN_KEYS.slice();
   } else {
+    if (requestedColumns.length === 0) {
+      return res.status(400).json({ error: 'At least one column must be selected' });
+    }
     columnKeys = ALL_COLUMN_KEYS.filter(k => requestedColumns.includes(k));
     if (columnKeys.length === 0) {
       return res.status(400).json({ error: 'At least one valid column must be selected' });
