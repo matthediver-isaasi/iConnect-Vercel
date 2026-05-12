@@ -8,6 +8,7 @@ export default async function handler(req, res) {
   }
 
   res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=30');
+  res.setHeader('Vary', 'Host, X-Forwarded-Host');
 
   if (!supabase) {
     return res.status(200).json({ 

@@ -48,11 +48,19 @@ export function TenantBrandingProvider({ children }) {
           setBranding(data.branding);
           
           if (data.branding.faviconUrl) {
-            const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
-            link.type = 'image/x-icon';
-            link.rel = 'shortcut icon';
-            link.href = data.branding.faviconUrl;
-            document.getElementsByTagName('head')[0].appendChild(link);
+            const iconLinks = document.querySelectorAll("link[rel~='icon']");
+            if (iconLinks.length > 0) {
+              iconLinks.forEach((link) => {
+                if (link.href !== data.branding.faviconUrl) {
+                  link.href = data.branding.faviconUrl;
+                }
+              });
+            } else {
+              const newLink = document.createElement('link');
+              newLink.rel = 'icon';
+              newLink.href = data.branding.faviconUrl;
+              document.head.appendChild(newLink);
+            }
           }
           
           if (data.branding.name) {

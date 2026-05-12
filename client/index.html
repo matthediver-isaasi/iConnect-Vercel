@@ -31,19 +31,13 @@
 
     <script>
       (function() {
-        var cached = sessionStorage.getItem('site_favicon_url');
         var el = document.getElementById('dynamic-favicon');
-        if (cached && el) {
-          el.href = cached;
-        }
+        if (!el) return;
         fetch('/api/public/favicon-url')
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (data && data.faviconUrl && el) {
+            if (data && data.faviconUrl && el.href !== data.faviconUrl) {
               el.href = data.faviconUrl;
-              sessionStorage.setItem('site_favicon_url', data.faviconUrl);
-            } else if (cached) {
-              sessionStorage.removeItem('site_favicon_url');
             }
           }).catch(function() {});
       })();

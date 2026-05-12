@@ -849,21 +849,21 @@ const { data: portalLogoSettings } = useQuery({
 
 // Dynamically update favicon when setting changes
 useEffect(() => {
-  const faviconUrl = portalLogoSettings?.faviconUrl;
-  const link = document.querySelector("link[rel='icon']");
-  
-  if (faviconUrl) {
-    if (link) {
-      link.href = faviconUrl;
-    } else {
-      const newLink = document.createElement('link');
-      newLink.rel = 'icon';
-      newLink.href = faviconUrl;
-      document.head.appendChild(newLink);
-    }
-  } else if (link && portalLogoSettings !== undefined) {
-    // Reset to default favicon when setting is cleared
-    link.href = '/favicon.png';
+  if (!portalLogoSettings) return;
+  const faviconUrl = portalLogoSettings.faviconUrl;
+  if (!faviconUrl) return;
+  const iconLinks = document.querySelectorAll("link[rel~='icon']");
+  if (iconLinks.length > 0) {
+    iconLinks.forEach((link) => {
+      if (link.href !== faviconUrl) {
+        link.href = faviconUrl;
+      }
+    });
+  } else {
+    const newLink = document.createElement('link');
+    newLink.rel = 'icon';
+    newLink.href = faviconUrl;
+    document.head.appendChild(newLink);
   }
 }, [portalLogoSettings?.faviconUrl, portalLogoSettings]);
 
