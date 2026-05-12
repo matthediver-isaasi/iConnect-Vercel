@@ -679,13 +679,37 @@ export default function BriefManagementPage() {
   }, [briefs, membersById]);
 
   const uniqueCategories = useMemo(() => {
-    if (briefSettings?.categories && briefSettings.categories.length > 0) {
-      return briefSettings.categories.map((cat) => cat);
-    }
-    const cats = new Set();
-    briefs.forEach((b) => { if (b.category) cats.add(b.category); });
-    return Array.from(cats).sort();
+    const seen = new Map();
+    const addCat = (raw) => {
+      if (raw == null) return;
+      const trimmed = String(raw).trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) seen.set(key, trimmed);
+    };
+    (briefSettings?.categories || []).forEach(addCat);
+    briefs.forEach((b) => addCat(b.category));
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
   }, [briefs, briefSettings?.categories]);
+
+  const uniqueStatuses = useMemo(() => {
+    const seen = new Map();
+    Object.keys(STATUS_CONFIG || {}).forEach((key) => {
+      if (key && key !== ARCHIVED_STATUS) {
+        seen.set(key, STATUS_CONFIG[key]?.label || key);
+      }
+    });
+    briefs.forEach((b) => {
+      const key = b.status;
+      if (!key || key === ARCHIVED_STATUS) return;
+      if (!seen.has(key)) {
+        const cfgLabel = STATUS_CONFIG?.[key]?.label;
+        const label = cfgLabel || String(key).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        seen.set(key, label);
+      }
+    });
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [briefs, STATUS_CONFIG]);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = briefs;
@@ -719,7 +743,9 @@ export default function BriefManagementPage() {
       });
     }
     if (categoryFilter.length > 0) {
-      filtered = filtered.filter((b) => categoryFilter.includes(b.category));
+      const norm = (v) => (v == null ? "" : String(v).trim().toLowerCase());
+      const selectedNorm = new Set(categoryFilter.map(norm));
+      filtered = filtered.filter((b) => selectedNorm.has(norm(b.category)));
     }
     if (caseStudyFilter === "required") {
       filtered = filtered.filter((b) => !!b.case_study_required);
@@ -1143,9 +1169,7 @@ export default function BriefManagementPage() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <MultiSelectFilter
-                  options={Object.entries(STATUS_CONFIG)
-                    .filter(([key]) => key !== ARCHIVED_STATUS)
-                    .map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+                  options={uniqueStatuses}
                   selected={statusFilter}
                   onChange={setStatusFilter}
                   placeholder="All Statuses"
