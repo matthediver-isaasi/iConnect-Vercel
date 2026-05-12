@@ -392,7 +392,12 @@ export default function TrainingFundManagementPage() {
   const toggleExportColumn = (key) => {
     setExportColumns(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) {
+        if (next.size <= 1) return prev; // keep at least one column selected
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
       return next;
     });
   };
@@ -1226,7 +1231,10 @@ export default function TrainingFundManagementPage() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setExportColumns(new Set())}
+                      onClick={() => {
+                        // Keep one column so the export remains valid.
+                        setExportColumns(new Set([ALL_EXPORT_COLUMN_KEYS[0]]));
+                      }}
                       data-testid="button-export-columns-clear"
                     >
                       Clear
