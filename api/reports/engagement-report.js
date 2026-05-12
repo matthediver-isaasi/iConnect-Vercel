@@ -64,15 +64,27 @@ export default async function handler(req, res) {
     const prevPeriodEnd = endOfDay(subDays(periodStart, 1));
     const prevPeriodStart = startOfDay(subDays(periodStart, periodLengthDays));
 
-    const { data: members, error: membersError } = await supabase
-      .from('member')
-      .select('id, first_name, last_name, email, organization_id, last_activity, login_enabled, profile_photo_url')
-      .eq('tenant_id', tenantId)
-      .not('organization_id', 'is', null);
+    const members = [];
+    const memberBatchSize = 1000;
+    let memberFrom = 0;
+    while (true) {
+      const { data: memberBatch, error: membersError } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email, organization_id, last_activity, login_enabled, profile_photo_url')
+        .eq('tenant_id', tenantId)
+        .not('organization_id', 'is', null)
+        .order('id')
+        .range(memberFrom, memberFrom + memberBatchSize - 1);
 
-    if (membersError) {
-      console.error('[Engagement Report] Error fetching members:', membersError);
-      return res.status(500).json({ error: 'Failed to fetch members' });
+      if (membersError) {
+        console.error('[Engagement Report] Error fetching members:', membersError);
+        return res.status(500).json({ error: 'Failed to fetch members' });
+      }
+
+      const batch = memberBatch || [];
+      members.push(...batch);
+      if (batch.length < memberBatchSize) break;
+      memberFrom += memberBatchSize;
     }
 
     const orgIds = [...new Set((members || []).map(m => m.organization_id).filter(Boolean))];
