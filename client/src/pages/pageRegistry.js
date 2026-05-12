@@ -122,5 +122,6 @@ export const PAGE_NAMES = [
   "ForumManagement",
   "FundraisingManagement",
   "MembershipFees",
+  "SubmitPOPage",
   "CreateComplexEvent",
 ];

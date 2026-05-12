@@ -2,7 +2,14 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
 import { getValidXeroAccessToken, pushPurchaseOrderToXero } from '../_lib/xero.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
-import { replacePlaceholders } from '../_lib/emailService.js';
+import {
+  applyInvoicePoUpdate,
+  ensurePendingPoTokenTable,
+  summariseInvoice,
+} from '../_lib/pendingPoInvoice.js';
+import crypto from 'crypto';
+
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
 // Parse a consolidated record id from the GET response. Format is either
 //   id:<xero_invoice_uuid>      — preferred, present whenever Xero pushed a
@@ -16,10 +23,8 @@ function parseInvoiceKey(key) {
   return null;
 }
 
-// Find every booking + program_ticket_transaction row in this tenant that
-// shares the given Xero invoice. Tenant scope is enforced by joining through
-// `organization` (and, for null-org bookings, through the booker's member ->
-// organization link).
+// Legacy local helper retained only for the GET path's existing callers.
+// Reminder/update logic now uses the shared helpers in api/_lib/pendingPoInvoice.js.
 async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const parsed = parseInvoiceKey(invoiceKey);
   if (!parsed) return null;
@@ -186,25 +191,9 @@ export default async function handler(req, res) {
         
         const settings = tenant?.settings?.poReminderSettings || {
           reminderDays: [],
-          emailTemplateId: null
         };
-        
-        return res.json(settings);
-      }
-      
-      if (action === 'get_email_templates') {
-        const { data: templates, error: templatesError } = await supabase
-          .from('email_template')
-          .select('id, name, subject')
-          .eq('tenant_id', tenantId)
-          .order('name');
-        
-        if (templatesError) {
-          console.error('[PendingPO] Error fetching email templates:', templatesError);
-          return res.status(500).json({ error: 'Failed to fetch email templates' });
-        }
-        
-        return res.json(templates || []);
+
+        return res.json({ reminderDays: settings.reminderDays || [] });
       }
       
       const { data: tenantOrgs, error: orgsError } = await supabase
@@ -694,7 +683,7 @@ export default async function handler(req, res) {
       });
       
     } else if (req.method === 'POST') {
-      const { action, entityType, entityId, xeroInvoiceId, purchaseOrderNumber, reminderDays, emailTemplateId } = req.body;
+      const { action, entityType, entityId, xeroInvoiceId, purchaseOrderNumber, reminderDays } = req.body;
       
       // Handle settings save
       if (action === 'save_settings') {
@@ -722,7 +711,7 @@ export default async function handler(req, res) {
           ...currentSettings,
           poReminderSettings: {
             reminderDays: validDays,
-            emailTemplateId: emailTemplateId || null
+            emailTemplateId: null,
           }
         };
         
@@ -739,102 +728,34 @@ export default async function handler(req, res) {
         return res.json({ success: true, settings: updatedSettings.poReminderSettings });
       }
       
-      // Handle send_reminder action
+      // Handle send_reminder action — hardwired template + tokenised submit link
       if (action === 'send_reminder') {
-        let { recordId, entityType: reminderEntityType, emailTemplateId: reminderTemplateId } = req.body;
-        
-        if (!recordId || !reminderEntityType || !reminderTemplateId) {
-          return res.status(400).json({ error: 'recordId, entityType, and emailTemplateId are required' });
-        }
-        
-        // Invoice-level reminders: resolve the canonical invoice key to a
-        // single representative booking/transaction (preferring bookings) and
-        // continue with the existing per-row logic so we send exactly one
-        // email per invoice rather than one per attendee.
-        if (reminderEntityType === 'invoice') {
-          const resolved = await resolveInvoiceRepresentative(supabase, tenantId, recordId);
-          if (!resolved) {
-            return res.status(404).json({ error: 'Invoice not found for this tenant' });
-          }
-          recordId = resolved.id;
-          reminderEntityType = resolved.entityType;
+        const { recordId, entityType: reminderEntityType } = req.body;
+
+        if (!recordId || !reminderEntityType) {
+          return res.status(400).json({ error: 'recordId and entityType are required' });
         }
 
-        // Validate entityType strictly
-        if (!['booking', 'transaction'].includes(reminderEntityType)) {
-          return res.status(400).json({ error: 'Invalid entityType. Must be "booking", "transaction", or "invoice"' });
+        // Reminders are only sent at the consolidated invoice level. Per-row
+        // legacy callers are no longer supported.
+        if (reminderEntityType !== 'invoice') {
+          return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
         }
-        
-        // Fetch email template
-        const { data: template, error: templateError } = await supabase
-          .from('email_template')
-          .select('id, name, subject, body')
-          .eq('id', reminderTemplateId)
-          .eq('tenant_id', tenantId)
-          .single();
-        
-        if (templateError || !template) {
-          console.error('[PendingPO] Template not found:', templateError);
-          return res.status(404).json({ error: 'Email template not found' });
+
+        const summary = await summariseInvoice(supabase, tenantId, recordId);
+        if (!summary || summary.rowCount === 0) {
+          return res.status(404).json({ error: 'Invoice not found for this tenant' });
         }
-        
-        // Fetch the record details based on entity type
-        const tableName = reminderEntityType === 'booking' ? 'booking' : 'program_ticket_transaction';
-        const { data: record, error: recordError } = await supabase
-          .from(tableName)
-          .select(`
-            id, organization_id, member_id, xero_invoice_number, xero_invoice_id,
-            ${reminderEntityType === 'booking' 
-              ? 'event_id, created_at, total, number_of_tickets' 
-              : 'program_ticket_id, amount, quantity, created_at'}
-          `)
-          .eq('id', recordId)
-          .single();
-        
-        if (recordError || !record) {
-          console.error('[PendingPO] Record not found:', recordError);
-          return res.status(404).json({ error: 'Record not found' });
+        if (summary.existingPoNumber) {
+          return res.status(400).json({ error: 'A purchase order number has already been recorded for this invoice.' });
         }
-        
-        // Verify record belongs to tenant. Bookings may legitimately have a
-        // null organization_id (the report path falls back to the booker's
-        // member -> organization link), so mirror that fallback here so that
-        // invoice-level reminders for null-org bookings can still send.
-        let org = null;
-        if (record.organization_id) {
-          const { data: orgRow } = await supabase
-            .from('organization')
-            .select('id, name, tenant_id')
-            .eq('id', record.organization_id)
-            .single();
-          if (orgRow && orgRow.tenant_id === tenantId) org = orgRow;
-        }
-        if (!org && reminderEntityType === 'booking' && record.member_id) {
-          const { data: memberRow } = await supabase
-            .from('member')
-            .select('organization_id')
-            .eq('id', record.member_id)
-            .single();
-          if (memberRow?.organization_id) {
-            const { data: orgRow } = await supabase
-              .from('organization')
-              .select('id, name, tenant_id')
-              .eq('id', memberRow.organization_id)
-              .single();
-            if (orgRow && orgRow.tenant_id === tenantId) org = orgRow;
-          }
-        }
-        if (!org) {
-          return res.status(403).json({ error: 'Access denied' });
-        }
-        
+
         // Check if invoice is already paid in Xero before sending reminder
-        if (record.xero_invoice_id) {
+        if (summary.xeroInvoiceId) {
           try {
             const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
-            
             const invoiceResponse = await fetch(
-              `https://api.xero.com/api.xro/2.0/Invoices/${record.xero_invoice_id}`,
+              `https://api.xero.com/api.xro/2.0/Invoices/${summary.xeroInvoiceId}`,
               {
                 method: 'GET',
                 headers: {
@@ -844,14 +765,12 @@ export default async function handler(req, res) {
                 }
               }
             );
-            
             if (invoiceResponse.ok) {
               const invoiceData = await invoiceResponse.json();
               const invoice = invoiceData.Invoices?.[0];
-              
               if (invoice?.Status === 'PAID') {
-                return res.status(400).json({ 
-                  error: 'Cannot send reminder - this invoice has already been paid in Xero' 
+                return res.status(400).json({
+                  error: 'Cannot send reminder - this invoice has already been paid in Xero'
                 });
               }
             }
@@ -860,85 +779,107 @@ export default async function handler(req, res) {
             // Continue if Xero check fails - we still want to allow manual reminders
           }
         }
-        
-        // Get member details if available
-        let memberData = null;
-        if (record.member_id) {
-          const { data: member } = await supabase
+
+        // Resolve recipient: organisation's primary contact (tenant-scoped via
+        // organizationId returned from the scoped summary). Fallback uses the
+        // booker emails collected by summariseInvoice — those rows are also
+        // already tenant-scoped, so this never leaks across tenants.
+        let recipientEmail = null;
+        if (summary.organizationId) {
+          const { data: orgContacts } = await supabase
             .from('member')
-            .select('id, email, first_name, last_name')
-            .eq('id', record.member_id)
-            .single();
-          memberData = member;
+            .select('email')
+            .eq('organization_id', summary.organizationId)
+            .eq('is_primary_contact', true)
+            .limit(1);
+          recipientEmail = orgContacts?.[0]?.email || null;
         }
-        
-        // Get event or program name
-        let sourceName = 'Unknown';
-        if (reminderEntityType === 'booking' && record.event_id) {
-          const { data: event } = await supabase
-            .from('event')
-            .select('title')
-            .eq('id', record.event_id)
-            .single();
-          sourceName = event?.title || 'Unknown Event';
-        } else if (reminderEntityType === 'transaction' && record.program_ticket_id) {
-          const { data: ticket } = await supabase
-            .from('program_ticket')
-            .select('name, program:program_id(name)')
-            .eq('id', record.program_ticket_id)
-            .single();
-          sourceName = ticket?.program?.name || ticket?.name || 'Unknown Program';
+        if (!recipientEmail && summary.bookerEmails && summary.bookerEmails.length > 0) {
+          recipientEmail = summary.bookerEmails[0];
         }
-        
-        // Determine recipient email - use organization's primary contact or booker's email
-        const { data: orgContacts } = await supabase
-          .from('member')
-          .select('email, first_name, last_name')
-          .eq('organization_id', record.organization_id)
-          .eq('is_primary_contact', true)
-          .limit(1);
-        
-        const recipientEmail = orgContacts?.[0]?.email || memberData?.email;
-        
+
         if (!recipientEmail) {
-          return res.status(400).json({ error: 'No recipient email found for this organization' });
+          return res.status(400).json({ error: 'No recipient email found for this invoice' });
         }
-        
-        // Build placeholder data
-        const placeholderData = {
-          organization_name: org.name,
-          invoice_number: record.xero_invoice_number || 'N/A',
-          invoice_date: record.created_at ? new Date(record.created_at).toLocaleDateString() : 'N/A',
-          source_name: sourceName,
-          source_type: reminderEntityType === 'booking' ? 'Event' : 'Program',
-          member_email: memberData?.email || '',
-          member_first_name: memberData?.first_name || '',
-          member_last_name: memberData?.last_name || '',
-          member_name: memberData ? `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim() : '',
-          amount: reminderEntityType === 'booking' 
-            ? (record.total || 0) 
-            : (record.amount || 0),
-          quantity: reminderEntityType === 'booking'
-            ? (record.number_of_tickets || 1)
-            : (record.quantity || 1),
-        };
-        
-        // Process placeholders in subject and body
-        const processedSubject = replacePlaceholders(template.subject, 'record', placeholderData);
-        const processedBody = replacePlaceholders(template.body, 'record', placeholderData);
-        
-        // Send email
+
+        // Mint a one-time submit-PO token for this invoice
+        await ensurePendingPoTokenTable();
+        const submitToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const { error: tokenInsertError } = await supabase
+          .from('pending_po_token')
+          .insert({
+            token: submitToken,
+            tenant_id: tenantId,
+            invoice_key: recordId,
+            status: 'pending',
+            recipient_email: recipientEmail,
+            expires_at: expiresAt.toISOString(),
+          });
+        if (tokenInsertError) {
+          console.error('[PendingPO] Token insert error:', tokenInsertError);
+          return res.status(500).json({ error: 'Failed to create submit link' });
+        }
+
+        const { data: tenant } = await supabase
+          .from('tenant')
+          .select('name, slug, primary_color')
+          .eq('id', tenantId)
+          .single();
+
+        const tenantSlug = tenant?.slug;
+        const tenantName = tenant?.name || 'Organisation';
+        const primaryColor = tenant?.primary_color || '#5C0085';
+        const submitUrl = tenantSlug
+          ? `https://${tenantSlug}.${APP_DOMAIN}/submit-po/${submitToken}`
+          : `https://${APP_DOMAIN}/submit-po/${submitToken}`;
+
+        const invoiceDateText = summary.invoiceDate
+          ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+          : 'N/A';
+        const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
+        const orgName = summary.organizationName || 'your organisation';
+        const invoiceNumber = summary.invoiceNumber || 'N/A';
+        const sourceLine = summary.sourceName
+          ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
+          : '';
+
+        const subject = `Purchase order required for invoice ${invoiceNumber}`;
+        const html = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
+              <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
+              <p>Dear ${orgName},</p>
+              <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
+              <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 4px 0; color: #666;">Invoice Number</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceNumber}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #666;">Invoice Date</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceDateText}</td></tr>
+                  ${sourceLine ? `<tr><td style="padding: 4px 0; color: #666;">${summary.sourceType || 'For'}</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.sourceName}</td></tr>` : ''}
+                  ${summary.bookerNameDisplay ? `<tr><td style="padding: 4px 0; color: #666;">Booked by</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.bookerNameDisplay}</td></tr>` : ''}
+                  <tr><td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td></tr>
+                  <tr><td style="padding: 4px 0; color: #333; font-weight: 600;">Total</td><td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${totalText}</td></tr>
+                </table>
+              </div>
+              <p>Please use the secure link below to submit your purchase order number. The PO number will be applied to this invoice and forwarded to our accounting system automatically.</p>
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${submitUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">Submit Purchase Order Number</a>
+              </div>
+              <p style="color: #999; font-size: 12px;">This link expires on ${expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
+            </div>
+            <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${tenantName}</p>
+          </div>
+        `;
+
         try {
           await sendTenantEmail({
             tenantId,
             to: recipientEmail,
-            subject: processedSubject,
-            html: processedBody,
+            subject,
+            html,
           });
-          
-          console.log(`[PendingPO] Reminder sent to ${recipientEmail} for ${reminderEntityType} ${recordId}`);
-          return res.json({ success: true, sentTo: recipientEmail });
-          
+          console.log(`[PendingPO] Reminder sent to ${recipientEmail} for invoice ${recordId}`);
+          return res.json({ success: true, sentTo: recipientEmail, submitUrl });
         } catch (emailError) {
           console.error('[PendingPO] Email send error:', emailError);
           return res.status(500).json({ error: 'Failed to send reminder email' });
@@ -960,73 +901,23 @@ export default async function handler(req, res) {
       // transaction row in this tenant that shares the consolidated invoice,
       // then push to Xero exactly once.
       if (entityType === 'invoice' && action === 'update_po') {
-        if (!purchaseOrderNumber || !purchaseOrderNumber.trim()) {
-          return res.status(400).json({ error: 'Purchase order number required' });
+        const result = await applyInvoicePoUpdate({
+          client: supabase,
+          tenantId,
+          invoiceKey: entityId,
+          purchaseOrderNumber,
+          contextLabel: `PendingPO invoice ${entityId}`,
+        });
+        if (!result.ok) {
+          return res.status(result.status || 500).json({ error: result.error });
         }
-        const found = await findInvoiceRowsForTenant(supabase, tenantId, entityId);
-        if (!found) {
-          return res.status(400).json({ error: 'Invalid invoice key' });
-        }
-        if (found.bookings.length === 0 && found.transactions.length === 0) {
-          return res.status(404).json({ error: 'Invoice not found for this tenant' });
-        }
-        const trimmedPO = purchaseOrderNumber.trim();
-
-        // Update every constituent row, but only when the local PO column is
-        // still empty so we never clobber a manually-entered value.
-        let bookingsUpdated = 0;
-        if (found.bookings.length > 0) {
-          const ids = found.bookings.map((b) => b.id);
-          const { data: updated, error: bErr } = await supabase
-            .from('booking')
-            .update({ purchase_order_number: trimmedPO, po_to_follow: false })
-            .in('id', ids)
-            .or('purchase_order_number.is.null,purchase_order_number.eq.')
-            .select('id');
-          if (bErr) {
-            console.error('[PendingPO] Invoice update_po booking error:', bErr);
-            return res.status(500).json({ error: 'Failed to update bookings' });
-          }
-          bookingsUpdated = updated?.length || 0;
-        }
-        let transactionsUpdated = 0;
-        if (found.transactions.length > 0) {
-          const ids = found.transactions.map((t) => t.id);
-          const { data: updated, error: tErr } = await supabase
-            .from('program_ticket_transaction')
-            .update({ purchase_order_number: trimmedPO })
-            .in('id', ids)
-            .or('purchase_order_number.is.null,purchase_order_number.eq.')
-            .select('id');
-          if (tErr) {
-            console.error('[PendingPO] Invoice update_po transaction error:', tErr);
-            return res.status(500).json({ error: 'Failed to update transactions' });
-          }
-          transactionsUpdated = updated?.length || 0;
-        }
-
-        let xeroUpdated = false;
-        let xeroError = null;
-        if (found.xeroInvoiceId) {
-          const result = await pushPurchaseOrderToXero({
-            appTenantId: tenantId,
-            xeroInvoiceId: found.xeroInvoiceId,
-            purchaseOrderNumber: trimmedPO,
-            contextLabel: `PendingPO invoice ${entityId}`,
-          });
-          xeroUpdated = result.xeroUpdated;
-          xeroError = result.xeroError;
-        } else {
-          xeroError = 'No Xero invoice ID on file — could not push PO to Xero';
-        }
-
         return res.json({
           success: true,
-          purchase_order_number: trimmedPO,
-          bookingsUpdated,
-          transactionsUpdated,
-          xeroUpdated,
-          xeroError,
+          purchase_order_number: result.purchase_order_number,
+          bookingsUpdated: result.bookingsUpdated,
+          transactionsUpdated: result.transactionsUpdated,
+          xeroUpdated: result.xeroUpdated,
+          xeroError: result.xeroError,
         });
       }
 

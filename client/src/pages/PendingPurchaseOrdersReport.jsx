@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info } from "lucide-react";
+// Note: email template picker removed; reminders use a hardwired in-code template.
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -51,7 +52,6 @@ export default function PendingPurchaseOrdersReport() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDays, setSelectedDays] = useState([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState(null);
@@ -105,20 +105,6 @@ export default function PendingPurchaseOrdersReport() {
     refetchOnMount: true,
   });
 
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['pending-purchase-orders-email-templates'],
-    queryFn: async () => {
-      const response = await fetch('/api/pending-purchase-orders?action=get_email_templates', {
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        return [];
-      }
-      return response.json();
-    },
-    staleTime: 60000,
-  });
-
   const { data: reminderSettings } = useQuery({
     queryKey: ['pending-purchase-orders-settings'],
     queryFn: async () => {
@@ -126,7 +112,7 @@ export default function PendingPurchaseOrdersReport() {
         credentials: 'include',
       });
       if (!response.ok) {
-        return { reminderDays: [], emailTemplateId: null };
+        return { reminderDays: [] };
       }
       return response.json();
     },
@@ -136,7 +122,6 @@ export default function PendingPurchaseOrdersReport() {
   useEffect(() => {
     if (reminderSettings) {
       setSelectedDays(reminderSettings.reminderDays || []);
-      setSelectedTemplateId(reminderSettings.emailTemplateId || "");
     }
   }, [reminderSettings]);
 
@@ -423,7 +408,6 @@ export default function PendingPurchaseOrdersReport() {
         body: JSON.stringify({
           action: 'save_settings',
           reminderDays: selectedDays,
-          emailTemplateId: selectedTemplateId || null,
         }),
       });
 
@@ -448,7 +432,7 @@ export default function PendingPurchaseOrdersReport() {
     }
   };
 
-  const sendReminderRequest = async (record, templateId) => {
+  const sendReminderRequest = async (record) => {
     const response = await fetch('/api/pending-purchase-orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -457,7 +441,6 @@ export default function PendingPurchaseOrdersReport() {
         action: 'send_reminder',
         recordId: record.id,
         entityType: record.entityType,
-        emailTemplateId: templateId,
       }),
     });
 
@@ -474,21 +457,11 @@ export default function PendingPurchaseOrdersReport() {
   };
 
   const handleSendReminder = async (record) => {
-    if (!selectedTemplateId) {
-      toast({
-        title: "No Template Selected",
-        description: "Please select an email template in the Reminder Settings first.",
-        variant: "destructive",
-      });
-      setSettingsOpen(true);
-      return;
-    }
-
     const recordKey = getRecordKey(record);
     setSendingReminderId(recordKey);
 
     try {
-      await sendReminderRequest(record, selectedTemplateId);
+      await sendReminderRequest(record);
       const orgName = organizations[record.organization_id] || 'the organisation';
       toast({
         title: "Reminder Sent",
@@ -508,16 +481,6 @@ export default function PendingPurchaseOrdersReport() {
   const handleBulkSendReminders = async () => {
     if (selectedKeys.size === 0) return;
 
-    if (!selectedTemplateId) {
-      toast({
-        title: "No Template Selected",
-        description: "Please select an email template in the Reminder Settings first.",
-        variant: "destructive",
-      });
-      setSettingsOpen(true);
-      return;
-    }
-
     const selectedRecords = filteredAndSortedData.filter(r => selectedKeys.has(getRecordKey(r)));
     if (selectedRecords.length === 0) return;
 
@@ -534,7 +497,7 @@ export default function PendingPurchaseOrdersReport() {
         const idx = cursor++;
         const record = selectedRecords[idx];
         try {
-          await sendReminderRequest(record, selectedTemplateId);
+          await sendReminderRequest(record);
           successCount++;
         } catch (err) {
           newFailedKeys.add(getRecordKey(record));
@@ -722,25 +685,10 @@ export default function PendingPurchaseOrdersReport() {
                   ))}
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Email template</Label>
-                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                  <SelectTrigger className="w-full md:w-[400px]" data-testid="select-email-template">
-                    <SelectValue placeholder="Select an email template..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {emailTemplates.length === 0 ? (
-                      <SelectItem value="no-templates" disabled>No email templates available</SelectItem>
-                    ) : (
-                      emailTemplates.map(template => (
-                        <SelectItem key={template.id} value={template.id}>
-                          {template.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+              <p className="text-sm text-muted-foreground" data-testid="text-reminder-template-info">
+                Reminder emails use a built-in template that includes the invoice details and
+                a secure link for the recipient to submit their purchase order number.
+              </p>
               <Button
                 onClick={handleSaveSettings}
                 disabled={isSavingSettings}
