@@ -52,6 +52,7 @@ export default function DynamicDirectoryManagementPage() {
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDescription, setSeoDescription] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
+  const [showMembersOnCardBack, setShowMembersOnCardBack] = useState(true);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -211,6 +212,7 @@ export default function DynamicDirectoryManagementPage() {
     setSeoTitle('');
     setSeoDescription('');
     setOgImageUrl('');
+    setShowMembersOnCardBack(true);
   };
 
   const handleOpenCreateDialog = () => {
@@ -234,6 +236,7 @@ export default function DynamicDirectoryManagementPage() {
     setSeoTitle(directory.seo_title || '');
     setSeoDescription(directory.seo_description || '');
     setOgImageUrl(directory.og_image_url || '');
+    setShowMembersOnCardBack(directory.show_members_on_card_back !== false);
     setIsDialogOpen(true);
   };
 
@@ -311,7 +314,8 @@ export default function DynamicDirectoryManagementPage() {
       email_source_field: emailSourceField || null,
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
-      og_image_url: ogImageUrl || null
+      og_image_url: ogImageUrl || null,
+      show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true
     };
 
     if (editingDirectory) {
@@ -652,6 +656,23 @@ export default function DynamicDirectoryManagementPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {entityType === 'organization' && (
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
+                <div>
+                  <Label htmlFor="showMembersOnCardBack" className="cursor-pointer">Show members on card back</Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    When on, the back of each organisation card lists its members grouped by role. Turn off to hide the members section for this directory.
+                  </p>
+                </div>
+                <Switch
+                  id="showMembersOnCardBack"
+                  checked={showMembersOnCardBack}
+                  onCheckedChange={setShowMembersOnCardBack}
+                  data-testid="switch-show-members-on-card-back"
+                />
               </div>
             )}
 

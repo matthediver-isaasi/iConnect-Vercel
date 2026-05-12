@@ -531,9 +531,11 @@ export default function DynamicDirectoryView() {
   // Build the grouped contacts list for the currently selected organisation's reverse-card dialog.
   // Members are grouped by role in the order admins selected those roles; within each role they
   // are sorted alphabetically by last name then first name.
+  const showMembersOnCardBack = directory?.show_members_on_card_back !== false;
+
   const reverseCardContactGroups = useMemo(() => {
     const roleIds = orgDisplaySettings?.reverseCardRoleIds || [];
-    if (!selectedOrg || roleIds.length === 0 || allOrgMembersForCount.length === 0) {
+    if (!showMembersOnCardBack || !selectedOrg || roleIds.length === 0 || allOrgMembersForCount.length === 0) {
       return [];
     }
     const orgMembers = allOrgMembersForCount.filter(
@@ -562,7 +564,11 @@ export default function DynamicDirectoryView() {
         return { roleId, role, members: groupMembers };
       })
       .filter((g) => g.members.length > 0);
-  }, [orgDisplaySettings?.reverseCardRoleIds, selectedOrg, allOrgMembersForCount, roles]);
+  }, [orgDisplaySettings?.reverseCardRoleIds, selectedOrg, allOrgMembersForCount, roles, showMembersOnCardBack]);
+
+  // When the toggle is off and there's no other content to show on the back,
+  // suppress the reverse-card dialog entirely (clicking the card becomes a no-op).
+  const hasReverseCardContent = showMembersOnCardBack || orgCustomFields.length > 0;
 
   const handleCopyMemberEmail = async (email) => {
     if (!email) return;
@@ -904,7 +910,7 @@ export default function DynamicDirectoryView() {
                     <Card 
                       key={org.id} 
                       className="border-slate-200 hover:shadow-lg transition-shadow cursor-pointer"
-                      onClick={() => setSelectedOrg(org)}
+                      onClick={() => { if (hasReverseCardContent) setSelectedOrg(org); }}
                       data-testid={`card-organisation-${org.id}`}
                     >
                       <CardHeader className="flex flex-col items-center text-center pb-2">
@@ -1087,10 +1093,12 @@ export default function DynamicDirectoryView() {
               </div>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="flex items-center gap-2 text-slate-600">
-                <Users className="w-4 h-4" />
-                <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
-              </div>
+              {showMembersOnCardBack && (
+                <div className="flex items-center gap-2 text-slate-600">
+                  <Users className="w-4 h-4" />
+                  <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
+                </div>
+              )}
               {reverseCardContactGroups.length > 0 && (
                 <div className="space-y-3 pt-2 border-t">
                   <div className="flex items-center gap-2">
