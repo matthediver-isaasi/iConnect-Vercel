@@ -130,7 +130,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
       client
         .from('program_ticket_transaction')
-        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, amount, quantity, created_date, purchase_order_number')
         .in('organization_id', tenantOrgIds)
         .eq('transaction_type', 'purchase')
         .neq('status', 'cancelled')
@@ -151,7 +151,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
       const rows = await fetchAllPages(`transaction (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
         client
           .from('program_ticket_transaction')
-          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, amount, quantity, created_date, purchase_order_number')
           .is('organization_id', null)
           .in('member_email', chunk)
           .eq('transaction_type', 'purchase')
@@ -290,7 +290,6 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   const sourceNames = new Set();
   const sourceTypes = new Set();
   const eventIds = new Set();
-  const programTicketIds = new Set();
   const bookerEmails = [];
   const seenBookerEmails = new Set();
   const bookerMemberIds = new Set();
@@ -326,7 +325,10 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       earliestDate = t.created_date;
     }
     if (t.organization_id) orgIds.add(t.organization_id);
-    if (t.program_ticket_id) programTicketIds.add(t.program_ticket_id);
+    if (t.program_name && String(t.program_name).trim()) {
+      sourceNames.add(String(t.program_name).trim());
+      sourceTypes.add('Program');
+    }
     addBookerEmail(t.member_email);
     // program_ticket_transaction has no member_id column — the buyer is
     // identified by member_email. Resolve the booker member via the email
@@ -394,22 +396,6 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       if (e.title) {
         sourceNames.add(e.title);
         sourceTypes.add('Event');
-      }
-    });
-  }
-  if (programTicketIds.size > 0) {
-    const { data: tickets, error: ticketsErr } = await client
-      .from('program_ticket')
-      .select('id, name, program:program_id(name)')
-      .in('id', Array.from(programTicketIds));
-    if (ticketsErr) {
-      console.error(`[PendingPO] summariseInvoice ticket lookup failed invoiceKey=${invoiceKey}: ${ticketsErr.message}`);
-    }
-    (tickets || []).forEach((t) => {
-      const name = t.program?.name || t.name;
-      if (name) {
-        sourceNames.add(name);
-        sourceTypes.add('Program');
       }
     });
   }
