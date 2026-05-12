@@ -31,6 +31,7 @@ export default function EventSettingsPage() {
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [xeroStripeBankAccountCode, setXeroStripeBankAccountCode] = useState("");
+  const [poSubmissionNotificationEmail, setPoSubmissionNotificationEmail] = useState("");
   const [xeroInvoiceStatus, setXeroInvoiceStatus] = useState("DRAFT");
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
@@ -185,6 +186,11 @@ export default function EventSettingsPage() {
     if (xeroStripeBankSetting) {
       setXeroStripeBankAccountCode(xeroStripeBankSetting.setting_value || '');
     }
+
+    const poNotifSetting = settings.find(s => s.setting_key === 'po_submission_notification_email');
+    if (poNotifSetting) {
+      setPoSubmissionNotificationEmail(poNotifSetting.setting_value || '');
+    }
     
     // Load event types - migrate old string format to new object format
     const eventTypesSetting = settings.find(s => s.setting_key === 'event_types');
@@ -311,6 +317,11 @@ export default function EventSettingsPage() {
   });
 
   const handleSaveSettings = async () => {
+    const trimmedPoEmail = (poSubmissionNotificationEmail || '').trim();
+    if (trimmedPoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedPoEmail)) {
+      toast.error('Please enter a valid PO submission notification email address (or leave it blank).');
+      return;
+    }
     setIsSaving(true);
     try {
       // Save cancellation deadline setting
@@ -450,6 +461,21 @@ export default function EventSettingsPage() {
           setting_key: 'xero_stripe_bank_account_code',
           setting_value: xeroStripeBankAccountCode,
           description: 'Xero bank account code for Stripe payments'
+        });
+      }
+
+      // Save PO submission notification email
+      const poNotifSetting = settings.find(s => s.setting_key === 'po_submission_notification_email');
+      if (poNotifSetting) {
+        await base44.entities.SystemSettings.update(poNotifSetting.id, {
+          setting_value: trimmedPoEmail,
+          description: 'Recipient address for purchase order submission notifications'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'po_submission_notification_email',
+          setting_value: trimmedPoEmail,
+          description: 'Recipient address for purchase order submission notifications'
         });
       }
       
@@ -1553,6 +1579,39 @@ export default function EventSettingsPage() {
                     className="w-32"
                     data-testid="input-xero-stripe-bank-code"
                   />
+                </div>
+              </div>
+
+              {/* PO Submission Notification Email */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="po-submission-notification-email">
+                    PO submission notification email
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When a booker submits a Purchase Order number for a booking, a notification will be sent to this address.
+                    Leave blank to disable PO submission notifications.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="po-submission-notification-email"
+                    type="email"
+                    value={poSubmissionNotificationEmail}
+                    onChange={(e) => setPoSubmissionNotificationEmail(e.target.value)}
+                    placeholder="finance@example.com"
+                    className="w-64"
+                    data-testid="input-po-notification-email"
+                  />
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-po-notification-email"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
                 </div>
               </div>
               

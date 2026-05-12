@@ -5446,6 +5446,56 @@ const functionHandlers = {
       contextLabel: `updateXeroInvoicePO group ${bookingGroupReference}`
     });
 
+    try {
+      const { sendPoSubmissionNotification } = await import('../_lib/poNotificationEmail.js');
+      const { data: notifyBooking } = await supabase
+        .from('booking')
+        .select('booking_reference, event_id, attendee_first_name, attendee_last_name, attendee_email')
+        .eq('booking_group_reference', bookingGroupReference)
+        .eq('tenant_id', appTenantId || ownerRow.tenant_id)
+        .limit(1)
+        .maybeSingle();
+
+      let eventName = '';
+      if (notifyBooking?.event_id) {
+        const { data: ev } = await supabase
+          .from('event')
+          .select('title')
+          .eq('id', notifyBooking.event_id)
+          .maybeSingle();
+        eventName = ev?.title || '';
+      }
+
+      let submitterName = [notifyBooking?.attendee_first_name, notifyBooking?.attendee_last_name]
+        .filter(Boolean).join(' ').trim();
+      let submitterEmail = notifyBooking?.attendee_email || '';
+      if (!submitterName || !submitterEmail) {
+        const { data: memberRow } = await supabase
+          .from('member')
+          .select('first_name, last_name, email')
+          .eq('id', memberId)
+          .maybeSingle();
+        if (memberRow) {
+          if (!submitterName) {
+            submitterName = [memberRow.first_name, memberRow.last_name].filter(Boolean).join(' ').trim();
+          }
+          if (!submitterEmail) submitterEmail = memberRow.email || '';
+        }
+      }
+
+      await sendPoSubmissionNotification({
+        tenantId: appTenantId || ownerRow.tenant_id,
+        bookingReference: notifyBooking?.booking_reference || bookingGroupReference,
+        eventName,
+        purchaseOrderNumber: trimmedPo,
+        submitterName,
+        submitterEmail,
+        bookingType: 'event',
+      });
+    } catch (notifyErr) {
+      console.error('[updateXeroInvoicePO] PO notification email failed:', notifyErr.message);
+    }
+
     return {
       success: true,
       invoice_id: invoiceRow?.xero_invoice_id || null,

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { pushPurchaseOrderToXero } from '../_lib/xero.js';
+import { sendPoSubmissionNotification } from '../_lib/poNotificationEmail.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -45,7 +46,7 @@ export default async function handler(req, res) {
   try {
     const { data: booking, error: fetchError } = await supabase
       .from('complex_event_booking')
-      .select('id, member_id, attendee_email, tenant_id, xero_invoice_id, booking_group_reference')
+      .select('id, member_id, attendee_email, attendee_first_name, attendee_last_name, booking_reference, event_id, tenant_id, xero_invoice_id, booking_group_reference')
       .eq('id', booking_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -99,6 +100,47 @@ export default async function handler(req, res) {
       purchaseOrderNumber: trimmedPO,
       contextLabel: `ComplexEventBooking ${booking_id}`,
     });
+
+    try {
+      let eventName = '';
+      if (booking.event_id) {
+        const { data: ev } = await supabase
+          .from('complex_event')
+          .select('title')
+          .eq('id', booking.event_id)
+          .maybeSingle();
+        eventName = ev?.title || '';
+      }
+
+      let submitterName = [booking.attendee_first_name, booking.attendee_last_name]
+        .filter(Boolean).join(' ').trim();
+      let submitterEmail = booking.attendee_email || '';
+      if (!submitterName || !submitterEmail) {
+        const { data: memberRow } = await supabase
+          .from('member')
+          .select('first_name, last_name, email')
+          .eq('id', memberId)
+          .maybeSingle();
+        if (memberRow) {
+          if (!submitterName) {
+            submitterName = [memberRow.first_name, memberRow.last_name].filter(Boolean).join(' ').trim();
+          }
+          if (!submitterEmail) submitterEmail = memberRow.email || '';
+        }
+      }
+
+      await sendPoSubmissionNotification({
+        tenantId,
+        bookingReference: booking.booking_reference || booking.booking_group_reference,
+        eventName,
+        purchaseOrderNumber: trimmedPO,
+        submitterName,
+        submitterEmail,
+        bookingType: 'complex_event',
+      });
+    } catch (notifyErr) {
+      console.error('[ComplexEventBookings] PO notification email failed:', notifyErr.message);
+    }
 
     return res.json({
       success: true,
