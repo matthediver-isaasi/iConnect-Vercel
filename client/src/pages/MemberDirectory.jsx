@@ -158,22 +158,39 @@ export default function MemberDirectoryPage() {
   const { data: filterableFields = [] } = useQuery({
     queryKey: ['member-filterable-fields'],
     queryFn: async () => {
-      const isVisibleInMain = (field) => {
-        if (field.directory_visibility) {
-          let vis = field.directory_visibility;
-          if (typeof vis === 'string') {
-            try { vis = JSON.parse(vis); } catch { vis = []; }
-          }
-          if (Array.isArray(vis)) return vis.includes('main');
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
         }
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const isVisibleInMain = (field) => {
+        const parsed = parseDirVis(field);
+        if (parsed) return parsed.ids.includes('main');
         return field.show_in_member_directory !== false;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.main;
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
       };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable && isVisibleInMain(f));
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable && isVisibleInMain(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -182,7 +199,7 @@ export default function MemberDirectoryPage() {
           });
           return (allFields || []).filter(f => 
             (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable && isVisibleInMain(f)
-          );
+          ).map(enrich);
         } catch {
           return [];
         }
@@ -194,22 +211,39 @@ export default function MemberDirectoryPage() {
   const { data: directoryCustomFields = [] } = useQuery({
     queryKey: ['member-directory-custom-fields'],
     queryFn: async () => {
-      const isVisibleInMain = (field) => {
-        if (field.directory_visibility) {
-          let vis = field.directory_visibility;
-          if (typeof vis === 'string') {
-            try { vis = JSON.parse(vis); } catch { vis = []; }
-          }
-          if (Array.isArray(vis)) return vis.includes('main');
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
         }
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const isVisibleInMain = (field) => {
+        const parsed = parseDirVis(field);
+        if (parsed) return parsed.ids.includes('main');
         return field.show_in_member_directory !== false;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.main;
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
       };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f));
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -218,7 +252,7 @@ export default function MemberDirectoryPage() {
           });
           return (allFields || []).filter(f =>
             (!f.entity_scope || f.entity_scope === 'member') && isVisibleInMain(f)
-          );
+          ).map(enrich);
         } catch {
           return [];
         }
@@ -538,7 +572,7 @@ export default function MemberDirectoryPage() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableFields.map(field => (
                       <div key={field.id} className="flex items-center gap-2">
-                        <Label className="text-sm text-slate-700">{field.label}:</Label>
+                        <Label className="text-sm text-slate-700">{field._displayLabel || field.label}:</Label>
                         <Select 
                           value={customFieldFilters[field.id] || "all"} 
                           onValueChange={(value) => {
@@ -549,7 +583,7 @@ export default function MemberDirectoryPage() {
                           }}
                         >
                           <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${field.label}`} />
+                            <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>

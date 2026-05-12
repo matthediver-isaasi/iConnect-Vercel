@@ -110,41 +110,48 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
     queryKey: ['member-directory-custom-fields'],
     enabled: open,
     queryFn: async () => {
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
+        }
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const isVisibleInMain = (field) => {
+        const parsed = parseDirVis(field);
+        if (parsed) return parsed.ids.includes('main');
+        return field.show_in_member_directory !== false;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.main;
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        const isVisibleInMain = (field) => {
-          if (field.directory_visibility) {
-            let vis = field.directory_visibility;
-            if (typeof vis === 'string') {
-              try { vis = JSON.parse(vis); } catch { vis = []; }
-            }
-            if (Array.isArray(vis)) return vis.includes('main');
-          }
-          return field.show_in_member_directory !== false;
-        };
-        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f));
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInMain(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          const isVisibleInMain = (field) => {
-            if (field.directory_visibility) {
-              let vis = field.directory_visibility;
-              if (typeof vis === 'string') {
-                try { vis = JSON.parse(vis); } catch { vis = []; }
-              }
-              if (Array.isArray(vis)) return vis.includes('main');
-            }
-            return field.show_in_member_directory !== false;
-          };
           return (allFields || []).filter(f =>
             (!f.entity_scope || f.entity_scope === 'member') && isVisibleInMain(f)
-          );
+          ).map(enrich);
         } catch {
           return [];
         }
@@ -435,7 +442,7 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
                       }
                       return (
                         <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`custom-field-${field.id}`}>
-                          <p className="text-xs font-medium text-slate-500 mb-1">{field.label}</p>
+                          <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
                           <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
                         </div>
                       );

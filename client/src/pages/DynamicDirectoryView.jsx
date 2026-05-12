@@ -251,29 +251,45 @@ export default function DynamicDirectoryView() {
     queryKey: ['/api/entities/PreferenceField', 'organization', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
-      const isVisibleInDirectory = (field) => {
-        if (field.directory_visibility) {
-          let vis = field.directory_visibility;
-          if (typeof vis === 'string') {
-            try { vis = JSON.parse(vis); } catch { vis = []; }
-          }
-          if (Array.isArray(vis)) return vis.includes(dirId);
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
         }
-        return false;
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const isVisibleInDirectory = (field) => {
+        const parsed = parseDirVis(field);
+        return parsed ? parsed.ids.includes(dirId) : false;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.[dirId];
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
       };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f));
+        return (fields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f));
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && isVisibleInDirectory(f)).map(enrich);
         } catch {
           return [];
         }
@@ -283,21 +299,44 @@ export default function DynamicDirectoryView() {
   });
 
   const { data: memberCustomFields = [] } = useQuery({
-    queryKey: ['member-filterable-fields'],
+    queryKey: ['member-filterable-fields', directory?.id],
     queryFn: async () => {
+      const dirId = directory?.id;
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
+        }
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.[dirId];
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
+      };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable);
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable);
+          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable).map(enrich);
         } catch {
           return [];
         }
@@ -311,22 +350,38 @@ export default function DynamicDirectoryView() {
     queryKey: ['member-directory-custom-fields', directory?.id],
     queryFn: async () => {
       const dirId = directory?.id;
-      const isVisibleInDirectory = (field) => {
-        if (field.directory_visibility) {
-          let vis = field.directory_visibility;
-          if (typeof vis === 'string') {
-            try { vis = JSON.parse(vis); } catch { vis = []; }
-          }
-          if (Array.isArray(vis)) return vis.includes(dirId);
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
         }
-        return false;
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const isVisibleInDirectory = (field) => {
+        const parsed = parseDirVis(field);
+        return parsed ? parsed.ids.includes(dirId) : false;
+      };
+      const enrich = (field) => {
+        const override = parseDirVis(field)?.labels?.[dirId];
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
       };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInDirectory(f));
+        return (fields || []).filter(f => f.entity_scope === 'member' && isVisibleInDirectory(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -335,7 +390,7 @@ export default function DynamicDirectoryView() {
           });
           return (allFields || []).filter(f =>
             (!f.entity_scope || f.entity_scope === 'member') && isVisibleInDirectory(f)
-          );
+          ).map(enrich);
         } catch {
           return [];
         }
@@ -798,7 +853,7 @@ export default function DynamicDirectoryView() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableOrgFields.map(field => (
                       <div key={field.id} className="flex items-center gap-2">
-                        <span className="text-sm text-slate-700">{field.label}:</span>
+                        <span className="text-sm text-slate-700">{field._displayLabel || field.label}:</span>
                         <Select 
                           value={customFieldFilters[field.id] || "all"} 
                           onValueChange={(value) => {
@@ -810,7 +865,7 @@ export default function DynamicDirectoryView() {
                           }}
                         >
                           <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${field.label}`} />
+                            <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>
@@ -1144,7 +1199,7 @@ export default function DynamicDirectoryView() {
                         }
                         return (
                           <div key={field.id} className="flex justify-between items-start gap-4">
-                            <span className="text-sm text-slate-600">{field.label}</span>
+                            <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
                             <span className="text-sm font-medium text-slate-900 text-right">
                               {displayValue || <span className="text-slate-400 italic">Not set</span>}
                             </span>
@@ -1270,7 +1325,7 @@ export default function DynamicDirectoryView() {
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                     {filterableMemberFields.map(field => (
                       <div key={field.id} className="flex items-center gap-2">
-                        <Label className="text-sm text-slate-700">{field.label}:</Label>
+                        <Label className="text-sm text-slate-700">{field._displayLabel || field.label}:</Label>
                         <Select 
                           value={customFieldFilters[field.id] || "all"} 
                           onValueChange={(value) => {
@@ -1281,7 +1336,7 @@ export default function DynamicDirectoryView() {
                           }}
                         >
                           <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${field.label}`} />
+                            <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">All</SelectItem>
@@ -1484,7 +1539,7 @@ export default function DynamicDirectoryView() {
                                 }
                                 return (
                                   <div key={field.id} className="flex items-center justify-between gap-2" data-testid={`card-custom-field-${field.id}`}>
-                                    <span className="text-xs text-slate-500 truncate">{field.label}</span>
+                                    <span className="text-xs text-slate-500 truncate">{field._displayLabel || field.label}</span>
                                     <span className="text-xs font-medium text-slate-700 text-right truncate max-w-[50%]">{String(displayValue)}</span>
                                   </div>
                                 );
@@ -1713,7 +1768,7 @@ export default function DynamicDirectoryView() {
                         }
                         return (
                           <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`popup-custom-field-${field.id}`}>
-                            <p className="text-xs font-medium text-slate-500 mb-1">{field.label}</p>
+                            <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
                             <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
                           </div>
                         );

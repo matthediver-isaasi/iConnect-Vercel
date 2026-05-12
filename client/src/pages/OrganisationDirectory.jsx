@@ -221,29 +221,47 @@ export default function OrganisationDirectoryPage() {
   const { data: orgCustomFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'directory'],
     queryFn: async () => {
-      const parseVisibility = (field) => {
-        if (field.directory_visibility) {
-          let vis = field.directory_visibility;
-          if (typeof vis === 'string') {
-            try { vis = JSON.parse(vis); } catch { vis = []; }
-          }
-          if (Array.isArray(vis)) return vis.includes('main');
+      const parseDirVis = (field) => {
+        if (!field.directory_visibility) return null;
+        let vis = field.directory_visibility;
+        if (typeof vis === 'string') {
+          try { vis = JSON.parse(vis); } catch { return null; }
         }
+        if (Array.isArray(vis)) return { ids: vis, labels: {} };
+        if (vis && typeof vis === 'object') {
+          return {
+            ids: Array.isArray(vis.ids) ? vis.ids : [],
+            labels: (vis.labels && typeof vis.labels === 'object' && !Array.isArray(vis.labels)) ? vis.labels : {}
+          };
+        }
+        return null;
+      };
+      const parseVisibility = (field) => {
+        const parsed = parseDirVis(field);
+        if (parsed) return parsed.ids.includes('main');
         return field.show_in_directory_card !== false;
+      };
+      const enrich = (field) => {
+        const parsed = parseDirVis(field);
+        const override = parsed?.labels?.main;
+        return {
+          ...field,
+          _displayLabel: (typeof override === 'string' && override.trim()) ? override.trim() : field.label
+        };
       };
       try {
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f));
+        return (fields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f)).map(enrich);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f));
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f)).map(enrich);
         } catch {
           return [];
         }
@@ -567,7 +585,7 @@ export default function OrganisationDirectoryPage() {
                 <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
                   {filterableFields.map(field => (
                     <div key={field.id} className="flex items-center gap-2">
-                      <span className="text-sm text-slate-700">{field.label}:</span>
+                      <span className="text-sm text-slate-700">{field._displayLabel || field.label}:</span>
                       <Select 
                         value={customFieldFilters[field.id] || "all"} 
                         onValueChange={(value) => {
@@ -579,7 +597,7 @@ export default function OrganisationDirectoryPage() {
                         }}
                       >
                         <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                          <SelectValue placeholder={`All ${field.label}`} />
+                          <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All</SelectItem>
@@ -991,7 +1009,7 @@ export default function OrganisationDirectoryPage() {
                   <div className="space-y-3">
                     {populatedFields.map(({ field, displayValue }) => (
                       <div key={field.id} className="flex justify-between items-start gap-4">
-                        <span className="text-sm text-slate-600">{field.label}</span>
+                        <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
                         <span className="text-sm font-medium text-slate-900 text-right">
                           {displayValue}
                         </span>
