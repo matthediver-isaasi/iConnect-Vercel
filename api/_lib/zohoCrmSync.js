@@ -372,6 +372,77 @@ setInterval(() => {
   }
 }, 60 * 1000).unref?.();
 
+// #793 — Static field-mapping guard.
+//
+// Due-diligence stage actions can be configured with a Static Value source
+// targeting an organisation custom field (e.g. static "SO" → custom
+// "Organisation type" picklist). The admin-entered static value must be
+// authoritative — but the same workflow then pushes a record to Zoho CRM
+// (e.g. Account_Type derived from the form name/slug), Zoho fires an
+// inbound webhook, and the inbound apply maps Account_Type back into the
+// same iConnect custom field via value_map, silently overwriting the
+// static value that just landed.
+//
+// To stop that overwrite, when the inbound apply is about to write a
+// custom field, we look up whether any active `stage_field_mapping_action`
+// for this tenant configures a Static Value mapping into that same custom
+// field. If so, the field is treated as iConnect-authoritative and the
+// inbound update for that field is skipped. Other inbound mapped fields on
+// the same record continue to apply normally.
+//
+// Cached for 60s to avoid hitting the DB on every webhook in a burst; a
+// fresh DB read on cache miss picks up newly-saved DD config quickly.
+const staticAssertedCustomFieldsCache = new Map();
+const STATIC_ASSERTED_CACHE_TTL_MS = 60 * 1000;
+
+async function getStaticAssertedCustomFieldIds(tenantId, entityType) {
+  // Only organisation custom fields can be targets of stage_field_mapping_action.
+  if (entityType !== 'organization' || !tenantId) return new Set();
+  const cacheKey = tenantId;
+  const cached = staticAssertedCustomFieldsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  try {
+    const { data, error } = await supabase
+      .from('stage_field_mapping_action')
+      .select('field_mappings')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+    if (error) {
+      console.warn('[ZohoCrmSync] Static-assert lookup failed:', error.message);
+      return new Set();
+    }
+    const result = new Set();
+    for (const row of data || []) {
+      const mappings = Array.isArray(row?.field_mappings) ? row.field_mappings : [];
+      for (const m of mappings) {
+        if (!m) continue;
+        if (m.source_type !== 'static') continue;
+        if (m.target_type !== 'custom') continue;
+        if (!m.target_field) continue;
+        const sv = m.static_value;
+        if (sv === undefined || sv === null || sv === '') continue;
+        result.add(m.target_field);
+      }
+    }
+    staticAssertedCustomFieldsCache.set(cacheKey, {
+      value: result,
+      expiresAt: Date.now() + STATIC_ASSERTED_CACHE_TTL_MS
+    });
+    return result;
+  } catch (err) {
+    console.warn('[ZohoCrmSync] Static-assert lookup error:', err?.message || err);
+    return new Set();
+  }
+}
+
+// Exposed so write paths that mutate stage_field_mapping_action could
+// invalidate this cache after a save. Currently unused — the 60s TTL is
+// short enough for admin-config changes.
+export function invalidateStaticAssertedCustomFieldsCache(tenantId) {
+  if (tenantId) staticAssertedCustomFieldsCache.delete(tenantId);
+  else staticAssertedCustomFieldsCache.clear();
+}
+
 function computeHash(obj) {
   try {
     const normalized = JSON.stringify(sortKeys(obj || {}));
@@ -1881,10 +1952,13 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
   if (inboundWarnings.length > 0) {
     console.warn('[ZohoCrmSync] Inbound value translation gaps:', inboundWarnings);
   }
-  const inboundWarningSuffix = inboundWarnings.length > 0
+  // Compute lazily so suppression warnings appended later (e.g. the
+  // #793 static-asserted custom-field skip) are included in the success
+  // / failure log messages emitted at the bottom of this function.
+  const buildInboundWarningSuffix = () => (inboundWarnings.length > 0
     ? ` [translation warnings: ${inboundWarnings
         .map(w => `${w.zoho_field}→${w.iconnect_field}="${w.unmapped_value}"`).join('; ')}]`
-    : '';
+    : '');
   const combinedPayload = { ...coreUpdates, ...Object.fromEntries(Object.entries(customUpdates).map(([k, v]) => [`custom:${k}`, v])) };
 
   if (Object.keys(combinedPayload).length === 0) {
@@ -1986,6 +2060,36 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
   for (const [k, v] of Object.entries(customUpdates)) {
     if (currentCustomValues[k] !== v) customChanged[k] = v;
   }
+
+  // #793 — Drop inbound updates targeting custom fields that are
+  // declared as Static Value targets in any active stage_field_mapping_action
+  // for this tenant. The admin-entered static value is authoritative; the
+  // inbound write would silently overwrite it (e.g. Zoho Account_Type
+  // mapped back into the same "Organisation type" custom field).
+  const staticAssertedFieldIds = await getStaticAssertedCustomFieldIds(tenantId, entityType);
+  const skippedStaticAsserted = {};
+  if (staticAssertedFieldIds.size > 0) {
+    for (const fieldId of Object.keys(customChanged)) {
+      if (staticAssertedFieldIds.has(fieldId)) {
+        skippedStaticAsserted[fieldId] = customChanged[fieldId];
+        delete customChanged[fieldId];
+      }
+    }
+    if (Object.keys(skippedStaticAsserted).length > 0) {
+      console.log(
+        '[ZohoCrmSync] Inbound apply skipped static-asserted custom fields for',
+        entityType, entity.id, '-',
+        Object.keys(skippedStaticAsserted).join(', ')
+      );
+      inboundWarnings.push({
+        zoho_field: '(static-asserted)',
+        iconnect_field: Object.keys(skippedStaticAsserted)
+          .map(id => `custom:${id}`).join(','),
+        unmapped_value: 'inbound write suppressed: target is set by a Static Value field-mapping action'
+      });
+    }
+  }
+
   if (Object.keys(coreChanged).length === 0 && Object.keys(customChanged).length === 0) {
     await recordSyncState(tenantId, entityType, entity.id, 'inbound', payloadHash);
     return await writeLog({
@@ -2024,7 +2128,7 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       status: 'success', direction: 'inbound', source, action: 'inbound',
       payload_hash: payloadHash,
       conflict_resolution: conflictResolution,
-      error_message: inboundWarningSuffix ? `OK${inboundWarningSuffix}` : null,
+      error_message: (() => { const s = buildInboundWarningSuffix(); return s ? `OK${s}` : null; })(),
       request_payload: zohoRecord,
       response_payload: {
         core: coreChanged,
@@ -2040,7 +2144,7 @@ export async function applyInboundFromZoho(tenantId, zohoModule, zohoRecord, opt
       status: 'failed', direction: 'inbound', source, action: 'inbound',
       payload_hash: payloadHash,
       conflict_resolution: conflictResolution,
-      error_message: (err?.message || String(err)) + inboundWarningSuffix,
+      error_message: (err?.message || String(err)) + buildInboundWarningSuffix(),
       request_payload: zohoRecord,
       response_payload: {
         core: coreChanged,
