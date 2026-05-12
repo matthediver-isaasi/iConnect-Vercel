@@ -1541,7 +1541,7 @@ export default async function handler(req, res) {
         const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
         console.log('[AppProcessor] Triggering workflows for organization:', newlyCreatedOrgData.id, 'tenant_id:', newlyCreatedOrgData.tenant_id);
         try {
-          await triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl);
+          await triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl, { formSubmissionId: submission_id });
           console.log('[AppProcessor] Workflow evaluation completed for organization:', newlyCreatedOrgData.id);
         } catch (err) {
           console.error('[AppProcessor] Workflow error for organization:', err);
@@ -1868,7 +1868,7 @@ export default async function handler(req, res) {
           // Must await to ensure completion before Vercel terminates the function
           const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
           try {
-            await triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl);
+            await triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl, { formSubmissionId: submission_id });
             console.log('[AppProcessor] Workflow evaluation completed for member:', createdMemberId);
           } catch (err) {
             console.error('[AppProcessor] Workflow error:', err);
@@ -2750,7 +2750,7 @@ export default async function handler(req, res) {
           // Must await to ensure completion before Vercel terminates the function
           const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
           try {
-            await triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl);
+            await triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
             console.log('[AppProcessor] Workflow evaluation completed for additional member:', newMember.id);
           } catch (err) {
             console.error('[AppProcessor] Additional member workflow error:', err);

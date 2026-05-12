@@ -1,5 +1,5 @@
 import { sendEmail, replacePlaceholders } from './emailService.js';
-import { applyDdOwnerPlaceholders } from './ddOwner.js';
+import { applyDdOwnerPlaceholders, resolveDdOwnerForSubmission } from './ddOwner.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg } from './membershipSimulation.js';
@@ -547,9 +547,10 @@ async function buildConditionSummaries(conditions, tenantId, entityType) {
   return summaries;
 }
 
-async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
+async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl, context = {}) {
   const results = [];
   const tenantId = workflow.tenant_id;
+  const formSubmissionId = context?.formSubmissionId || null;
   
   if (entityData && (entityData.first_name || entityData.last_name)) {
     entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
@@ -666,7 +667,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       // Support both new array format (to_role_ids) and legacy single role (to_role_id)
       const toRoleIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
       if (action.config?.to_mode === 'role' && toRoleIds.length > 0) {
-        const roleResults = await executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, toRoleIds);
+        const roleResults = await executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, toRoleIds, context);
         results.push(...roleResults);
         continue;
       }
@@ -776,10 +777,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       if (cc) console.log(`[Workflows] CC: "${cc}"`);
       if (bcc) console.log(`[Workflows] BCC: "${bcc}"`);
       
-      // Workflow context has no form_submission_id; strip dd_owner placeholders so
-      // they don't leak as raw text. (See replit.md - Due Diligence section.)
-      subject = applyDdOwnerPlaceholders(subject, { ownerName: '', ownerEmail: '' });
-      body = applyDdOwnerPlaceholders(body, { ownerName: '', ownerEmail: '' });
+      // Resolve dd_owner placeholders against the originating form submission
+      // (passed via context.formSubmissionId by the form processor). When no
+      // submission context is available, this collapses placeholders to empty
+      // strings so they don't leak as raw text.
+      const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId });
+      subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
+      body = applyDdOwnerPlaceholders(body, ddOwnerVals);
 
       const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
@@ -792,7 +796,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         template_id: action.config?.template_id
       });
     } else if (action.type === 'create_contract') {
-      const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl);
+      const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context);
       results.push(contractResult);
     } else if (action.type === 'create_membership') {
       const membershipResult = await executeCreateMembershipAction(action, workflow, entityType, entityId, entityData);
@@ -803,7 +807,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   return results;
 }
 
-async function executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl) {
+async function executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context = {}) {
   const tenantId = workflow.tenant_id;
   console.log(`[Workflows] Executing create_contract action for entity ${entityType}:${entityId}`);
   
@@ -959,10 +963,12 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
             body = replacePlaceholders(body, entityType, entityData, null);
             subject = replacePlaceholders(subject, entityType, entityData, null);
 
-            // Workflow-created contracts don't carry a form_submission_id; strip dd_owner
-            // placeholders so they don't leak as raw text.
-            subject = applyDdOwnerPlaceholders(subject, { ownerName: '', ownerEmail: '' });
-            body = applyDdOwnerPlaceholders(body, { ownerName: '', ownerEmail: '' });
+            // Resolve dd_owner placeholders against the originating form submission
+            // (passed via context.formSubmissionId by the form processor). Falls
+            // back to empty strings when no submission context is available.
+            const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId: context?.formSubmissionId || null });
+            subject = applyDdOwnerPlaceholders(subject, ddOwnerVals);
+            body = applyDdOwnerPlaceholders(body, ddOwnerVals);
 
             console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
             
@@ -1219,9 +1225,10 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
 
 // Execute role-based email: sends individual emails to all members with the specified role(s) in the organization
 // roleIds parameter is an array of role IDs to send to
-async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, roleIds) {
+async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, roleIds, context = {}) {
   const results = [];
   const tenantId = workflow.tenant_id;
+  const formSubmissionId = context?.formSubmissionId || null;
   
   console.log(`[Workflows] Role-based email: sending to all members with roles: ${roleIds.join(', ')}`);
   
@@ -1349,6 +1356,10 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
   const baseSubject = subject;
   const baseBody = body;
   
+  // Resolve dd_owner once for this workflow run (same for every recipient).
+  // Falls back to empty when no submission context is available.
+  const ddOwnerVals = await resolveDdOwnerForSubmission({ tenantId, formSubmissionId });
+
   // Pre-fetch org data once for member-triggered workflows (avoid per-member DB calls)
   let triggerMemberOrgData = null;
   if (entityType === 'member' && entityData?.organization_id) {
@@ -1455,9 +1466,9 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
         }
       }
       
-      // Workflow context has no form_submission_id; strip dd_owner placeholders.
-      memberSubject = applyDdOwnerPlaceholders(memberSubject, { ownerName: '', ownerEmail: '' });
-      memberBody = applyDdOwnerPlaceholders(memberBody, { ownerName: '', ownerEmail: '' });
+      // Apply pre-resolved dd_owner values (resolved once before the loop).
+      memberSubject = applyDdOwnerPlaceholders(memberSubject, ddOwnerVals);
+      memberBody = applyDdOwnerPlaceholders(memberBody, ddOwnerVals);
 
       console.log(`[Workflows] Role-based email: sending to ${member.email}`);
       
@@ -1532,7 +1543,7 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
   console.log(`[Workflows] Logged execution for ${workflow.name}`);
 }
 
-export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl) {
+export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl, context = {}) {
   console.log(`[Workflows] triggerWorkflows called: entityType=${entityType}, entityId=${entityId}, triggerType=${triggerType}`);
   console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
   
@@ -1856,7 +1867,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
-      const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl);
+      const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl, context);
       await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType }, results);
     }
     

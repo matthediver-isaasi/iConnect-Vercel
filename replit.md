@@ -46,7 +46,7 @@ Preferred communication style: Simple, everyday language.
 
 ## Gotchas
 -   The API hard-fails any TENANT- or ORGANIZATION-scoped request that arrives without a usable tenant context.
--   The workflow runner strips `dd_owner` placeholders to empty if no submission context is available, preventing token leaks.
+-   The workflow runner resolves `dd_owner` / `dd_owner_email` placeholders via `resolveDdOwnerForSubmission` (in `api/_lib/ddOwner.js`) when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows` (e.g. the form processor in `api/forms/process-application.js` plumbs the originating DD `submission_id` for member/organization create triggers). When no submission context is available, placeholders collapse to empty strings, preventing raw `{{dd_owner}}` token leaks.
 -   Event deletion is a multi-step cancellation process; direct deletion of events is deprecated for UI flows.
 -   Server-side no length validation for `event.summary` and `complex_event.summary` - client-side `event_summary_max_length` (default 150) system setting is the primary control.
 
