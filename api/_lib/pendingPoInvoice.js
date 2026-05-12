@@ -84,7 +84,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     bookingsOrgRows = await fetchAllPages('booking (org-bound)', invoiceKey, () => matchInvoice(
       client
         .from('booking')
-        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, number_of_tickets, created_at, purchase_order_number')
+        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, created_at, purchase_order_number')
         .in('organization_id', tenantOrgIds)
         .neq('status', 'cancelled')
         .order('id', { ascending: true }),
@@ -104,7 +104,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
       const rows = await fetchAllPages(`booking (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
         client
           .from('booking')
-          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, number_of_tickets, created_at, purchase_order_number')
+          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, created_at, purchase_order_number')
           .is('organization_id', null)
           .in('member_id', chunk)
           .neq('status', 'cancelled')
@@ -302,7 +302,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
 
   for (const b of found.bookings) {
     totalCost += Number(b.total_cost) || 0;
-    quantity += Number(b.number_of_tickets) || 0;
+    quantity += 1;
     if (b.created_at && (!earliestDate || new Date(b.created_at) < new Date(earliestDate))) {
       earliestDate = b.created_at;
     }
