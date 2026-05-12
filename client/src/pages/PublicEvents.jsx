@@ -182,7 +182,11 @@ export default function PublicEventsPage() {
                   const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
                   const isComplex = !!event.is_complex;
                   const cheapest = getCheapestPrice(event.pricing_config);
-                  const detailUrl = getEventDetailUrl(event);
+                  const baseDetailUrl = getEventDetailUrl(event);
+                  const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
+                    ? event.cta_override_url
+                    : baseDetailUrl;
+                  const isExternalDetailUrl = /^https?:\/\//i.test(detailUrl);
                   const showPricesSetting = Array.isArray(systemSettings)
                     ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
                     : false;
@@ -274,11 +278,19 @@ export default function PublicEventsPage() {
                         )}
 
                         <div className="pt-3 border-t border-slate-100">
-                          <Link to={detailUrl}>
-                            <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
-                              View Details
-                            </Button>
-                          </Link>
+                          {isExternalDetailUrl ? (
+                            <a href={detailUrl} rel="noopener noreferrer">
+                              <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
+                                View Details
+                              </Button>
+                            </a>
+                          ) : (
+                            <Link to={detailUrl}>
+                              <Button className="w-full" data-testid={`button-featured-view-event-${event.id}`}>
+                                View Details
+                              </Button>
+                            </Link>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -294,7 +306,11 @@ export default function PublicEventsPage() {
               const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
               const isComplex = !!event.is_complex;
               const cheapest = getCheapestPrice(event.pricing_config);
-              const detailUrl = getEventDetailUrl(event);
+              const baseDetailUrl = getEventDetailUrl(event);
+              const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
+                ? event.cta_override_url
+                : baseDetailUrl;
+              const isExternalDetailUrl = /^https?:\/\//i.test(detailUrl);
 
               return (
                 <Card
@@ -383,11 +399,19 @@ export default function PublicEventsPage() {
                     )}
 
                     <div className="pt-3 border-t border-slate-100">
-                      <Link to={detailUrl}>
-                        <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                          View Details
-                        </Button>
-                      </Link>
+                      {isExternalDetailUrl ? (
+                        <a href={detailUrl} rel="noopener noreferrer">
+                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
+                            View Details
+                          </Button>
+                        </a>
+                      ) : (
+                        <Link to={detailUrl}>
+                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
+                            View Details
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -166,6 +166,7 @@ export default function CreateEvent() {
     zoom_meeting_id: null,
     online_url: "",
     cta_override_url: "",
+    cta_override_mode: "card",
     timezone: "Europe/London"
   });
 
@@ -759,6 +760,7 @@ export default function CreateEvent() {
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
       cta_override_url: formData.cta_override_url || null,
+      cta_override_mode: formData.cta_override_mode || 'card',
       // TBC events can still be online, but webinar is optional
       is_online: isOnline,
       is_complex: false,
@@ -1618,9 +1620,33 @@ export default function CreateEvent() {
                   data-testid="input-cta-override-url"
                 />
                 <p className="text-xs text-slate-500">
-                  Optional. If set, the event card's CTA button will link to this URL instead of the default event details page. 
-                  Use this to link to a custom Event Spotlight page.
+                  Optional. Use this to link to a custom Event Spotlight page or external booking flow.
                 </p>
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="cta_override_mode">CTA Override Mode</Label>
+                  <Select
+                    value={formData.cta_override_mode || 'card'}
+                    onValueChange={(value) => handleInputChange('cta_override_mode', value)}
+                    disabled={!formData.cta_override_url}
+                  >
+                    <SelectTrigger id="cta_override_mode" data-testid="select-cta-override-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="card" data-testid="option-cta-mode-card">
+                        Card CTA links to override URL
+                      </SelectItem>
+                      <SelectItem value="detail_page" data-testid="option-cta-mode-detail-page">
+                        Card opens detail page; "Continue to book" links to override URL
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    {formData.cta_override_url
+                      ? 'In "detail page" mode, the event card opens the standard detail page where attendees can see ticket prices before being redirected to the override URL via a "Continue to book" button.'
+                      : 'Set a CTA Override URL above to enable this option.'}
+                  </p>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

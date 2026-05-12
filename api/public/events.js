@@ -53,7 +53,9 @@ export default async function handler(req, res) {
         program_tag,
         event_state,
         registration_closes_at,
-        is_featured
+        is_featured,
+        cta_override_url,
+        cta_override_mode
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -101,7 +103,9 @@ export default async function handler(req, res) {
         event_state: event.event_state,
         registration_closes_at: event.registration_closes_at,
         is_featured: event.is_featured || false,
-        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
+        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+        cta_override_url: event.cta_override_url || null,
+        cta_override_mode: event.cta_override_mode || 'card'
       };
     });
 

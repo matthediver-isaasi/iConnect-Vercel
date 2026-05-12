@@ -980,7 +980,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                         : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
                       disabled={isSoldOut}
                       onClick={() => {
-                        if (event.cta_override_url) {
+                        if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
                           window.location.href = event.cta_override_url;
                         } else {
                           window.location.href = getEventUrl(event);

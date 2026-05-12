@@ -13,7 +13,7 @@ import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
   Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail, FileText, ChevronDown, ChevronUp,
-  ChevronLeft, ChevronRight, Copy
+  ChevronLeft, ChevronRight, Copy, ExternalLink, LogIn
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
@@ -1462,6 +1462,15 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const registrationClosed = event.registration_closes_at && new Date(event.registration_closes_at) < new Date();
 
+  // CTA override "detail_page" mode: hide ticket add-attendee buttons and
+  // payment options; show ticket prices + a "Continue to book" button.
+  const useCtaOverrideDetailMode = !!event?.cta_override_url
+    && event?.cta_override_mode === 'detail_page';
+  const isSoldOut = event?.available_seats !== null
+    && event?.available_seats !== undefined
+    && Number(event.available_seats) <= 0
+    && event?.is_unlimited_registration !== true;
+
   if (registrationClosed) {
     return (
       <Card className="border-slate-200">
@@ -1610,9 +1619,107 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {ticketCards}
-        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
-        {paymentOptionsSection}
+        {useCtaOverrideDetailMode ? (
+          <>
+            <div className="space-y-3">
+              {availableTicketClasses.length > 0 && (
+                <Label className="text-sm font-medium">Tickets</Label>
+              )}
+              {availableTicketClasses.map(tc => {
+                const tcPrice = getEffectiveTicketPrice(tc);
+                return (
+                  <div
+                    key={tc.id}
+                    className="p-3 rounded-md border border-slate-200"
+                    data-testid={`ticket-class-${tc.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-sm text-slate-900 flex items-center gap-2 flex-wrap">
+                          {tc.name}
+                          {tc.is_group_ticket && tc.group_size > 1 && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Users className="w-3 h-3 mr-1" />
+                              Group ({tc.group_size})
+                            </Badge>
+                          )}
+                          {tcPrice.isEarlyBird && (
+                            <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                              Early Bird
+                            </Badge>
+                          )}
+                        </span>
+                        {tc.description && (
+                          <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <div className="text-base font-semibold text-slate-900">
+                          {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
+                        </div>
+                        {tcPrice.isEarlyBird && (
+                          <div className="text-xs text-slate-400 line-through">
+                            {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {availableTicketClasses.length === 0 && isGuest && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <Lock className="h-4 w-4 text-blue-600 shrink-0" />
+                  <span className="text-sm text-blue-800 font-medium">Member only event</span>
+                </div>
+              )}
+              {availableTicketClasses.length === 0 && !isGuest && (
+                <p className="text-sm text-center text-slate-500">
+                  No tickets are currently available for your account.
+                </p>
+              )}
+            </div>
+            {availableTicketClasses.length === 0 && !isGuest ? null : availableTicketClasses.length === 0 && isGuest ? (
+              <Button
+                onClick={() => {
+                  const currentPath = window.location.pathname + window.location.search;
+                  window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
+                }}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                size="lg"
+                data-testid="button-login-to-register"
+              >
+                <LogIn className="w-5 h-5 mr-2" />
+                Login to register
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  if (event.cta_override_url) {
+                    window.location.href = event.cta_override_url;
+                  }
+                }}
+                disabled={isSoldOut}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+                size="lg"
+                data-testid="button-continue-to-book"
+              >
+                {isSoldOut ? 'Sold Out' : (
+                  <>
+                    <ExternalLink className="w-5 h-5 mr-2" />
+                    Continue to book
+                  </>
+                )}
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            {ticketCards}
+            <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
+            {paymentOptionsSection}
+          </>
+        )}
       </CardContent>
 
       <AddAttendeeModal

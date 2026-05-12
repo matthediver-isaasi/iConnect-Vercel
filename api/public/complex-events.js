@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type, is_featured')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type, is_featured, cta_override_url, cta_override_mode')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .or('event_state.is.null,event_state.eq.active,event_state.eq.closed')
@@ -141,7 +141,9 @@ export default async function handler(req, res) {
         session_count: sessionCountByEvent[event.id] || 0,
         track_count: trackCountByEvent[event.id] || 0,
         cheapest_price: cheapestPrice,
-        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
+        pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+        cta_override_url: event.cta_override_url || null,
+        cta_override_mode: event.cta_override_mode || 'card'
       };
     });
 

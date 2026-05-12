@@ -104,7 +104,12 @@ export default function EmbedEventPage() {
   }, []);
 
   const handleEventClick = () => {
-    if (event?.event_url) {
+    // CTA override URL only short-circuits the click in 'card' mode.
+    // In 'detail_page' mode, the embed should open the standard event detail
+    // page so visitors see ticket prices before being redirected.
+    if (event?.cta_override_url && event?.cta_override_mode !== 'detail_page') {
+      window.open(event.cta_override_url, '_blank', 'noopener,noreferrer');
+    } else if (event?.event_url) {
       window.open(event.event_url, '_blank', 'noopener,noreferrer');
     } else if (tenantParam) {
       window.open(`https://${tenantParam}.iconn.app/EventDetails?id=${event.id}`, '_blank', 'noopener,noreferrer');

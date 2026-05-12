@@ -597,6 +597,8 @@ export default function CreateComplexEvent() {
     xero_account_code: "",
     event_type: [],
     registration_closes_at: "",
+    cta_override_url: "",
+    cta_override_mode: "card",
     program_tag: "",
   });
 
@@ -1182,6 +1184,8 @@ export default function CreateComplexEvent() {
           ? (toDateTz(existingEvent.registration_closes_at, existingEvent.timezone || DEFAULT_TIMEZONE)?.toISOString() || "")
           : "",
         program_tag: existingEvent.program_tag || "",
+        cta_override_url: existingEvent.cta_override_url || "",
+        cta_override_mode: existingEvent.cta_override_mode || "card",
       });
       setSlugManuallyEdited(true);
       setSeoTitle(existingEvent.seo_title || "");
@@ -1743,6 +1747,8 @@ export default function CreateComplexEvent() {
         seo_description: seoDescription || null,
         og_image_url: ogImageUrl || null,
         program_tag: formData.program_tag || null,
+        cta_override_url: formData.cta_override_url || null,
+        cta_override_mode: formData.cta_override_mode || 'card',
       };
 
       let eventId;
@@ -2523,6 +2529,45 @@ export default function CreateComplexEvent() {
                       </p>
                     </div>
                   )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="cta_override_url">CTA Override URL</Label>
+                  <Input
+                    id="cta_override_url"
+                    value={formData.cta_override_url || ""}
+                    onChange={(e) => updateField('cta_override_url', e.target.value)}
+                    placeholder="e.g. /my-custom-page or https://example.com/event-page"
+                    data-testid="input-cta-override-url"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Optional. Use this to link to a custom Event Spotlight page or external booking flow.
+                  </p>
+                  <div className="space-y-2 pt-2">
+                    <Label htmlFor="cta_override_mode">CTA Override Mode</Label>
+                    <Select
+                      value={formData.cta_override_mode || 'card'}
+                      onValueChange={(value) => updateField('cta_override_mode', value)}
+                      disabled={!formData.cta_override_url}
+                    >
+                      <SelectTrigger id="cta_override_mode" data-testid="select-cta-override-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="card" data-testid="option-cta-mode-card">
+                          Card CTA links to override URL
+                        </SelectItem>
+                        <SelectItem value="detail_page" data-testid="option-cta-mode-detail-page">
+                          Card opens detail page; "Continue to book" links to override URL
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      {formData.cta_override_url
+                        ? 'In "detail page" mode, the event card opens the standard detail page where attendees can see ticket prices before being redirected to the override URL via a "Continue to book" button.'
+                        : 'Set a CTA Override URL above to enable this option.'}
+                    </p>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">

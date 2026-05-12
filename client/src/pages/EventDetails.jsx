@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird, ExternalLink } from "lucide-react";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import EarlyBirdCountdown from "@/components/EarlyBirdCountdown";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1063,6 +1063,11 @@ export default function EventDetailsPage() {
   
   // Check if user has no tickets available for their role
   const noTicketsForRole = isOneOffEvent && availableTicketClasses.length === 0;
+
+  // CTA override "detail_page" mode: card opens this page, but booking inputs
+  // are hidden and replaced with a "Continue to book" button linking out.
+  const useCtaOverrideDetailMode = !!event?.cta_override_url
+    && event?.cta_override_mode === 'detail_page';
   
   // Check if event is sold out (not unlimited and available_seats <= 0)
   const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
@@ -1589,8 +1594,8 @@ export default function EventDetailsPage() {
               )}
             </Card>
 
-            {/* Hide attendees card if no tickets available for user's role */}
-            {!noTicketsForRole && (
+            {/* Hide attendees card if no tickets available for user's role, or if CTA override detail-page mode is active */}
+            {!noTicketsForRole && !useCtaOverrideDetailMode && (
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
                 <div className="flex flex-col gap-3">
@@ -2281,6 +2286,55 @@ export default function EventDetailsPage() {
               </Card>
             )}
 
+            {useCtaOverrideDetailMode && noTicketsForRole && !isGuestCheckout ? null : useCtaOverrideDetailMode ? (
+              <Card className="border-slate-200 shadow-sm" data-testid="card-cta-override-detail">
+                <CardContent className="pt-6 space-y-4">
+                  {isGuestCheckout && noTicketsForRole ? (
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                      <Lock className="h-4 w-4 text-blue-600 shrink-0" />
+                      <span className="text-sm text-blue-800 font-medium">Member only event</span>
+                    </div>
+                  ) : null}
+                  {isGuestCheckout && noTicketsForRole ? (
+                    <Button
+                      onClick={() => {
+                        const currentPath = window.location.pathname + window.location.search;
+                        window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
+                      }}
+                      className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      size="lg"
+                      data-testid="button-login-to-register"
+                    >
+                      <LogIn className="w-5 h-5 mr-2" />
+                      Login to register
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        if (event.cta_override_url) {
+                          window.location.href = event.cta_override_url;
+                        }
+                      }}
+                      disabled={isSoldOut || isRegistrationClosed}
+                      className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      size="lg"
+                      data-testid="button-continue-to-book"
+                    >
+                      {isRegistrationClosed
+                        ? 'Registration Closed'
+                        : isSoldOut
+                          ? 'Sold Out'
+                          : (
+                            <>
+                              <ExternalLink className="w-5 h-5 mr-2" />
+                              Continue to book
+                            </>
+                          )}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
             <PaymentOptions
               totalCost={totalCost}
               memberInfo={currentMemberInfo}
@@ -2327,6 +2381,7 @@ export default function EventDetailsPage() {
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}
             />
+            )}
 
           </div>
         </div>

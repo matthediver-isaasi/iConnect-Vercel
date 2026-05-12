@@ -240,11 +240,19 @@ export default function PublicComplexEvents() {
                     )}
 
                     <div className="pt-3 border-t border-slate-100">
-                      <Link to={eventUrl}>
-                        <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                          View Details
-                        </Button>
-                      </Link>
+                      {(event.cta_override_url && event.cta_override_mode !== 'detail_page') ? (
+                        <a href={event.cta_override_url} rel="noopener noreferrer">
+                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
+                            View Details
+                          </Button>
+                        </a>
+                      ) : (
+                        <Link to={eventUrl}>
+                          <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
+                            View Details
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
