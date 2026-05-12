@@ -77,21 +77,76 @@ const COLUMN_DEFS = [
 ];
 const ALL_COLUMN_KEYS = COLUMN_DEFS.map(c => c.key);
 
-const SORT_FIELDS = new Set([
-  'organization',
-  'date',
-  'type',
-  'balance_before',
-  'amount',
-  'balance_after',
-  'reason',
-  'created_by',
-  'event_internal_reference',
-  'event_date',
-]);
+const SORT_FIELD_TYPES = {
+  organization: 'text',
+  date: 'date',
+  type: 'text',
+  balance_before: 'number',
+  amount: 'number',
+  balance_after: 'number',
+  reason: 'text',
+  created_by: 'text',
+  event_internal_reference: 'text',
+  event_date: 'date',
+};
+const SORT_FIELDS = new Set(Object.keys(SORT_FIELD_TYPES));
 // Fields whose default sort direction is desc when no explicit direction is
 // supplied. All other allowed fields default to asc.
 const DEFAULT_DESC_SORT_FIELDS = new Set(['date', 'type', 'amount', 'balance_after']);
+
+// Parse the `sort` query parameter into an array of rules. Accepts either a
+// repeated `sort=field:dir[:fallback]` form or a comma-separated single
+// string. Returns { rules, error }.
+function parseSortRules(rawSort) {
+  if (rawSort === undefined || rawSort === null) return { rules: null, error: null };
+  let entries = [];
+  if (Array.isArray(rawSort)) {
+    entries = rawSort.flatMap(v => String(v).split(',')).map(s => s.trim()).filter(Boolean);
+  } else {
+    entries = String(rawSort).split(',').map(s => s.trim()).filter(Boolean);
+  }
+  if (entries.length === 0) return { rules: null, error: null };
+  const rules = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const parts = entry.split(':');
+    if (parts.length < 2 || parts.length > 3) {
+      return { rules: null, error: `Malformed sort rule: ${entry}` };
+    }
+    const field = parts[0];
+    const dirRaw = (parts[1] || '').toLowerCase();
+    const fallback = parts[2] || '';
+    if (!SORT_FIELDS.has(field)) {
+      return { rules: null, error: `Invalid sort field: ${field}` };
+    }
+    if (seen.has(field)) {
+      return { rules: null, error: `Duplicate sort field: ${field}` };
+    }
+    seen.add(field);
+    if (dirRaw !== 'asc' && dirRaw !== 'desc') {
+      return { rules: null, error: `Invalid sort direction for ${field}: must be asc or desc` };
+    }
+    const dir = dirRaw;
+    let fallbackField = null;
+    if (parts.length === 3) {
+      if (!fallback) {
+        return { rules: null, error: `Empty fallback field for ${field}` };
+      }
+      if (!SORT_FIELDS.has(fallback)) {
+        return { rules: null, error: `Invalid fallback field: ${fallback}` };
+      }
+      if (fallback === field) {
+        return { rules: null, error: `Fallback field must differ from primary field: ${field}` };
+      }
+      if (SORT_FIELD_TYPES[fallback] !== SORT_FIELD_TYPES[field]) {
+        return { rules: null, error: `Fallback field type does not match primary field for ${field}` };
+      }
+      fallbackField = fallback;
+    }
+    rules.push({ field, dir, fallback: fallbackField });
+  }
+  return { rules, error: null };
+}
 
 function parseList(value) {
   if (!value) return [];
@@ -177,11 +232,32 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid "to" date' });
   }
 
-  const sortField = SORT_FIELDS.has(q.sort_field) ? q.sort_field : 'organization';
-  const sortDir = q.sort_dir === 'desc' ? 'desc' : (q.sort_dir === 'asc' ? 'asc' : null);
-  // Default direction differs by field to match the legacy behaviour
-  // (Organisation asc, then Date desc).
-  const effectiveSortDir = sortDir || (DEFAULT_DESC_SORT_FIELDS.has(sortField) ? 'desc' : 'asc');
+  // Build the ordered list of sort rules. Prefer the new `sort` param; fall
+  // back to legacy `sort_field` / `sort_dir`; if nothing is supplied, default
+  // to the legacy single-rule "Organisation asc".
+  let sortRules;
+  if (Object.prototype.hasOwnProperty.call(q, 'sort')) {
+    const { rules, error } = parseSortRules(q.sort);
+    if (error) {
+      return res.status(400).json({ error });
+    }
+    sortRules = rules && rules.length > 0 ? rules : [{ field: 'organization', dir: 'asc', fallback: null }];
+  } else if (q.sort_field || q.sort_dir) {
+    const legacyField = SORT_FIELDS.has(q.sort_field) ? q.sort_field : 'organization';
+    const legacyDirRaw = q.sort_dir === 'desc' ? 'desc' : (q.sort_dir === 'asc' ? 'asc' : null);
+    const legacyDir = legacyDirRaw || (DEFAULT_DESC_SORT_FIELDS.has(legacyField) ? 'desc' : 'asc');
+    sortRules = [{ field: legacyField, dir: legacyDir, fallback: null }];
+  } else {
+    sortRules = [{ field: 'organization', dir: 'asc', fallback: null }];
+  }
+
+  // Determine which auxiliary lookups are needed based on selected columns
+  // *and* every sort/fallback field referenced by the rules.
+  const sortFieldsReferenced = new Set();
+  for (const r of sortRules) {
+    sortFieldsReferenced.add(r.field);
+    if (r.fallback) sortFieldsReferenced.add(r.fallback);
+  }
 
   try {
     // ---- Fetch transactions with filters applied at DB level ----
@@ -224,7 +300,7 @@ export default async function handler(req, res) {
 
     // ---- Look up creators (when 'created_by' column is included or sorted by) ----
     const memberMap = {};
-    if (columnKeys.includes('created_by') || sortField === 'created_by') {
+    if (columnKeys.includes('created_by') || sortFieldsReferenced.has('created_by')) {
       const memberIds = Array.from(new Set(
         allTransactions.map(t => t.created_by).filter(Boolean)
       ));
@@ -251,8 +327,8 @@ export default async function handler(req, res) {
     // ---- Look up booking → event details (only when those columns are included) ----
     const internalRefByBookingId = {};
     const eventDateByBookingId = {};
-    const needRef = columnKeys.includes('event_internal_reference') || sortField === 'event_internal_reference';
-    const needEventDate = columnKeys.includes('event_date') || sortField === 'event_date';
+    const needRef = columnKeys.includes('event_internal_reference') || sortFieldsReferenced.has('event_internal_reference');
+    const needEventDate = columnKeys.includes('event_date') || sortFieldsReferenced.has('event_date');
     if (needRef || needEventDate) {
       const bookingIds = Array.from(new Set(
         allTransactions
@@ -350,50 +426,97 @@ export default async function handler(req, res) {
     }
 
     // ---- Sort ----
-    const dirMul = effectiveSortDir === 'asc' ? 1 : -1;
-    const sortValue = (t) => {
-      switch (sortField) {
-        case 'organization': return (orgMap[t.organization_id]?.name || '').toLowerCase();
-        case 'date': return t.created_date || '';
-        case 'type': return formatTransactionTypeLabel(t.type).toLowerCase();
-        case 'amount': return signedAmountNumber(t);
+    // Returns the raw value for a given field on a transaction, or null when
+    // the field is empty/absent for that row (so fallback handling can kick in).
+    const rawValue = (t, field) => {
+      switch (field) {
+        case 'organization': {
+          const v = orgMap[t.organization_id]?.name || '';
+          return v ? v : null;
+        }
+        case 'date': return t.created_date || null;
+        case 'type': {
+          const v = formatTransactionTypeLabel(t.type);
+          return v ? v : null;
+        }
+        case 'amount': {
+          if (t.amount === null || t.amount === undefined || t.amount === '') return null;
+          const n = signedAmountNumber(t);
+          return isNaN(n) ? null : n;
+        }
         case 'balance_before': {
+          if (t.balance_before === null || t.balance_before === undefined || t.balance_before === '') return null;
           const n = parseFloat(t.balance_before);
-          return isNaN(n) ? 0 : n;
+          return isNaN(n) ? null : n;
         }
         case 'balance_after': {
+          if (t.balance_after === null || t.balance_after === undefined || t.balance_after === '') return null;
           const n = parseFloat(t.balance_after);
-          return isNaN(n) ? 0 : n;
+          return isNaN(n) ? null : n;
         }
-        case 'reason': return (t.reason || '').toLowerCase();
-        case 'created_by': return memberDisplayName(t.created_by ? memberMap[t.created_by] : null).toLowerCase();
+        case 'reason': return t.reason ? t.reason : null;
+        case 'created_by': {
+          const v = memberDisplayName(t.created_by ? memberMap[t.created_by] : null);
+          return v ? v : null;
+        }
         case 'event_internal_reference': {
-          const v = (t.type === 'booking_usage' && t.booking_id)
-            ? (internalRefByBookingId[t.booking_id] || '')
-            : '';
-          return v.toLowerCase();
+          if (t.type !== 'booking_usage' || !t.booking_id) return null;
+          const v = internalRefByBookingId[t.booking_id];
+          return v ? v : null;
         }
         case 'event_date': {
-          const v = (t.type === 'booking_usage' && t.booking_id)
-            ? (eventDateByBookingId[t.booking_id] || '')
-            : '';
-          return v;
+          if (t.type !== 'booking_usage' || !t.booking_id) return null;
+          const v = eventDateByBookingId[t.booking_id];
+          return v ? v : null;
         }
-        default: return '';
+        default: return null;
       }
     };
-    allTransactions.sort((a, b) => {
-      const av = sortValue(a);
-      const bv = sortValue(b);
-      let cmp;
-      if (typeof av === 'number' && typeof bv === 'number') {
-        cmp = av - bv;
-      } else {
-        if (av === bv) cmp = 0;
-        else cmp = av < bv ? -1 : 1;
+
+    // Resolve a rule's effective value for a row, applying the fallback when
+    // the primary value is empty/null. Returns the value and its declared type
+    // so the comparator can decide how to compare.
+    const ruleValue = (t, rule) => {
+      let v = rawValue(t, rule.field);
+      if (v === null && rule.fallback) {
+        v = rawValue(t, rule.fallback);
       }
-      if (cmp !== 0) return cmp * dirMul;
-      // Stable secondary sort: created_date desc, then id, so equal keys
+      return v;
+    };
+
+    const compareTyped = (av, bv, type) => {
+      // Empty values sort *after* non-empty values in ascending order so they
+      // don't pollute the top of an ascending list. Because the outer sort
+      // negates the result for descending rules, empties will conversely come
+      // first when the rule's direction is `desc` — that's intentional and
+      // mirrors common spreadsheet behaviour.
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (type === 'number') {
+        return av - bv;
+      }
+      // For text and date, compare case-insensitive strings (ISO date strings
+      // sort correctly lexicographically).
+      const as = type === 'text' ? String(av).toLowerCase() : String(av);
+      const bs = type === 'text' ? String(bv).toLowerCase() : String(bv);
+      if (as === bs) return 0;
+      return as < bs ? -1 : 1;
+    };
+
+    allTransactions.sort((a, b) => {
+      for (const rule of sortRules) {
+        const av = ruleValue(a, rule);
+        const bv = ruleValue(b, rule);
+        const type = SORT_FIELD_TYPES[rule.field];
+        const cmp = compareTyped(av, bv, type);
+        if (cmp !== 0) {
+          return rule.dir === 'asc' ? cmp : -cmp;
+        }
+      }
+      // Stable final tiebreaker: created_date desc, then id, so equal keys
       // keep a deterministic order regardless of primary direction.
       const adRaw = a.created_date || '';
       const bdRaw = b.created_date || '';

@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -39,6 +39,22 @@ const ALL_EXPORT_COLUMN_KEYS = EXPORT_COLUMN_DEFS.map(c => c.key);
 
 const EXPORT_SORT_FIELDS = EXPORT_COLUMN_DEFS.map(c => ({ key: c.key, label: c.label }));
 
+// Data type for each sortable field, used to filter the "If empty, use"
+// dropdown so fallbacks are restricted to fields of the same type.
+const EXPORT_SORT_FIELD_TYPES = {
+  organization: 'text',
+  date: 'date',
+  type: 'text',
+  balance_before: 'number',
+  amount: 'number',
+  balance_after: 'number',
+  reason: 'text',
+  created_by: 'text',
+  event_internal_reference: 'text',
+  event_date: 'date',
+};
+const DEFAULT_EXPORT_SORT_RULES = [{ field: 'organization', dir: 'asc', fallback: '' }];
+
 export default function TrainingFundManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -53,8 +69,7 @@ export default function TrainingFundManagementPage() {
   const [exportAllOrgs, setExportAllOrgs] = useState(true);
   const [exportOrgIds, setExportOrgIds] = useState(() => new Set());
   const [exportOrgSearch, setExportOrgSearch] = useState("");
-  const [exportSortField, setExportSortField] = useState('organization');
-  const [exportSortDir, setExportSortDir] = useState('asc');
+  const [exportSortRules, setExportSortRules] = useState(() => DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
   const [exportEmptyMessage, setExportEmptyMessage] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -377,8 +392,7 @@ export default function TrainingFundManagementPage() {
     setExportAllOrgs(true);
     setExportOrgIds(new Set());
     setExportOrgSearch("");
-    setExportSortField('organization');
-    setExportSortDir('asc');
+    setExportSortRules(DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
     setExportEmptyMessage("");
     setShowExportDialog(true);
   };
@@ -392,6 +406,45 @@ export default function TrainingFundManagementPage() {
       } else {
         next.add(key);
       }
+      return next;
+    });
+  };
+
+  const updateExportSortRule = (idx, patch) => {
+    setExportSortRules(prev => {
+      const next = prev.map(r => ({ ...r }));
+      const current = { ...next[idx], ...patch };
+      // If the field changed and the current fallback no longer matches the
+      // new field's data type (or equals the new field), drop it.
+      if (
+        current.fallback &&
+        (current.fallback === current.field ||
+          EXPORT_SORT_FIELD_TYPES[current.fallback] !== EXPORT_SORT_FIELD_TYPES[current.field])
+      ) {
+        current.fallback = '';
+      }
+      next[idx] = current;
+      return next;
+    });
+  };
+  const addExportSortRule = () => {
+    setExportSortRules(prev => {
+      const used = new Set(prev.map(r => r.field));
+      const nextField = EXPORT_SORT_FIELDS.find(f => !used.has(f.key));
+      if (!nextField) return prev;
+      return [...prev, { field: nextField.key, dir: 'asc', fallback: '' }];
+    });
+  };
+  const removeExportSortRule = (idx) => {
+    setExportSortRules(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx));
+  };
+  const moveExportSortRule = (idx, delta) => {
+    setExportSortRules(prev => {
+      const target = idx + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(idx, 1);
+      next.splice(target, 0, moved);
       return next;
     });
   };
@@ -433,6 +486,34 @@ export default function TrainingFundManagementPage() {
       toast.error('"From" date must be on or before "To" date');
       return;
     }
+    if (exportSortRules.length === 0) {
+      toast.error('Add at least one sort rule');
+      return;
+    }
+    {
+      const seen = new Set();
+      for (const rule of exportSortRules) {
+        if (!rule.field || !EXPORT_SORT_FIELD_TYPES[rule.field]) {
+          toast.error('Invalid sort field selected');
+          return;
+        }
+        if (seen.has(rule.field)) {
+          toast.error('Each sort field can only be used once');
+          return;
+        }
+        seen.add(rule.field);
+        if (rule.fallback) {
+          if (rule.fallback === rule.field) {
+            toast.error('Fallback field must differ from the primary sort field');
+            return;
+          }
+          if (EXPORT_SORT_FIELD_TYPES[rule.fallback] !== EXPORT_SORT_FIELD_TYPES[rule.field]) {
+            toast.error('Fallback field must be the same data type as the primary sort field');
+            return;
+          }
+        }
+      }
+    }
 
     setIsExporting(true);
     try {
@@ -442,8 +523,11 @@ export default function TrainingFundManagementPage() {
       if (exportFromDate) params.set('from', toIsoDateOnly(exportFromDate));
       if (exportToDate) params.set('to', toIsoDateOnly(exportToDate));
       if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
-      params.set('sort_field', exportSortField);
-      params.set('sort_dir', exportSortDir);
+      for (const rule of exportSortRules) {
+        const parts = [rule.field, rule.dir];
+        if (rule.fallback) parts.push(rule.fallback);
+        params.append('sort', parts.join(':'));
+      }
 
       const response = await fetch(`/api/admin/training-fund-transactions/export-csv?${params.toString()}`, {
         credentials: 'include'
@@ -1382,32 +1466,141 @@ export default function TrainingFundManagementPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm font-medium">Sort by</Label>
-                  <Select value={exportSortField} onValueChange={setExportSortField}>
-                    <SelectTrigger className="mt-1" data-testid="select-export-sort-field">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPORT_SORT_FIELDS.map(f => (
-                        <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div>
+                <Label className="text-sm font-medium">Sort by</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Rules are applied in order. The first rule is the primary sort; later rules break ties. Use "If empty, use" to fall back to another field of the same type when the primary value is missing.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {exportSortRules.map((rule, idx) => {
+                    const usedFields = new Set(exportSortRules.map(r => r.field));
+                    const ruleType = EXPORT_SORT_FIELD_TYPES[rule.field];
+                    const fallbackOptions = EXPORT_SORT_FIELDS.filter(
+                      f => f.key !== rule.field && EXPORT_SORT_FIELD_TYPES[f.key] === ruleType
+                    );
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-md border p-3 space-y-2"
+                        data-testid={`row-export-sort-rule-${idx}`}
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-end">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              {idx === 0 ? 'Primary sort field' : `Tiebreaker #${idx}`}
+                            </Label>
+                            <Select
+                              value={rule.field}
+                              onValueChange={(v) => updateExportSortRule(idx, { field: v })}
+                            >
+                              <SelectTrigger className="mt-1" data-testid={`select-export-sort-field-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {EXPORT_SORT_FIELDS.map(f => (
+                                  <SelectItem
+                                    key={f.key}
+                                    value={f.key}
+                                    disabled={f.key !== rule.field && usedFields.has(f.key)}
+                                  >
+                                    {f.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Direction</Label>
+                            <Select
+                              value={rule.dir}
+                              onValueChange={(v) => updateExportSortRule(idx, { dir: v })}
+                            >
+                              <SelectTrigger className="mt-1" data-testid={`select-export-sort-dir-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="asc">Ascending</SelectItem>
+                                <SelectItem value="desc">Descending</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => moveExportSortRule(idx, -1)}
+                              disabled={idx === 0}
+                              aria-label="Move rule up"
+                              data-testid={`button-export-sort-up-${idx}`}
+                            >
+                              <ArrowUp />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => moveExportSortRule(idx, 1)}
+                              disabled={idx === exportSortRules.length - 1}
+                              aria-label="Move rule down"
+                              data-testid={`button-export-sort-down-${idx}`}
+                            >
+                              <ArrowDown />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => removeExportSortRule(idx)}
+                              disabled={exportSortRules.length <= 1}
+                              aria-label="Remove rule"
+                              data-testid={`button-export-sort-remove-${idx}`}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">
+                            If empty, use
+                          </Label>
+                          <Select
+                            value={rule.fallback || '__none__'}
+                            onValueChange={(v) => updateExportSortRule(idx, { fallback: v === '__none__' ? '' : v })}
+                            disabled={fallbackOptions.length === 0}
+                          >
+                            <SelectTrigger className="mt-1" data-testid={`select-export-sort-fallback-${idx}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">(none)</SelectItem>
+                              {fallbackOptions.map(f => (
+                                <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {fallbackOptions.length === 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              No other fields share this field's data type.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div>
-                  <Label className="text-sm font-medium">Direction</Label>
-                  <Select value={exportSortDir} onValueChange={setExportSortDir}>
-                    <SelectTrigger className="mt-1" data-testid="select-export-sort-dir">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="asc">Ascending</SelectItem>
-                      <SelectItem value="desc">Descending</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 gap-2"
+                  onClick={addExportSortRule}
+                  disabled={exportSortRules.length >= EXPORT_SORT_FIELDS.length}
+                  data-testid="button-export-sort-add"
+                >
+                  <Plus />
+                  Add sort rule
+                </Button>
               </div>
 
               {exportEmptyMessage && (
