@@ -162,6 +162,44 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to update agent status' });
       }
 
+      // If disabling as booking agent, cascade deactivation to template assignments
+      // and availability profile(s) for this tenant. Do NOT auto-reactivate when re-enabling.
+      if (is_booking_agent !== true) {
+        try {
+          const { data: tenantTemplates, error: tplError } = await supabase
+            .from('meeting_template')
+            .select('id')
+            .eq('tenant_id', tenantId);
+
+          if (tplError) {
+            console.error('[booking-agents] Failed to load tenant meeting templates for cascade:', tplError);
+          } else {
+            const tenantTemplateIds = (tenantTemplates || []).map(t => t.id);
+            if (tenantTemplateIds.length > 0) {
+              const { error: amtError } = await supabase
+                .from('agent_meeting_template')
+                .update({ is_active: false })
+                .eq('identity_id', identity_id)
+                .in('meeting_template_id', tenantTemplateIds);
+              if (amtError) {
+                console.error('[booking-agents] Failed to cascade-disable agent_meeting_template:', amtError);
+              }
+            }
+          }
+
+          const { error: profError } = await supabase
+            .from('agent_availability_profile')
+            .update({ is_active: false })
+            .eq('identity_id', identity_id)
+            .eq('tenant_id', tenantId);
+          if (profError) {
+            console.error('[booking-agents] Failed to cascade-disable agent_availability_profile:', profError);
+          }
+        } catch (cascadeErr) {
+          console.error('[booking-agents] Cascade error:', cascadeErr);
+        }
+      }
+
       // If enabling as booking agent, create a default availability profile if one doesn't exist
       if (is_booking_agent === true) {
         const { data: existingProfile } = await supabase

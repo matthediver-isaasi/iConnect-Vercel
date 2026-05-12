@@ -90,14 +90,14 @@ export default async function handler(req, res) {
         .select(`
           meeting_template_id,
           identity:identity_id (
-            id, first_name, last_name, email, booking_slug
+            id, first_name, last_name, email, booking_slug, is_booking_agent
           )
         `)
         .in('meeting_template_id', templateIds)
         .eq('is_active', true);
 
       if (!assignError) {
-        agentAssignments = assignments || [];
+        agentAssignments = (assignments || []).filter(a => a.identity?.is_booking_agent === true);
       }
     }
 
