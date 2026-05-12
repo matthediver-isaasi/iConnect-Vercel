@@ -86,7 +86,7 @@ async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const { data: transactions } = await matchInvoice(
     client
       .from('program_ticket_transaction')
-      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+      .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
       .in('organization_id', tenantOrgIds)
       .eq('transaction_type', 'purchase')
       .neq('status', 'cancelled'),

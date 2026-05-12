@@ -64,7 +64,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   try {
     tenantMembers = await fetchAllPages('member', invoiceKey, () => client
       .from('member')
-      .select('id')
+      .select('id, email')
       .in('organization_id', tenantOrgIds)
       .order('id', { ascending: true }));
   } catch (err) {
@@ -72,6 +72,9 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     throw err;
   }
   const tenantMemberIds = tenantMembers.map((m) => m.id);
+  const tenantMemberEmails = tenantMembers
+    .map((m) => (m.email ? String(m.email).trim().toLowerCase() : ''))
+    .filter((e) => e.length > 0);
 
   const matchInvoice = (q) => {
     if (parsed.xeroInvoiceId) return q.eq('xero_invoice_id', parsed.xeroInvoiceId);
@@ -127,7 +130,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
       client
         .from('program_ticket_transaction')
-        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
         .in('organization_id', tenantOrgIds)
         .eq('transaction_type', 'purchase')
         .neq('status', 'cancelled')
@@ -138,18 +141,19 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   }
 
   // 6. Transactions with org_id IS NULL whose member belongs to a tenant org.
-  // Mirrors the booking null-org fallback so any row visible in the report
-  // (or that becomes visible if the report later widens its scope) is findable.
+  // The transaction table identifies the buyer by member_email (no member_id
+  // column), so the null-org fallback matches against the tenant members'
+  // email addresses, mirroring the booking null-org fallback in shape.
   const transactionsByMember = [];
-  if (tenantMemberIds.length > 0) {
-    for (let i = 0; i < tenantMemberIds.length; i += MEMBER_CHUNK) {
-      const chunk = tenantMemberIds.slice(i, i + MEMBER_CHUNK);
+  if (tenantMemberEmails.length > 0) {
+    for (let i = 0; i < tenantMemberEmails.length; i += MEMBER_CHUNK) {
+      const chunk = tenantMemberEmails.slice(i, i + MEMBER_CHUNK);
       const rows = await fetchAllPages(`transaction (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
         client
           .from('program_ticket_transaction')
-          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
+          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_ticket_id, amount, quantity, created_date, purchase_order_number')
           .is('organization_id', null)
-          .in('member_id', chunk)
+          .in('member_email', chunk)
           .eq('transaction_type', 'purchase')
           .neq('status', 'cancelled')
           .order('id', { ascending: true }),
@@ -314,6 +318,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       existingPoNumber = b.purchase_order_number.trim();
     }
   }
+  const bookerEmailsForLookup = new Set();
   for (const t of found.transactions) {
     totalCost += Number(t.amount) || 0;
     quantity += Number(t.quantity) || 0;
@@ -323,7 +328,13 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     if (t.organization_id) orgIds.add(t.organization_id);
     if (t.program_ticket_id) programTicketIds.add(t.program_ticket_id);
     addBookerEmail(t.member_email);
-    if (t.member_id) bookerMemberIds.add(t.member_id);
+    // program_ticket_transaction has no member_id column — the buyer is
+    // identified by member_email. Resolve the booker member via the email
+    // lookup below so booker names and the org fallback still populate.
+    if (t.member_email) {
+      const e = String(t.member_email).trim().toLowerCase();
+      if (e) bookerEmailsForLookup.add(e);
+    }
     if (!existingPoNumber && t.purchase_order_number && t.purchase_order_number.trim()) {
       existingPoNumber = t.purchase_order_number.trim();
     }
@@ -344,6 +355,29 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
       addBookerEmail(m.email);
       // For null-org rows, fall back to the booker's organisation so the
       // recipient lookup downstream can still resolve a primary contact.
+      if (m.organization_id) orgIds.add(m.organization_id);
+    });
+  }
+  if (bookerEmailsForLookup.size > 0) {
+    const emailList = Array.from(bookerEmailsForLookup);
+    const tenantOrgIds = Array.from(found.orgNameById?.keys?.() || []);
+    let txMembersQuery = client
+      .from('member')
+      .select('id, first_name, last_name, email, organization_id')
+      .in('email', emailList);
+    // Constrain to this tenant's organisations so duplicate emails on
+    // members in unrelated tenants can't pollute booker name/org fallback.
+    if (tenantOrgIds.length > 0) {
+      txMembersQuery = txMembersQuery.in('organization_id', tenantOrgIds);
+    }
+    const { data: txMembers, error: txMembersErr } = await txMembersQuery;
+    if (txMembersErr) {
+      console.error(`[PendingPO] summariseInvoice transaction booker lookup failed invoiceKey=${invoiceKey}: ${txMembersErr.message}`);
+    }
+    (txMembers || []).forEach((m) => {
+      const name = `${m.first_name || ''} ${m.last_name || ''}`.trim();
+      if (name && !bookerNames.includes(name)) bookerNames.push(name);
+      addBookerEmail(m.email);
       if (m.organization_id) orgIds.add(m.organization_id);
     });
   }
