@@ -22,7 +22,8 @@ export const UPLOAD_TYPES = {
   ATTACHMENT: 'attachment',   // General attachments (private)
   DOCUMENT: 'document',       // Documents (private)
   UPLOAD: 'upload',           // Generic uploads
-  FORUM: 'forum'              // Forum post images
+  FORUM: 'forum',             // Forum post images
+  GALLERY_PHOTO: 'gallery-photo' // Photo gallery images (tenant-configurable cap)
 };
 
 /**
@@ -53,15 +54,17 @@ export async function uploadFileWithProgress(file, options = {}) {
     type = UPLOAD_TYPES.UPLOAD,
     entityId = null,
     isPrivate = isPrivateUpload(type),
-    onProgress = null
+    onProgress = null,
+    maxSizeBytes = null
   } = options;
 
   if (!file) {
     throw new Error('No file provided');
   }
 
-  // Check file size based on privacy
-  const maxSize = isPrivate ? MAX_FILE_SIZES.private : MAX_FILE_SIZES.public;
+  // Check file size based on privacy (or explicit override)
+  const defaultMaxSize = isPrivate ? MAX_FILE_SIZES.private : MAX_FILE_SIZES.public;
+  const maxSize = typeof maxSizeBytes === 'number' && maxSizeBytes > 0 ? maxSizeBytes : defaultMaxSize;
   if (file.size > maxSize) {
     const maxMB = maxSize / (1024 * 1024);
     const fileMB = (file.size / (1024 * 1024)).toFixed(1);

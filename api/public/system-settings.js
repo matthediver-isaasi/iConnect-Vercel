@@ -44,6 +44,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'show_event_card_prices',
   'featured_events_background',
   'email_preferences_blank_page',
+  'photo_gallery_max_upload_mb',
 ];
 
 export default async function handler(req, res) {

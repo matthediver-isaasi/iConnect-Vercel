@@ -68,6 +68,27 @@ function getBucketForType(uploadType) {
 }
 
 /**
+ * Look up the tenant's configured photo gallery max upload size (MB).
+ * Defaults to 5MB when unset or invalid.
+ */
+async function getGalleryMaxUploadBytes(tenantId) {
+  const DEFAULT_MB = 5;
+  try {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', 'photo_gallery_max_upload_mb')
+      .maybeSingle();
+    const num = data ? Number(data.setting_value) : NaN;
+    const mb = Number.isFinite(num) && num > 0 ? num : DEFAULT_MB;
+    return mb * 1024 * 1024;
+  } catch {
+    return DEFAULT_MB * 1024 * 1024;
+  }
+}
+
+/**
  * Build the storage path with tenant scoping
  */
 function buildStoragePath(tenantId, uploadType, entityId, fileName) {
@@ -87,6 +108,8 @@ function buildStoragePath(tenantId, uploadType, entityId, fileName) {
       return `${tenantId}/documents/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'forum':
       return `${tenantId}/forum/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
+    case 'gallery-photo':
+      return `${tenantId}/galleries/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     default:
       return `${tenantId}/uploads/${uniqueId}-${sanitizedName}`;
   }
@@ -163,8 +186,10 @@ export default async function handler(req, res) {
     const usePrivate = isPrivate === false ? false : (isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE);
     const bucket = usePrivate ? BUCKETS.PRIVATE : BUCKETS.PUBLIC;
 
-    // Check file size
-    const maxSize = MAX_FILE_SIZE[bucket];
+    // Check file size — gallery uploads use a tenant-configurable cap
+    const maxSize = uploadType === 'gallery-photo'
+      ? await getGalleryMaxUploadBytes(tenantId)
+      : MAX_FILE_SIZE[bucket];
     if (fileSize > maxSize) {
       return res.status(400).json({ 
         error: `File size exceeds maximum allowed size of ${maxSize / (1024 * 1024)}MB`,

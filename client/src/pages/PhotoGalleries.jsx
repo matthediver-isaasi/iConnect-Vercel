@@ -488,6 +488,23 @@ function GalleryDetail({ gallery, onBack, onChanged }) {
   // the server query whenever it returns a new list.
   const [orderedPhotos, setOrderedPhotos] = useState([]);
 
+  const maxUploadMbQuery = useQuery({
+    queryKey: ["system-setting", "photo_gallery_max_upload_mb"],
+    queryFn: async () => {
+      try {
+        const list = await base44.entities.SystemSettings.filter({
+          setting_key: "photo_gallery_max_upload_mb",
+        });
+        const setting = Array.isArray(list) && list.length > 0 ? list[0] : null;
+        const num = setting ? Number(setting.setting_value) : NaN;
+        return Number.isFinite(num) && num > 0 ? num : 5;
+      } catch {
+        return 5;
+      }
+    },
+  });
+  const maxUploadMb = maxUploadMbQuery.data ?? 5;
+
   const photosQuery = useQuery({
     queryKey: ["admin-gallery-photos", gallery.id],
     queryFn: async () => {
@@ -513,17 +530,28 @@ function GalleryDetail({ gallery, onBack, onChanged }) {
   const handleFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
+    const limitBytes = maxUploadMb * 1024 * 1024;
+    const oversized = files.filter((f) => f.size > limitBytes);
+    const validFiles = files.filter((f) => f.size <= limitBytes);
+    if (oversized.length > 0) {
+      const names = oversized.map((f) => f.name).join(", ");
+      toast.error(
+        `${oversized.length} file${oversized.length === 1 ? "" : "s"} exceed the ${maxUploadMb}MB upload limit: ${names}`
+      );
+    }
+    if (validFiles.length === 0) return;
     setUploading(true);
     let success = 0;
-    let failed = 0;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    const failures = [];
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
       try {
         setUploadProgress(0);
         const result = await uploadFileWithProgress(file, {
-          type: UPLOAD_TYPES.UPLOAD,
+          type: UPLOAD_TYPES.GALLERY_PHOTO,
           entityId: gallery.id,
           isPrivate: !gallery.is_public,
+          maxSizeBytes: limitBytes,
           onProgress: setUploadProgress,
         });
         await base44.entities.GalleryPhoto.create({
@@ -538,14 +566,16 @@ function GalleryDetail({ gallery, onBack, onChanged }) {
         success += 1;
       } catch (e) {
         console.error("Upload failed", e);
-        failed += 1;
+        failures.push({ name: file.name, message: e?.message || "Upload failed" });
       }
     }
     setUploading(false);
     setUploadProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (success > 0) toast.success(`Uploaded ${success} photo${success === 1 ? "" : "s"}`);
-    if (failed > 0) toast.error(`${failed} upload${failed === 1 ? "" : "s"} failed`);
+    for (const f of failures) {
+      toast.error(`${f.name}: ${f.message}`);
+    }
     refresh();
   };
 
@@ -676,7 +706,7 @@ function GalleryDetail({ gallery, onBack, onChanged }) {
             <h2 className="font-semibold text-slate-900">Upload Photos</h2>
             <p className="text-xs text-slate-500">
               Drag &amp; drop image files here or click to browse. Max{" "}
-              {gallery.is_public ? "10MB" : "25MB"} each.
+              {maxUploadMb}MB each.
             </p>
           </div>
           <div className="flex items-center gap-2">

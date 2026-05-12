@@ -33,6 +33,7 @@ import { format } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import OutlookConnection from "@/components/OutlookConnection";
+import { base44 } from "@/api/base44Client";
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -89,6 +90,9 @@ export default function AdminSettings() {
   const [navDiagnosticsResult, setNavDiagnosticsResult] = useState(null);
   const [navBackfillLoading, setNavBackfillLoading] = useState(false);
   const [navBackfillResult, setNavBackfillResult] = useState(null);
+
+  const [photoGalleryMaxMb, setPhotoGalleryMaxMb] = useState(5);
+  const [photoGalleryMaxMbSettingId, setPhotoGalleryMaxMbSettingId] = useState(null);
   
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
@@ -123,6 +127,7 @@ export default function AdminSettings() {
             });
             
             fetchXeroTokens(data.tenant?.id);
+            fetchPhotoGalleryMaxMb();
           } else {
             navigate('/admin/login');
           }
@@ -137,6 +142,22 @@ export default function AdminSettings() {
     };
     checkAuth();
   }, [navigate]);
+
+  const fetchPhotoGalleryMaxMb = async () => {
+    try {
+      const list = await base44.entities.SystemSettings.filter({
+        setting_key: 'photo_gallery_max_upload_mb',
+      });
+      const setting = Array.isArray(list) && list.length > 0 ? list[0] : null;
+      if (setting) {
+        setPhotoGalleryMaxMbSettingId(setting.id);
+        const num = Number(setting.setting_value);
+        if (Number.isFinite(num) && num > 0) setPhotoGalleryMaxMb(num);
+      }
+    } catch (err) {
+      console.error('Failed to fetch photo gallery max upload setting:', err);
+    }
+  };
 
   const fetchXeroTokens = async (tenantId) => {
     try {
@@ -241,10 +262,42 @@ export default function AdminSettings() {
             }
           }));
         }
-        toast({
-          title: "Settings saved",
-          description: "Your tenant settings have been updated."
-        });
+
+        // Persist photo gallery max upload size in system_settings
+        let settingError = null;
+        try {
+          const mb = Math.max(1, Math.min(500, Number(photoGalleryMaxMb) || 5));
+          if (photoGalleryMaxMbSettingId) {
+            await base44.entities.SystemSettings.update(photoGalleryMaxMbSettingId, {
+              setting_value: String(mb),
+              setting_type: 'number',
+            });
+          } else {
+            const created = await base44.entities.SystemSettings.create({
+              setting_key: 'photo_gallery_max_upload_mb',
+              setting_value: String(mb),
+              setting_type: 'number',
+              description: 'Maximum upload size in MB for photo gallery images',
+            });
+            if (created?.id) setPhotoGalleryMaxMbSettingId(created.id);
+          }
+        } catch (settingErr) {
+          console.error('Failed to save photo gallery max upload setting:', settingErr);
+          settingError = settingErr;
+        }
+
+        if (settingError) {
+          toast({
+            title: "Photo gallery limit not saved",
+            description: `Other settings were saved, but the photo gallery upload limit could not be updated: ${settingError.message || 'Unknown error'}`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Settings saved",
+            description: "Your tenant settings have been updated."
+          });
+        }
       } else {
         throw new Error('Failed to save');
       }
@@ -736,6 +789,39 @@ export default function AdminSettings() {
                 <p className="text-sm text-slate-400 mb-1">Preview:</p>
                 <p className="text-lg font-medium text-white">
                   {format(new Date(), formData.settings.date_display_format)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Image className="w-5 h-5" />
+                Photo Galleries
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure upload limits for the photo gallery module
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="photo-gallery-max-mb" className="text-slate-200">
+                  Photo gallery max upload size (MB)
+                </Label>
+                <Input
+                  id="photo-gallery-max-mb"
+                  type="number"
+                  min={1}
+                  max={500}
+                  step={1}
+                  value={photoGalleryMaxMb}
+                  onChange={(e) => setPhotoGalleryMaxMb(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="bg-slate-900/50 border-slate-600 text-white max-w-xs"
+                  data-testid="input-photo-gallery-max-mb"
+                />
+                <p className="text-xs text-slate-400">
+                  Applies to both public and members-only galleries. Defaults to 5MB.
                 </p>
               </div>
             </CardContent>
