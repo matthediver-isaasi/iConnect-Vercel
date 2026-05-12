@@ -1221,13 +1221,15 @@ export default function DynamicDirectoryView() {
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
-              <Button
-                onClick={() => { window.location.href = `/memberdirectory?org=${selectedOrg?.id}`; }}
-                className="bg-blue-600 hover:bg-blue-700 gap-2"
-                data-testid="button-view-members"
-              >
-                <Users className="w-4 h-4" />View Members<ExternalLink className="w-3 h-3" />
-              </Button>
+              {showMembersOnCardBack && (
+                <Button
+                  onClick={() => { window.location.href = `/memberdirectory?org=${selectedOrg?.id}`; }}
+                  className="bg-blue-600 hover:bg-blue-700 gap-2"
+                  data-testid="button-view-members"
+                >
+                  <Users className="w-4 h-4" />View Members<ExternalLink className="w-3 h-3" />
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
