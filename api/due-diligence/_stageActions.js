@@ -1531,7 +1531,14 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
             const orgName = await getOrganizationName(organizationId);
             
             const memberFullName = `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim();
-            
+
+            // Resolve dd_owner for welcome emails (shared helper)
+            const { ownerName: welcomeOwnerName, ownerEmail: welcomeOwnerEmail } = await resolveDdOwnerForSubmission({
+              supabase,
+              tenantId,
+              formSubmissionId,
+            });
+
             // Build {{...}} placeholders for the email template
             const placeholders = {
               '{{first_name}}': newMember.first_name || '',
@@ -1543,6 +1550,8 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
               '{{member_email}}': newMember.email || '',
               '{{tenant_name}}': tenant?.name || '',
               '{{organization_name}}': orgName,
+              '{{dd_owner}}': welcomeOwnerName,
+              '{{dd_owner_email}}': welcomeOwnerEmail,
             };
             
             // Replace {{...}} placeholders in subject and body
@@ -1553,7 +1562,15 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
               emailSubject = emailSubject.replaceAll(placeholder, value);
               emailBody = emailBody.replaceAll(placeholder, value);
             }
-            
+
+            // Case-insensitive pass for dd_owner tokens (matches other DD senders)
+            emailSubject = emailSubject
+              .replace(/\{\{dd_owner\}\}/gi, welcomeOwnerName)
+              .replace(/\{\{dd_owner_email\}\}/gi, welcomeOwnerEmail);
+            emailBody = emailBody
+              .replace(/\{\{dd_owner\}\}/gi, welcomeOwnerName)
+              .replace(/\{\{dd_owner_email\}\}/gi, welcomeOwnerEmail);
+
             // Replace [[...]] double-bracket placeholders (e.g. [[organization.name]], [[member.first_name]])
             const doubleBracketPlaceholders = {
               'organization.name': orgName,
@@ -1566,6 +1583,8 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
               'last_name': newMember.last_name || '',
               'email': newMember.email || '',
               'full_name': memberFullName,
+              'dd_owner': welcomeOwnerName,
+              'dd_owner_email': welcomeOwnerEmail,
             };
             emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
             emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
