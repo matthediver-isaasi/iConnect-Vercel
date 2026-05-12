@@ -110,10 +110,35 @@ export default async function handler(req, res) {
       // Don't fail the whole request, just set to 0
     }
 
+    // Get pending cancellation requests count
+    const { count: pendingCancellationsCount, error: pendingCancellationsError } = await supabase
+      .from('booking_cancellation_request')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending');
+
+    if (pendingCancellationsError) {
+      console.error('[FormSubmissionStats] Error getting pending cancellations count:', pendingCancellationsError);
+    }
+
+    // Get pending transfer requests count
+    const { count: pendingTransfersCount, error: pendingTransfersError } = await supabase
+      .from('booking_transfer_request')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending');
+
+    if (pendingTransfersError) {
+      console.error('[FormSubmissionStats] Error getting pending transfers count:', pendingTransfersError);
+    }
+
+    const pendingCancellationsTransfers = (pendingCancellationsCount || 0) + (pendingTransfersCount || 0);
+
     return res.json({ 
       total: totalCount || 0, 
       new: newCount || 0,
       pending_jobs: pendingJobsCount || 0,
+      pending_cancellations_transfers: pendingCancellationsTransfers,
       allowed_roles: allowedRoles
     });
   } catch (error) {

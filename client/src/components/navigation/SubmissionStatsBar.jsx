@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Briefcase } from "lucide-react";
+import { FileText, Briefcase, XCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -16,6 +16,16 @@ export default function SubmissionStatsBar() {
   });
 
   useRealtimeSubscription('job_posting', [['form-submission-stats']], {
+    enabled: !!memberInfo?.tenant_id,
+    tenantId: memberInfo?.tenant_id,
+  });
+
+  useRealtimeSubscription('booking_cancellation_request', [['form-submission-stats']], {
+    enabled: !!memberInfo?.tenant_id,
+    tenantId: memberInfo?.tenant_id,
+  });
+
+  useRealtimeSubscription('booking_transfer_request', [['form-submission-stats']], {
     enabled: !!memberInfo?.tenant_id,
     tenantId: memberInfo?.tenant_id,
   });
@@ -55,6 +65,7 @@ export default function SubmissionStatsBar() {
 
   const newSubmissions = stats.new || 0;
   const pendingJobs = stats.pending_jobs || 0;
+  const pendingCancellationsTransfers = stats.pending_cancellations_transfers || 0;
 
   const handleSubmissionsClick = () => {
     navigate(createPageUrl("FormSubmissions"));
@@ -64,11 +75,15 @@ export default function SubmissionStatsBar() {
     navigate(createPageUrl("JobPostingManagement"));
   };
 
+  const handleCancellationsClick = () => {
+    navigate(createPageUrl("CancellationRequests"));
+  };
+
   return (
     <>
-      {/* Expanded view - two column card layout */}
+      {/* Expanded view - three column card layout */}
       <div className="px-3 py-2 group-data-[collapsible=icon]:hidden">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {/* New Submissions Card */}
           <div 
             onClick={handleSubmissionsClick}
@@ -93,6 +108,19 @@ export default function SubmissionStatsBar() {
           >
             <Briefcase className="w-4 h-4 text-amber-600" />
             <span className="text-base font-bold text-amber-700" data-testid="text-pending-jobs-count">{pendingJobs}</span>
+          </div>
+
+          {/* Pending Cancellations / Transfers Card */}
+          <div
+            onClick={handleCancellationsClick}
+            className="flex flex-col items-center gap-1 p-2 rounded-md bg-rose-50 hover-elevate active-elevate-2 transition-colors border border-rose-200 cursor-pointer"
+            data-testid="link-pending-cancellations-transfers"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && handleCancellationsClick()}
+          >
+            <XCircle className="w-4 h-4 text-rose-600" />
+            <span className="text-base font-bold text-rose-700" data-testid="text-pending-cancellations-transfers-count">{pendingCancellationsTransfers}</span>
           </div>
         </div>
       </div>
@@ -132,6 +160,24 @@ export default function SubmissionStatsBar() {
           </TooltipTrigger>
           <TooltipContent side="right">
             {pendingJobs} pending job{pendingJobs !== 1 ? 's' : ''}
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div
+              onClick={handleCancellationsClick}
+              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-rose-600 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              data-testid="link-pending-cancellations-transfers-collapsed"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && handleCancellationsClick()}
+            >
+              <span className="text-white text-xs font-bold" data-testid="text-pending-cancellations-transfers-count-collapsed">{pendingCancellationsTransfers}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {pendingCancellationsTransfers} pending cancellation{pendingCancellationsTransfers !== 1 ? 's' : ''}/transfer{pendingCancellationsTransfers !== 1 ? 's' : ''}
           </TooltipContent>
         </Tooltip>
       </div>
