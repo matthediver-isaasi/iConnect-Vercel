@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { applyInvoicePoUpdate, summariseInvoice, ensurePendingPoTokenTable } from '../../_lib/pendingPoInvoice.js';
 import { getValidXeroAccessToken } from '../../_lib/xero.js';
+import { sendPoSubmissionNotification } from '../../_lib/poNotificationEmail.js';
 
 async function isInvoicePaidInXero(tenantId, xeroInvoiceId) {
   if (!xeroInvoiceId) return false;
@@ -119,6 +120,23 @@ export default async function handler(req, res) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', tokenRow.id);
+
+    try {
+      const submitterName = summary.bookerNameDisplay || (summary.bookerNames && summary.bookerNames[0]) || '';
+      const submitterEmail = (summary.bookerEmails && summary.bookerEmails[0]) || '';
+      const fallbackName = submitterName || (submitterEmail ? '' : 'Submitted via public PO link');
+      await sendPoSubmissionNotification({
+        tenantId: tokenRow.tenant_id,
+        bookingReference: summary.invoiceNumber || tokenRow.invoice_key,
+        eventName: summary.sourceName || '',
+        purchaseOrderNumber: trimmedPO,
+        submitterName: fallbackName,
+        submitterEmail,
+        bookingType: 'public_po_link',
+      });
+    } catch (notifyErr) {
+      console.error('[PendingPO public] PO notification email failed:', notifyErr.message);
+    }
 
     return res.json({
       success: true,
