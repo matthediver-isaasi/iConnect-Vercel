@@ -37,13 +37,7 @@ const EXPORT_COLUMN_DEFS = [
 ];
 const ALL_EXPORT_COLUMN_KEYS = EXPORT_COLUMN_DEFS.map(c => c.key);
 
-const EXPORT_SORT_FIELDS = [
-  { key: 'organization', label: 'Organisation' },
-  { key: 'date', label: 'Date' },
-  { key: 'type', label: 'Type' },
-  { key: 'amount', label: 'Amount' },
-  { key: 'balance_after', label: 'Balance After' },
-];
+const EXPORT_SORT_FIELDS = EXPORT_COLUMN_DEFS.map(c => ({ key: c.key, label: c.label }));
 
 export default function TrainingFundManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();

@@ -77,7 +77,21 @@ const COLUMN_DEFS = [
 ];
 const ALL_COLUMN_KEYS = COLUMN_DEFS.map(c => c.key);
 
-const SORT_FIELDS = new Set(['organization', 'date', 'type', 'amount', 'balance_after']);
+const SORT_FIELDS = new Set([
+  'organization',
+  'date',
+  'type',
+  'balance_before',
+  'amount',
+  'balance_after',
+  'reason',
+  'created_by',
+  'event_internal_reference',
+  'event_date',
+]);
+// Fields whose default sort direction is desc when no explicit direction is
+// supplied. All other allowed fields default to asc.
+const DEFAULT_DESC_SORT_FIELDS = new Set(['date', 'type', 'amount', 'balance_after']);
 
 function parseList(value) {
   if (!value) return [];
@@ -167,7 +181,7 @@ export default async function handler(req, res) {
   const sortDir = q.sort_dir === 'desc' ? 'desc' : (q.sort_dir === 'asc' ? 'asc' : null);
   // Default direction differs by field to match the legacy behaviour
   // (Organisation asc, then Date desc).
-  const effectiveSortDir = sortDir || (sortField === 'organization' ? 'asc' : 'desc');
+  const effectiveSortDir = sortDir || (DEFAULT_DESC_SORT_FIELDS.has(sortField) ? 'desc' : 'asc');
 
   try {
     // ---- Fetch transactions with filters applied at DB level ----
@@ -208,9 +222,9 @@ export default async function handler(req, res) {
     const orgMap = {};
     (organizations || []).forEach(o => { orgMap[o.id] = o; });
 
-    // ---- Look up creators (only when 'created_by' column is included) ----
+    // ---- Look up creators (when 'created_by' column is included or sorted by) ----
     const memberMap = {};
-    if (columnKeys.includes('created_by')) {
+    if (columnKeys.includes('created_by') || sortField === 'created_by') {
       const memberIds = Array.from(new Set(
         allTransactions.map(t => t.created_by).filter(Boolean)
       ));
@@ -237,8 +251,8 @@ export default async function handler(req, res) {
     // ---- Look up booking → event details (only when those columns are included) ----
     const internalRefByBookingId = {};
     const eventDateByBookingId = {};
-    const needRef = columnKeys.includes('event_internal_reference');
-    const needEventDate = columnKeys.includes('event_date');
+    const needRef = columnKeys.includes('event_internal_reference') || sortField === 'event_internal_reference';
+    const needEventDate = columnKeys.includes('event_date') || sortField === 'event_date';
     if (needRef || needEventDate) {
       const bookingIds = Array.from(new Set(
         allTransactions
@@ -343,9 +357,27 @@ export default async function handler(req, res) {
         case 'date': return t.created_date || '';
         case 'type': return formatTransactionTypeLabel(t.type).toLowerCase();
         case 'amount': return signedAmountNumber(t);
+        case 'balance_before': {
+          const n = parseFloat(t.balance_before);
+          return isNaN(n) ? 0 : n;
+        }
         case 'balance_after': {
           const n = parseFloat(t.balance_after);
           return isNaN(n) ? 0 : n;
+        }
+        case 'reason': return (t.reason || '').toLowerCase();
+        case 'created_by': return memberDisplayName(t.created_by ? memberMap[t.created_by] : null).toLowerCase();
+        case 'event_internal_reference': {
+          const v = (t.type === 'booking_usage' && t.booking_id)
+            ? (internalRefByBookingId[t.booking_id] || '')
+            : '';
+          return v.toLowerCase();
+        }
+        case 'event_date': {
+          const v = (t.type === 'booking_usage' && t.booking_id)
+            ? (eventDateByBookingId[t.booking_id] || '')
+            : '';
+          return v;
         }
         default: return '';
       }
