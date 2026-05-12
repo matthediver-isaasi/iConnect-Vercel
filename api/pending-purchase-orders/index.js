@@ -52,7 +52,7 @@ async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const bookingsByOrg = matchInvoice(
     client
       .from('booking')
-      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
+      .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, number_of_tickets, created_at, purchase_order_number')
       .in('organization_id', tenantOrgIds)
       .neq('status', 'cancelled'),
   );
@@ -67,7 +67,7 @@ async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
       const { data } = await matchInvoice(
         client
           .from('booking')
-          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total, number_of_tickets, created_at, purchase_order_number')
+          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, number_of_tickets, created_at, purchase_order_number')
           .is('organization_id', null)
           .in('member_id', chunk)
           .neq('status', 'cancelled'),
