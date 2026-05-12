@@ -130,7 +130,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
       client
         .from('program_ticket_transaction')
-        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, amount, quantity, created_date, purchase_order_number')
+        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, total_cost_before_discount, quantity, created_date, purchase_order_number')
         .in('organization_id', tenantOrgIds)
         .eq('transaction_type', 'purchase')
         .neq('status', 'cancelled')
@@ -151,7 +151,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
       const rows = await fetchAllPages(`transaction (null-org member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchInvoice(
         client
           .from('program_ticket_transaction')
-          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, amount, quantity, created_date, purchase_order_number')
+          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, total_cost_before_discount, quantity, created_date, purchase_order_number')
           .is('organization_id', null)
           .in('member_email', chunk)
           .eq('transaction_type', 'purchase')
@@ -319,7 +319,7 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
   }
   const bookerEmailsForLookup = new Set();
   for (const t of found.transactions) {
-    totalCost += Number(t.amount) || 0;
+    totalCost += Number(t.total_cost_before_discount) || 0;
     quantity += Number(t.quantity) || 0;
     if (t.created_date && (!earliestDate || new Date(t.created_date) < new Date(earliestDate))) {
       earliestDate = t.created_date;
