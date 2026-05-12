@@ -24,3 +24,9 @@ id = "ww54CePseorboUB_oDbud"
 uri = "file://iconnect-sync.zip"
 type = "unspecified"
 title = "iConnect Content Sync WordPress Plugin (v1.1.0)"
+
+[[outputs]]
+id = "qQGKfoAGhoJvr-dmsdNAv"
+uri = "file://reports/seo-board-report.docx"
+type = "word_document"
+title = "GFI — SEO & Link-Preview Capability Board Update"
