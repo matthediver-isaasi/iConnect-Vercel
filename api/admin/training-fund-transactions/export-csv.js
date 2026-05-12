@@ -44,6 +44,12 @@ function formatSignedAmount(txn) {
   return `${sign}${amt.toFixed(2)}`;
 }
 
+function signedAmountNumber(txn) {
+  const amt = Math.abs(parseFloat(txn.amount || 0));
+  if (isNaN(amt)) return 0;
+  return txn.type === 'add' ? amt : -amt;
+}
+
 function formatBalance(value) {
   const n = parseFloat(value);
   if (isNaN(n)) return '';
@@ -55,6 +61,43 @@ function memberDisplayName(member) {
   const composed = [member.first_name, member.last_name].filter(Boolean).join(' ').trim();
   if (composed) return composed;
   return member.email || '';
+}
+
+const COLUMN_DEFS = [
+  { key: 'organization', header: 'Organisation' },
+  { key: 'date', header: 'Date' },
+  { key: 'type', header: 'Type' },
+  { key: 'balance_before', header: 'Balance Before' },
+  { key: 'amount', header: 'Amount' },
+  { key: 'balance_after', header: 'Balance After' },
+  { key: 'reason', header: 'Reason' },
+  { key: 'created_by', header: 'Created By' },
+  { key: 'event_internal_reference', header: 'Event Internal Reference' },
+  { key: 'event_date', header: 'Event Date' },
+];
+const ALL_COLUMN_KEYS = COLUMN_DEFS.map(c => c.key);
+
+const SORT_FIELDS = new Set(['organization', 'date', 'type', 'amount', 'balance_after']);
+
+function parseList(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function parseDateBoundary(value, endOfDay) {
+  if (!value) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  // Accept YYYY-MM-DD or full ISO timestamps.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return endOfDay ? `${str}T23:59:59.999Z` : `${str}T00:00:00.000Z`;
+  }
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 export default async function handler(req, res) {
@@ -81,16 +124,54 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
+  // ---- Parse + validate config params ----
+  const q = req.query || {};
+
+  const requestedColumns = parseList(q.columns);
+  let columnKeys;
+  if (requestedColumns.length === 0) {
+    columnKeys = ALL_COLUMN_KEYS.slice();
+  } else {
+    columnKeys = ALL_COLUMN_KEYS.filter(k => requestedColumns.includes(k));
+    if (columnKeys.length === 0) {
+      return res.status(400).json({ error: 'At least one valid column must be selected' });
+    }
+  }
+
+  const requestedOrgIds = parseList(q.organization_ids);
+  const orgFilterActive = requestedOrgIds.length > 0;
+
+  const fromIso = parseDateBoundary(q.from, false);
+  const toIso = parseDateBoundary(q.to, true);
+  if (q.from && !fromIso) {
+    return res.status(400).json({ error: 'Invalid "from" date' });
+  }
+  if (q.to && !toIso) {
+    return res.status(400).json({ error: 'Invalid "to" date' });
+  }
+
+  const sortField = SORT_FIELDS.has(q.sort_field) ? q.sort_field : 'organization';
+  const sortDir = q.sort_dir === 'desc' ? 'desc' : (q.sort_dir === 'asc' ? 'asc' : null);
+  // Default direction differs by field to match the legacy behaviour
+  // (Organisation asc, then Date desc).
+  const effectiveSortDir = sortDir || (sortField === 'organization' ? 'asc' : 'desc');
+
   try {
+    // ---- Fetch transactions with filters applied at DB level ----
     const allTransactions = [];
     const pageSize = 1000;
     let from = 0;
     while (true) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('training_fund_transaction')
         .select('id, organization_id, type, amount, balance_before, balance_after, reason, booking_id, created_by, created_date')
-        .eq('tenant_id', tenantId)
-        .range(from, from + pageSize - 1);
+        .eq('tenant_id', tenantId);
+      if (fromIso) query = query.gte('created_date', fromIso);
+      if (toIso) query = query.lte('created_date', toIso);
+      if (orgFilterActive) query = query.in('organization_id', requestedOrgIds);
+      query = query.range(from, from + pageSize - 1);
+
+      const { data, error } = await query;
       if (error) {
         console.error('[TrainingFundExportCSV] Transactions query error:', error);
         return res.status(500).json({ error: 'Failed to fetch transactions' });
@@ -102,6 +183,7 @@ export default async function handler(req, res) {
       from += pageSize;
     }
 
+    // ---- Look up organisation names (always — needed for sort + Organisation column) ----
     const { data: organizations, error: orgErr } = await supabase
       .from('organization')
       .select('id, name')
@@ -113,174 +195,202 @@ export default async function handler(req, res) {
     const orgMap = {};
     (organizations || []).forEach(o => { orgMap[o.id] = o; });
 
-    const memberIds = Array.from(new Set(
-      allTransactions.map(t => t.created_by).filter(Boolean)
-    ));
+    // ---- Look up creators (only when 'created_by' column is included) ----
     const memberMap = {};
-    if (memberIds.length > 0) {
-      const batchSize = 200;
-      for (let i = 0; i < memberIds.length; i += batchSize) {
-        const batch = memberIds.slice(i, i + batchSize);
-        const { data: members, error: memberErr } = await supabase
-          .from('member')
-          .select('id, first_name, last_name, email, tenant_id')
-          .in('id', batch);
-        if (memberErr) {
-          console.warn('[TrainingFundExportCSV] Members query error (non-blocking):', memberErr.message);
-          continue;
+    if (columnKeys.includes('created_by')) {
+      const memberIds = Array.from(new Set(
+        allTransactions.map(t => t.created_by).filter(Boolean)
+      ));
+      if (memberIds.length > 0) {
+        const batchSize = 200;
+        for (let i = 0; i < memberIds.length; i += batchSize) {
+          const batch = memberIds.slice(i, i + batchSize);
+          const { data: members, error: memberErr } = await supabase
+            .from('member')
+            .select('id, first_name, last_name, email, tenant_id')
+            .in('id', batch);
+          if (memberErr) {
+            console.warn('[TrainingFundExportCSV] Members query error (non-blocking):', memberErr.message);
+            continue;
+          }
+          (members || []).forEach(m => {
+            if (m.tenant_id && m.tenant_id !== tenantId) return;
+            memberMap[m.id] = m;
+          });
         }
-        (members || []).forEach(m => {
-          if (m.tenant_id && m.tenant_id !== tenantId) return;
-          memberMap[m.id] = m;
-        });
       }
     }
 
-    const bookingIds = Array.from(new Set(
-      allTransactions
-        .filter(t => t.type === 'booking_usage' && t.booking_id)
-        .map(t => t.booking_id)
-    ));
-
+    // ---- Look up booking → event details (only when those columns are included) ----
     const internalRefByBookingId = {};
     const eventDateByBookingId = {};
-    if (bookingIds.length > 0) {
-      const batchSize = 100;
-      const resolvedAsBooking = new Set();
+    const needRef = columnKeys.includes('event_internal_reference');
+    const needEventDate = columnKeys.includes('event_date');
+    if (needRef || needEventDate) {
+      const bookingIds = Array.from(new Set(
+        allTransactions
+          .filter(t => t.type === 'booking_usage' && t.booking_id)
+          .map(t => t.booking_id)
+      ));
+      if (bookingIds.length > 0) {
+        const batchSize = 100;
+        const resolvedAsBooking = new Set();
 
-      for (let i = 0; i < bookingIds.length; i += batchSize) {
-        const batch = bookingIds.slice(i, i + batchSize);
-        const { data: bookingsRaw, error: bErr } = await supabase
-          .from('booking')
-          .select('id, event_id, tenant_id')
-          .in('id', batch);
-        if (bErr) {
-          console.warn('[TrainingFundExportCSV] Bookings lookup error (non-blocking):', bErr.message);
-          continue;
-        }
-        const bookings = (bookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
-        if (bookings.length === 0) continue;
-
-        bookings.forEach(b => resolvedAsBooking.add(b.id));
-
-        const eventIds = Array.from(new Set(bookings.map(b => b.event_id).filter(Boolean)));
-        if (eventIds.length === 0) continue;
-
-        const { data: eventsRaw, error: eErr } = await supabase
-          .from('event')
-          .select('id, internal_reference, start_date, tenant_id')
-          .in('id', eventIds);
-        if (eErr) {
-          console.warn('[TrainingFundExportCSV] Events lookup error (non-blocking):', eErr.message);
-          continue;
-        }
-        const events = (eventsRaw || []).filter(e => !e.tenant_id || e.tenant_id === tenantId);
-        const eventRefMap = {};
-        const eventDateMap = {};
-        events.forEach(e => {
-          if (e.internal_reference) eventRefMap[e.id] = e.internal_reference;
-          if (e.start_date) eventDateMap[e.id] = e.start_date;
-        });
-        bookings.forEach(b => {
-          const ref = eventRefMap[b.event_id];
-          if (ref) internalRefByBookingId[b.id] = ref;
-          const sd = eventDateMap[b.event_id];
-          if (sd) eventDateByBookingId[b.id] = sd;
-        });
-      }
-
-      const unresolvedIds = bookingIds.filter(id => !resolvedAsBooking.has(id));
-      for (let i = 0; i < unresolvedIds.length; i += batchSize) {
-        const batch = unresolvedIds.slice(i, i + batchSize);
-        const { data: complexBookingsRaw, error: cbErr } = await supabase
-          .from('complex_event_booking')
-          .select('id, event_id, tenant_id')
-          .in('id', batch);
-        if (cbErr) {
-          console.warn('[TrainingFundExportCSV] Complex bookings lookup error (non-blocking):', cbErr.message);
-          continue;
-        }
-        const complexBookings = (complexBookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
-        if (complexBookings.length === 0) continue;
-
-        const ceIds = Array.from(new Set(complexBookings.map(b => b.event_id).filter(Boolean)));
-        if (ceIds.length === 0) continue;
-
-        const ceRefMap = {};
-        const ceDateMap = {};
-        const { data: ces, error: ceErr } = await supabase
-          .from('complex_event')
-          .select('id, internal_reference, start_date, tenant_id')
-          .in('id', ceIds);
-        if (ceErr) {
-          if (ceErr.code !== '42703') {
-            console.warn('[TrainingFundExportCSV] Complex events lookup error (non-blocking):', ceErr.message);
+        for (let i = 0; i < bookingIds.length; i += batchSize) {
+          const batch = bookingIds.slice(i, i + batchSize);
+          const { data: bookingsRaw, error: bErr } = await supabase
+            .from('booking')
+            .select('id, event_id, tenant_id')
+            .in('id', batch);
+          if (bErr) {
+            console.warn('[TrainingFundExportCSV] Bookings lookup error (non-blocking):', bErr.message);
+            continue;
           }
-        } else {
-          (ces || [])
-            .filter(e => !e.tenant_id || e.tenant_id === tenantId)
-            .forEach(e => {
-              if (e.internal_reference) ceRefMap[e.id] = e.internal_reference;
-              if (e.start_date) ceDateMap[e.id] = e.start_date;
-            });
+          const bookings = (bookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
+          if (bookings.length === 0) continue;
+
+          bookings.forEach(b => resolvedAsBooking.add(b.id));
+
+          const eventIds = Array.from(new Set(bookings.map(b => b.event_id).filter(Boolean)));
+          if (eventIds.length === 0) continue;
+
+          const { data: eventsRaw, error: eErr } = await supabase
+            .from('event')
+            .select('id, internal_reference, start_date, tenant_id')
+            .in('id', eventIds);
+          if (eErr) {
+            console.warn('[TrainingFundExportCSV] Events lookup error (non-blocking):', eErr.message);
+            continue;
+          }
+          const events = (eventsRaw || []).filter(e => !e.tenant_id || e.tenant_id === tenantId);
+          const eventRefMap = {};
+          const eventDateMap = {};
+          events.forEach(e => {
+            if (e.internal_reference) eventRefMap[e.id] = e.internal_reference;
+            if (e.start_date) eventDateMap[e.id] = e.start_date;
+          });
+          bookings.forEach(b => {
+            const ref = eventRefMap[b.event_id];
+            if (ref) internalRefByBookingId[b.id] = ref;
+            const sd = eventDateMap[b.event_id];
+            if (sd) eventDateByBookingId[b.id] = sd;
+          });
         }
-        complexBookings.forEach(b => {
-          const ref = ceRefMap[b.event_id];
-          if (ref) internalRefByBookingId[b.id] = ref;
-          const sd = ceDateMap[b.event_id];
-          if (sd) eventDateByBookingId[b.id] = sd;
-        });
+
+        const unresolvedIds = bookingIds.filter(id => !resolvedAsBooking.has(id));
+        for (let i = 0; i < unresolvedIds.length; i += batchSize) {
+          const batch = unresolvedIds.slice(i, i + batchSize);
+          const { data: complexBookingsRaw, error: cbErr } = await supabase
+            .from('complex_event_booking')
+            .select('id, event_id, tenant_id')
+            .in('id', batch);
+          if (cbErr) {
+            console.warn('[TrainingFundExportCSV] Complex bookings lookup error (non-blocking):', cbErr.message);
+            continue;
+          }
+          const complexBookings = (complexBookingsRaw || []).filter(b => !b.tenant_id || b.tenant_id === tenantId);
+          if (complexBookings.length === 0) continue;
+
+          const ceIds = Array.from(new Set(complexBookings.map(b => b.event_id).filter(Boolean)));
+          if (ceIds.length === 0) continue;
+
+          const ceRefMap = {};
+          const ceDateMap = {};
+          const { data: ces, error: ceErr } = await supabase
+            .from('complex_event')
+            .select('id, internal_reference, start_date, tenant_id')
+            .in('id', ceIds);
+          if (ceErr) {
+            if (ceErr.code !== '42703') {
+              console.warn('[TrainingFundExportCSV] Complex events lookup error (non-blocking):', ceErr.message);
+            }
+          } else {
+            (ces || [])
+              .filter(e => !e.tenant_id || e.tenant_id === tenantId)
+              .forEach(e => {
+                if (e.internal_reference) ceRefMap[e.id] = e.internal_reference;
+                if (e.start_date) ceDateMap[e.id] = e.start_date;
+              });
+          }
+          complexBookings.forEach(b => {
+            const ref = ceRefMap[b.event_id];
+            if (ref) internalRefByBookingId[b.id] = ref;
+            const sd = ceDateMap[b.event_id];
+            if (sd) eventDateByBookingId[b.id] = sd;
+          });
+        }
       }
     }
 
+    // ---- Sort ----
+    const dirMul = effectiveSortDir === 'asc' ? 1 : -1;
+    const sortValue = (t) => {
+      switch (sortField) {
+        case 'organization': return (orgMap[t.organization_id]?.name || '').toLowerCase();
+        case 'date': return t.created_date || '';
+        case 'type': return formatTransactionTypeLabel(t.type).toLowerCase();
+        case 'amount': return signedAmountNumber(t);
+        case 'balance_after': {
+          const n = parseFloat(t.balance_after);
+          return isNaN(n) ? 0 : n;
+        }
+        default: return '';
+      }
+    };
     allTransactions.sort((a, b) => {
-      const aOrgName = (orgMap[a.organization_id]?.name || '').toLowerCase();
-      const bOrgName = (orgMap[b.organization_id]?.name || '').toLowerCase();
-      if (aOrgName !== bOrgName) return aOrgName.localeCompare(bOrgName);
-      const aDate = a.created_date || '';
-      const bDate = b.created_date || '';
-      if (aDate === bDate) return 0;
-      return aDate < bDate ? 1 : -1;
+      const av = sortValue(a);
+      const bv = sortValue(b);
+      let cmp;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        cmp = av - bv;
+      } else {
+        if (av === bv) cmp = 0;
+        else cmp = av < bv ? -1 : 1;
+      }
+      if (cmp !== 0) return cmp * dirMul;
+      // Stable secondary sort: created_date desc, then id, so equal keys
+      // keep a deterministic order regardless of primary direction.
+      const adRaw = a.created_date || '';
+      const bdRaw = b.created_date || '';
+      if (adRaw !== bdRaw) return adRaw < bdRaw ? 1 : -1;
+      const aId = String(a.id || '');
+      const bId = String(b.id || '');
+      if (aId === bId) return 0;
+      return aId < bId ? -1 : 1;
     });
 
-    const headers = [
-      'Organisation',
-      'Date',
-      'Type',
-      'Balance Before',
-      'Amount',
-      'Balance After',
-      'Reason',
-      'Created By',
-      'Event Internal Reference',
-      'Event Date'
-    ];
+    // ---- Build CSV ----
+    const cellFor = (t, key) => {
+      switch (key) {
+        case 'organization': return escapeCSV(orgMap[t.organization_id]?.name || '');
+        case 'date': return escapeCSV(formatDate(t.created_date));
+        case 'type': return escapeCSV(formatTransactionTypeLabel(t.type));
+        case 'balance_before': return escapeCSV(formatBalance(t.balance_before));
+        case 'amount': return formatSignedAmount(t);
+        case 'balance_after': return escapeCSV(formatBalance(t.balance_after));
+        case 'reason': return escapeCSV(t.reason || '');
+        case 'created_by': return escapeCSV(memberDisplayName(t.created_by ? memberMap[t.created_by] : null));
+        case 'event_internal_reference': {
+          const v = (t.type === 'booking_usage' && t.booking_id)
+            ? (internalRefByBookingId[t.booking_id] || '')
+            : '';
+          return escapeCSV(v);
+        }
+        case 'event_date': {
+          const v = (t.type === 'booking_usage' && t.booking_id)
+            ? formatDate(eventDateByBookingId[t.booking_id])
+            : '';
+          return escapeCSV(v);
+        }
+        default: return '';
+      }
+    };
 
-    const headerRow = headers.map(escapeCSV).join(',');
-    const dataRows = allTransactions.map(t => {
-      const orgName = orgMap[t.organization_id]?.name || '';
-      const member = t.created_by ? memberMap[t.created_by] : null;
-      const internalRef = (t.type === 'booking_usage' && t.booking_id)
-        ? (internalRefByBookingId[t.booking_id] || '')
-        : '';
-      const eventDate = (t.type === 'booking_usage' && t.booking_id)
-        ? formatDate(eventDateByBookingId[t.booking_id])
-        : '';
-      const cells = [
-        escapeCSV(orgName),
-        escapeCSV(formatDate(t.created_date)),
-        escapeCSV(formatTransactionTypeLabel(t.type)),
-        escapeCSV(formatBalance(t.balance_before)),
-        formatSignedAmount(t),
-        escapeCSV(formatBalance(t.balance_after)),
-        escapeCSV(t.reason || ''),
-        escapeCSV(memberDisplayName(member)),
-        escapeCSV(internalRef),
-        escapeCSV(eventDate)
-      ];
-      return cells.join(',');
-    });
-
+    const headerRow = columnKeys
+      .map(k => COLUMN_DEFS.find(c => c.key === k).header)
+      .map(escapeCSV)
+      .join(',');
+    const dataRows = allTransactions.map(t => columnKeys.map(k => cellFor(t, k)).join(','));
     const csv = [headerRow, ...dataRows].join('\n');
 
     const today = new Date().toISOString().split('T')[0];
@@ -288,6 +398,7 @@ export default async function handler(req, res) {
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Export-Row-Count', String(allTransactions.length));
     return res.status(200).send(csv);
   } catch (err) {
     console.error('[TrainingFundExportCSV] Error:', err);

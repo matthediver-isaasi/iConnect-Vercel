@@ -7,10 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -20,10 +23,45 @@ import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 
 const ITEMS_PER_PAGE = 15;
 
+const EXPORT_COLUMN_DEFS = [
+  { key: 'organization', label: 'Organisation' },
+  { key: 'date', label: 'Date' },
+  { key: 'type', label: 'Type' },
+  { key: 'balance_before', label: 'Balance Before' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'balance_after', label: 'Balance After' },
+  { key: 'reason', label: 'Reason' },
+  { key: 'created_by', label: 'Created By' },
+  { key: 'event_internal_reference', label: 'Event Internal Reference' },
+  { key: 'event_date', label: 'Event Date' },
+];
+const ALL_EXPORT_COLUMN_KEYS = EXPORT_COLUMN_DEFS.map(c => c.key);
+
+const EXPORT_SORT_FIELDS = [
+  { key: 'organization', label: 'Organisation' },
+  { key: 'date', label: 'Date' },
+  { key: 'type', label: 'Type' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'balance_after', label: 'Balance After' },
+];
+
 export default function TrainingFundManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportColumns, setExportColumns] = useState(() => new Set(ALL_EXPORT_COLUMN_KEYS));
+  const [exportFromDate, setExportFromDate] = useState(null);
+  const [exportToDate, setExportToDate] = useState(null);
+  const [exportFromOpen, setExportFromOpen] = useState(false);
+  const [exportToOpen, setExportToOpen] = useState(false);
+  const [exportAllOrgs, setExportAllOrgs] = useState(true);
+  const [exportOrgIds, setExportOrgIds] = useState(() => new Set());
+  const [exportOrgSearch, setExportOrgSearch] = useState("");
+  const [exportSortField, setExportSortField] = useState('organization');
+  const [exportSortDir, setExportSortDir] = useState('asc');
+  const [exportEmptyMessage, setExportEmptyMessage] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [balanceFilter, setBalanceFilter] = useState("all");
@@ -338,10 +376,77 @@ export default function TrainingFundManagementPage() {
     setSelectedOrg(null);
   };
 
-  const handleExportCSV = async () => {
+  const openExportDialog = () => {
+    setExportColumns(new Set(ALL_EXPORT_COLUMN_KEYS));
+    setExportFromDate(null);
+    setExportToDate(null);
+    setExportAllOrgs(true);
+    setExportOrgIds(new Set());
+    setExportOrgSearch("");
+    setExportSortField('organization');
+    setExportSortDir('asc');
+    setExportEmptyMessage("");
+    setShowExportDialog(true);
+  };
+
+  const toggleExportColumn = (key) => {
+    setExportColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleExportOrg = (id) => {
+    setExportOrgIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const filteredExportOrgs = useMemo(() => {
+    const term = exportOrgSearch.trim().toLowerCase();
+    const sorted = [...organizations].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    if (!term) return sorted;
+    return sorted.filter(o => (o.name || '').toLowerCase().includes(term));
+  }, [organizations, exportOrgSearch]);
+
+  const toIsoDateOnly = (d) => {
+    if (!d) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handleConfirmExport = async () => {
+    setExportEmptyMessage("");
+    if (exportColumns.size === 0) {
+      toast.error('Select at least one column to export');
+      return;
+    }
+    if (!exportAllOrgs && exportOrgIds.size === 0) {
+      toast.error('Select at least one organisation, or choose "All organisations"');
+      return;
+    }
+    if (exportFromDate && exportToDate && exportFromDate > exportToDate) {
+      toast.error('"From" date must be on or before "To" date');
+      return;
+    }
+
     setIsExporting(true);
     try {
-      const response = await fetch('/api/admin/training-fund-transactions/export-csv', {
+      const params = new URLSearchParams();
+      const orderedCols = ALL_EXPORT_COLUMN_KEYS.filter(k => exportColumns.has(k));
+      params.set('columns', orderedCols.join(','));
+      if (exportFromDate) params.set('from', toIsoDateOnly(exportFromDate));
+      if (exportToDate) params.set('to', toIsoDateOnly(exportToDate));
+      if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
+      params.set('sort_field', exportSortField);
+      params.set('sort_dir', exportSortDir);
+
+      const response = await fetch(`/api/admin/training-fund-transactions/export-csv?${params.toString()}`, {
         credentials: 'include'
       });
       if (!response.ok) {
@@ -352,6 +457,14 @@ export default function TrainingFundManagementPage() {
         } catch {}
         throw new Error(message);
       }
+
+      const rowCountHeader = response.headers.get('X-Export-Row-Count');
+      const rowCount = rowCountHeader != null ? parseInt(rowCountHeader, 10) : null;
+      if (rowCount === 0) {
+        setExportEmptyMessage('No transactions match the selected filters. Adjust your filters and try again.');
+        return;
+      }
+
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -363,6 +476,7 @@ export default function TrainingFundManagementPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       toast.success('CSV file downloaded successfully');
+      setShowExportDialog(false);
     } catch (err) {
       toast.error('Failed to export transactions: ' + (err.message || 'Unknown error'));
     } finally {
@@ -735,7 +849,7 @@ export default function TrainingFundManagementPage() {
             {isAdmin && (
               <Button
                 variant="outline"
-                onClick={handleExportCSV}
+                onClick={openExportDialog}
                 disabled={isExporting}
                 className="gap-2"
                 data-testid="button-export-training-fund-transactions-csv"
@@ -1080,6 +1194,251 @@ export default function TrainingFundManagementPage() {
               >
                 {updateBalanceMutation.isPending ? 'Saving...' : 
                   adjustmentType === "add" ? 'Add Funds' : 'Deduct Funds'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-export-csv-config">
+            <DialogHeader>
+              <DialogTitle>Export training fund transactions</DialogTitle>
+              <DialogDescription>
+                Choose which columns to include, narrow by date or organisation, and pick how the rows should be sorted.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium">Columns</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExportColumns(new Set(ALL_EXPORT_COLUMN_KEYS))}
+                      data-testid="button-export-columns-select-all"
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExportColumns(new Set())}
+                      data-testid="button-export-columns-clear"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border p-3">
+                  {EXPORT_COLUMN_DEFS.map(col => (
+                    <label
+                      key={col.key}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                      data-testid={`label-export-column-${col.key}`}
+                    >
+                      <Checkbox
+                        checked={exportColumns.has(col.key)}
+                        onCheckedChange={() => toggleExportColumn(col.key)}
+                        data-testid={`checkbox-export-column-${col.key}`}
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">From date</Label>
+                  <Popover open={exportFromOpen} onOpenChange={setExportFromOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start gap-2 mt-1 font-normal"
+                        data-testid="button-export-from-date"
+                      >
+                        <CalendarIcon className="w-4 h-4" />
+                        {exportFromDate ? format(exportFromDate, 'PPP') : <span className="text-muted-foreground">No lower bound</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={exportFromDate || undefined}
+                        onSelect={(d) => { setExportFromDate(d || null); setExportFromOpen(false); }}
+                      />
+                      {exportFromDate && (
+                        <div className="p-2 border-t">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => { setExportFromDate(null); setExportFromOpen(false); }}
+                            data-testid="button-export-from-clear"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">To date</Label>
+                  <Popover open={exportToOpen} onOpenChange={setExportToOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start gap-2 mt-1 font-normal"
+                        data-testid="button-export-to-date"
+                      >
+                        <CalendarIcon className="w-4 h-4" />
+                        {exportToDate ? format(exportToDate, 'PPP') : <span className="text-muted-foreground">No upper bound</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={exportToDate || undefined}
+                        onSelect={(d) => { setExportToDate(d || null); setExportToOpen(false); }}
+                      />
+                      {exportToDate && (
+                        <div className="p-2 border-t">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => { setExportToDate(null); setExportToOpen(false); }}
+                            data-testid="button-export-to-clear"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium">Organisations</Label>
+                <div className="mt-1 rounded-md border p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={exportAllOrgs}
+                      onCheckedChange={(v) => {
+                        const next = v === true;
+                        setExportAllOrgs(next);
+                        if (next) setExportOrgIds(new Set());
+                      }}
+                      data-testid="checkbox-export-all-orgs"
+                    />
+                    <span>All organisations</span>
+                  </label>
+
+                  {!exportAllOrgs && (
+                    <>
+                      <Input
+                        placeholder="Search organisations..."
+                        value={exportOrgSearch}
+                        onChange={(e) => setExportOrgSearch(e.target.value)}
+                        data-testid="input-export-org-search"
+                      />
+                      <ScrollArea className="h-48 rounded border">
+                        <div className="p-2 space-y-1">
+                          {filteredExportOrgs.length === 0 ? (
+                            <p className="text-sm text-muted-foreground p-2">No organisations match your search.</p>
+                          ) : filteredExportOrgs.map(org => (
+                            <label
+                              key={org.id}
+                              className="flex items-center gap-2 text-sm cursor-pointer p-1 rounded hover-elevate"
+                              data-testid={`label-export-org-${org.id}`}
+                            >
+                              <Checkbox
+                                checked={exportOrgIds.has(org.id)}
+                                onCheckedChange={() => toggleExportOrg(org.id)}
+                                data-testid={`checkbox-export-org-${org.id}`}
+                              />
+                              <span>{org.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                      <p className="text-xs text-muted-foreground" data-testid="text-export-org-count">
+                        {exportOrgIds.size} selected
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Sort by</Label>
+                  <Select value={exportSortField} onValueChange={setExportSortField}>
+                    <SelectTrigger className="mt-1" data-testid="select-export-sort-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPORT_SORT_FIELDS.map(f => (
+                        <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Direction</Label>
+                  <Select value={exportSortDir} onValueChange={setExportSortDir}>
+                    <SelectTrigger className="mt-1" data-testid="select-export-sort-dir">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="asc">Ascending</SelectItem>
+                      <SelectItem value="desc">Descending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {exportEmptyMessage && (
+                <div
+                  className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                  data-testid="text-export-empty-message"
+                >
+                  {exportEmptyMessage}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowExportDialog(false)}
+                disabled={isExporting}
+                data-testid="button-export-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmExport}
+                disabled={isExporting || exportColumns.size === 0}
+                className="gap-2"
+                data-testid="button-export-confirm"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Download CSV
               </Button>
             </DialogFooter>
           </DialogContent>
