@@ -662,7 +662,7 @@ export default function SpeakerManagementPage() {
                   id="organization"
                   value={formData.organization}
                   onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
-                  placeholder="Example University"
+                  placeholder="Example Organisation"
                   data-testid="input-speaker-organization"
                 />
               </div>
