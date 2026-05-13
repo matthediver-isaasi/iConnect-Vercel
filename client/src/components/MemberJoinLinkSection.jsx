@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,8 +8,30 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 
+function extractPrimitiveValue(val) {
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return extractPrimitiveValue(JSON.parse(trimmed));
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.length > 0 ? extractPrimitiveValue(val[0]) : null;
+  }
+  if (typeof val === 'object' && val.value !== undefined) {
+    return extractPrimitiveValue(val.value);
+  }
+  return val;
+}
+
 export default function MemberJoinLinkSection({ organizationId, showHeading = true }) {
-  const { data: joinFormSetting, isLoading, isError } = useQuery({
+  const { data: joinFormSetting, isLoading: defaultLoading, isError: defaultError } = useQuery({
     queryKey: ['member-join-form-setting'],
     queryFn: async () => {
       const settings = await base44.entities.SystemSettings.list({
@@ -26,8 +49,86 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     enabled: !!organizationId,
   });
 
-  const hasConfiguredForm = !!joinFormSetting?.value?.id;
-  const slug = joinFormSetting?.value?.slug;
+  const { data: joinFormsByOrgTypeSetting, isLoading: byTypeLoading } = useQuery({
+    queryKey: ['member-join-forms-by-org-type-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'member_join_forms_by_org_type' },
+      });
+      if (settings && settings.length > 0) {
+        try {
+          const parsed = JSON.parse(settings[0].setting_value);
+          return { id: settings[0].id, value: parsed && typeof parsed === 'object' ? parsed : {} };
+        } catch {
+          return { id: settings[0].id, value: {} };
+        }
+      }
+      return null;
+    },
+    enabled: !!organizationId,
+  });
+
+  const { data: orgScopedFields = [], isLoading: fieldsLoading } = useQuery({
+    queryKey: ['org-preference-fields-for-join-link'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' },
+        });
+        return fields || [];
+      } catch {
+        try {
+          const all = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
+          return (all || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    },
+    enabled: !!organizationId,
+  });
+
+  const orgTypeField = useMemo(() => {
+    return orgScopedFields.find(f =>
+      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
+    );
+  }, [orgScopedFields]);
+
+  const { data: orgPreferenceValues = [], isLoading: valuesLoading } = useQuery({
+    queryKey: ['org-preference-values-for-join-link', organizationId],
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: organizationId },
+        });
+        return values || [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!organizationId && !!orgTypeField,
+  });
+
+  const orgTypeValue = useMemo(() => {
+    if (!orgTypeField) return null;
+    const match = orgPreferenceValues.find(v => v.preference_field_id === orgTypeField.id);
+    if (!match) return null;
+    return extractPrimitiveValue(match.value);
+  }, [orgTypeField, orgPreferenceValues]);
+
+  const isLoading = defaultLoading || byTypeLoading || fieldsLoading || valuesLoading;
+  const isError = defaultError;
+
+  const resolvedForm = useMemo(() => {
+    const mapping = joinFormsByOrgTypeSetting?.value || {};
+    if (orgTypeValue && mapping[orgTypeValue]?.id) {
+      return mapping[orgTypeValue];
+    }
+    return joinFormSetting?.value || null;
+  }, [joinFormsByOrgTypeSetting, orgTypeValue, joinFormSetting]);
+
+  const hasConfiguredForm = !!resolvedForm?.id;
+  const slug = resolvedForm?.slug;
   const joinFormUrl = slug && organizationId
     ? `${window.location.origin}${createPageUrl('FormView')}?slug=${encodeURIComponent(slug)}&organization_id=${encodeURIComponent(organizationId)}`
     : null;

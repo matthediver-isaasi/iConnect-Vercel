@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -109,13 +109,73 @@ export default function MemberPreferencesPage() {
     enabled: accessChecked,
   });
 
+  const { data: joinFormsByOrgTypeSetting, isLoading: joinFormsByOrgTypeSettingLoading } = useQuery({
+    queryKey: ['member-join-forms-by-org-type-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'member_join_forms_by_org_type' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          const parsed = JSON.parse(settings[0].setting_value);
+          return { id: settings[0].id, value: parsed && typeof parsed === 'object' ? parsed : {} };
+        } catch {
+          return { id: settings[0].id, value: {} };
+        }
+      }
+      return null;
+    },
+    enabled: accessChecked,
+  });
+
+  const { data: orgScopedFields = [], isLoading: orgScopedFieldsLoading } = useQuery({
+    queryKey: ['org-preference-fields-for-join'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' }
+        });
+        return fields || [];
+      } catch {
+        try {
+          const all = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
+          return (all || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    },
+    enabled: accessChecked,
+  });
+
+  const orgTypeField = useMemo(() => {
+    return orgScopedFields.find(f =>
+      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
+    );
+  }, [orgScopedFields]);
+
+  const orgTypeOptions = useMemo(() => {
+    if (!orgTypeField?.options) return [];
+    return orgTypeField.options.map(opt => {
+      if (typeof opt === 'string') return { value: opt, label: opt };
+      return { value: opt.value || opt, label: opt.label || opt.value || opt };
+    });
+  }, [orgTypeField]);
+
   const [selectedJoinFormId, setSelectedJoinFormId] = useState('');
+  const [joinFormsByOrgType, setJoinFormsByOrgType] = useState({});
 
   useEffect(() => {
     if (joinFormSetting?.value?.id) {
       setSelectedJoinFormId(joinFormSetting.value.id);
     }
   }, [joinFormSetting]);
+
+  useEffect(() => {
+    if (joinFormsByOrgTypeSetting?.value && typeof joinFormsByOrgTypeSetting.value === 'object') {
+      setJoinFormsByOrgType(joinFormsByOrgTypeSetting.value);
+    }
+  }, [joinFormsByOrgTypeSetting]);
 
   const saveJoinFormMutation = useMutation({
     mutationFn: async (formId) => {
@@ -133,13 +193,64 @@ export default function MemberPreferencesPage() {
       }
     },
     onSuccess: () => {
-      toast.success('Join form saved');
+      toast.success('Default join form saved');
       queryClient.invalidateQueries({ queryKey: ['member-join-form-setting'] });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save join form');
     }
   });
+
+  const saveJoinFormsByOrgTypeMutation = useMutation({
+    mutationFn: async (mapping) => {
+      const cleaned = {};
+      Object.entries(mapping || {}).forEach(([orgType, entry]) => {
+        if (entry && entry.id && entry.slug) {
+          cleaned[orgType] = { id: entry.id, slug: entry.slug };
+        }
+      });
+      const value = JSON.stringify(cleaned);
+      if (joinFormsByOrgTypeSetting?.id) {
+        await base44.entities.SystemSettings.update(joinFormsByOrgTypeSetting.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'member_join_forms_by_org_type',
+          setting_value: value,
+          description: 'Mapping of organisation_type value -> { id, slug } of the public join form to use for that org type'
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Per-type join forms saved');
+      queryClient.invalidateQueries({ queryKey: ['member-join-forms-by-org-type-setting'] });
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save per-type join forms');
+    }
+  });
+
+  const handleSelectJoinFormForOrgType = useCallback((orgTypeValue, formId) => {
+    setJoinFormsByOrgType(prev => {
+      const next = { ...(prev || {}) };
+      if (!formId || formId === '__default__') {
+        delete next[orgTypeValue];
+      } else {
+        const form = allForms.find(f => f.id === formId);
+        if (form) next[orgTypeValue] = { id: form.id, slug: form.slug };
+      }
+      return next;
+    });
+  }, [allForms]);
+
+  const perTypeMappingDirty = useMemo(() => {
+    const persisted = joinFormsByOrgTypeSetting?.value || {};
+    const current = joinFormsByOrgType || {};
+    const keys = new Set([...Object.keys(persisted), ...Object.keys(current)]);
+    for (const k of keys) {
+      if ((persisted[k]?.id || null) !== (current[k]?.id || null)) return true;
+    }
+    return false;
+  }, [joinFormsByOrgTypeSetting, joinFormsByOrgType]);
 
   const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
     queryKey: ['bulk-member-field-permissions'],
@@ -516,12 +627,12 @@ export default function MemberPreferencesPage() {
                   Member Join Form
                 </CardTitle>
                 <CardDescription>
-                  Choose a form to use as the public joining form. The link can be shared with prospective members and is shown on each organisation's Membership tab, prefilled with that organisation.
+                  Choose a form to use as the public joining form. The link can be shared with prospective members and is shown on each organisation's Membership tab, prefilled with that organisation. You can also choose a different form per Organisation Type — the default is used as a fallback.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 <div className="space-y-2 max-w-xl">
-                  <label className="text-sm font-medium" htmlFor="select-join-form">Joining form</label>
+                  <label className="text-sm font-medium" htmlFor="select-join-form">Default joining form</label>
                   {(formsLoading || joinFormSettingLoading) ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -568,8 +679,88 @@ export default function MemberPreferencesPage() {
                   )}
                   {joinFormSetting?.value?.slug && (
                     <p className="text-sm text-muted-foreground" data-testid="text-current-join-form">
-                      Current join form slug: <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{joinFormSetting.value.slug}</code>
+                      Current default join form slug: <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{joinFormSetting.value.slug}</code>
                     </p>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold" data-testid="heading-per-org-type-join-forms">Per Organisation Type</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Override the default join form for specific Organisation Types. Leaving an Organisation Type set to "Use default" will fall back to the default form above.
+                    </p>
+                  </div>
+                  {(orgScopedFieldsLoading || joinFormsByOrgTypeSettingLoading || formsLoading) ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading Organisation Types...
+                    </div>
+                  ) : !orgTypeField ? (
+                    <div className="text-sm text-muted-foreground" data-testid="text-no-org-type-field">
+                      No <code className="text-xs bg-muted px-1.5 py-0.5 rounded">org_type</code> preference field is defined yet. Define one in your organisation custom fields to enable per-type join forms.
+                    </div>
+                  ) : orgTypeOptions.length === 0 ? (
+                    <div className="text-sm text-muted-foreground" data-testid="text-no-org-type-options">
+                      The <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{orgTypeField.name}</code> field has no options configured.
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-w-xl">
+                      {orgTypeOptions.map(opt => {
+                        const current = joinFormsByOrgType?.[opt.value]?.id || '';
+                        return (
+                          <div key={opt.value} className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-2 items-center">
+                            <label
+                              className="text-sm"
+                              htmlFor={`select-join-form-${opt.value}`}
+                              data-testid={`label-join-form-org-type-${opt.value}`}
+                            >
+                              {opt.label}
+                            </label>
+                            <Select
+                              value={current || '__default__'}
+                              onValueChange={(val) => handleSelectJoinFormForOrgType(opt.value, val)}
+                            >
+                              <SelectTrigger
+                                id={`select-join-form-${opt.value}`}
+                                className="flex-1"
+                                data-testid={`select-join-form-org-type-${opt.value}`}
+                              >
+                                <SelectValue placeholder="Use default" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__default__" data-testid={`option-join-form-default-${opt.value}`}>
+                                  Use default
+                                </SelectItem>
+                                {allForms.map(form => (
+                                  <SelectItem
+                                    key={form.id}
+                                    value={form.id}
+                                    data-testid={`option-join-form-${opt.value}-${form.id}`}
+                                  >
+                                    {form.title || form.slug}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={() => saveJoinFormsByOrgTypeMutation.mutate(joinFormsByOrgType)}
+                          disabled={!perTypeMappingDirty || saveJoinFormsByOrgTypeMutation.isPending}
+                          data-testid="button-save-join-forms-by-org-type"
+                        >
+                          {saveJoinFormsByOrgTypeMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4 mr-2" />
+                          )}
+                          Save per-type forms
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </CardContent>
