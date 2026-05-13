@@ -2,6 +2,11 @@ import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import {
+  resolveMemberForTenantLogin,
+  computeEffectiveLoginStatus,
+  isMemberSoftDeleted,
+} from '../_lib/memberLoginResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -196,73 +201,20 @@ export default async function handler(req, res) {
       console.log('[Auth Login] Authenticated via legacy credentials for:', email);
     }
 
-    // Find the member record - different approach depending on auth method
+    // Find the member record using the shared resolver. The resolver skips
+    // soft-deleted/anonymized member rows so a stale tenant_membership row
+    // pointing at a deleted member can no longer cause auth and the admin
+    // UI to disagree.
     let member = null;
 
     if (authenticatedViaIdentity && identity) {
-      // For identity-based auth, find the member via tenant_membership for this tenant
-      // or via direct identity_id link on member table
-      if (requestTenantId) {
-        // First check tenant_membership for a member linked to this tenant
-        // Check for ANY membership type (owner or member) that has a member_id
-        const { data: membership } = await supabase
-          .from('tenant_membership')
-          .select('member_id, membership_type')
-          .eq('identity_id', identity.id)
-          .eq('tenant_id', requestTenantId)
-          .not('member_id', 'is', null)
-          .single();
-
-        if (membership?.member_id) {
-          const { data: memberData } = await supabase
-            .from('member')
-            .select('*')
-            .eq('id', membership.member_id)
-            .single();
-          member = memberData;
-        }
-
-        // Fall back to finding member by identity_id and tenant
-        if (!member) {
-          const { data: memberData } = await supabase
-            .from('member')
-            .select('*')
-            .eq('identity_id', identity.id)
-            .eq('tenant_id', requestTenantId)
-            .single();
-          member = memberData;
-        }
-
-        // Fall back to finding by email and tenant
-        if (!member) {
-          const { data: memberData } = await supabase
-            .from('member')
-            .select('*')
-            .eq('email', email.toLowerCase())
-            .eq('tenant_id', requestTenantId)
-            .single();
-          member = memberData;
-        }
-      } else {
-        // No tenant context - find by identity_id or email
-        const { data: memberData } = await supabase
-          .from('member')
-          .select('*')
-          .eq('identity_id', identity.id)
-          .limit(1)
-          .single();
-        member = memberData;
-
-        if (!member) {
-          const { data: memberData } = await supabase
-            .from('member')
-            .select('*')
-            .eq('email', email.toLowerCase())
-            .limit(1)
-            .single();
-          member = memberData;
-        }
-      }
+      const resolution = await resolveMemberForTenantLogin({
+        supabase,
+        identityId: identity.id,
+        email,
+        tenantId: requestTenantId,
+      });
+      member = resolution.member;
     } else if (credentials?.member_id) {
       // Legacy credentials - use member_id directly
       const { data: memberData } = await supabase
@@ -271,6 +223,10 @@ export default async function handler(req, res) {
         .eq('id', credentials.member_id)
         .single();
       member = memberData;
+      if (member && isMemberSoftDeleted(member)) {
+        console.log('[Auth Login] Legacy member is soft-deleted:', email);
+        return res.status(401).json({ success: false, error: 'Member not found' });
+      }
     }
 
     if (!member) {
@@ -279,10 +235,11 @@ export default async function handler(req, res) {
     }
 
     // TENANT ISOLATION: Verify member belongs to the tenant from the subdomain
-    // This prevents cross-tenant authentication attacks
+    // This prevents cross-tenant authentication attacks.
+    let tenantMismatch = false;
     if (requestTenantId) {
       let memberTenantId = member.tenant_id;
-      
+
       // If member doesn't have direct tenant_id, check via organization
       if (!memberTenantId && member.organization_id) {
         const { data: orgData } = await supabase
@@ -290,49 +247,54 @@ export default async function handler(req, res) {
           .select('tenant_id')
           .eq('id', member.organization_id)
           .single();
-        
+
         memberTenantId = orgData?.tenant_id;
       }
-      
-      // Reject login if member doesn't belong to this tenant
-      if (memberTenantId !== requestTenantId) {
-        console.log('[Auth Login] Tenant mismatch - member tenant:', memberTenantId, 'request tenant:', requestTenantId);
-        return res.status(403).json({ 
-          success: false, 
-          error: 'This account does not have access to this portal. Please use the correct login URL for your organization.' 
-        });
-      }
+
+      tenantMismatch = memberTenantId !== requestTenantId;
     }
 
-    // Auto-disable expired guests: if this member is a guest and their
-    // guest_expires_at is in the past, force login_enabled = false so a
-    // stale flag in the database can never let them back in.
-    if (member.is_guest && member.guest_expires_at) {
-      const expiresAt = new Date(member.guest_expires_at);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        if (member.login_enabled !== false) {
-          try {
-            await supabase
-              .from('member')
-              .update({ login_enabled: false })
-              .eq('id', member.id);
-          } catch (e) {
-            console.error('[Auth Login] Failed to auto-disable expired guest:', e);
-          }
-          member.login_enabled = false;
-        }
-        console.log('[Auth Login] Guest access expired for member:', email);
-        return res.status(403).json({
-          success: false,
-          error: 'Your guest access has expired. Please contact an administrator to extend your access.'
-        });
+    const effectiveStatus = computeEffectiveLoginStatus(member, { tenantMismatch });
+
+    // Auto-disable expired guests: persist login_enabled=false so the stale
+    // flag can never let them back in.
+    if (effectiveStatus.reason === 'guest_expired' && member.login_enabled !== false) {
+      try {
+        await supabase
+          .from('member')
+          .update({ login_enabled: false })
+          .eq('id', member.id);
+      } catch (e) {
+        console.error('[Auth Login] Failed to auto-disable expired guest:', e);
       }
+      member.login_enabled = false;
     }
 
-    // Check if login is enabled for this member
-    if (member.login_enabled === false) {
-      console.log('[Auth Login] Login disabled for member:', email);
-      return res.status(403).json({ success: false, error: 'Login is disabled for this account. Please contact an administrator.' });
+    if (!effectiveStatus.canLogin) {
+      switch (effectiveStatus.reason) {
+        case 'tenant_mismatch':
+          console.log('[Auth Login] Tenant mismatch - member:', member.id, 'request tenant:', requestTenantId);
+          return res.status(403).json({
+            success: false,
+            error: 'This account does not have access to this portal. Please use the correct login URL for your organization.',
+          });
+        case 'guest_expired':
+          console.log('[Auth Login] Guest access expired for member:', email);
+          return res.status(403).json({
+            success: false,
+            error: 'Your guest access has expired. Please contact an administrator to extend your access.',
+          });
+        case 'soft_deleted':
+          console.log('[Auth Login] Resolved member is soft-deleted:', email);
+          return res.status(401).json({ success: false, error: 'Member not found' });
+        case 'login_disabled':
+        default:
+          console.log('[Auth Login] Login disabled for member:', email);
+          return res.status(403).json({
+            success: false,
+            error: 'Login is disabled for this account. Please contact an administrator.',
+          });
+      }
     }
 
     if (!member.role_id) {

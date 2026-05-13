@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
 import { triggerWorkflows } from '../../../_lib/workflows.js';
 import { triggerZohoCrmSync } from '../../../_lib/zohoCrmSync.js';
+import { getEffectiveLoginStatusForMember } from '../../../_lib/memberLoginResolver.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -91,7 +92,17 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Member not found' });
       }
 
-      return res.json(member);
+      // Compute the effective login status from the same resolver the auth
+      // flow uses, so the admin "Active / Login Disabled" badge can never
+      // disagree with what auth would actually do for this account.
+      let effectiveLoginStatus = null;
+      try {
+        effectiveLoginStatus = await getEffectiveLoginStatusForMember(member, { supabase });
+      } catch (statusErr) {
+        console.error('[Admin Get Member] Effective login status error:', statusErr);
+      }
+
+      return res.json({ ...member, effective_login_status: effectiveLoginStatus });
     } catch (error) {
       console.error('[Admin Get Member] Error:', error);
       return res.status(500).json({ error: 'Failed to get member' });

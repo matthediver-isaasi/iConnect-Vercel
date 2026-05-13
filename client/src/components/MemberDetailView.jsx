@@ -8,6 +8,7 @@ import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1083,12 +1084,13 @@ export default function MemberDetailView({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {!isNew && (member?.login_enabled === false ? (
-              <Badge variant="secondary" className="bg-red-100 text-red-700">Login Disabled</Badge>
-            ) : (
-              <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            {!isNew && member?.id && (
+              <MemberLoginStatusBadge
+                memberId={member.id}
+                fallbackEnabled={member?.login_enabled !== false}
+              />
+            )}
             {isAdmin && !isEditing && !isNew && (
               <>
                 <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">

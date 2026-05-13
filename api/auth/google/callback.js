@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import { parse, serialize } from 'cookie';
 import { createSession } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
+import {
+  computeEffectiveLoginStatus,
+  isMemberSoftDeleted,
+} from '../../_lib/memberLoginResolver.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -137,20 +141,22 @@ export default async function handler(req, res) {
 
     console.log('[Google OAuth Callback] Google user:', { googleId, email, name });
 
-    let { data: member, error: memberError } = await supabase
+    // Skip soft-deleted/anonymized member rows so a stale row can't
+    // shadow the active member for this Google account.
+    let { data: googleMatches } = await supabase
       .from('member')
       .select('*')
       .eq('google_id', googleId)
-      .eq('tenant_id', tenantId)
-      .single();
+      .eq('tenant_id', tenantId);
+    let member = (googleMatches || []).find((m) => !isMemberSoftDeleted(m)) || null;
 
     if (!member) {
-      const { data: memberByEmail } = await supabase
+      const { data: emailMatches } = await supabase
         .from('member')
         .select('*')
         .eq('email', email.toLowerCase())
-        .eq('tenant_id', tenantId)
-        .single();
+        .eq('tenant_id', tenantId);
+      const memberByEmail = (emailMatches || []).find((m) => !isMemberSoftDeleted(m)) || null;
 
       if (memberByEmail) {
         // Try to link google_id, but don't fail if it conflicts (unique constraint)
@@ -178,28 +184,23 @@ export default async function handler(req, res) {
       return res.redirect(buildErrorRedirect(tenantSlug, 'no_account', isProduction, `&email=${encodeURIComponent(email)}`));
     }
 
+    const effectiveStatus = computeEffectiveLoginStatus(member);
+
     // Auto-disable expired guests
-    if (member.is_guest && member.guest_expires_at) {
-      const expiresAt = new Date(member.guest_expires_at);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        if (member.login_enabled !== false) {
-          try {
-            await supabase
-              .from('member')
-              .update({ login_enabled: false })
-              .eq('id', member.id);
-          } catch (e) {
-            console.error('[Google OAuth Callback] Failed to auto-disable expired guest:', e);
-          }
-          member.login_enabled = false;
-        }
-        console.log('[Google OAuth Callback] Guest access expired for member:', member.id);
-        return res.redirect(buildErrorRedirect(tenantSlug, 'login_disabled', isProduction));
+    if (effectiveStatus.reason === 'guest_expired' && member.login_enabled !== false) {
+      try {
+        await supabase
+          .from('member')
+          .update({ login_enabled: false })
+          .eq('id', member.id);
+      } catch (e) {
+        console.error('[Google OAuth Callback] Failed to auto-disable expired guest:', e);
       }
+      member.login_enabled = false;
     }
 
-    if (member.login_enabled === false) {
-      console.log('[Google OAuth Callback] Login disabled for member:', member.id);
+    if (!effectiveStatus.canLogin) {
+      console.log('[Google OAuth Callback] Login blocked for member:', member.id, 'reason:', effectiveStatus.reason);
       return res.redirect(buildErrorRedirect(tenantSlug, 'login_disabled', isProduction));
     }
 

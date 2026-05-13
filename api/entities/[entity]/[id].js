@@ -1192,7 +1192,26 @@ export default async function handler(req, res) {
           console.error(`[Member Delete] Error anonymizing member ${id}:`, anonymizeError);
           return res.status(500).json({ error: 'Failed to anonymize member data' });
         }
-        
+
+        // Clear stale tenant_membership.member_id references that point at
+        // this now-deleted member. Otherwise the auth flow can resolve the
+        // soft-deleted row when a future member is created for the same
+        // identity in this tenant, causing the admin "Active" badge and
+        // login to disagree.
+        try {
+          const { error: tmClearError } = await supabase
+            .from('tenant_membership')
+            .update({ member_id: null })
+            .eq('member_id', id);
+          if (tmClearError) {
+            console.log(`[Member Delete] Note: Could not clear tenant_membership.member_id for ${id}: ${tmClearError.message}`);
+          } else {
+            console.log(`[Member Delete] Cleared tenant_membership.member_id references for ${id}`);
+          }
+        } catch (tmErr) {
+          console.error(`[Member Delete] Error clearing tenant_membership.member_id for ${id}:`, tmErr);
+        }
+
         console.log(`[Member Delete] Successfully anonymized member ${id} and deleted related data`);
         return res.json({ success: true, message: 'Member data anonymized and related records deleted' });
       }

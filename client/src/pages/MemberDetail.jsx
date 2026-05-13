@@ -40,6 +40,7 @@ import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1325,11 +1326,12 @@ export default function MemberDetail() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {member?.login_enabled === false ? (
-            <Badge variant="secondary" className="bg-red-100 text-red-700">Login Disabled</Badge>
-          ) : (
-            <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
+        <div className="flex items-center gap-2 flex-wrap">
+          {member?.id && (
+            <MemberLoginStatusBadge
+              memberId={member.id}
+              fallbackEnabled={member?.login_enabled !== false}
+            />
           )}
           {isAdmin && !isEditing && (
             <>
