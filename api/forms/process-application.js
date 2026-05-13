@@ -133,6 +133,60 @@ const normalizeAddressValue = (value) => {
 const coerceAddressIfNeeded = (targetField, value) =>
   ADDRESS_LIKE_TARGETS.has(targetField) ? normalizeAddressValue(value) : value;
 
+// URL-typed core columns that should receive a plain URL string. File-upload
+// form fields produce object values (`{ file_url, storage_path, bucket,
+// file_name, ... }`) and FormBuilder allows mapping such a field to e.g.
+// Organisation → Logo, which then writes the entire JSON payload into
+// `organization.logo_url` and breaks `<img src>` rendering. Detect a
+// file-upload payload (object with a `file_url` string, or a JSON-encoded
+// string of one) and reduce it to the URL string. Other shapes — plain
+// strings, null, empty — pass through unchanged.
+//
+// Member core columns surfaced by FormBuilder don't currently include any
+// file-capable URL targets (linkedin_url etc. are custom/text fields), but
+// the helper is keyed by target field name so adding a future member URL
+// target only requires extending FILE_URL_CORE_TARGETS.
+const FILE_URL_CORE_TARGETS = new Set(['logo_url', 'website_url']);
+
+const extractFileUrlFromValue = (value) => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // Cheap shape check before attempting JSON.parse — only try when the
+    // string looks like a JSON object literal of a file payload.
+    if (trimmed.startsWith('{') && trimmed.endsWith('}') && trimmed.includes('file_url')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && typeof parsed.file_url === 'string') {
+          return parsed.file_url;
+        }
+      } catch (_) {
+        // Not valid JSON — leave the original string untouched.
+      }
+    }
+    return value;
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    if (typeof value.file_url === 'string') return value.file_url;
+  }
+  return value;
+};
+
+const coerceFileValueIfNeeded = (targetField, value) =>
+  FILE_URL_CORE_TARGETS.has(targetField) ? extractFileUrlFromValue(value) : value;
+
+// Compose the per-target coercions in a fixed order so each write path stays
+// in sync: file → address → boolean. Only the matching coercion transforms
+// the value; the rest pass it through unchanged.
+const coerceCoreFieldValue = (targetEntity, targetField, value) => {
+  let v = coerceFileValueIfNeeded(targetField, value);
+  v = coerceAddressIfNeeded(targetField, v);
+  if (targetEntity === 'member') {
+    v = coerceBooleanField(targetField, v);
+  }
+  return v;
+};
+
 // Helper function to coerce values to boolean for boolean fields
 const coerceBooleanField = (fieldName, value) => {
   if (!BOOLEAN_CORE_FIELDS.includes(fieldName)) {
@@ -933,10 +987,10 @@ export default async function handler(req, res) {
           if (target_entity === 'member') {
             // Use hasAssignableValue to properly handle boolean fields
             if (hasAssignableValue(target_field, value)) {
-              memberData[target_field] = coerceBooleanField(target_field, value);
+              memberData[target_field] = coerceCoreFieldValue('member', target_field, value);
             }
           } else if (target_entity === 'organization') {
-            orgData[target_field] = coerceAddressIfNeeded(target_field, value);
+            orgData[target_field] = coerceCoreFieldValue('organization', target_field, value);
           }
         } else if (target_type === 'custom') {
           const prefField = prefFieldMap.get(target_field);
@@ -973,10 +1027,10 @@ export default async function handler(req, res) {
           if (entity === 'member') {
             // Use hasAssignableValue to properly handle boolean fields
             if (hasAssignableValue(fieldName, value)) {
-              memberData[fieldName] = coerceBooleanField(fieldName, value);
+              memberData[fieldName] = coerceCoreFieldValue('member', fieldName, value);
             }
           } else if (entity === 'organization') {
-            orgData[fieldName] = coerceAddressIfNeeded(fieldName, value);
+            orgData[fieldName] = coerceCoreFieldValue('organization', fieldName, value);
           }
         }
 
@@ -1088,10 +1142,7 @@ export default async function handler(req, res) {
             if (hasAssignableValue(dbKey, value)) {
               // Coerce boolean fields for member entities; for org address-like
               // text columns, normalise object/array values to a multi-line string.
-              const coerced = targetEntity === 'member'
-                ? coerceBooleanField(dbKey, value)
-                : coerceAddressIfNeeded(dbKey, value);
-              dataObj[dbKey] = coerced;
+              dataObj[dbKey] = coerceCoreFieldValue(targetEntity, dbKey, value);
             }
           } else if (mapping.target_type === 'custom') {
             // Custom field. Distinguish "absent" (source key not in
@@ -1161,10 +1212,7 @@ export default async function handler(req, res) {
             if (hasAssignableValue(dbKey, val)) {
               // Coerce boolean fields for member entities; coerce address-like
               // values for org entities so object payloads land cleanly in text columns.
-              const coerced = targetEntity === 'member'
-                ? coerceBooleanField(dbKey, val)
-                : coerceAddressIfNeeded(dbKey, val);
-              dataObj[dbKey] = coerced;
+              dataObj[dbKey] = coerceCoreFieldValue(targetEntity, dbKey, val);
             }
           }
         }
@@ -1407,8 +1455,9 @@ export default async function handler(req, res) {
               orgUpdateData[key] = null;
             } else if (value !== undefined && value !== '') {
               // Defence in depth: even if an upstream code path missed it, coerce
-              // address-like object values to a multi-line string before writing.
-              orgUpdateData[key] = coerceAddressIfNeeded(key, value);
+              // file-upload payloads to their URL string and address-like object
+              // values to a multi-line string before writing.
+              orgUpdateData[key] = coerceCoreFieldValue('organization', key, value);
             }
           }
           

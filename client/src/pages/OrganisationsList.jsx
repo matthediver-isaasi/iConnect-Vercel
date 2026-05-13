@@ -61,6 +61,33 @@ import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 
+// Defensive fallback: server-side coercion in api/forms/process-application.js
+// reduces file-upload payloads to a plain URL before writing logo_url, but if
+// a stringified `{file_url, storage_path, ...}` object ever slips through we
+// still want a real <img src> rather than raw JSON in the DOM. Returns null
+// when the value isn't a usable URL string.
+const safeLogoSrc = (raw) => {
+  if (!raw) return null;
+  if (typeof raw !== 'string') {
+    if (typeof raw === 'object' && typeof raw.file_url === 'string') return raw.file_url;
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === '[object Object]') return null;
+  if (trimmed.startsWith('{') && trimmed.endsWith('}') && trimmed.includes('file_url')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && typeof parsed.file_url === 'string') {
+        return parsed.file_url;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+  return trimmed;
+};
+
 const ORG_SORT_KEYS = {
   name: 'name',
   members: 'members',
@@ -1246,13 +1273,16 @@ export default function OrganisationsListPage() {
                             return (
                               <td key={col.id} className="px-4 py-3">
                                 <div className="flex items-center gap-3">
-                                  {org.logo_url ? (
-                                    <img src={org.logo_url} alt={org.name} className="w-10 h-10 rounded-lg object-contain bg-slate-100" />
-                                  ) : (
-                                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                      <Building2 className="w-5 h-5 text-blue-600" />
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const safeSrc = safeLogoSrc(org.logo_url);
+                                    return safeSrc ? (
+                                      <img src={safeSrc} alt={org.name} className="w-10 h-10 rounded-lg object-contain bg-slate-100" />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                        <Building2 className="w-5 h-5 text-blue-600" />
+                                      </div>
+                                    );
+                                  })()}
                                   <div>
                                     <p className="font-medium text-slate-900">{org.name}</p>
                                     {org.website_url && (
@@ -1432,13 +1462,16 @@ export default function OrganisationsListPage() {
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start gap-3 mb-3">
-                        {org.logo_url ? (
-                          <img src={org.logo_url} alt={org.name} className="w-12 h-12 rounded-lg object-contain bg-slate-100" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <Building2 className="w-6 h-6 text-blue-600" />
-                          </div>
-                        )}
+                        {(() => {
+                          const safeSrc = safeLogoSrc(org.logo_url);
+                          return safeSrc ? (
+                            <img src={safeSrc} alt={org.name} className="w-12 h-12 rounded-lg object-contain bg-slate-100" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <Building2 className="w-6 h-6 text-blue-600" />
+                            </div>
+                          );
+                        })()}
                         <div className="min-w-0 flex-1">
                           <h3 className="font-medium text-slate-900 truncate">{org.name}</h3>
                         </div>
