@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -1268,13 +1269,16 @@ export default function OrganisationDetailView({
                   <div className="w-14 h-14 rounded-lg bg-green-100 flex items-center justify-center">
                     <Building2 className="w-7 h-7 text-green-600" />
                   </div>
-                ) : organization?.logo_url ? (
-                  <img src={organization.logo_url} alt={organization.name} className="w-14 h-14 rounded-lg object-contain bg-slate-100" />
-                ) : (
-                  <div className="w-14 h-14 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <Building2 className="w-7 h-7 text-blue-600" />
-                  </div>
-                )}
+                ) : (() => {
+                  const safeSrc = safeLogoSrc(organization?.logo_url);
+                  return safeSrc ? (
+                    <img src={safeSrc} alt={organization.name} className="w-14 h-14 rounded-lg object-contain bg-slate-100" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <Building2 className="w-7 h-7 text-blue-600" />
+                    </div>
+                  );
+                })()}
                 <div>
                   <h1 className="text-xl font-semibold text-slate-900">
                     {isNew ? 'Add New Organisation' : (organization?.name || 'Organisation')}

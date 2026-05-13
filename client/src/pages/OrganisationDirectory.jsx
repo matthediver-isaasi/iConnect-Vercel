@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
+import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,14 +16,15 @@ import { hasDirectoryFieldValue } from "@/utils/directorySettings";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
-  if (!url) return null;
-  const lowerUrl = url.toLowerCase();
+  const safe = safeLogoSrc(url);
+  if (!safe) return null;
+  const lowerUrl = safe.toLowerCase();
   // Add cache-busting timestamp for JPG/JPEG images
   if (lowerUrl.includes('.jpg') || lowerUrl.includes('.jpeg')) {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}cb=${orgId}`;
+    const separator = safe.includes('?') ? '&' : '?';
+    return `${safe}${separator}cb=${orgId}`;
   }
-  return url;
+  return safe;
 };
 
 export default function OrganisationDirectoryPage() {
@@ -643,18 +645,22 @@ export default function OrganisationDirectoryPage() {
                     <CardHeader className="flex flex-col items-center text-center pb-2">
                       {displaySettings?.showLogo && (
                         <div className="relative w-[90%] aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center mb-3 group">
-                          {org.logo_url ?
-                            <img
-                              key={`logo-${org.id}-${org.logo_url}`}
-                              src={getLogoUrl(org.logo_url, org.id)}
-                              alt={org.name}
-                              loading="eager"
-                              decoding="sync"
-                              style={{ willChange: 'opacity' }}
-                              className={`w-full h-full object-contain transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
-                            /> :
-                            <Building2 className={`w-16 h-16 text-slate-400 transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
-                          }
+                          {(() => {
+                            const safeSrc = getLogoUrl(org.logo_url, org.id);
+                            return safeSrc ? (
+                              <img
+                                key={`logo-${org.id}-${safeSrc}`}
+                                src={safeSrc}
+                                alt={org.name}
+                                loading="eager"
+                                decoding="sync"
+                                style={{ willChange: 'opacity' }}
+                                className={`w-full h-full object-contain transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
+                              />
+                            ) : (
+                              <Building2 className={`w-16 h-16 text-slate-400 transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
+                            );
+                          })()}
                           {displaySettings?.showNameTooltip && (
                             <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                               <span className="text-lg font-bold text-slate-800 text-center leading-tight line-clamp-4">
@@ -754,15 +760,18 @@ export default function OrganisationDirectoryPage() {
           <div className="space-y-4">
             <div className="flex justify-center">
               <div className="w-32 h-32 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
-                {editingOrg?.logo_url ? (
-                  <img
-                    src={editingOrg.logo_url}
-                    alt={editingOrg.name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <Building2 className="w-12 h-12 text-slate-400" />
-                )}
+                {(() => {
+                  const safeSrc = safeLogoSrc(editingOrg?.logo_url);
+                  return safeSrc ? (
+                    <img
+                      src={safeSrc}
+                      alt={editingOrg.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Building2 className="w-12 h-12 text-slate-400" />
+                  );
+                })()}
               </div>
             </div>
             <input
@@ -836,15 +845,18 @@ export default function OrganisationDirectoryPage() {
             <div className="flex items-center gap-4">
               {displaySettings?.showLogo && (
                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center flex-shrink-0">
-                  {selectedOrg?.logo_url ? (
-                    <img
-                      src={selectedOrg.logo_url}
-                      alt={selectedOrg?.name}
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <Building2 className="w-8 h-8 text-slate-400" />
-                  )}
+                  {(() => {
+                    const safeSrc = safeLogoSrc(selectedOrg?.logo_url);
+                    return safeSrc ? (
+                      <img
+                        src={safeSrc}
+                        alt={selectedOrg?.name}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <Building2 className="w-8 h-8 text-slate-400" />
+                    );
+                  })()}
                 </div>
               )}
               <div>
