@@ -12,14 +12,24 @@ function extractPrimitiveValue(val) {
   if (val === null || val === undefined) return val;
   if (typeof val === 'string') {
     const trimmed = val.trim();
-    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    // Some import paths store the value as a JSON-encoded scalar
+    // (e.g. `"\"Partner\""`) rather than a raw string. Always try
+    // JSON.parse first so we recover the underlying primitive — if it
+    // fails (the common case for plain strings like `Partner`), fall
+    // back to the trimmed original.
+    if (trimmed.length > 0) {
       try {
-        return extractPrimitiveValue(JSON.parse(trimmed));
+        const parsed = JSON.parse(trimmed);
+        // Only recurse when parse actually changed the shape; otherwise
+        // a number/boolean/null parsed back to itself would loop.
+        if (parsed !== trimmed) {
+          return extractPrimitiveValue(parsed);
+        }
       } catch {
-        return val;
+        /* not JSON — fall through */
       }
     }
-    return val;
+    return trimmed;
   }
   if (Array.isArray(val)) {
     return val.length > 0 ? extractPrimitiveValue(val[0]) : null;
