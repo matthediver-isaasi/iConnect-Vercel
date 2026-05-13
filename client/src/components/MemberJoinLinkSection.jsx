@@ -8,6 +8,14 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 
+function normalizeKey(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/[\u2013\u2014]/g, '-')
+    .trim()
+    .toLowerCase();
+}
+
 function extractPrimitiveValue(val) {
   if (val === null || val === undefined) return val;
   if (typeof val === 'string') {
@@ -126,16 +134,52 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     return extractPrimitiveValue(match.value);
   }, [orgTypeField, orgPreferenceValues]);
 
+  const canonicalOrgTypeValue = useMemo(() => {
+    if (orgTypeValue === null || orgTypeValue === undefined || orgTypeValue === '') return orgTypeValue;
+    const options = orgTypeField?.options;
+    if (!Array.isArray(options) || options.length === 0) return orgTypeValue;
+    const rawStr = String(orgTypeValue);
+    const norm = normalizeKey(rawStr);
+    const normalized = options.map(opt => {
+      if (typeof opt === 'string') return { value: opt, label: opt };
+      return { value: opt?.value ?? opt, label: opt?.label ?? opt?.value ?? opt };
+    });
+    const exactValue = normalized.find(o => String(o.value) === rawStr);
+    if (exactValue) return exactValue.value;
+    const normValue = normalized.find(o => normalizeKey(String(o.value)) === norm);
+    if (normValue) return normValue.value;
+    const normLabel = normalized.find(o => normalizeKey(String(o.label)) === norm);
+    if (normLabel) return normLabel.value;
+    return orgTypeValue;
+  }, [orgTypeField, orgTypeValue]);
+
   const isLoading = defaultLoading || byTypeLoading || fieldsLoading || valuesLoading;
   const isError = defaultError;
 
   const resolvedForm = useMemo(() => {
     const mapping = joinFormsByOrgTypeSetting?.value || {};
-    if (orgTypeValue && mapping[orgTypeValue]?.id) {
-      return mapping[orgTypeValue];
+    const normalizedIndex = {};
+    for (const k of Object.keys(mapping)) {
+      const norm = normalizeKey(k);
+      if (norm && !(norm in normalizedIndex)) normalizedIndex[norm] = k;
+    }
+    const canonicalStr = (canonicalOrgTypeValue !== null && canonicalOrgTypeValue !== undefined && canonicalOrgTypeValue !== '')
+      ? String(canonicalOrgTypeValue) : null;
+    const rawStr = (orgTypeValue !== null && orgTypeValue !== undefined && orgTypeValue !== '')
+      ? String(orgTypeValue) : null;
+    if (canonicalStr && mapping[canonicalStr]?.id) return mapping[canonicalStr];
+    if (canonicalStr) {
+      const norm = normalizeKey(canonicalStr);
+      const found = norm ? normalizedIndex[norm] : null;
+      if (found && mapping[found]?.id) return mapping[found];
+    }
+    if (rawStr && rawStr !== canonicalStr) {
+      const norm = normalizeKey(rawStr);
+      const found = norm ? normalizedIndex[norm] : null;
+      if (found && mapping[found]?.id) return mapping[found];
     }
     return joinFormSetting?.value || null;
-  }, [joinFormsByOrgTypeSetting, orgTypeValue, joinFormSetting]);
+  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting]);
 
   const hasConfiguredForm = !!resolvedForm?.id;
   const slug = resolvedForm?.slug;
