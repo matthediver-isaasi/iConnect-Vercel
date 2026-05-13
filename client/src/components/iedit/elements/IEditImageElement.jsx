@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { toast } from "sonner";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
@@ -178,7 +180,8 @@ export default function IEditImageElement({ content, variant, settings }) {
         <div style={getMediaFrameStyles()}>
           <img
             src={content.imageUrl}
-            alt={content.altText || ""}
+            alt={content.decorative ? "" : (content.altText || "")}
+            role={content.decorative ? "presentation" : undefined}
             style={getImageStyles()}
           />
         </div>
@@ -204,6 +207,7 @@ export default function IEditImageElement({ content, variant, settings }) {
 
 export function IEditImageElementEditor({ element, onChange }) {
   const content = element.content || {};
+  const { optimised: srOptimisedEditor } = useScreenReader();
   
   const [expandedSections, setExpandedSections] = useState({
     image: true,
@@ -630,11 +634,34 @@ export function IEditImageElementEditor({ element, onChange }) {
                 value={content.altText || ''}
                 onChange={(e) => updateContent('altText', e.target.value)}
                 placeholder="Describe the image for accessibility..."
+                disabled={!!content.decorative}
                 data-testid="input-alt-text"
               />
               <p className="text-xs text-slate-500 mt-1">
-                Describes the image for screen readers and SEO
+                Describes the image for screen readers and SEO. Don't start with "Image of…".
               </p>
+              {srOptimisedEditor && !content.decorative && !(content.altText || '').trim() && (
+                <p
+                  className="text-xs text-amber-600 mt-1"
+                  data-testid="text-alt-warning"
+                >
+                  Screen-reader-optimised page: please add alt text, or mark this
+                  image as decorative.
+                </p>
+              )}
+              {srOptimisedEditor && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Checkbox
+                    id="decorative"
+                    checked={!!content.decorative}
+                    onCheckedChange={(checked) => updateContent('decorative', checked === true)}
+                    data-testid="checkbox-image-decorative"
+                  />
+                  <Label htmlFor="decorative" className="text-sm font-normal cursor-pointer">
+                    Decorative image (screen readers will skip it)
+                  </Label>
+                </div>
+              )}
             </div>
 
             <div>

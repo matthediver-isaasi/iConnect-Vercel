@@ -347,6 +347,15 @@ export default function PublicLayout({ children, currentPageName }) {
           `}
         </style>
 
+        {/* Skip to main content (accessibility) */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-background focus:text-foreground focus:px-3 focus:py-2 focus:rounded-md focus:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
+          data-testid="link-skip-to-main"
+        >
+          Skip to main content
+        </a>
+
         {/* Public Header - Now using dedicated component */}
         <PublicHeader />
 
@@ -362,7 +371,7 @@ export default function PublicLayout({ children, currentPageName }) {
         )}
 
         {/* Main Content Area - wrapped in BannerProvider for below-first-element banners */}
-        <main className="flex-1">
+        <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
           <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
             {children}
           </BannerProvider>

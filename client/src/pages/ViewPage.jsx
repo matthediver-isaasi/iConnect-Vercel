@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { ScreenReaderProvider } from "@/contexts/ScreenReaderContext";
 import PublicLayout from "../components/layouts/PublicLayout";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
@@ -128,26 +129,35 @@ export default function ViewPage() {
       ? BareWrapper
       : PublicLayout;
 
+  const srOptimised = !!page.screen_reader_optimised;
+
   return (
-    <LayoutComponent currentPageName="ViewPage">
-      <div className="w-full">
-        {elements && elements.length > 0 ? (
-          elements.map((element) => (
-            <IEditElementRenderer
-              key={element.id}
-              element={element}
-              memberInfo={null}
-              organizationInfo={null}
-            />
-          ))
-        ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-slate-600">This page has no content yet.</p>
+    <ScreenReaderProvider optimised={srOptimised}>
+      <LayoutComponent currentPageName="ViewPage">
+        <div className="w-full">
+          {srOptimised && (
+            <h1 className="sr-only" data-testid="text-sr-page-h1">
+              {page.title}
+            </h1>
+          )}
+          {elements && elements.length > 0 ? (
+            elements.map((element) => (
+              <IEditElementRenderer
+                key={element.id}
+                element={element}
+                memberInfo={null}
+                organizationInfo={null}
+              />
+            ))
+          ) : (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-slate-600">This page has no content yet.</p>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </LayoutComponent>
+          )}
+        </div>
+      </LayoutComponent>
+    </ScreenReaderProvider>
   );
 }

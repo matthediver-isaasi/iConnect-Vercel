@@ -9,7 +9,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { X, Image as ImageIcon, Lock, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Image as ImageIcon, Lock, ChevronLeft, ChevronRight } from "lucide-react";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 
 /**
  * Editor for the Gallery iEdit element.
@@ -115,7 +123,15 @@ export function IEditGalleryElementEditor({ element, onChange }) {
  * Guests see public galleries only (via publicClient).
  * Logged-in members see public + private (via base44 entity API).
  */
+function resolveAlt(photo, fallback, srOptimised) {
+  const explicit = (photo?.alt_text || '').trim();
+  if (explicit) return { alt: explicit, role: undefined };
+  if (srOptimised) return { alt: '', role: 'presentation' };
+  return { alt: fallback || '', role: undefined };
+}
+
 export function IEditGalleryElementRenderer({ element, memberInfo }) {
+  const { optimised: srOptimised } = useScreenReader();
   const content = element?.content || {};
   const heading = content.heading;
   const selectedIds = Array.isArray(content.gallery_ids) ? content.gallery_ids : [];
@@ -189,13 +205,17 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
               data-testid={`card-gallery-${g.id}`}
             >
               <div className="relative aspect-[4/3] bg-slate-100 flex items-center justify-center">
-                {cover ? (
-                  <GalleryImage
-                    photo={cover}
-                    className="w-full h-full object-cover"
-                    alt={cover.alt_text || g.title}
-                  />
-                ) : (
+                {cover ? (() => {
+                  const { alt: coverAlt, role: coverRole } = resolveAlt(cover, g.title, srOptimised);
+                  return (
+                    <GalleryImage
+                      photo={cover}
+                      className="w-full h-full object-cover"
+                      alt={coverAlt}
+                      role={coverRole}
+                    />
+                  );
+                })() : (
                   <ImageIcon className="w-12 h-12 text-slate-300" />
                 )}
                 {!g.is_public && (
@@ -230,13 +250,14 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
           activeIndex={activeIndex}
           onIndexChange={setActiveIndex}
           onClose={() => setOpenGallery(null)}
+          srOptimised={srOptimised}
         />
       )}
     </div>
   );
 }
 
-function GalleryImage({ photo, className, alt }) {
+function GalleryImage({ photo, className, alt, role }) {
   const [src, setSrc] = useState(null);
 
   useEffect(() => {
@@ -257,95 +278,105 @@ function GalleryImage({ photo, className, alt }) {
   if (!src) {
     return <div className={`${className} bg-slate-100`} />;
   }
-  return <img src={src} alt={alt} className={className} loading="lazy" />;
+  return <img src={src} alt={alt} role={role} className={className} loading="lazy" />;
 }
 
-function Lightbox({ gallery, activeIndex, onIndexChange, onClose }) {
+function Lightbox({ gallery, activeIndex, onIndexChange, onClose, srOptimised }) {
   const photos = gallery.photos || [];
   const photo = photos[activeIndex];
 
+  // Arrow-key navigation. Escape is handled by the Dialog primitive itself,
+  // which also traps focus and restores it to the opener on close.
   useEffect(() => {
     const handler = (e) => {
-      if (e.key === "Escape") onClose();
       if (e.key === "ArrowRight") onIndexChange((activeIndex + 1) % photos.length);
       if (e.key === "ArrowLeft") onIndexChange((activeIndex - 1 + photos.length) % photos.length);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeIndex, photos.length, onIndexChange, onClose]);
+  }, [activeIndex, photos.length, onIndexChange]);
 
   if (!photo) {
     return null;
   }
 
+  const dialogTitle = gallery.title || "Photo gallery";
+  const description = photos.length > 1
+    ? `Photo ${activeIndex + 1} of ${photos.length}`
+    : "Photo viewer";
+
   return (
-    <div
-      className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center"
-      onClick={onClose}
-      data-testid="lightbox-gallery"
-    >
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute top-4 right-4 text-white hover:text-white"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        data-testid="button-close-lightbox"
+    <Dialog open={true} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        className="max-w-[95vw] w-[95vw] sm:max-w-4xl bg-black/95 border-none p-0 overflow-hidden"
+        data-testid="lightbox-gallery"
       >
-        <X className="w-6 h-6" />
-      </Button>
+        <DialogHeader className="sr-only">
+          <DialogTitle data-testid="text-lightbox-title">{dialogTitle}</DialogTitle>
+          <DialogDescription data-testid="text-lightbox-description">
+            {description}
+          </DialogDescription>
+        </DialogHeader>
 
-      {photos.length > 1 && (
-        <>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute left-4 text-white hover:text-white"
-            onClick={(e) => {
-              e.stopPropagation();
-              onIndexChange((activeIndex - 1 + photos.length) % photos.length);
-            }}
-            data-testid="button-prev-photo"
-          >
-            <ChevronLeft className="w-8 h-8" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-4 text-white hover:text-white"
-            onClick={(e) => {
-              e.stopPropagation();
-              onIndexChange((activeIndex + 1) % photos.length);
-            }}
-            data-testid="button-next-photo"
-          >
-            <ChevronRight className="w-8 h-8" />
-          </Button>
-        </>
-      )}
+        <div className="relative flex flex-col items-center justify-center min-h-[60vh]">
+          {photos.length > 1 && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-white hover:text-white"
+                onClick={() =>
+                  onIndexChange((activeIndex - 1 + photos.length) % photos.length)
+                }
+                aria-label="Previous photo"
+                data-testid="button-prev-photo"
+              >
+                <ChevronLeft className="w-8 h-8" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-white hover:text-white"
+                onClick={() =>
+                  onIndexChange((activeIndex + 1) % photos.length)
+                }
+                aria-label="Next photo"
+                data-testid="button-next-photo"
+              >
+                <ChevronRight className="w-8 h-8" />
+              </Button>
+            </>
+          )}
 
-      <div
-        className="max-w-[90vw] max-h-[90vh] flex flex-col items-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GalleryImage
-          photo={photo}
-          alt={photo.alt_text || gallery.title}
-          className="max-h-[80vh] max-w-[90vw] object-contain"
-        />
-        {(photo.caption || photo.alt_text) && (
-          <div className="text-white text-center mt-3 px-4">
-            <p className="text-sm">{photo.caption || photo.alt_text}</p>
+          <div className="flex flex-col items-center px-8 py-6">
+            {(() => {
+              const { alt: photoAlt, role: photoRole } = resolveAlt(photo, gallery.title, srOptimised);
+              return (
+                <GalleryImage
+                  photo={photo}
+                  alt={photoAlt}
+                  role={photoRole}
+                  className="max-h-[75vh] max-w-full object-contain"
+                />
+              );
+            })()}
+            {(photo.caption || photo.alt_text) && (
+              <p className="text-white text-center mt-3 px-4 text-sm">
+                {photo.caption || photo.alt_text}
+              </p>
+            )}
+            {photos.length > 1 && (
+              <p
+                className="text-white/70 text-xs mt-2"
+                aria-live="polite"
+                data-testid="text-lightbox-counter"
+              >
+                {activeIndex + 1} / {photos.length}
+              </p>
+            )}
           </div>
-        )}
-        {photos.length > 1 && (
-          <p className="text-white/70 text-xs mt-2">
-            {activeIndex + 1} / {photos.length}
-          </p>
-        )}
-      </div>
-    </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -11,6 +11,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import IEditElementPalette from "../components/iedit/IEditElementPalette";
 import IEditElementCard from "../components/iedit/IEditElementCard";
 import IEditElementEditor from "../components/iedit/IEditElementEditor";
+import { ScreenReaderProvider } from "@/contexts/ScreenReaderContext";
 import IEditPageSettings from "../components/iedit/IEditPageSettings";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import ElementPreviewWrapper from "../components/iedit/ElementPreviewWrapper";
@@ -335,6 +336,7 @@ export default function IEditPageEditorPage() {
   }
 
   return (
+    <ScreenReaderProvider optimised={!!page.screen_reader_optimised}>
     <div className="min-h-screen bg-white flex flex-col">
       {/* Top Bar */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
@@ -580,5 +582,6 @@ export default function IEditPageEditorPage() {
         />
       )}
     </div>
+    </ScreenReaderProvider>
   );
 }

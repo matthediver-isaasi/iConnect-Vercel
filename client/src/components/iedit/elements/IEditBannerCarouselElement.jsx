@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -284,6 +285,8 @@ export function IEditBannerCarouselElementRenderer({ element }) {
   const content = element.content || { banners: [], autoplayInterval: 5 };
   const { anchor } = content;
   const [currentIndex, setCurrentIndex] = useState(0);
+  const { optimised: srOptimised } = useScreenReader();
+  const BannerHeadingTag = srOptimised ? 'h2' : 'h1';
 
   const banners = content.banners || [];
   const autoplayInterval = content.autoplayInterval || 5;
@@ -321,7 +324,17 @@ export function IEditBannerCarouselElementRenderer({ element }) {
   const currentBanner = banners[currentIndex];
 
   return (
-    <div id={anchor || undefined} className="relative w-full overflow-hidden">
+    <div
+      id={anchor || undefined}
+      className="relative w-full overflow-hidden"
+      {...(srOptimised
+        ? {
+            role: 'region',
+            'aria-roledescription': 'carousel',
+            'aria-label': 'Featured banners',
+          }
+        : {})}
+    >
       {/* Banner Container */}
       <div className="relative h-[500px] md:h-[600px]">
         {/* Background Image */}
@@ -340,9 +353,9 @@ export function IEditBannerCarouselElementRenderer({ element }) {
         <div className="relative h-full flex items-center justify-center text-center px-4">
           <div className="max-w-4xl mx-auto text-white">
             {currentBanner.headerText && (
-              <h1 className="text-4xl md:text-6xl font-bold mb-6 animate-fade-in">
+              <BannerHeadingTag className="text-4xl md:text-6xl font-bold mb-6 animate-fade-in">
                 {currentBanner.headerText}
-              </h1>
+              </BannerHeadingTag>
             )}
             {currentBanner.paragraphText && (
               <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto opacity-90 animate-fade-in">

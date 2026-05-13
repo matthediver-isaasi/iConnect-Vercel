@@ -5,6 +5,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 
 const heroQuillModules = {
   toolbar: [
@@ -28,6 +29,8 @@ const isHtmlEmpty = (html) => {
 
 export default function IEditHeroElement({ content, variant, settings, previewViewport }) {
   const isMobilePreview = previewViewport === 'mobile';
+  const { optimised: srOptimised } = useScreenReader();
+  const HeroHeadingTag = srOptimised ? 'h2' : 'h1';
   const {
     anchor,
     // Desktop background settings
@@ -584,7 +587,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             <div className="hero-content max-w-7xl mx-auto w-full">
               {content.heading && (
                 <div>
-                  <h1 
+                  <HeroHeadingTag 
                     className="hero-heading font-bold hero-rich-text-content"
                     style={{ 
                       marginBottom: heading_underline_enabled 
@@ -702,7 +705,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         <div className="hero-content relative max-w-7xl mx-auto">
           {content.heading && (
             <div>
-              <h1 
+              <HeroHeadingTag 
                 className="hero-heading font-bold hero-rich-text-content"
                 style={{ 
                   marginBottom: heading_underline_enabled 

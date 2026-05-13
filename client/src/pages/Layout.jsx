@@ -2514,7 +2514,14 @@ useEffect(() => {
                 </Button>
               </div>
             )}
-            <main ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain">
+            <a
+              href="#main-content"
+              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[1000] focus:px-3 focus:py-2 focus:bg-white focus:text-slate-900 focus:rounded focus:shadow"
+              data-testid="link-skip-to-content"
+            >
+              Skip to main content
+            </a>
+            <main id="main-content" tabIndex={-1} ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain focus:outline-none">
               {/* Render ALL top banners with appropriate component based on banner_type */}
               {topBanners.length > 0 && (
                 <div className="w-full">

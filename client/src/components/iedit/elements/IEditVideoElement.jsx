@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Video, AlertCircle, Play, Palette } from "lucide-react";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 
 const ALLOWED_VIDEO_DOMAINS = [
   'youtube.com',
@@ -89,6 +90,11 @@ export default function IEditVideoElement({ content, variant, settings }) {
   const alignment = content?.alignment || 'center';
   const title = content?.title || '';
   const caption = content?.caption || '';
+  const transcript = content?.transcript || '';
+  const captionsUrl = content?.captions_url || '';
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const transcriptPanelId = `video-transcript-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const { optimised: srOptimised } = useScreenReader();
   const borderRadius = content?.border_radius ?? 8;
   const showBorder = content?.show_border || false;
   const borderColor = content?.border_color || '#e2e8f0';
@@ -188,18 +194,73 @@ export default function IEditVideoElement({ content, variant, settings }) {
           
           <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-black`}>
             <iframe
-              src={videoSrc}
+              src={(() => {
+                if (!srOptimised || !videoSrc) return videoSrc;
+                try {
+                  const u = new URL(videoSrc, window.location.origin);
+                  if (/(^|\.)youtube(-nocookie)?\.com$/.test(u.hostname) || /(^|\.)youtu\.be$/.test(u.hostname)) {
+                    if (!u.searchParams.get('cc_load_policy')) u.searchParams.set('cc_load_policy', '1');
+                    return u.toString();
+                  }
+                } catch (_) {}
+                return videoSrc;
+              })()}
               className="absolute inset-0 w-full h-full"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
-              title={title || "Embedded video"}
+              title={title || caption || "Embedded video"}
+              aria-label={title || caption || "Embedded video"}
             />
           </div>
-          
+
           {caption && (
             <p className="text-sm text-slate-600 mt-3 text-center">{caption}</p>
+          )}
+
+          {srOptimised && (transcript || captionsUrl) && (
+            <div className="mt-3 text-sm">
+              {transcript && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptOpen((v) => !v)}
+                    aria-expanded={transcriptOpen}
+                    aria-controls={transcriptPanelId}
+                    className="text-slate-700 hover:text-slate-900 underline"
+                    data-testid="button-toggle-video-transcript"
+                  >
+                    {transcriptOpen ? 'Hide transcript' : 'Show transcript'}
+                  </button>
+                  {transcriptOpen && (
+                    <div
+                      id={transcriptPanelId}
+                      role="region"
+                      aria-label={`Transcript for ${title || 'video'}`}
+                      className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-md whitespace-pre-wrap text-slate-700"
+                      data-testid="text-video-transcript"
+                    >
+                      {transcript}
+                    </div>
+                  )}
+                </div>
+              )}
+              {captionsUrl && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Captions:{' '}
+                  <a
+                    href={captionsUrl}
+                    className="underline hover:text-slate-700"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="link-video-captions"
+                  >
+                    download captions track
+                  </a>
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -218,6 +279,9 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
   const alignment = editedContent?.alignment || 'center';
   const title = editedContent?.title || '';
   const caption = editedContent?.caption || '';
+  const transcript = editedContent?.transcript || '';
+  const captionsUrl = editedContent?.captions_url || '';
+  const { optimised: srOptimisedEditor } = useScreenReader();
   const borderRadius = editedContent?.border_radius ?? 8;
   const showBorder = editedContent?.show_border || false;
   const borderColor = editedContent?.border_color || '#e2e8f0';
@@ -312,7 +376,44 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
               data-testid="input-video-caption"
             />
           </div>
-          
+
+          {srOptimisedEditor && (
+            <>
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                Screen-reader-optimised page: please supply a transcript (and
+                captions if available) so the video is accessible.
+              </div>
+              <div>
+                <Label htmlFor="transcript">Transcript (recommended for accessibility)</Label>
+                <Textarea
+                  id="transcript"
+                  value={transcript}
+                  onChange={(e) => updateContent('transcript', e.target.value)}
+                  placeholder="Paste a written transcript of the video so deaf and hard-of-hearing visitors can read what is said."
+                  className="mt-1 min-h-[120px]"
+                  data-testid="input-video-transcript"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Shown below the player as an expandable "Show transcript" panel.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="captions_url">Captions track URL (optional)</Label>
+                <Input
+                  id="captions_url"
+                  value={captionsUrl}
+                  onChange={(e) => updateContent('captions_url', e.target.value)}
+                  placeholder="https://example.com/captions.vtt"
+                  className="mt-1"
+                  data-testid="input-video-captions-url"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Link to a .vtt captions file (WebVTT). Surfaced as a download link below the video.
+                </p>
+              </div>
+            </>
+          )}
+
           <div>
             <Label>Aspect Ratio</Label>
             <Select value={aspectRatio} onValueChange={(v) => updateContent('aspect_ratio', v)}>

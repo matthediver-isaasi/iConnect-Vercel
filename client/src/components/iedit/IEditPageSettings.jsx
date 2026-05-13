@@ -199,6 +199,33 @@ export default function IEditPageSettings({ page, onClose, onSave }) {
             </div>
           </div>
 
+          {/* Accessibility */}
+          <div className="space-y-4">
+            <h3 className="font-semibold text-slate-900">Accessibility</h3>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="screen_reader_optimised">Screen reader optimised</Label>
+                <p className="text-xs text-slate-500">
+                  Pilot: when on, this page renders with the full screen-reader treatment
+                  (single H1, accessible gallery dialog, ARIA on carousels/accordions/tabs,
+                  decorative-by-default images without alt text, and an announcement region
+                  for async UI). Review the screen-reader authoring guide
+                  (<code className="text-[10px] bg-slate-100 px-1 rounded">client/src/docs/screen-reader-authoring.md</code>)
+                  with the platform team before turning this on.
+                </p>
+              </div>
+              <Switch
+                id="screen_reader_optimised"
+                data-testid="switch-screen-reader-optimised"
+                checked={!!editedPage.screen_reader_optimised}
+                onCheckedChange={(checked) =>
+                  setEditedPage({ ...editedPage, screen_reader_optimised: checked })
+                }
+              />
+            </div>
+          </div>
+
           {/* SEO Settings */}
           <div className="space-y-4">
             <h3 className="font-semibold text-slate-900">SEO (Optional)</h3>

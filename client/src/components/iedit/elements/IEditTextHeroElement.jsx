@@ -1,8 +1,11 @@
 import React from "react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
 
 export default function IEditTextHeroElement({ content, variant, settings }) {
+  const { optimised: srOptimised } = useScreenReader();
+  const HeadingTag = srOptimised ? 'h2' : 'h1';
   const { 
     header = '',
     header_font_family = 'Poppins',
@@ -44,7 +47,7 @@ export default function IEditTextHeroElement({ content, variant, settings }) {
     >
       <div className="max-w-4xl mx-auto space-y-6">
         {header && (
-          <h1 
+          <HeadingTag 
             className={`${headerAlign} font-bold`}
             style={{ 
               fontFamily: header_font_family,
@@ -53,7 +56,7 @@ export default function IEditTextHeroElement({ content, variant, settings }) {
             }}
           >
             {header}
-          </h1>
+          </HeadingTag>
         )}
         
         {text_content && (
