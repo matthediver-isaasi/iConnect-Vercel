@@ -177,8 +177,12 @@ export default async function handler(req, res) {
           const targetStageId = ddConfig.on_first_edit_stage;
           const workflowStages = ddConfig.workflow_stages || [];
           const targetStage = workflowStages.find(s => s.id === targetStageId);
+          const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
+          const initialStageId = initialStage?.id || null;
+          const currentStatus = ddSubmission.workflow_status;
+          const isOnInitialStage = initialStageId !== null && currentStatus === initialStageId;
 
-          console.log(`[DD Review] Target stage: id=${targetStageId}, found=${!!targetStage}, label=${targetStage?.label}, stageCount=${workflowStages.length}`);
+          console.log(`[DD Review] Target stage: id=${targetStageId}, found=${!!targetStage}, label=${targetStage?.label}, stageCount=${workflowStages.length}, initialStageId=${initialStageId}, currentStatus=${currentStatus}, isOnInitialStage=${isOnInitialStage}`);
 
           if (targetStage) {
             // Check if first_edit was already triggered (from the initial fetch)
@@ -186,7 +190,32 @@ export default async function handler(req, res) {
             console.log(`[DD Review] Already triggered check: first_edit_triggered=${ddSubmission.first_edit_triggered}, alreadyTriggered=${alreadyTriggered}`);
 
             // Only proceed if not already triggered
-            if (!alreadyTriggered) {
+            if (!alreadyTriggered && !isOnInitialStage) {
+              // Reviewer manually advanced past initial stage before first save.
+              // Mark first_edit_triggered so this auto-transition won't fire later,
+              // but skip the actual stage change to honour their manual choice.
+              const { error: flagError } = await supabase
+                .from('form_submission_due_diligence')
+                .update({
+                  first_edit_triggered: true,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', submissionId)
+                .eq('tenant_id', tenantCtx.tenantId);
+
+              if (flagError) {
+                console.log(`[DD Review] Failed to set first_edit_triggered flag (manual advance skip): ${flagError.message}`);
+              }
+
+              firstEditTransition = {
+                triggered: false,
+                skipped_reason: 'manual_stage_already_advanced',
+                current_status: currentStatus,
+                initial_status: initialStageId
+              };
+
+              console.log(`[DD Review] First edit auto-transition skipped - reviewer already on stage ${currentStatus} (initial was ${initialStageId})`);
+            } else if (!alreadyTriggered) {
               // Set the flag to prevent duplicate transitions
               const { error: flagError } = await supabase
                 .from('form_submission_due_diligence')
