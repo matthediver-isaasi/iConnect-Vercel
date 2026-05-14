@@ -294,7 +294,7 @@ export default function PublicHeader() {
   const [hoveredMenu, setHoveredMenu] = useState(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
   const [socialIcons, setSocialIcons] = useState(null);
-  const [headerIconsConfig, setHeaderIconsConfig] = useState({ login: true, search: true, social: true });
+  const [headerIconsConfig, setHeaderIconsConfig] = useState({ login: true, search: true, social: true, logo: true });
   const [closeTimeout, setCloseTimeout] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedMenus, setMobileExpandedMenus] = useState({});
@@ -435,6 +435,7 @@ export default function PublicHeader() {
               login: parsed.login !== false,
               search: parsed.search !== false,
               social: parsed.social !== false,
+              logo: parsed.logo !== false,
             });
           } catch (e) {
             console.error('Failed to parse header icons config:', e);
@@ -1059,6 +1060,7 @@ export default function PublicHeader() {
     <>
       <header className="bg-white shadow-sm sticky top-0 z-40 relative">
         {/* Desktop: Overlapping Logo */}
+        {headerIconsConfig.logo && (
         <Link 
           to="/"
           className="absolute z-50 hidden lg:block"
@@ -1097,8 +1099,10 @@ export default function PublicHeader() {
             )}
           </div>
         </Link>
+        )}
 
         {/* Mobile: Floating Logo in white box with shadow */}
+        {headerIconsConfig.logo && (
         <Link 
           to="/"
           className="absolute z-50 lg:hidden"
@@ -1140,6 +1144,7 @@ export default function PublicHeader() {
             </span>
           )}
         </Link>
+        )}
 
         {/* Top Row - Gradient Header (Desktop only) */}
         <div
@@ -1408,6 +1413,7 @@ export default function PublicHeader() {
           >
         {/* Mobile Menu Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          {headerIconsConfig.logo ? (
           <Link 
             to="/" 
             onClick={() => setMobileMenuOpen(false)}
@@ -1444,6 +1450,7 @@ export default function PublicHeader() {
               )}
             </div>
           </Link>
+          ) : <div />}
           <button 
             onClick={() => setMobileMenuOpen(false)}
             className="p-2 -mr-2 hover:bg-slate-100 rounded-lg transition-colors"

@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Save, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 
-const DEFAULT_CONFIG = { login: true, search: true, social: true };
+const DEFAULT_CONFIG = { login: true, search: true, social: true, logo: true };
 
 const ICONS = [
   {
@@ -26,6 +26,12 @@ const ICONS = [
     label: "Social Icons",
     description:
       "Show the social media icons row in the header. The footer and Social Media tab are not affected.",
+  },
+  {
+    key: "logo",
+    label: "Logo",
+    description:
+      "Show the tenant logo in the public header. Turn off for a clean header without the logo image.",
   },
 ];
 
@@ -74,7 +80,7 @@ export default function HeaderIconsConfig() {
         setting_key: "header_icons_config",
         setting_value: settingValue,
         description:
-          "Visibility toggles for Login, Search, and Social icons in the public header",
+          "Visibility toggles for Login, Search, Social icons, and Logo in the public header",
       });
     },
     onSuccess: () => {
