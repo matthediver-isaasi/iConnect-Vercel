@@ -222,8 +222,18 @@ export async function applyInvoicePoUpdate({
       .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (bErr) {
-      console.error(`[PendingPO] applyInvoicePoUpdate booking update failed invoiceKey=${invoiceKey}: ${bErr.message}`);
-      return { ok: false, status: 500, error: 'Failed to update bookings' };
+      console.error(
+        `[PendingPO] applyInvoicePoUpdate booking update failed tenantId=${tenantId} invoiceKey=${invoiceKey} bookingIds=${JSON.stringify(ids)}:`,
+        { message: bErr.message, details: bErr.details, hint: bErr.hint, code: bErr.code },
+      );
+      const detail = [bErr.message, bErr.code ? `code ${bErr.code}` : null, bErr.hint, bErr.details]
+        .filter(Boolean)
+        .join(' — ');
+      return {
+        ok: false,
+        status: 500,
+        error: `Failed to update bookings: ${detail || 'unknown database error'}`,
+      };
     }
     bookingsUpdated = updated?.length || 0;
   }
@@ -238,8 +248,18 @@ export async function applyInvoicePoUpdate({
       .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (tErr) {
-      console.error(`[PendingPO] applyInvoicePoUpdate transaction update failed invoiceKey=${invoiceKey}: ${tErr.message}`);
-      return { ok: false, status: 500, error: 'Failed to update transactions' };
+      console.error(
+        `[PendingPO] applyInvoicePoUpdate transaction update failed tenantId=${tenantId} invoiceKey=${invoiceKey} transactionIds=${JSON.stringify(ids)}:`,
+        { message: tErr.message, details: tErr.details, hint: tErr.hint, code: tErr.code },
+      );
+      const detail = [tErr.message, tErr.code ? `code ${tErr.code}` : null, tErr.hint, tErr.details]
+        .filter(Boolean)
+        .join(' — ');
+      return {
+        ok: false,
+        status: 500,
+        error: `Failed to update transactions: ${detail || 'unknown database error'}`,
+      };
     }
     transactionsUpdated = updated?.length || 0;
   }

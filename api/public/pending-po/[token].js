@@ -107,6 +107,9 @@ export default async function handler(req, res) {
     });
 
     if (!result.ok) {
+      console.error(
+        `[PendingPO public] PO submission failed tokenId=${tokenRow.id} tenantId=${tokenRow.tenant_id} invoiceKey=${tokenRow.invoice_key}: ${result.error}`,
+      );
       return res.status(result.status || 500).json({ error: result.error });
     }
 
