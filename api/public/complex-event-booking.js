@@ -618,7 +618,7 @@ export default async function handler(req, res) {
           discount_amount: isFirstInGroup ? item.discountAmount : 0,
           total_paid: paymentStatus === 'paid' ? item.authoritativePrice : 0,
           currency: item.ticketCurrency,
-          status: (isFree || paymentStatus === 'paid') ? 'confirmed' : 'pending',
+          status: 'confirmed',
           booking_group_reference: bookingGroupRef,
           training_fund_amount: validatedTrainingFundAmount > 0 ? validatedTrainingFundAmount / totalAttendees : 0,
           voucher_amount: voucherAmountApplied > 0 ? voucherAmountApplied / totalAttendees : 0,
