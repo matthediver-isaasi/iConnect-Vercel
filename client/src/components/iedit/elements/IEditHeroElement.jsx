@@ -585,14 +585,14 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             }}
           >
             <div className="hero-content max-w-7xl mx-auto w-full">
-              {content.heading && (
+              {!isHtmlEmpty(content.heading) && (
                 <div>
                   <HeroHeadingTag 
                     className="hero-heading font-bold hero-rich-text-content"
                     style={{ 
                       marginBottom: heading_underline_enabled 
                         ? `${heading_underline_spacing}px` 
-                        : (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
+                        : (!isHtmlEmpty(content.subheading) || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
                     }}
                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
                   />
@@ -602,13 +602,13 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                       style={{
                         height: `${heading_underline_weight}px`,
                         backgroundColor: heading_underline_color,
-                        marginBottom: (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
+                        marginBottom: (!isHtmlEmpty(content.subheading) || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
                       }}
                     />
                   )}
                 </div>
               )}
-              {content.subheading && (
+              {!isHtmlEmpty(content.subheading) && (
                 <div 
                   className="hero-subheading opacity-90 hero-rich-text-content"
                   style={{ 
@@ -703,14 +703,14 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         )}
         
         <div className="hero-content relative max-w-7xl mx-auto">
-          {content.heading && (
+          {!isHtmlEmpty(content.heading) && (
             <div>
               <HeroHeadingTag 
                 className="hero-heading font-bold hero-rich-text-content"
                 style={{ 
                   marginBottom: heading_underline_enabled 
                     ? `${heading_underline_spacing}px` 
-                    : (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
+                    : (!isHtmlEmpty(content.subheading) || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
               />
@@ -720,13 +720,13 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                   style={{
                     height: `${heading_underline_weight}px`,
                     backgroundColor: heading_underline_color,
-                    marginBottom: (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
+                    marginBottom: (!isHtmlEmpty(content.subheading) || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
                   }}
                 />
               )}
             </div>
           )}
-          {content.subheading && (
+          {!isHtmlEmpty(content.subheading) && (
             <div 
               className="hero-subheading opacity-90 hero-rich-text-content"
               style={{ 
