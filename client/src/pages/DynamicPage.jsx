@@ -4,6 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -87,7 +88,14 @@ export default function DynamicPage() {
       });
       const page = pages[0] || null;
       if (!page) return { page: null, elements: [] };
-      
+
+      // Canvas Builder pages have no i_edit_page_element rows — their
+      // layout lives in canvas_design on the page row itself. Skip the
+      // element fetch to save a round trip.
+      if (page.builder_type === 'canvas') {
+        return { page, elements: [] };
+      }
+
       const elements = await base44.entities.IEditPageElement.list({ 
         filter: { page_id: page.id },
         sort: { display_order: 'asc' }
@@ -422,6 +430,16 @@ export default function DynamicPage() {
             Log In
           </a>
         </div>
+      </div>
+    );
+  }
+
+  // Canvas Builder pages render via their own design document instead of
+  // the stacked IEditPageElement list. Phase 1 only ships a stub renderer.
+  if (page.builder_type === 'canvas') {
+    return (
+      <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+        <CanvasPageRenderer page={page} />
       </div>
     );
   }

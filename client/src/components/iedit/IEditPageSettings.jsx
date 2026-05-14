@@ -157,6 +157,20 @@ export default function IEditPageSettings({ page, onClose, onSave }) {
             </div>
 
             <div>
+              <Label htmlFor="builder_type_display">Builder</Label>
+              <Input
+                id="builder_type_display"
+                value={editedPage.builder_type === 'canvas' ? 'Canvas (free-form drag & drop)' : 'iEdit (stacked elements)'}
+                disabled
+                readOnly
+                data-testid="input-builder-type-readonly"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                The builder is chosen when the page is created and cannot be changed afterwards.
+              </p>
+            </div>
+
+            <div>
               <Label htmlFor="layout_type">View Type</Label>
               <Select
                 value={editedPage.layout_type}

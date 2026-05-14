@@ -39,7 +39,8 @@ export default function IEditPageManagementPage() {
     slug: "",
     description: "",
     layout_type: "public",
-    status: "draft"
+    status: "draft",
+    builder_type: "iedit"
   });
 
   const navigate = useNavigate();
@@ -68,12 +69,13 @@ export default function IEditPageManagementPage() {
 
   const createPageMutation = useMutation({
     mutationFn: (pageData) => base44.entities.IEditPage.create(pageData),
-    onSuccess: (newPage) => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setShowCreateDialog(false);
-      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft" });
+      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit" });
       toast.success('Page created successfully');
-      navigate(createPageUrl('IEditPageEditor') + `?pageId=${newPage.id}`);
+      const editorPage = created.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+      navigate(createPageUrl(editorPage) + `?pageId=${created.id}`);
     },
     onError: (error) => {
       toast.error('Failed to create page: ' + error.message);
@@ -133,7 +135,10 @@ export default function IEditPageManagementPage() {
         counter++;
       }
 
-      // Create the new page (as draft)
+      // Create the new page (as draft). builder_type and canvas_design must
+      // be carried over so duplicating a Canvas Builder page produces another
+      // Canvas page with the same design document; otherwise the new row
+      // would default to 'iedit' and lose its layout.
       const newPageData = {
         title: `${page.title} (Copy)`,
         slug: newSlug,
@@ -141,20 +146,25 @@ export default function IEditPageManagementPage() {
         layout_type: page.layout_type || 'public',
         status: 'draft',
         meta_title: page.meta_title,
-        meta_description: page.meta_description
+        meta_description: page.meta_description,
+        builder_type: page.builder_type || 'iedit',
+        canvas_design: page.canvas_design || null,
       };
 
       const createdPage = await base44.entities.IEditPage.create(newPageData);
 
-      // Copy all elements from the original page
-      const originalElements = await base44.entities.IEditPageElement.filter({ page_id: page.id });
-      
-      for (const element of originalElements) {
-        const { id, page_id, created_date, updated_date, ...elementData } = element;
-        await base44.entities.IEditPageElement.create({
-          ...elementData,
-          page_id: createdPage.id
-        });
+      // Canvas pages don't use i_edit_page_element rows; their design lives
+      // entirely in canvas_design (copied above). Only the iEdit builder
+      // needs the per-element copy.
+      if ((page.builder_type || 'iedit') === 'iedit') {
+        const originalElements = await base44.entities.IEditPageElement.filter({ page_id: page.id });
+        for (const element of originalElements) {
+          const { id, page_id, created_date, updated_date, ...elementData } = element;
+          await base44.entities.IEditPageElement.create({
+            ...elementData,
+            page_id: createdPage.id
+          });
+        }
       }
 
       return createdPage;
@@ -354,6 +364,13 @@ export default function IEditPageManagementPage() {
                     </Badge>
                   </div>
 
+                  <div className="text-sm">
+                    <span className="text-slate-500">Builder:</span>
+                    <Badge variant="outline" className="ml-2" data-testid={`badge-builder-type-${page.id}`}>
+                      {page.builder_type === 'canvas' ? 'Canvas' : 'iEdit'}
+                    </Badge>
+                  </div>
+
                   {page.updated_date && (
                     <div className="text-xs text-slate-500">
                       Updated {format(new Date(page.updated_date), 'MMM d, yyyy')}
@@ -364,8 +381,12 @@ export default function IEditPageManagementPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => navigate(createPageUrl('IEditPageEditor') + `?pageId=${page.id}`)}
+                      onClick={() => {
+                        const editorPage = page.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
+                        navigate(createPageUrl(editorPage) + `?pageId=${page.id}`);
+                      }}
                       className="flex-1"
+                      data-testid={`button-edit-page-${page.id}`}
                     >
                       <Pencil className="w-3 h-3 mr-1" />
                       Edit
@@ -497,6 +518,26 @@ export default function IEditPageManagementPage() {
                   placeholder="Brief description for admin reference..."
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="builder_type">Builder</Label>
+                <Select
+                  value={newPage.builder_type}
+                  onValueChange={(value) => setNewPage({ ...newPage, builder_type: value })}
+                >
+                  <SelectTrigger data-testid="select-builder-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="iedit">iEdit (stacked elements)</SelectItem>
+                    <SelectItem value="canvas">Canvas (free-form drag &amp; drop)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {newPage.builder_type === 'iedit' && 'Stacked element-based page editor. Recommended for most content pages.'}
+                  {newPage.builder_type === 'canvas' && 'Free-form drag-and-drop canvas with per-breakpoint layouts. The builder cannot be changed after the page is created.'}
+                </p>
               </div>
 
               <div>

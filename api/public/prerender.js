@@ -514,7 +514,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   const escapedSlug = pageSlug.replace(/([\\%_])/g, '\\$1');
   const { data: page } = await supabaseClient
     .from('i_edit_page')
-    .select('id, title, slug, description, meta_title, meta_description')
+    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, builder_type, canvas_design')
     .eq('tenant_id', tenant.id)
     .ilike('slug', escapedSlug)
     .eq('status', 'published')
@@ -523,35 +523,48 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
 
   if (!page) return null;
 
-  const { data: elements } = await supabaseClient
-    .from('i_edit_page_element')
-    .select('element_type, content')
-    .eq('page_id', page.id)
-    .order('display_order', { ascending: true });
-
   const allTexts = [];
   const bodySections = [];
   let ogImage = null;
 
-  if (elements) {
-    for (const el of elements) {
-      if (!el.content) continue;
+  if (page.builder_type === 'canvas') {
+    // Canvas Builder pages: walk the canvas_design document for text/image
+    // fallback. Phase 1 does not render block-by-block sections (no block
+    // types exist yet); SEO falls back to meta_*/description.
+    if (page.canvas_design && typeof page.canvas_design === 'object') {
+      const texts = extractTextFromContent(page.canvas_design);
+      for (const t of texts) {
+        if (t && !isPlaceholderText(t)) allTexts.push(t);
+      }
+      ogImage = extractFirstImage(page.canvas_design);
+    }
+  } else {
+    const { data: elements } = await supabaseClient
+      .from('i_edit_page_element')
+      .select('element_type, content')
+      .eq('page_id', page.id)
+      .order('display_order', { ascending: true });
 
-      if (typeof el.content === 'string') {
-        const text = stripHtml(el.content);
-        if (text) {
-          allTexts.push(text);
-          bodySections.push(`<section><p>${escapeHtml(text)}</p></section>`);
-        }
-      } else if (typeof el.content === 'object') {
-        const texts = extractTextFromContent(el.content);
-        allTexts.push(...texts);
+    if (elements) {
+      for (const el of elements) {
+        if (!el.content) continue;
 
-        const section = buildElementSection(el);
-        if (section) bodySections.push(section);
+        if (typeof el.content === 'string') {
+          const text = stripHtml(el.content);
+          if (text) {
+            allTexts.push(text);
+            bodySections.push(`<section><p>${escapeHtml(text)}</p></section>`);
+          }
+        } else if (typeof el.content === 'object') {
+          const texts = extractTextFromContent(el.content);
+          allTexts.push(...texts);
 
-        if (!ogImage) {
-          ogImage = extractFirstImage(el.content);
+          const section = buildElementSection(el);
+          if (section) bodySections.push(section);
+
+          if (!ogImage) {
+            ogImage = extractFirstImage(el.content);
+          }
         }
       }
     }
@@ -560,6 +573,15 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   const textContent = allTexts.join(' ');
   const pageTitle = page.meta_title || page.title;
   const pageDesc = page.meta_description || page.description || truncate(textContent);
+  // Per-page social override fields mirror the iEdit/IEditPage pattern:
+  // seo_title / seo_description / og_image_url win over auto-derived values
+  // for link unfurls; if blank, fall back to the page-level metadata above
+  // (which itself falls back to tenant defaults via the caller).
+  const socialTitle = page.seo_title || pageTitle;
+  const socialDesc = page.seo_description || pageDesc;
+  if (page.og_image_url) {
+    ogImage = page.og_image_url;
+  }
 
   const seenTexts = new Set();
   const deduplicatedSections = bodySections.filter(section => {
@@ -572,8 +594,8 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   });
 
   const result = {
-    title: `${pageTitle} | ${tenant.name}`,
-    description: truncate(pageDesc),
+    title: `${socialTitle} | ${tenant.name}`,
+    description: truncate(socialDesc),
     ogUrl: `${baseUrl}/${page.slug}`,
     bodyContent: `
       <article>

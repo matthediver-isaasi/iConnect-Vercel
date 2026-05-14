@@ -482,7 +482,7 @@ async function resolveIEditPage(tenantId, slug) {
   // unfurl. Member-only pages stay private and fall back to tenant defaults.
   const { data: page } = await supabase
     .from('i_edit_page')
-    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type')
+    .select('id, title, slug, description, meta_title, meta_description, seo_title, seo_description, og_image_url, status, layout_type, builder_type, canvas_design')
     .eq('tenant_id', tenantId)
     .eq('slug', slug)
     .eq('status', 'published')
@@ -504,7 +504,19 @@ async function resolveIEditPage(tenantId, slug) {
     || '';
   let image = overrideImage;
 
-  if (!description || !image) {
+  // Canvas Builder pages store content in `canvas_design` (jsonb) instead
+  // of the i_edit_page_element table. Phase 1 keeps the fallback minimal:
+  // walk the design tree for any text/image content using the same
+  // CMS_TEXT_FIELDS / CMS_IMAGE_FIELDS extractors used for iEdit elements.
+  if (page.builder_type === 'canvas') {
+    if ((!description || !image) && page.canvas_design && typeof page.canvas_design === 'object') {
+      if (!image) image = extractCmsImage(page.canvas_design);
+      if (!description) {
+        const texts = extractCmsTexts(page.canvas_design);
+        if (texts.length) description = texts.join(' ');
+      }
+    }
+  } else if (!description || !image) {
     const { data: elements } = await supabase
       .from('i_edit_page_element')
       .select('element_type, content')

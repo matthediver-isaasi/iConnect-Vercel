@@ -70,6 +70,15 @@ export default function IEditPageEditorPage() {
     enabled: !!pageId
   });
 
+  // Canvas Builder pages must be edited in the Canvas editor — they have
+  // no i_edit_page_element rows and a different data shape. Redirect so
+  // the wrong editor never tries to render them.
+  useEffect(() => {
+    if (page && page.builder_type === 'canvas') {
+      navigate(createPageUrl('CanvasPageEditor') + `?pageId=${page.id}`, { replace: true });
+    }
+  }, [page, navigate]);
+
   // Fetch page elements
   const { data: pageElements = [], isLoading: elementsLoading } = useQuery({
     queryKey: ['iedit-page-elements', pageId],

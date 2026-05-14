@@ -73,8 +73,19 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 
+    // Canvas Builder pages have no i_edit_page_element rows — their layout
+    // lives in canvas_design on the page row itself. Skip the element query
+    // entirely to avoid an unnecessary round trip on every public request.
+    if (page.builder_type === 'canvas') {
+      return res.status(200).json({
+        success: true,
+        page,
+        elements: [],
+      });
+    }
+
     console.log('[Public Page Slug] Fetching elements for page_id:', page.id);
-    
+
     const { data: elements, error: elementsError } = await supabase
       .from('i_edit_page_element')
       .select('*')
