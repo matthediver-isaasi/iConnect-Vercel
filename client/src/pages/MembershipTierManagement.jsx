@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown
+  CheckCircle2, Check, ChevronsUpDown, Copy
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -802,6 +802,77 @@ export default function MembershipTierManagement() {
     setHasChanges(true);
     setShowHistory(false);
     setWizardStep(1);
+  };
+
+  const handleDuplicateHistorical = async (configId) => {
+    try {
+      const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch config');
+      const data = await response.json();
+      const c = data?.config;
+      if (!c) throw new Error('No config returned');
+
+      const today = getTodayStr();
+      const genId = () => `new-${Date.now()}-${Math.random()}`;
+
+      setIsCreatingNew(true);
+      setViewingHistorical(null);
+      setSelectedActiveConfigId(null);
+      setConfig({
+        id: null,
+        name: c.name || '',
+        field_source: c.field_source || '',
+        field_id: c.field_id || null,
+        field_name: c.field_name || null,
+        currency: c.currency || 'GBP',
+        billing_period: c.billing_period || 'annual',
+        is_active: true,
+        effective_from: today,
+        membership_start_month: c.membership_start_month ?? 1,
+        membership_start_day: c.membership_start_day ?? 1,
+        prorata_enabled: c.prorata_enabled ?? false,
+        free_period_enabled: !!(c.free_period_amount),
+        free_period_amount: c.free_period_amount ?? null,
+        free_period_unit: c.free_period_unit ?? null,
+        rollover_enabled: c.rollover_enabled ?? false,
+        structure_field_id: c.structure_field_id || null,
+        structure_match_value: c.structure_match_value || null,
+        structure_scope_type: c.structure_scope_type || 'organization',
+        pricing_model: c.pricing_model || 'tiered',
+        start_mode: c.start_mode || 'fixed_date',
+        flat_cost: c.flat_cost ?? null,
+        flat_vat_rate: c.flat_vat_rate || null,
+        invoice_description: c.invoice_description || null,
+        auto_approve_fees: c.auto_approve_fees ?? false,
+        online_card_payment: c.online_card_payment ?? false,
+        invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
+        invoice_email_field_name: c.invoice_email_field_name || null,
+        invoice_recipient_role_ids: c.invoice_recipient_role_ids || [],
+      });
+      setBands((data.bands || []).map(b => ({
+        ...b,
+        id: genId(),
+        min_value: b.min_value?.toString() || '0',
+        max_value: b.max_value?.toString() || '',
+        annual_cost: b.annual_cost?.toString() || '0',
+      })));
+      setDiscounts((data.discounts || []).map(d => ({
+        ...d,
+        id: genId(),
+        discount_value: d.discount_value?.toString() || '0',
+      })));
+      setVatOverrides((data.vatOverrides || []).map(v => ({
+        ...v,
+        id: genId(),
+      })));
+      setHasChanges(true);
+      setShowHistory(false);
+      setShowPreview(false);
+      setWizardStep(1);
+      toast.success('Duplicated — review and save to create the new structure');
+    } catch (err) {
+      toast.error('Failed to load this tier structure');
+    }
   };
 
   const handleSwitchActiveConfig = async (configId) => {
@@ -2523,6 +2594,15 @@ export default function MembershipTierManagement() {
                       {isViewing && (
                         <Badge>Viewing</Badge>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDuplicateHistorical(item.id)}
+                        data-testid={`button-duplicate-history-${item.id}`}
+                      >
+                        <Copy className="w-3 h-3 mr-1" />
+                        Duplicate
+                      </Button>
                     </div>
                   </div>
                 );
