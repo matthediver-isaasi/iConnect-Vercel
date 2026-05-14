@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi, ArrowLeft, History, Download, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar as CalendarIcon, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi, ArrowLeft, History, Download, Loader2, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -18,6 +21,48 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 
 const ITEMS_PER_PAGE = 10;
+
+const EXPORT_COLUMN_DEFS = [
+  { key: 'organization', label: 'Organisation' },
+  { key: 'voucher_code', label: 'Voucher Code' },
+  { key: 'voucher_description', label: 'Voucher Description' },
+  { key: 'voucher_expiry_date', label: 'Voucher Expiry Date' },
+  { key: 'date', label: 'Date' },
+  { key: 'type', label: 'Type' },
+  { key: 'balance_before', label: 'Balance Before' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'balance_after', label: 'Balance After' },
+  { key: 'booking_reference', label: 'Booking Reference' },
+  { key: 'event_internal_reference', label: 'Event Internal Reference' },
+  { key: 'event_date', label: 'Event Date' },
+  { key: 'event_title', label: 'Event Title' },
+  { key: 'member', label: 'Member' },
+];
+const ALL_EXPORT_COLUMN_KEYS = EXPORT_COLUMN_DEFS.map(c => c.key);
+
+const EXPORT_SORT_FIELDS = EXPORT_COLUMN_DEFS.map(c => ({ key: c.key, label: c.label }));
+
+const EXPORT_SORT_FIELD_TYPES = {
+  organization: 'text',
+  voucher_code: 'text',
+  voucher_description: 'text',
+  voucher_expiry_date: 'date',
+  date: 'date',
+  type: 'text',
+  balance_before: 'number',
+  amount: 'number',
+  balance_after: 'number',
+  booking_reference: 'text',
+  event_internal_reference: 'text',
+  event_date: 'date',
+  event_title: 'text',
+  member: 'text',
+};
+const DEFAULT_EXPORT_SORT_RULES = [{ field: 'organization', dir: 'asc', fallback: '' }];
+
+const EXPORT_DATE_FILTER_FIELDS = EXPORT_COLUMN_DEFS.filter(
+  c => EXPORT_SORT_FIELD_TYPES[c.key] === 'date'
+);
 
 export default function VoucherManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -36,7 +81,21 @@ export default function VoucherManagementPage() {
   const [orgSearchOpen, setOrgSearchOpen] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
-  
+
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportColumns, setExportColumns] = useState(() => new Set(ALL_EXPORT_COLUMN_KEYS));
+  const [exportFromDate, setExportFromDate] = useState(null);
+  const [exportToDate, setExportToDate] = useState(null);
+  const [exportFromOpen, setExportFromOpen] = useState(false);
+  const [exportToOpen, setExportToOpen] = useState(false);
+  const [exportAllOrgs, setExportAllOrgs] = useState(true);
+  const [exportOrgIds, setExportOrgIds] = useState(() => new Set());
+  const [exportOrgSearch, setExportOrgSearch] = useState("");
+  const [exportSortRules, setExportSortRules] = useState(() => DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
+  const [exportDateField, setExportDateField] = useState('date');
+  const [exportDateFallbackField, setExportDateFallbackField] = useState('');
+  const [exportEmptyMessage, setExportEmptyMessage] = useState("");
+
   const queryClient = useQueryClient();
 
   // Realtime callbacks for admin updates
@@ -237,10 +296,171 @@ export default function VoucherManagementPage() {
     }
   });
 
-  const handleExportCSV = async () => {
+  const openExportDialog = () => {
+    setExportColumns(new Set(ALL_EXPORT_COLUMN_KEYS));
+    setExportFromDate(null);
+    setExportToDate(null);
+    setExportAllOrgs(true);
+    setExportOrgIds(new Set());
+    setExportOrgSearch("");
+    setExportSortRules(DEFAULT_EXPORT_SORT_RULES.map(r => ({ ...r })));
+    setExportDateField('date');
+    setExportDateFallbackField('');
+    setExportEmptyMessage("");
+    setShowExportDialog(true);
+  };
+
+  const toggleExportColumn = (key) => {
+    setExportColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        if (next.size <= 1) return prev;
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const updateExportSortRule = (idx, patch) => {
+    setExportSortRules(prev => {
+      const next = prev.map(r => ({ ...r }));
+      const current = { ...next[idx], ...patch };
+      if (
+        current.fallback &&
+        (current.fallback === current.field ||
+          EXPORT_SORT_FIELD_TYPES[current.fallback] !== EXPORT_SORT_FIELD_TYPES[current.field])
+      ) {
+        current.fallback = '';
+      }
+      next[idx] = current;
+      return next;
+    });
+  };
+  const addExportSortRule = () => {
+    setExportSortRules(prev => {
+      const used = new Set(prev.map(r => r.field));
+      const nextField = EXPORT_SORT_FIELDS.find(f => !used.has(f.key));
+      if (!nextField) return prev;
+      return [...prev, { field: nextField.key, dir: 'asc', fallback: '' }];
+    });
+  };
+  const removeExportSortRule = (idx) => {
+    setExportSortRules(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx));
+  };
+  const moveExportSortRule = (idx, delta) => {
+    setExportSortRules(prev => {
+      const target = idx + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(idx, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+
+  const toggleExportOrg = (id) => {
+    setExportOrgIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const filteredExportOrgs = useMemo(() => {
+    const term = exportOrgSearch.trim().toLowerCase();
+    const sorted = [...organizations].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    if (!term) return sorted;
+    return sorted.filter(o => (o.name || '').toLowerCase().includes(term));
+  }, [organizations, exportOrgSearch]);
+
+  const toIsoDateOnly = (d) => {
+    if (!d) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handleConfirmExport = async () => {
+    setExportEmptyMessage("");
+    if (exportColumns.size === 0) {
+      toast.error('Select at least one column to export');
+      return;
+    }
+    if (!exportAllOrgs && exportOrgIds.size === 0) {
+      toast.error('Select at least one organisation, or choose "All organisations"');
+      return;
+    }
+    if (exportFromDate && exportToDate && exportFromDate > exportToDate) {
+      toast.error('"From" date must be on or before "To" date');
+      return;
+    }
+    if (!EXPORT_DATE_FILTER_FIELDS.some(f => f.key === exportDateField)) {
+      toast.error('Invalid date field selected for the date range');
+      return;
+    }
+    if (exportDateFallbackField) {
+      if (!EXPORT_DATE_FILTER_FIELDS.some(f => f.key === exportDateFallbackField)) {
+        toast.error('Invalid fallback date field selected');
+        return;
+      }
+      if (exportDateFallbackField === exportDateField) {
+        toast.error('Fallback date field must differ from the primary date field');
+        return;
+      }
+    }
+    if (exportSortRules.length === 0) {
+      toast.error('Add at least one sort rule');
+      return;
+    }
+    {
+      const seen = new Set();
+      for (const rule of exportSortRules) {
+        if (!rule.field || !EXPORT_SORT_FIELD_TYPES[rule.field]) {
+          toast.error('Invalid sort field selected');
+          return;
+        }
+        if (seen.has(rule.field)) {
+          toast.error('Each sort field can only be used once');
+          return;
+        }
+        seen.add(rule.field);
+        if (rule.fallback) {
+          if (rule.fallback === rule.field) {
+            toast.error('Fallback field must differ from the primary sort field');
+            return;
+          }
+          if (EXPORT_SORT_FIELD_TYPES[rule.fallback] !== EXPORT_SORT_FIELD_TYPES[rule.field]) {
+            toast.error('Fallback field must be the same data type as the primary sort field');
+            return;
+          }
+        }
+      }
+    }
+
     setIsExporting(true);
     try {
-      const response = await fetch('/api/admin/voucher-transactions/export-csv', {
+      const params = new URLSearchParams();
+      const orderedCols = ALL_EXPORT_COLUMN_KEYS.filter(k => exportColumns.has(k));
+      params.set('columns', orderedCols.join(','));
+      if (exportFromDate) params.set('from', toIsoDateOnly(exportFromDate));
+      if (exportToDate) params.set('to', toIsoDateOnly(exportToDate));
+      if (exportFromDate || exportToDate) {
+        params.set('date_field', exportDateField);
+        if (exportDateFallbackField) {
+          params.set('date_fallback_field', exportDateFallbackField);
+        }
+      }
+      if (!exportAllOrgs) params.set('organization_ids', Array.from(exportOrgIds).join(','));
+      for (const rule of exportSortRules) {
+        const parts = [rule.field, rule.dir];
+        if (rule.fallback) parts.push(rule.fallback);
+        params.append('sort', parts.join(':'));
+      }
+
+      const response = await fetch(`/api/admin/voucher-transactions/export-csv?${params.toString()}`, {
         credentials: 'include'
       });
       if (!response.ok) {
@@ -251,6 +471,14 @@ export default function VoucherManagementPage() {
         } catch {}
         throw new Error(message);
       }
+
+      const rowCountHeader = response.headers.get('X-Export-Row-Count');
+      const rowCount = rowCountHeader != null ? parseInt(rowCountHeader, 10) : null;
+      if (rowCount === 0) {
+        setExportEmptyMessage('No transactions match the selected filters. Adjust your filters and try again.');
+        return;
+      }
+
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -262,6 +490,7 @@ export default function VoucherManagementPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       toast.success('CSV file downloaded successfully');
+      setShowExportDialog(false);
     } catch (err) {
       toast.error('Failed to export transactions: ' + (err.message || 'Unknown error'));
     } finally {
@@ -565,7 +794,7 @@ export default function VoucherManagementPage() {
             {isAdmin && (
               <Button
                 variant="outline"
-                onClick={handleExportCSV}
+                onClick={openExportDialog}
                 disabled={isExporting}
                 className="gap-2"
                 data-testid="button-export-training-voucher-transactions-csv"
@@ -719,7 +948,7 @@ export default function VoucherManagementPage() {
                               </div>
                               {voucher.expires_at && (
                                 <div className="flex items-center gap-1">
-                                  <Calendar className="w-4 h-4" />
+                                  <CalendarIcon className="w-4 h-4" />
                                   <span className={isExpired ? 'text-red-600' : ''}>
                                     Expires: {format(new Date(voucher.expires_at), 'MMM d, yyyy')}
                                   </span>
@@ -1034,6 +1263,406 @@ export default function VoucherManagementPage() {
                 data-testid="button-confirm-delete"
               >
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-export-voucher-csv-config">
+            <DialogHeader>
+              <DialogTitle>Export training voucher transactions</DialogTitle>
+              <DialogDescription>
+                Choose which columns to include, narrow by date or organisation, and pick how the rows should be sorted.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium">Columns</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExportColumns(new Set(ALL_EXPORT_COLUMN_KEYS))}
+                      data-testid="button-export-voucher-columns-select-all"
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setExportColumns(new Set([ALL_EXPORT_COLUMN_KEYS[0]]));
+                      }}
+                      data-testid="button-export-voucher-columns-clear"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border p-3">
+                  {EXPORT_COLUMN_DEFS.map(col => (
+                    <label
+                      key={col.key}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                      data-testid={`label-export-voucher-column-${col.key}`}
+                    >
+                      <Checkbox
+                        checked={exportColumns.has(col.key)}
+                        onCheckedChange={() => toggleExportColumn(col.key)}
+                        data-testid={`checkbox-export-voucher-column-${col.key}`}
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Date field</Label>
+                  <Select
+                    value={exportDateField}
+                    onValueChange={(v) => {
+                      setExportDateField(v);
+                      if (exportDateFallbackField === v) setExportDateFallbackField('');
+                    }}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-export-voucher-date-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPORT_DATE_FILTER_FIELDS.map(f => (
+                        <SelectItem key={f.key} value={f.key} data-testid={`select-export-voucher-date-field-option-${f.key}`}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">If empty, use</Label>
+                  <Select
+                    value={exportDateFallbackField || '__none__'}
+                    onValueChange={(v) => setExportDateFallbackField(v === '__none__' ? '' : v)}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-export-voucher-date-fallback-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" data-testid="select-export-voucher-date-fallback-field-option-none">
+                        No fallback
+                      </SelectItem>
+                      {EXPORT_DATE_FILTER_FIELDS
+                        .filter(f => f.key !== exportDateField)
+                        .map(f => (
+                          <SelectItem key={f.key} value={f.key} data-testid={`select-export-voucher-date-fallback-field-option-${f.key}`}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">From date</Label>
+                  <Popover open={exportFromOpen} onOpenChange={setExportFromOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start gap-2 mt-1 font-normal"
+                        data-testid="button-export-voucher-from-date"
+                      >
+                        <CalendarIcon className="w-4 h-4" />
+                        {exportFromDate ? format(exportFromDate, 'PPP') : <span className="text-muted-foreground">No lower bound</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarPicker
+                        mode="single"
+                        selected={exportFromDate || undefined}
+                        onSelect={(d) => { setExportFromDate(d || null); setExportFromOpen(false); }}
+                      />
+                      {exportFromDate && (
+                        <div className="p-2 border-t">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => { setExportFromDate(null); setExportFromOpen(false); }}
+                            data-testid="button-export-voucher-from-clear"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">To date</Label>
+                  <Popover open={exportToOpen} onOpenChange={setExportToOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start gap-2 mt-1 font-normal"
+                        data-testid="button-export-voucher-to-date"
+                      >
+                        <CalendarIcon className="w-4 h-4" />
+                        {exportToDate ? format(exportToDate, 'PPP') : <span className="text-muted-foreground">No upper bound</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarPicker
+                        mode="single"
+                        selected={exportToDate || undefined}
+                        onSelect={(d) => { setExportToDate(d || null); setExportToOpen(false); }}
+                      />
+                      {exportToDate && (
+                        <div className="p-2 border-t">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => { setExportToDate(null); setExportToOpen(false); }}
+                            data-testid="button-export-voucher-to-clear"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium">Organisations</Label>
+                <div className="mt-1 rounded-md border p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={exportAllOrgs}
+                      onCheckedChange={(v) => {
+                        const next = v === true;
+                        setExportAllOrgs(next);
+                        if (next) setExportOrgIds(new Set());
+                      }}
+                      data-testid="checkbox-export-voucher-all-orgs"
+                    />
+                    <span>All organisations</span>
+                  </label>
+
+                  {!exportAllOrgs && (
+                    <>
+                      <Input
+                        placeholder="Search organisations..."
+                        value={exportOrgSearch}
+                        onChange={(e) => setExportOrgSearch(e.target.value)}
+                        data-testid="input-export-voucher-org-search"
+                      />
+                      <ScrollArea className="h-48 rounded border">
+                        <div className="p-2 space-y-1">
+                          {filteredExportOrgs.length === 0 ? (
+                            <p className="text-sm text-muted-foreground p-2">No organisations match your search.</p>
+                          ) : filteredExportOrgs.map(org => (
+                            <label
+                              key={org.id}
+                              className="flex items-center gap-2 text-sm cursor-pointer p-1 rounded hover-elevate"
+                              data-testid={`label-export-voucher-org-${org.id}`}
+                            >
+                              <Checkbox
+                                checked={exportOrgIds.has(org.id)}
+                                onCheckedChange={() => toggleExportOrg(org.id)}
+                                data-testid={`checkbox-export-voucher-org-${org.id}`}
+                              />
+                              <span>{org.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                      <p className="text-xs text-muted-foreground" data-testid="text-export-voucher-org-count">
+                        {exportOrgIds.size} selected
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium">Sort by</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Rules are applied in order. The first rule is the primary sort; later rules break ties. Use "If empty, use" to fall back to another field of the same type when the primary value is missing.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {exportSortRules.map((rule, idx) => {
+                    const usedFields = new Set(exportSortRules.map(r => r.field));
+                    const ruleType = EXPORT_SORT_FIELD_TYPES[rule.field];
+                    const fallbackOptions = EXPORT_SORT_FIELDS.filter(
+                      f => f.key !== rule.field && EXPORT_SORT_FIELD_TYPES[f.key] === ruleType
+                    );
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-md border p-3 space-y-2"
+                        data-testid={`row-export-voucher-sort-rule-${idx}`}
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-end">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              {idx === 0 ? 'Primary sort field' : `Tiebreaker #${idx}`}
+                            </Label>
+                            <Select
+                              value={rule.field}
+                              onValueChange={(v) => updateExportSortRule(idx, { field: v })}
+                            >
+                              <SelectTrigger className="mt-1" data-testid={`select-export-voucher-sort-field-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {EXPORT_SORT_FIELDS.map(f => (
+                                  <SelectItem
+                                    key={f.key}
+                                    value={f.key}
+                                    disabled={f.key !== rule.field && usedFields.has(f.key)}
+                                  >
+                                    {f.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Direction</Label>
+                            <Select
+                              value={rule.dir}
+                              onValueChange={(v) => updateExportSortRule(idx, { dir: v })}
+                            >
+                              <SelectTrigger className="mt-1" data-testid={`select-export-voucher-sort-dir-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="asc">Ascending</SelectItem>
+                                <SelectItem value="desc">Descending</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => moveExportSortRule(idx, -1)}
+                              disabled={idx === 0}
+                              aria-label="Move rule up"
+                              data-testid={`button-export-voucher-sort-up-${idx}`}
+                            >
+                              <ArrowUp />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => moveExportSortRule(idx, 1)}
+                              disabled={idx === exportSortRules.length - 1}
+                              aria-label="Move rule down"
+                              data-testid={`button-export-voucher-sort-down-${idx}`}
+                            >
+                              <ArrowDown />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => removeExportSortRule(idx)}
+                              disabled={exportSortRules.length <= 1}
+                              aria-label="Remove rule"
+                              data-testid={`button-export-voucher-sort-remove-${idx}`}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">
+                            If empty, use
+                          </Label>
+                          <Select
+                            value={rule.fallback || '__none__'}
+                            onValueChange={(v) => updateExportSortRule(idx, { fallback: v === '__none__' ? '' : v })}
+                            disabled={fallbackOptions.length === 0}
+                          >
+                            <SelectTrigger className="mt-1" data-testid={`select-export-voucher-sort-fallback-${idx}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">(none)</SelectItem>
+                              {fallbackOptions.map(f => (
+                                <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {fallbackOptions.length === 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              No other fields share this field's data type.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 gap-2"
+                  onClick={addExportSortRule}
+                  disabled={exportSortRules.length >= EXPORT_SORT_FIELDS.length}
+                  data-testid="button-export-voucher-sort-add"
+                >
+                  <Plus />
+                  Add sort rule
+                </Button>
+              </div>
+
+              {exportEmptyMessage && (
+                <div
+                  className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                  data-testid="text-export-voucher-empty-message"
+                >
+                  {exportEmptyMessage}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowExportDialog(false)}
+                disabled={isExporting}
+                data-testid="button-export-voucher-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmExport}
+                disabled={isExporting || exportColumns.size === 0}
+                className="gap-2"
+                data-testid="button-export-voucher-confirm"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Download CSV
               </Button>
             </DialogFooter>
           </DialogContent>
