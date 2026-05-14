@@ -67,7 +67,10 @@ export default function MultiSelectFilter({
           </div>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="start">
+      <PopoverContent
+        className="p-0 min-w-[var(--radix-popover-trigger-width)] w-[var(--radix-popover-trigger-width)] max-w-[320px]"
+        align="start"
+      >
         <ScrollArea className={options.length > 8 ? "h-[260px]" : ""}>
           <div className="p-1">
             {options.map((option) => (

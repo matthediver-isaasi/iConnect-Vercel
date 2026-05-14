@@ -882,7 +882,7 @@ export default function DynamicDirectoryView() {
                                 setCurrentPage(1);
                               }}
                               placeholder={`All ${label}`}
-                              className="w-[180px]"
+                              className="min-w-[200px] w-auto max-w-[280px]"
                               data-testid={`select-filter-${field.name}`}
                             />
                           </div>
@@ -904,7 +904,7 @@ export default function DynamicDirectoryView() {
                               setCurrentPage(1);
                             }}
                           >
-                            <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
+                            <SelectTrigger className="min-w-[200px] w-auto max-w-[280px]" data-testid={`select-filter-${field.name}`}>
                               <SelectValue placeholder={`All ${label}`} />
                             </SelectTrigger>
                             <SelectContent>
@@ -1389,7 +1389,7 @@ export default function DynamicDirectoryView() {
                               selected={current}
                               onChange={(vals) => setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }))}
                               placeholder={`All ${label}`}
-                              className="w-[180px]"
+                              className="min-w-[200px] w-auto max-w-[280px]"
                               data-testid={`select-filter-${field.name}`}
                             />
                           </div>
@@ -1410,7 +1410,7 @@ export default function DynamicDirectoryView() {
                               }));
                             }}
                           >
-                            <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
+                            <SelectTrigger className="min-w-[200px] w-auto max-w-[280px]" data-testid={`select-filter-${field.name}`}>
                               <SelectValue placeholder={`All ${label}`} />
                             </SelectTrigger>
                             <SelectContent>
