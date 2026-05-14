@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -134,32 +134,45 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     return extractPrimitiveValue(match.value);
   }, [orgTypeField, orgPreferenceValues]);
 
-  const canonicalOrgTypeValue = useMemo(() => {
-    if (orgTypeValue === null || orgTypeValue === undefined || orgTypeValue === '') return orgTypeValue;
+  const normalizedOptions = useMemo(() => {
     const options = orgTypeField?.options;
-    if (!Array.isArray(options) || options.length === 0) return orgTypeValue;
-    const rawStr = String(orgTypeValue);
-    const norm = normalizeKey(rawStr);
-    const normalized = options.map(opt => {
+    if (!Array.isArray(options) || options.length === 0) return [];
+    return options.map(opt => {
       if (typeof opt === 'string') return { value: opt, label: opt };
       return { value: opt?.value ?? opt, label: opt?.label ?? opt?.value ?? opt };
     });
-    const exactValue = normalized.find(o => String(o.value) === rawStr);
-    if (exactValue) return exactValue.value;
-    const normValue = normalized.find(o => normalizeKey(String(o.value)) === norm);
-    if (normValue) return normValue.value;
-    const normLabel = normalized.find(o => normalizeKey(String(o.label)) === norm);
-    if (normLabel) return normLabel.value;
-    return orgTypeValue;
-  }, [orgTypeField, orgTypeValue]);
+  }, [orgTypeField]);
+
+  const resolveToOption = useCallback((raw) => {
+    if (raw === null || raw === undefined || raw === '') return null;
+    if (normalizedOptions.length === 0) return null;
+    const rawStr = String(raw);
+    const norm = normalizeKey(rawStr);
+    return (
+      normalizedOptions.find(o => String(o.value) === rawStr) ||
+      normalizedOptions.find(o => normalizeKey(String(o.value)) === norm) ||
+      normalizedOptions.find(o => normalizeKey(String(o.label)) === norm) ||
+      null
+    );
+  }, [normalizedOptions]);
+
+  const canonicalOrgTypeValue = useMemo(() => {
+    if (orgTypeValue === null || orgTypeValue === undefined || orgTypeValue === '') return orgTypeValue;
+    const matched = resolveToOption(orgTypeValue);
+    return matched ? matched.value : orgTypeValue;
+  }, [orgTypeValue, resolveToOption]);
 
   const isLoading = defaultLoading || byTypeLoading || fieldsLoading || valuesLoading;
   const isError = defaultError;
 
   const resolvedForm = useMemo(() => {
     const mapping = joinFormsByOrgTypeSetting?.value || {};
+    const mappingKeys = Object.keys(mapping);
+    const fallback = joinFormSetting?.value || null;
+    if (mappingKeys.length === 0) return fallback;
+
     const normalizedIndex = {};
-    for (const k of Object.keys(mapping)) {
+    for (const k of mappingKeys) {
       const norm = normalizeKey(k);
       if (norm && !(norm in normalizedIndex)) normalizedIndex[norm] = k;
     }
@@ -178,8 +191,26 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
       const found = norm ? normalizedIndex[norm] : null;
       if (found && mapping[found]?.id) return mapping[found];
     }
-    return joinFormSetting?.value || null;
-  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting]);
+
+    // Final pass: resolve each mapping key to an option (by value OR label,
+    // case/whitespace-insensitive, JSON-encoded primitives unwrapped) and
+    // match against the org's resolved option. Handles legacy mappings keyed
+    // by option label instead of option value.
+    const orgOption = resolveToOption(orgTypeValue);
+    if (orgOption) {
+      const targetValueStr = String(orgOption.value);
+      for (const key of mappingKeys) {
+        if (!mapping[key]?.id) continue;
+        const keyPrimitive = extractPrimitiveValue(key);
+        const keyOption = resolveToOption(keyPrimitive);
+        if (keyOption && String(keyOption.value) === targetValueStr) {
+          return mapping[key];
+        }
+      }
+    }
+
+    return fallback;
+  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting, resolveToOption]);
 
   const hasConfiguredForm = !!resolvedForm?.id;
   const slug = resolvedForm?.slug;
