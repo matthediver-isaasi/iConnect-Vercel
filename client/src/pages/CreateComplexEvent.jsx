@@ -35,6 +35,7 @@ import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
+import UnfurlPreview from "@/components/UnfurlPreview";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
@@ -2280,6 +2281,22 @@ export default function CreateComplexEvent() {
                   defaultTitle={formData.title}
                   defaultDescription={formData.summary}
                 />
+                {(() => {
+                  const complexPreviewPath = formData.slug
+                    ? `/complex-event/${formData.slug}`
+                    : editId
+                      ? `/ComplexEventDetail?id=${editId}`
+                      : null;
+                  return (
+                    <UnfurlPreview
+                      title={seoTitle || formData.title || ''}
+                      description={seoDescription || formData.summary || ''}
+                      image={ogImageUrl || formData.image_url || ''}
+                      url={typeof window !== 'undefined' && complexPreviewPath ? `${window.location.origin}${complexPreviewPath}` : ''}
+                      previewPath={complexPreviewPath}
+                    />
+                  );
+                })()}
 
                 <div className="space-y-2">
                   <Label htmlFor="summary">Summary</Label>

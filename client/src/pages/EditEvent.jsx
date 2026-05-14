@@ -63,6 +63,7 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import SEOSettings from "@/components/blog/SEOSettings";
+import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
 
 function toLocalDatetimeString(isoOrLocal) {
@@ -1979,6 +1980,22 @@ export default function EditEvent() {
                 defaultTitle={formData.title}
                 defaultDescription={formData.summary}
               />
+              {(() => {
+                const eventPreviewPath = slug
+                  ? `/events/${slug}`
+                  : eventId
+                    ? `/EventDetails?id=${eventId}`
+                    : null;
+                return (
+                  <UnfurlPreview
+                    title={seoTitle || formData.title || ''}
+                    description={seoDescription || formData.summary || ''}
+                    image={ogImageUrl || formData.image_url || ''}
+                    url={typeof window !== 'undefined' && eventPreviewPath ? `${window.location.origin}${eventPreviewPath}` : ''}
+                    previewPath={eventPreviewPath}
+                  />
+                );
+              })()}
 
               <div className="space-y-2">
                 <Label htmlFor="summary">Summary</Label>
