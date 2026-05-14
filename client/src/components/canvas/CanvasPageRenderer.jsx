@@ -1,80 +1,88 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
   getRootChildren,
-  BREAKPOINT_WIDTHS,
+  buildCanvasCss,
+  findLcpBlockId,
+  getSectionLandmarkTag,
+  BLOCK_TYPES,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
 
-// Phase 2 public renderer for Canvas Builder pages.
+// Public renderer for Canvas Builder pages.
 //
-// Renders absolutely-positioned blocks on a fluid stage. Blocks have
-// per-breakpoint geometry; we resolve the active breakpoint from window
-// width (or a forced ?_bp= query for the in-editor preview iframe).
-function useActiveBreakpoint() {
-  const getBp = () => {
-    if (typeof window === 'undefined') return 'desktop';
+// Layout is driven by a per-page <style> stylesheet emitted up-front, so
+// the browser positions blocks correctly on first paint without any JS.
+// This is essential for SSR / prerender output, Lighthouse LCP/CLS, and
+// users with JS disabled or throttled. The editor preview iframe can
+// still force a breakpoint via `?_bp=` for the desktop/tablet/mobile
+// preview chips; in that mode we override the layout client-side.
+
+function useForcedBreakpoint() {
+  const get = () => {
+    if (typeof window === 'undefined') return null;
     try {
       const params = new URLSearchParams(window.location.search);
       const forced = params.get('_bp');
       if (forced === 'desktop' || forced === 'tablet' || forced === 'mobile') return forced;
     } catch {}
-    const w = window.innerWidth;
-    if (w < 640) return 'mobile';
-    if (w < 1024) return 'tablet';
-    return 'desktop';
+    return null;
   };
-  const [bp, setBp] = useState(getBp);
+  const [bp, setBp] = useState(get);
   useEffect(() => {
-    const handler = () => setBp(getBp());
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
+    setBp(get());
   }, []);
   return bp;
 }
 
-function CanvasBlockRender({ block, breakpoint }) {
-  const geom = resolveBlockAtBreakpoint(block, breakpoint);
-  if (geom.hidden) return null;
-  const { style, a11y } = block;
+function tagForBlock(block) {
+  // Landmark elements are only emitted for section-type blocks — this
+  // prevents invalid HTML and nested-<main> landmarks when a non-section
+  // block (image, button, text…) is mis-assigned a landmark role. The
+  // <main> landmark is never emitted at block level: the stage wrapper
+  // already owns the top-level <main>.
+  const landmark = getSectionLandmarkTag(block?.type, block?.a11y?.role);
+  if (landmark) return landmark;
+  if (block?.type === BLOCK_TYPES.SECTION) return 'section';
+  return 'div';
+}
+
+function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
   const def = getBlockDefinition(block.type);
-  const Renderer = def.Renderer;
+  const Renderer = def?.Renderer;
+  const { style, a11y } = block;
+  const Tag = tagForBlock(block);
+  const isSection = block.type === BLOCK_TYPES.SECTION;
+  const isPriority = block.id === lcpBlockId;
 
-  const isSection = block.type === 'section';
-  const isFullBleed = isSection && !!(block.content && block.content.fullBleed);
+  // When the editor forces a breakpoint via `?_bp=`, resolve geometry in
+  // JS and pin it inline so the static stylesheet is overridden.
+  let forcedStyle = null;
+  if (forcedBreakpoint) {
+    const g = resolveBlockAtBreakpoint(block, forcedBreakpoint);
+    if (g.hidden) return null;
+    const fullBleed = isSection && !!(block.content && block.content.fullBleed);
+    forcedStyle = fullBleed
+      ? { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top: g.y, height: g.h }
+      : { position: 'absolute', left: g.x, top: g.y, width: g.w, height: g.h };
+  }
 
-  // Full-bleed sections escape the centered, max-width stage by anchoring
-  // to the stage's horizontal center (which equals the viewport center
-  // because the stage is `justify-center`-flexed) and stretching to the
-  // full viewport width. Their vertical position/height still comes from
-  // the design geometry so authors can compose them with other blocks.
-  const positionStyle = isFullBleed
-    ? {
-        position: 'absolute',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: '100vw',
-        top: geom.y,
-        height: geom.h,
-      }
-    : {
-        position: 'absolute',
-        left: geom.x,
-        top: geom.y,
-        width: geom.w,
-        height: geom.h,
-      };
+  // If we upgraded the wrapper to a semantic landmark tag, drop the
+  // redundant role attribute. Otherwise carry the role through as an
+  // attribute so screen readers still receive the author's intent.
+  const usedLandmark = getSectionLandmarkTag(block?.type, a11y?.role);
+  const explicitRole = a11y?.role && !usedLandmark ? a11y.role : undefined;
 
   return (
-    <div
-      role={a11y?.role || undefined}
+    <Tag
+      role={explicitRole}
       aria-label={a11y?.ariaLabel || undefined}
-      data-block-id={block.id}
+      data-cb={block.id}
       data-block-type={block.type}
-      data-full-bleed={isFullBleed ? 'true' : undefined}
+      data-full-bleed={isSection && block.content?.fullBleed ? 'true' : undefined}
       style={{
-        ...positionStyle,
+        ...(forcedStyle || null),
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -87,68 +95,72 @@ function CanvasBlockRender({ block, breakpoint }) {
         paddingBottom: style.paddingBottom || 0,
         paddingLeft: style.paddingLeft || 0,
         boxSizing: 'border-box',
-        // Sections never clip; everything else does so absolute-positioned
-        // children can't overflow each other unexpectedly.
         overflow: isSection ? 'visible' : 'hidden',
       }}
       tabIndex={typeof a11y?.tabIndex === 'number' ? a11y.tabIndex : undefined}
       aria-hidden={a11y?.ariaHidden ? true : undefined}
     >
-      {Renderer && <Renderer block={block} breakpoint={breakpoint} />}
-    </div>
+      {Renderer && <Renderer block={block} priority={isPriority} breakpoint={forcedBreakpoint || undefined} />}
+    </Tag>
   );
 }
 
 export default function CanvasPageRenderer({ page }) {
-  const design = normalizeCanvasDesign(page?.canvas_design);
-  const children = getRootChildren(design);
+  const design = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
+  const children = useMemo(() => getRootChildren(design), [design]);
   const hasBlocks = children.length > 0;
-  const breakpoint = useActiveBreakpoint();
-  const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
-  // Compute stage height as max(bottom) across visible blocks, plus padding.
-  let stageHeight = 600;
-  for (const b of children) {
-    const g = resolveBlockAtBreakpoint(b, breakpoint);
-    if (g.hidden) continue;
-    stageHeight = Math.max(stageHeight, g.y + g.h + 80);
-  }
+  // Stable scope id so the per-page CSS only affects this page's stage.
+  const scopeId = useMemo(
+    () => `cb-${page?.id || page?.slug || Math.random().toString(36).slice(2, 8)}`,
+    [page?.id, page?.slug],
+  );
+  const css = useMemo(
+    () => (hasBlocks ? buildCanvasCss(children, `#${scopeId}`) : ''),
+    [children, hasBlocks, scopeId],
+  );
+  const lcpBlockId = useMemo(() => (hasBlocks ? findLcpBlockId(children) : null), [children, hasBlocks]);
 
-  return (
-    <div
-      className="w-full"
-      data-testid={`canvas-page-${page?.slug || ''}`}
-      data-canvas-version={design.version}
-      data-breakpoint={breakpoint}
-    >
-      {!hasBlocks ? (
-        <div
-          className="min-h-[40vh] flex items-center justify-center"
-          data-testid="canvas-page-empty"
-        >
+  const forcedBreakpoint = useForcedBreakpoint();
+
+  if (!hasBlocks) {
+    return (
+      <div className="w-full" data-testid={`canvas-page-${page?.slug || ''}`}>
+        <div className="min-h-[40vh] flex items-center justify-center" data-testid="canvas-page-empty">
           <div className="text-center px-6">
             <p className="text-slate-600">
               This page is currently being built. Please check back soon.
             </p>
           </div>
         </div>
-      ) : (
-        <div className="w-full flex justify-center">
-          <div
-            className="relative"
-            style={{
-              width: '100%',
-              maxWidth: canvasWidth,
-              height: stageHeight,
-            }}
-            data-testid="canvas-page-stage"
-          >
-            {children.map((b) => (
-              <CanvasBlockRender key={b.id} block={b} breakpoint={breakpoint} />
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      id={scopeId}
+      className="canvas-page w-full"
+      data-testid={`canvas-page-${page?.slug || ''}`}
+      data-canvas-version={design.version}
+    >
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      {/*
+        The stage wrapper is intentionally a non-landmark <div> so that:
+        (a) the host shell can own the page's single top-level <main>, and
+        (b) block-level section landmarks (header/nav/aside/footer) are
+        never nested inside a redundant <main>.
+      */}
+      <div className="canvas-stage" data-testid="canvas-page-stage">
+        {children.map((b) => (
+          <CanvasBlockRender
+            key={b.id}
+            block={b}
+            lcpBlockId={lcpBlockId}
+            forcedBreakpoint={forcedBreakpoint}
+          />
+        ))}
+      </div>
     </div>
   );
 }

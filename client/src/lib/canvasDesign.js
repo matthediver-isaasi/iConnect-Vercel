@@ -40,6 +40,97 @@ export const BREAKPOINT_WIDTHS = {
   mobile: 375,
 };
 
+// CSS media-query boundaries used by the public renderer. Matches the
+// runtime detection in useActiveBreakpoint: w < 640 → mobile, w < 1024 →
+// tablet, otherwise desktop. We emit tablet/mobile rules inside
+// @media (max-width: …) queries so layout is correct without any JS.
+export const BREAKPOINT_MAX_PX = {
+  tablet: 1023.98,
+  mobile: 639.98,
+};
+
+// ARIA roles that have a matching HTML5 landmark element. Sections in the
+// inspector can pick a role and the public renderer will swap the wrapper
+// to the corresponding semantic tag. Roles not in this map render as a
+// neutral <div> with a `role` attribute.
+export const LANDMARK_ROLE_TO_TAG = {
+  banner: 'header',
+  header: 'header',
+  contentinfo: 'footer',
+  footer: 'footer',
+  navigation: 'nav',
+  nav: 'nav',
+  main: 'main',
+  complementary: 'aside',
+  aside: 'aside',
+  region: 'section',
+  section: 'section',
+};
+
+export function getLandmarkTag(role) {
+  if (!role) return null;
+  return LANDMARK_ROLE_TO_TAG[String(role).toLowerCase()] || null;
+}
+
+// Returns a landmark tag only for blocks that may legitimately wrap a
+// landmark region (sections). Block types like images, buttons, text, etc.
+// keep `role=` as an attribute but are never upgraded to header/nav/main/
+// aside/footer — this prevents invalid HTML and nested-<main> landmarks.
+// Also excludes `main`: the page already provides a single top-level
+// <main>, so block-level main roles fall back to <section>.
+export function getSectionLandmarkTag(blockType, role) {
+  if (blockType !== BLOCK_TYPES.SECTION) return null;
+  const tag = getLandmarkTag(role);
+  if (!tag || tag === 'main') return null;
+  return tag;
+}
+
+// ---------------------------------------------------------------------------
+// Responsive image helpers
+//
+// For images hosted on allow-listed CDNs (Supabase Storage public buckets;
+// vault.iconn.app falls through to the proxy used elsewhere) we emit a
+// real srcset + sizes so the browser can pick an appropriately-sized
+// asset. Other hosts pass through unchanged — no transforms, no srcset.
+// This mirrors the host allow-list used by `api/og-image.js`.
+// ---------------------------------------------------------------------------
+
+const RESPONSIVE_IMAGE_WIDTHS = [400, 800, 1200, 1600];
+
+function isAllowedImageHost(hostname) {
+  if (!hostname) return false;
+  if (hostname === 'vault.iconn.app') return true;
+  if (hostname.endsWith('.supabase.co')) return true;
+  return false;
+}
+
+export function buildResponsiveImage(src, { sizes } = {}) {
+  const out = { src: src || '', srcSet: undefined, sizes };
+  if (!src) return out;
+  try {
+    const u = new URL(src, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    if (!isAllowedImageHost(u.hostname)) return out;
+    // Supabase Storage: object public URLs can be reissued through the
+    // image transformer at /render/image/public/...
+    if (u.hostname.endsWith('.supabase.co') && u.pathname.includes('/storage/v1/object/public/')) {
+      const transformPath = u.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+      const base = `${u.origin}${transformPath}`;
+      const srcSet = RESPONSIVE_IMAGE_WIDTHS
+        .map((w) => `${base}?width=${w}&quality=80 ${w}w`)
+        .join(', ');
+      return {
+        src: `${base}?width=1200&quality=80`,
+        srcSet,
+        sizes: sizes || '100vw',
+      };
+    }
+    // Other allow-listed hosts: emit sizes for the browser hint, no srcset.
+    return { src, srcSet: undefined, sizes: sizes || '100vw' };
+  } catch {
+    return out;
+  }
+}
+
 // Static block types shipped in Phase 3.
 export const BLOCK_TYPES = {
   BOX: 'box',
@@ -556,6 +647,155 @@ export function validateBlock(block) {
       break;
   }
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// CSS emission for the public renderer
+//
+// The editor uses runtime JS to layout absolutely-positioned blocks at the
+// detected breakpoint. For public pages we instead emit a self-contained
+// per-page stylesheet with @media queries so layout is correct on the
+// initial render with zero JS — important for SSR, prerender, Lighthouse
+// LCP/CLS scores, and clients that block JS.
+// ---------------------------------------------------------------------------
+
+function escapeCssIdent(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function fmtPx(n) {
+  return `${Math.round(Number(n) || 0)}px`;
+}
+
+function geomRule(geom, { fullBleed } = {}) {
+  if (geom.hidden) return 'display:none;';
+  if (fullBleed) {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:50%;',
+      'transform:translateX(-50%);',
+      'width:100vw;',
+      `top:${fmtPx(geom.y)};`,
+      `height:${fmtPx(geom.h)};`,
+    ].join('');
+  }
+  return [
+    'display:block;',
+    'position:absolute;',
+    `left:${fmtPx(geom.x)};`,
+    `top:${fmtPx(geom.y)};`,
+    `width:${fmtPx(geom.w)};`,
+    `height:${fmtPx(geom.h)};`,
+  ].join('');
+}
+
+function stageHeightForBreakpoint(blocks, breakpoint) {
+  let h = 240;
+  for (const b of blocks) {
+    const g = resolveBlockAtBreakpoint(b, breakpoint);
+    if (g.hidden) continue;
+    h = Math.max(h, (g.y || 0) + (g.h || 0) + 80);
+  }
+  return h;
+}
+
+/**
+ * Build a CSS stylesheet for a Canvas page. Scoped under `scope` (any CSS
+ * selector, e.g. `#canvas-abc123`) so multiple Canvas pages can coexist
+ * on a document without rule collisions.
+ */
+export function buildCanvasCss(blocks, scope) {
+  const lines = [];
+  const sc = scope || '.canvas-page';
+
+  // Stage heights per breakpoint.
+  const hD = stageHeightForBreakpoint(blocks, 'desktop');
+  const hT = stageHeightForBreakpoint(blocks, 'tablet');
+  const hM = stageHeightForBreakpoint(blocks, 'mobile');
+  const stageSel = `${sc} .canvas-stage`;
+  lines.push(`${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;height:${fmtPx(hD)};}`);
+
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const isSection = b.type === BLOCK_TYPES.SECTION;
+    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const dG = resolveBlockAtBreakpoint(b, 'desktop');
+    lines.push(`${sel}{${geomRule(dG, { fullBleed })}}`);
+  }
+
+  // Tablet overrides.
+  const tabletRules = [];
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const isSection = b.type === BLOCK_TYPES.SECTION;
+    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const dG = resolveBlockAtBreakpoint(b, 'desktop');
+    const tG = resolveBlockAtBreakpoint(b, 'tablet');
+    if (
+      tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h ||
+      !!tG.hidden !== !!dG.hidden
+    ) {
+      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed })}}`);
+    }
+  }
+  if (tabletRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};}`);
+    lines.push(tabletRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};}}`);
+  }
+
+  // Mobile overrides.
+  const mobileRules = [];
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const isSection = b.type === BLOCK_TYPES.SECTION;
+    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const tG = resolveBlockAtBreakpoint(b, 'tablet');
+    const mG = resolveBlockAtBreakpoint(b, 'mobile');
+    if (
+      mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h ||
+      !!mG.hidden !== !!tG.hidden
+    ) {
+      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed })}}`);
+    }
+  }
+  if (mobileRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};}`);
+    lines.push(mobileRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};}}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Identify the LCP-candidate block on a page. Heuristic: the first
+ * visible-at-desktop image-bearing block (hero w/ image background, image
+ * block w/ src, or card w/ image), reading in document order, top-down.
+ */
+export function findLcpBlockId(blocks) {
+  const candidates = blocks
+    .map((b) => ({ b, g: resolveBlockAtBreakpoint(b, 'desktop') }))
+    .filter(({ b, g }) => {
+      if (g.hidden) return false;
+      const c = b.content || {};
+      if (b.type === BLOCK_TYPES.HERO && c.bgType === 'image' && c.bgImageUrl) return true;
+      if (b.type === BLOCK_TYPES.IMAGE && c.src) return true;
+      if (b.type === BLOCK_TYPES.CARD && c.imageUrl) return true;
+      return false;
+    })
+    .sort((a, b) => (a.g.y || 0) - (b.g.y || 0));
+  return candidates.length ? candidates[0].b.id : null;
 }
 
 export function validateCanvasDesign(design) {

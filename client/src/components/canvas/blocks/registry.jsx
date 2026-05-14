@@ -28,7 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BLOCK_TYPES } from '@/lib/canvasDesign';
+import { BLOCK_TYPES, buildResponsiveImage } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 
@@ -294,23 +294,39 @@ function vimeoId(url) {
 // ---------------------------------------------------------------------------
 
 // HERO -----------------------------------------------------------------------
-function HeroRender({ block, asEditor }) {
+function HeroRender({ block, asEditor, priority }) {
   const c = block.content || {};
   const Heading = `h${Math.max(1, Math.min(6, c.headingLevel || 1))}`;
   const align = c.alignment || 'center';
   const justify = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
   const textAlign = align;
-  const bg =
-    c.bgType === 'image' && c.bgImageUrl
-      ? { backgroundImage: `url(${c.bgImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : c.bgType === 'color'
-        ? { background: c.bgColor || '#0f172a' }
-        : { background: '#0f172a' };
+  const isImageBg = c.bgType === 'image' && c.bgImageUrl;
+  const bg = isImageBg
+    ? null
+    : c.bgType === 'color'
+      ? { background: c.bgColor || '#0f172a' }
+      : { background: '#0f172a' };
   return (
     <div
       className="absolute inset-0 overflow-hidden"
-      style={{ ...bg, borderRadius: block.style.borderRadius || 0 }}
+      style={{ ...(bg || {}), borderRadius: block.style.borderRadius || 0 }}
     >
+      {isImageBg && (() => {
+        const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
+        return (
+          <img
+            src={r.src}
+            srcSet={r.srcSet}
+            sizes={r.sizes}
+            alt={block?.a11y?.altText || ''}
+            aria-hidden={block?.a11y?.altText ? undefined : 'true'}
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchpriority={priority ? 'high' : undefined}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        );
+      })()}
       {c.bgType === 'video' && c.bgVideoUrl && !asEditor && (
         <video
           src={c.bgVideoUrl}
@@ -507,12 +523,18 @@ function TextInspector({ block, update }) {
 }
 
 // IMAGE ----------------------------------------------------------------------
-function ImageRender({ block, asEditor }) {
+function ImageRender({ block, asEditor, priority }) {
   const c = block.content || {};
+  const r = c.src ? buildResponsiveImage(c.src, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' }) : null;
   const img = c.src ? (
     <img
-      src={c.src}
+      src={r.src}
+      srcSet={r.srcSet}
+      sizes={r.sizes}
       alt={c.alt || ''}
+      loading={priority ? 'eager' : 'lazy'}
+      decoding="async"
+      fetchpriority={priority ? 'high' : undefined}
       style={{
         width: '100%',
         height: '100%',
@@ -770,32 +792,75 @@ function VideoInspector({ block, update }) {
 }
 
 // COLUMNS --------------------------------------------------------------------
-function ColumnsRender({ block, breakpoint = 'desktop' }) {
+// CSS-driven multi-column block. The editor used to swap flex widths at
+// runtime based on the active breakpoint prop — that meant SSR/public
+// pages rendered desktop widths on mobile until JS booted (a layout
+// regression for canvas pages). We now emit a per-instance <style> tag
+// with @media queries so the browser handles width + stacking with zero
+// JS. When the editor forces a breakpoint via `?_bp=`, we still respect
+// it by emitting an unscoped override style block.
+function buildColumnsCss(scope, items, widthsByBp, gap, stackOnMobile) {
+  const n = items.length || 1;
+  const gp = Number(gap) || 0;
+  const widthRule = (bp) => {
+    const list = (widthsByBp && widthsByBp[bp]) || [];
+    const rules = [];
+    for (let i = 0; i < n; i++) {
+      const pct = Number(list[i]) || (100 / n);
+      rules.push(`${scope} > :nth-child(${i + 1}){flex:0 0 calc(${pct}% - ${(gp * (n - 1)) / n}px);}`);
+    }
+    return rules.join('');
+  };
+  const desktop = `${scope}{display:flex;flex-direction:row;gap:${gp}px;}` + widthRule('desktop');
+  const tablet = `@media (max-width: 1023.98px){${widthRule('tablet')}}`;
+  const mobile = stackOnMobile
+    ? `@media (max-width: 639.98px){${scope}{flex-direction:column;}${scope} > *{flex:1 1 100%!important;}}`
+    : `@media (max-width: 639.98px){${widthRule('mobile')}}`;
+  return desktop + tablet + mobile;
+}
+
+function ColumnsRender({ block, breakpoint }) {
   const c = block.content || {};
-  const widths = (c.widths && c.widths[breakpoint]) || c.widths?.desktop || [];
-  const stack = c.stackOnMobile && breakpoint === 'mobile';
-  const flexDir = stack ? 'column' : 'row';
   const items = c.items || [];
+  const gap = c.gap || 0;
+  const scopeId = `cb-cols-${String(block.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  // For the editor preview chips (`?_bp=` forces a breakpoint), apply
+  // inline width/stacking so the visual matches what visitors at that
+  // breakpoint will see. The CSS stylesheet below still drives real
+  // public pages on any actual device width.
+  const forcedWidths = breakpoint ? ((c.widths && c.widths[breakpoint]) || c.widths?.desktop || []) : null;
+  const forcedStack = !!(breakpoint === 'mobile' && c.stackOnMobile);
+  const cssText = useMemo(
+    () => buildColumnsCss(`#${scopeId}`, items, c.widths || {}, gap, !!c.stackOnMobile),
+    [scopeId, items, c.widths, gap, c.stackOnMobile],
+  );
   return (
-    <div
-      className="w-full h-full"
-      style={{ display: 'flex', flexDirection: flexDir, gap: c.gap || 0 }}
-    >
-      {items.map((it, i) => (
-        <div
-          key={i}
-          style={{
-            flex: stack ? `1 1 100%` : `0 0 calc(${widths[i] || (100 / items.length)}% - ${(c.gap || 0) * (items.length - 1) / items.length}px)`,
-          }}
-          className="overflow-auto"
-        >
-          <div
-            className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
-            dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(it.html || '')) }}
-          />
-        </div>
-      ))}
-    </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: cssText }} />
+      <div
+        id={scopeId}
+        className="w-full h-full"
+        style={breakpoint ? { display: 'flex', flexDirection: forcedStack ? 'column' : 'row', gap } : undefined}
+      >
+        {items.map((it, i) => {
+          const forcedStyle = breakpoint
+            ? {
+                flex: forcedStack
+                  ? '1 1 100%'
+                  : `0 0 calc(${(forcedWidths && forcedWidths[i]) || (100 / items.length)}% - ${(gap * (items.length - 1)) / items.length}px)`,
+              }
+            : undefined;
+          return (
+            <div key={i} style={forcedStyle} className="overflow-auto">
+              <div
+                className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(it.html || '')) }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -1021,7 +1086,7 @@ function TestimonialsRender({ block }) {
           <blockquote className="text-sm text-slate-800">{t.quote}</blockquote>
           <figcaption className="mt-2 flex items-center gap-2 text-xs text-slate-600">
             {t.photo ? (
-              <img src={t.photo} alt="" className="w-6 h-6 rounded-full object-cover" />
+              <img src={t.photo} alt="" loading="lazy" decoding="async" className="w-6 h-6 rounded-full object-cover" />
             ) : null}
             <div>
               <div className="font-medium text-slate-900">{t.author}</div>
@@ -1147,19 +1212,27 @@ function IconInspector({ block, update }) {
 }
 
 // CARD -----------------------------------------------------------------------
-function CardRender({ block, asEditor }) {
+function CardRender({ block, asEditor, priority }) {
   const c = block.content || {};
   const Heading = `h${Math.max(1, Math.min(6, c.headingLevel || 3))}`;
   return (
     <div className="w-full h-full flex flex-col">
-      {c.imageUrl && (
-        <img
-          src={c.imageUrl}
-          alt={c.imageAlt || ''}
-          className="w-full"
-          style={{ height: 160, objectFit: 'cover', borderRadius: 4 }}
-        />
-      )}
+      {c.imageUrl && (() => {
+        const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
+        return (
+          <img
+            src={r.src}
+            srcSet={r.srcSet}
+            sizes={r.sizes}
+            alt={c.imageAlt || ''}
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchpriority={priority ? 'high' : undefined}
+            className="w-full"
+            style={{ height: 160, objectFit: 'cover', borderRadius: 4 }}
+          />
+        );
+      })()}
       <Heading style={{ margin: 0, marginTop: c.imageUrl ? 12 : 0, fontSize: '1.125rem', fontWeight: 600 }}>
         {c.heading}
       </Heading>
@@ -1263,6 +1336,8 @@ function LogoStripRender({ block }) {
           <img
             src={l.src}
             alt={l.alt || ''}
+            loading="lazy"
+            decoding="async"
             style={{
               maxHeight: '80%',
               maxWidth: 160,

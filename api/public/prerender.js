@@ -508,6 +508,297 @@ function buildElementSection(el) {
   return `<section>${parts.join('\n')}</section>`;
 }
 
+// ---------------------------------------------------------------------------
+// Canvas Builder body rendering
+//
+// Walks a canvas_design document and emits a semantic HTML body — heading
+// levels are preserved, images keep their alt text, buttons become links,
+// cards become article snippets, and accordions/FAQs become <dl> pairs.
+// This is what social unfurl crawlers and search engines see for canvas
+// pages (the SPA renders the styled layout on top once JS boots).
+// ---------------------------------------------------------------------------
+
+// Map ARIA landmark roles to HTML5 tags for section-type blocks. `main` is
+// intentionally excluded — `buildHtmlPage` already wraps the body in a
+// top-level <main>, and HTML must contain only one. Non-section blocks
+// never receive a landmark tag.
+function landmarkTagForSection(blockType, role) {
+  if (blockType !== 'section') return null;
+  const r = String(role || '').toLowerCase();
+  if (r === 'banner' || r === 'header') return 'header';
+  if (r === 'navigation' || r === 'nav') return 'nav';
+  if (r === 'complementary' || r === 'aside') return 'aside';
+  if (r === 'contentinfo' || r === 'footer') return 'footer';
+  if (r === 'region' || r === 'section') return 'section';
+  return null;
+}
+
+// Allow-list mirrors api/og-image.js so srcset only targets hosts we
+// trust to serve image bytes (and, for Supabase, support render/image
+// transforms). Other hosts get a passthrough.
+const PRERENDER_IMG_HOST_SUFFIXES = ['.supabase.co'];
+const PRERENDER_IMG_HOSTS = new Set(['vault.iconn.app']);
+const PRERENDER_IMG_WIDTHS = [400, 800, 1200, 1600];
+
+function buildPrerenderImg(src, alt, { sizes, loading = 'lazy', priority = false } = {}) {
+  if (!src) return '';
+  let imgSrc = src;
+  let srcSet = '';
+  try {
+    const u = new URL(src, 'http://localhost');
+    const isSb = PRERENDER_IMG_HOST_SUFFIXES.some((s) => u.hostname.endsWith(s));
+    const isVault = PRERENDER_IMG_HOSTS.has(u.hostname);
+    if (isSb && u.pathname.includes('/storage/v1/object/public/')) {
+      const tp = u.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+      const base = `${u.origin}${tp}`;
+      srcSet = PRERENDER_IMG_WIDTHS.map((w) => `${escapeHtml(base)}?width=${w}&amp;quality=80 ${w}w`).join(', ');
+      imgSrc = `${base}?width=1200&quality=80`;
+    } else if (!isSb && !isVault) {
+      // Unknown host — pass through unchanged.
+    }
+  } catch {}
+  const attrs = [
+    `src="${escapeHtml(imgSrc)}"`,
+    srcSet ? `srcset="${srcSet}"` : '',
+    sizes ? `sizes="${escapeHtml(sizes)}"` : '',
+    `alt="${escapeHtml(alt || '')}"`,
+    `loading="${priority ? 'eager' : loading}"`,
+    'decoding="async"',
+    priority ? 'fetchpriority="high"' : '',
+  ].filter(Boolean).join(' ');
+  return `<img ${attrs}>`;
+}
+
+function clampHeadingLevel(n, fallback = 2) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(1, Math.min(6, Math.round(v)));
+}
+
+function renderCanvasBlockHtml(block, opts) {
+  if (!block || typeof block !== 'object') return '';
+  if (block?.a11y?.ariaHidden) return '';
+  const c = block.content || {};
+  const parts = [];
+  switch (block.type) {
+    case 'hero': {
+      const lvl = clampHeadingLevel(c.headingLevel, 1);
+      // Emit the hero background image as a real <img> with LCP priority
+      // hints when this block is the page's first image. Bots and unfurl
+      // bots see the asset directly; otherwise we'd lose fetchpriority/
+      // srcset on a CSS background-image.
+      if (c.bgType === 'image' && c.bgImageUrl) {
+        const altText = block?.a11y?.altText || '';
+        parts.push(buildPrerenderImg(c.bgImageUrl, altText, {
+          sizes: '100vw',
+          priority: !!opts?.priority,
+        }));
+      }
+      if (c.headline) parts.push(`<h${lvl}>${escapeHtml(stripHtml(c.headline))}</h${lvl}>`);
+      if (c.subheadline) parts.push(`<p>${escapeHtml(stripHtml(c.subheadline))}</p>`);
+      if (Array.isArray(c.ctas)) {
+        for (const cta of c.ctas) {
+          if (cta?.label && cta?.href) {
+            parts.push(`<a href="${escapeHtml(cta.href)}">${escapeHtml(stripHtml(cta.label))}</a>`);
+          }
+        }
+      }
+      return parts.length ? `<header>${parts.join('\n')}</header>` : '';
+    }
+    case 'text': {
+      const lvl = Number(c.headingAs);
+      const text = stripHtml(c.html || '');
+      if (!text || isPlaceholderText(text)) return '';
+      if (lvl >= 1 && lvl <= 6) return `<h${lvl}>${escapeHtml(text)}</h${lvl}>`;
+      return `<p>${escapeHtml(text)}</p>`;
+    }
+    case 'image': {
+      if (!c.src) return '';
+      const img = buildPrerenderImg(c.src, c.alt, {
+        sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw',
+        priority: !!opts?.priority,
+      });
+      const inner = c.href ? `<a href="${escapeHtml(c.href)}">${img}</a>` : img;
+      return `<figure>${inner}</figure>`;
+    }
+    case 'button': {
+      if (!c.label || !c.href) return '';
+      return `<p><a href="${escapeHtml(c.href)}">${escapeHtml(stripHtml(c.label))}</a></p>`;
+    }
+    case 'video': {
+      if (!c.url) return '';
+      return `<p><a href="${escapeHtml(c.url)}">Watch video</a></p>`;
+    }
+    case 'card': {
+      const lvl = clampHeadingLevel(c.headingLevel, 3);
+      if (c.imageUrl) {
+        parts.push(buildPrerenderImg(c.imageUrl, c.imageAlt, {
+          sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw',
+          priority: !!opts?.priority,
+        }));
+      }
+      if (c.heading) parts.push(`<h${lvl}>${escapeHtml(stripHtml(c.heading))}</h${lvl}>`);
+      if (c.body) {
+        const t = stripHtml(c.body);
+        if (t && !isPlaceholderText(t)) parts.push(`<p>${escapeHtml(t)}</p>`);
+      }
+      if (c.ctaLabel && c.ctaHref) {
+        parts.push(`<a href="${escapeHtml(c.ctaHref)}">${escapeHtml(stripHtml(c.ctaLabel))}</a>`);
+      }
+      return parts.length ? `<article>${parts.join('\n')}</article>` : '';
+    }
+    case 'accordion': {
+      const items = Array.isArray(c.items) ? c.items : [];
+      const rows = [];
+      for (const it of items) {
+        const q = stripHtml(it?.q || '');
+        const a = stripHtml(it?.a || '');
+        if (q && !isPlaceholderText(q)) rows.push(`<dt>${escapeHtml(q)}</dt>`);
+        if (a && !isPlaceholderText(a)) rows.push(`<dd>${escapeHtml(a)}</dd>`);
+      }
+      return rows.length ? `<dl>${rows.join('\n')}</dl>` : '';
+    }
+    case 'testimonials': {
+      const items = Array.isArray(c.items) ? c.items : [];
+      const rows = [];
+      for (const it of items) {
+        const q = stripHtml(it?.quote || '');
+        if (q && !isPlaceholderText(q)) {
+          const cite = stripHtml([it?.author, it?.role].filter(Boolean).join(', '));
+          rows.push(`<figure><blockquote>${escapeHtml(q)}</blockquote>${cite ? `<figcaption>${escapeHtml(cite)}</figcaption>` : ''}</figure>`);
+        }
+      }
+      return rows.join('\n');
+    }
+    case 'stat': {
+      const v = stripHtml(c.value || '');
+      const l = stripHtml(c.label || '');
+      if (!v && !l) return '';
+      return `<p>${v ? `<strong>${escapeHtml(v)}</strong>` : ''}${v && l ? ' — ' : ''}${l ? escapeHtml(l) : ''}</p>`;
+    }
+    case 'logo-strip': {
+      const logos = Array.isArray(c.logos) ? c.logos : [];
+      const cells = logos
+        .filter((l) => l?.src)
+        .map((l) => {
+          const img = buildPrerenderImg(l.src, l.alt, { sizes: '(max-width: 640px) 50vw, 160px' });
+          return l.href
+            ? `<li><a href="${escapeHtml(l.href)}">${img}</a></li>`
+            : `<li>${img}</li>`;
+        });
+      return cells.length ? `<ul>${cells.join('')}</ul>` : '';
+    }
+    case 'columns': {
+      // Each column carries its own rich text. Strip HTML to plain prose
+      // and emit one <div> per column inside a wrapper so crawlers see
+      // every column's copy in document order.
+      const items = Array.isArray(c.items) ? c.items : [];
+      const cols = [];
+      for (const it of items) {
+        const t = stripHtml(it?.html || '');
+        if (t && !isPlaceholderText(t)) cols.push(`<div>${escapeHtml(t)}</div>`);
+      }
+      return cols.length ? `<div class="cb-columns">${cols.join('')}</div>` : '';
+    }
+    case 'custom-html': {
+      const raw = typeof c.html === 'string' ? stripHtml(c.html) : '';
+      if (!raw || isPlaceholderText(raw)) return '';
+      return `<div>${escapeHtml(raw)}</div>`;
+    }
+    case 'section':
+    case 'box':
+      // Container blocks. Their semantic wrapping is applied by the
+      // section traversal layer below (so landmark roles still take
+      // effect); they have no inline content of their own.
+      return '';
+    case 'icon':
+    case 'spacer':
+    case 'divider':
+    case 'map':
+      return '';
+    default:
+      return '';
+  }
+}
+
+// Resolve the landmark wrapper for a group of blocks. We accept a role
+// from either the parent root-section (preferred — landmarks should be
+// outermost) or a `section`-type block that has been given a role.
+// Excludes `main` so we never produce a nested top-level main.
+function resolveLandmarkRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'banner' || r === 'header') return 'header';
+  if (r === 'navigation' || r === 'nav') return 'nav';
+  if (r === 'complementary' || r === 'aside') return 'aside';
+  if (r === 'contentinfo' || r === 'footer') return 'footer';
+  if (r === 'region' || r === 'section') return 'section';
+  return null;
+}
+
+function renderCanvasDesignBody(design) {
+  if (!design || typeof design !== 'object') return { sections: [], firstImage: null, allTexts: [] };
+  const sections = [];
+  const allTexts = [];
+  let firstImage = null;
+  let priorityAssigned = false;
+  const rootSections = Array.isArray(design?.root?.sections) ? design.root.sections : [];
+
+  for (const rootSection of rootSections) {
+    const children = Array.isArray(rootSection?.children) ? rootSection.children : [];
+    const inner = [];
+    for (const block of children) {
+      if (!block || typeof block !== 'object') continue;
+      if (block?.a11y?.ariaHidden) continue;
+
+      // First image-bearing block → ogImage source + LCP priority. We
+      // only flag priority for blocks that actually emit an <img> in
+      // prerender output (image, hero with image bg, card with image).
+      let isPriority = false;
+      if (!firstImage) {
+        const c = block.content || {};
+        let imgSrc = null;
+        if (block.type === 'image' && c.src) imgSrc = c.src;
+        else if (block.type === 'hero' && c.bgType === 'image' && c.bgImageUrl) imgSrc = c.bgImageUrl;
+        else if (block.type === 'card' && c.imageUrl) imgSrc = c.imageUrl;
+        if (imgSrc) {
+          firstImage = imgSrc;
+          if (!priorityAssigned) {
+            isPriority = true;
+            priorityAssigned = true;
+          }
+        }
+      }
+
+      const html = renderCanvasBlockHtml(block, { priority: isPriority });
+      if (!html) continue;
+
+      // Block-level landmark wrapper: only `section`-type blocks may
+      // upgrade to a landmark tag, and never to <main>.
+      const blockLandmark = landmarkTagForSection(block.type, block?.a11y?.role);
+      const blockHtml = blockLandmark ? `<${blockLandmark}>${html}</${blockLandmark}>` : html;
+      inner.push(blockHtml);
+
+      const stripped = stripHtml(html);
+      if (stripped) allTexts.push(stripped);
+    }
+
+    if (inner.length === 0) continue;
+    const innerHtml = inner.join('\n');
+
+    // Outer landmark wrapper from the root section's role (e.g. a
+    // section flagged as `banner` wraps its children in <header>).
+    const rootRole =
+      rootSection?.a11y?.role
+      || rootSection?.role
+      || rootSection?.content?.role
+      || null;
+    const rootLandmark = resolveLandmarkRole(rootRole);
+    sections.push(rootLandmark ? `<${rootLandmark}>${innerHtml}</${rootLandmark}>` : innerHtml);
+  }
+
+  return { sections, firstImage, allTexts };
+}
+
 async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   if (!pageSlug) return null;
 
@@ -528,15 +819,17 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   let ogImage = null;
 
   if (page.builder_type === 'canvas') {
-    // Canvas Builder pages: walk the canvas_design document for text/image
-    // fallback. Phase 1 does not render block-by-block sections (no block
-    // types exist yet); SEO falls back to meta_*/description.
+    // Canvas Builder pages: walk the canvas_design tree block-by-block,
+    // preserving heading levels, images with alt text, buttons-as-links,
+    // and FAQ/testimonial structure. Crawlers/social unfurl bots see the
+    // full semantic body up-front without waiting for JS to hydrate.
     if (page.canvas_design && typeof page.canvas_design === 'object') {
-      const texts = extractTextFromContent(page.canvas_design);
-      for (const t of texts) {
+      const { sections, firstImage, allTexts: canvasTexts } = renderCanvasDesignBody(page.canvas_design);
+      for (const s of sections) bodySections.push(s);
+      for (const t of canvasTexts) {
         if (t && !isPlaceholderText(t)) allTexts.push(t);
       }
-      ogImage = extractFirstImage(page.canvas_design);
+      if (firstImage) ogImage = firstImage;
     }
   } else {
     const { data: elements } = await supabaseClient
@@ -905,22 +1198,56 @@ export default async function handler(req, res) {
         console.error('[Prerender] Redirect lookup error:', redirectErr);
       }
 
+      // Tenant-configurable 404: if settings.not_found_page_slug points at
+      // a published Canvas page, render its body/meta with a 404 status
+      // (so search engines de-index correctly while users see a branded
+      // page). Falls back to the generic gone message below.
+      const notFoundSlug = tenant.settings?.not_found_page_slug;
+      if (notFoundSlug && typeof notFoundSlug === 'string') {
+        try {
+          const notFoundPage = await renderCustomPage(supabase, tenant, notFoundSlug, baseUrl);
+          if (notFoundPage) {
+            const html = buildHtmlPage({
+              title: notFoundPage.title,
+              description: notFoundPage.description,
+              ogTitle: notFoundPage.title,
+              ogDescription: notFoundPage.description,
+              ogImage: notFoundPage.ogImage,
+              ogUrl: `${baseUrl}${requestPath}`,
+              canonicalUrl: null,
+              bodyContent: notFoundPage.bodyContent,
+              tenantName: tenant.name,
+              favicon: tenant.favicon_url,
+              navLinks: [],
+            }).replace(
+              '<meta name="robots" content="index, follow">',
+              '<meta name="robots" content="noindex, follow">',
+            );
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+            return res.status(404).send(html);
+          }
+        } catch (notFoundErr) {
+          console.error('[Prerender] Tenant 404 page render failed:', notFoundErr);
+        }
+      }
+
       const goneHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex">
-  <title>Page No Longer Available</title>
+  <title>Page Not Found</title>
 </head>
 <body>
-  <h1>This page is no longer available</h1>
-  <p>The page you requested does not exist or has been removed.</p>
+  <h1>Page not found</h1>
+  <p>The page you requested does not exist.</p>
   <p><a href="${baseUrl}">Return to homepage</a></p>
 </body>
 </html>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(410).send(goneHtml);
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      return res.status(404).send(goneHtml);
     }
 
     let navLinks = [];

@@ -336,14 +336,24 @@ function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onT
       <Section title="Accessibility">
         <div className="space-y-2">
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">ARIA role</Label>
-            <Input
+            <Label className="text-xs text-slate-600">Landmark role</Label>
+            <select
               value={block.a11y.role || ''}
               onChange={(e) => updateA11y({ role: e.target.value })}
-              placeholder="e.g. region, banner"
-              className="h-8"
-              data-testid="input-aria-role"
-            />
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+              data-testid="select-aria-role"
+            >
+              <option value="">(none — neutral &lt;div&gt;)</option>
+              <option value="banner">banner — page header</option>
+              <option value="navigation">navigation — nav</option>
+              <option value="main">main — primary content</option>
+              <option value="complementary">complementary — aside</option>
+              <option value="contentinfo">contentinfo — page footer</option>
+              <option value="region">region — generic landmark</option>
+            </select>
+            <p className="text-[10px] text-slate-500">
+              Sections with a landmark role render as the matching HTML5 element (header/nav/main/aside/footer/section) for SEO and screen readers.
+            </p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-slate-600">ARIA label</Label>
