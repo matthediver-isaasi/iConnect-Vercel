@@ -203,6 +203,18 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
 
   const isImageSized = height_type === 'image' && background_type === 'image' && image_url;
 
+  // When heading, subheading, and content_text are all empty, the button is the only
+  // child of .hero-content. In that case suppress the button wrapper's top margin so
+  // the button sits flush against the hero's top padding (the padding remains
+  // user-controllable via padding_top / mobile_padding_top).
+  const allTextEmpty =
+    isHtmlEmpty(content.heading) &&
+    isHtmlEmpty(content.subheading) &&
+    isHtmlEmpty(content_text);
+  const buttonWrapperStyle = allTextEmpty
+    ? { marginBottom: 0, marginTop: 0 }
+    : { marginBottom: 0 };
+
   const getHeightStyle = () => {
     if (height_type === 'full') return { minHeight: '100vh' };
     if (height_type === 'custom') return { minHeight: `${custom_height}px` };
@@ -624,7 +636,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 />
               )}
               {button && button.link && (button.text || button.show_arrow) && (
-                <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
+                <div className="hero-button-wrapper" style={buttonWrapperStyle}>
                   <AGCASButton
                     text={button.text}
                     link={button.link}
@@ -652,7 +664,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       <style>{responsiveStyles}</style>
       <div 
         className="hero-container relative w-full overflow-hidden"
-        style={{ maxWidth: '100%' }}
+        style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}
       >
         {/* Desktop image background */}
         {background_type === 'image' && image_url && (
@@ -702,7 +714,17 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
           </div>
         )}
         
-        <div className="hero-content relative max-w-7xl mx-auto">
+        <div
+          style={{
+            flex: '1 0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: getTextVerticalAlign(),
+            position: 'relative',
+            zIndex: 1
+          }}
+        >
+        <div className="hero-content max-w-7xl mx-auto">
           {!isHtmlEmpty(content.heading) && (
             <div>
               <HeroHeadingTag 
@@ -742,7 +764,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             />
           )}
           {button && button.link && (button.text || button.show_arrow) && (
-            <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
+            <div className="hero-button-wrapper" style={buttonWrapperStyle}>
               <AGCASButton
                 text={button.text}
                 link={button.link}
@@ -758,6 +780,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
               />
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
