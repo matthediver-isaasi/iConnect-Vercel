@@ -4166,13 +4166,14 @@ export default function CreateComplexEvent() {
         </Tabs>
 
       <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
+          <DialogHeader className="p-6 pb-4 shrink-0">
             <DialogTitle>{editingSession ? "Edit Session" : "Add Session"}</DialogTitle>
             <DialogDescription>
               {editingSession ? "Update the session details below." : "Fill in the session details below."}
             </DialogDescription>
           </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto px-6">
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Title *</Label>
@@ -4517,7 +4518,7 @@ export default function CreateComplexEvent() {
           </div>
 
           {liveSessionClashes.length > 0 && (
-            <div className="flex items-start gap-2 p-3 mt-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800" data-testid="session-clash-warning">
+            <div className="flex items-start gap-2 p-3 mt-4 mb-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800" data-testid="session-clash-warning">
               <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <div className="text-sm text-amber-800 dark:text-amber-300">
                 <p className="font-medium mb-1">Time clash detected</p>
@@ -4531,8 +4532,9 @@ export default function CreateComplexEvent() {
               </div>
             </div>
           )}
+          </div>
 
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="flex justify-end gap-2 p-6 pt-4 border-t shrink-0">
             <Button variant="outline" onClick={closeSessionDialog} data-testid="button-cancel-session">
               Cancel
             </Button>
