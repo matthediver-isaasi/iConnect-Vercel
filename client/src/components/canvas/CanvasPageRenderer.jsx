@@ -79,6 +79,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
       role={explicitRole}
       aria-label={a11y?.ariaLabel || undefined}
       data-cb={block.id}
+      data-block-id={block.id}
       data-block-type={block.type}
       data-full-bleed={isSection && block.content?.fullBleed ? 'true' : undefined}
       style={{
@@ -99,11 +100,35 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
       }}
       tabIndex={typeof a11y?.tabIndex === 'number' ? a11y.tabIndex : undefined}
       aria-hidden={a11y?.ariaHidden ? true : undefined}
+      lang={a11y?.lang || undefined}
     >
       {Renderer && <Renderer block={block} priority={isPriority} breakpoint={forcedBreakpoint || undefined} />}
     </Tag>
   );
 }
+
+// Default a11y stylesheet for Canvas pages:
+// - honours prefers-reduced-motion by killing transitions/animations on
+//   canvas-rendered blocks
+// - gives every focusable descendant a visible focus ring so keyboard
+//   users always know where they are
+const A11Y_DEFAULTS_CSS = `
+  [data-canvas-version] :focus-visible {
+    outline: 2px solid hsl(var(--primary, 222 47% 31%));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-canvas-version] *,
+    [data-canvas-version] *::before,
+    [data-canvas-version] *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+`;
 
 export default function CanvasPageRenderer({ page }) {
   const design = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
@@ -125,14 +150,31 @@ export default function CanvasPageRenderer({ page }) {
 
   if (!hasBlocks) {
     return (
-      <div className="w-full" data-testid={`canvas-page-${page?.slug || ''}`}>
-        <div className="min-h-[40vh] flex items-center justify-center" data-testid="canvas-page-empty">
+      <div
+        className="w-full"
+        data-testid={`canvas-page-${page?.slug || ''}`}
+        data-canvas-version={design.version}
+      >
+        <a
+          href="#canvas-main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
+          data-testid="link-skip-to-content"
+        >
+          Skip to content
+        </a>
+        <style>{A11Y_DEFAULTS_CSS}</style>
+        <main
+          id="canvas-main-content"
+          tabIndex={-1}
+          className="min-h-[40vh] flex items-center justify-center focus:outline-none"
+          data-testid="canvas-page-empty"
+        >
           <div className="text-center px-6">
             <p className="text-slate-600">
               This page is currently being built. Please check back soon.
             </p>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -144,14 +186,30 @@ export default function CanvasPageRenderer({ page }) {
       data-testid={`canvas-page-${page?.slug || ''}`}
       data-canvas-version={design.version}
     >
+      {/* Skip-to-content link — visually hidden until focused. */}
+      <a
+        href="#canvas-main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
+        data-testid="link-skip-to-content"
+      >
+        Skip to content
+      </a>
+      <style>{A11Y_DEFAULTS_CSS}</style>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       {/*
         The stage wrapper is intentionally a non-landmark <div> so that:
         (a) the host shell can own the page's single top-level <main>, and
         (b) block-level section landmarks (header/nav/aside/footer) are
         never nested inside a redundant <main>.
+        We promote the inner stage to <main id="canvas-main-content"> so the
+        skip-to-content link has a valid target.
       */}
-      <div className="canvas-stage" data-testid="canvas-page-stage">
+      <main
+        id="canvas-main-content"
+        tabIndex={-1}
+        className="canvas-stage focus:outline-none"
+        data-testid="canvas-page-stage"
+      >
         {children.map((b) => (
           <CanvasBlockRender
             key={b.id}
@@ -160,7 +218,7 @@ export default function CanvasPageRenderer({ page }) {
             forcedBreakpoint={forcedBreakpoint}
           />
         ))}
-      </div>
+      </main>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Save, Eye, EyeOff,
   Monitor, Tablet, Smartphone,
+  Accessibility, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -16,6 +17,7 @@ import {
   normalizeCanvasDesign,
   validateCanvasDesign,
 } from "@/lib/canvasDesign";
+import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
@@ -37,6 +39,23 @@ export default function CanvasPageEditorPage() {
   const [breakpoint, setBreakpoint] = useState('desktop');
   const [showPreview, setShowPreview] = useState(false);
   const [previewNonce, setPreviewNonce] = useState(0);
+  const previewIframeRef = useRef(null);
+  const [axeIssues, setAxeIssues] = useState(null); // null = never run
+  const [axeRunning, setAxeRunning] = useState(false);
+  const [axeStale, setAxeStale] = useState(false);
+  const [axeLastRunAt, setAxeLastRunAt] = useState(null);
+  // Track whether the design has changed since the last axe run so the user
+  // knows the previous result may be stale.
+  const lastAxeDesignRef = useRef(null);
+  // Set to true when a save has just bumped the preview iframe; the iframe's
+  // onLoad handler will then trigger an automatic axe run.
+  const autoAuditPendingRef = useRef(false);
+
+  // Wrap dirty-change so any edit after an axe run marks the result stale.
+  const handleDirtyChange = useCallback((nextDirty) => {
+    setIsDirty(nextDirty);
+    if (nextDirty) setAxeStale((prev) => prev || !!axeIssues);
+  }, [axeIssues]);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -118,6 +137,11 @@ export default function CanvasPageEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setIsDirty(false);
       setPreviewNonce((n) => n + 1);
+      // The iframe will reload on the nonce bump; if the preview is visible
+      // queue an automatic axe re-run for when it finishes loading.
+      if (showPreview) {
+        autoAuditPendingRef.current = true;
+      }
     },
     onError: (error) => {
       toast.error('Failed to save: ' + (error?.message || 'Unknown error'));
@@ -172,12 +196,48 @@ export default function CanvasPageEditorPage() {
         });
         return;
       }
+
+      // Accessibility "must-fix" issues block publishing too. Combine the
+      // in-process heuristic audit with the last axe-core scan against the
+      // rendered preview (if any).
+      const a11yIssues = auditCanvasDesign(designToCheck);
+      // Only consider axe results if they were produced from the current
+      // design. Stale results would unfairly block publishing after fixes.
+      const axeBlocking = (!axeStale && axeIssues)
+        ? axeIssues.filter((i) => i.severity === 'error')
+        : [];
+      const blocking = [...getBlockingIssues(a11yIssues), ...axeBlocking];
+      // If we've never run a full audit, or the last run is stale, force a
+      // fresh axe scan before allowing publish so authors get the most
+      // accurate picture against the rendered preview.
+      if (axeIssues === null || axeStale) {
+        toast.error(
+          axeIssues === null
+            ? 'Run the full accessibility audit before publishing.'
+            : 'Accessibility audit results are stale — run the full audit again before publishing.',
+          { duration: 8000 },
+        );
+        return;
+      }
+      if (blocking.length > 0) {
+        const summary = blocking
+          .slice(0, 5)
+          .map((i) => `• ${i.blockName ? `${i.blockName}: ` : ''}${i.message}`)
+          .join('\n');
+        const more = blocking.length > 5 ? `\n…and ${blocking.length - 5} more` : '';
+        toast.error(
+          `Can't publish — ${blocking.length} accessibility issue(s) must be fixed:\n${summary}${more}`,
+          { duration: 10000 },
+        );
+        return;
+      }
     }
 
     if (canvasRef.current?.isDirty?.()) {
       const ok = await canvasRef.current.saveNow();
       if (!ok) return;
     }
+
     updatePageMetaMutation.mutate({
       id: pageId,
       data: {
@@ -186,6 +246,125 @@ export default function CanvasPageEditorPage() {
       },
     });
   };
+
+  // Core axe runner used by both the manual button and the post-save
+  // auto-audit. Returns the mapped issue list (or null on hard failure) and
+  // never throws.
+  const runAxeOnPreview = useCallback(async ({ silent = false } = {}) => {
+    const iframe = previewIframeRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc) {
+      if (!silent) toast.error('Preview is not loaded yet. Try again in a moment.');
+      return null;
+    }
+    setAxeRunning(true);
+    try {
+      const axe = (await import('axe-core')).default;
+      const results = await axe.run(doc, {
+        runOnly: ['wcag2a', 'wcag2aa', 'best-practice'],
+        resultTypes: ['violations'],
+      });
+      const sevFromImpact = (impact) => {
+        if (impact === 'critical' || impact === 'serious') return 'error';
+        if (impact === 'moderate') return 'warning';
+        return 'info';
+      };
+      // Walk up from each failing node to the nearest [data-block-id] so
+      // axe issues can be filed against specific canvas blocks (and surfaced
+      // in the inspector / layers / a11y panel alongside heuristic issues).
+      const blockMap = new Map();
+      try {
+        const design = canvasRef.current?.getDesign?.();
+        const visit = (b) => {
+          if (!b) return;
+          if (b.id) blockMap.set(b.id, b.name || b.type || b.id);
+          (b.children || []).forEach(visit);
+        };
+        (design?.root?.children || []).forEach(visit);
+      } catch { /* best-effort */ }
+      const blockIdForNode = (target) => {
+        const sel = Array.isArray(target) ? target[target.length - 1] : target;
+        if (!sel || typeof sel !== 'string') return null;
+        let el = null;
+        try { el = doc.querySelector(sel); } catch { return null; }
+        while (el && el !== doc.documentElement) {
+          const id = el.getAttribute && el.getAttribute('data-block-id');
+          if (id) return id;
+          el = el.parentElement;
+        }
+        return null;
+      };
+      const mapped = (results.violations || []).flatMap((v) =>
+        v.nodes.map((n, i) => {
+          const blockId = blockIdForNode(n.target);
+          return {
+            blockId,
+            blockName: blockId ? (blockMap.get(blockId) || null) : null,
+            rule: `axe:${v.id}`,
+            severity: sevFromImpact(v.impact),
+            message: `${v.help}${blockId ? '' : ` (${(n.target || []).join(' ') || `match #${i + 1}`})`}`,
+          };
+        }),
+      );
+      setAxeIssues(mapped);
+      setAxeStale(false);
+      setAxeLastRunAt(Date.now());
+      lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
+      if (!silent) {
+        const summary = mapped.reduce(
+          (acc, m) => ({ ...acc, [m.severity]: (acc[m.severity] || 0) + 1 }),
+          {},
+        );
+        if (mapped.length === 0) {
+          toast.success('Full audit passed — no axe-core violations found.');
+        } else {
+          toast.message(
+            `Full audit found ${mapped.length} issue(s): ${summary.error || 0} error · ${summary.warning || 0} warning · ${summary.info || 0} info`,
+            { duration: 6000 },
+          );
+        }
+      }
+      return mapped;
+    } catch (err) {
+      console.error('axe-core run failed', err);
+      if (!silent) toast.error(`Audit failed: ${err.message || err}`);
+      return null;
+    } finally {
+      setAxeRunning(false);
+    }
+  }, []);
+
+  // Manual "Run full audit" entry point — opens the preview if needed.
+  const handleRunFullAudit = async () => {
+    if (!page?.slug) {
+      toast.error('Save a slug for this page before running a full audit.');
+      return;
+    }
+    if (!showPreview) {
+      setShowPreview(true);
+      autoAuditPendingRef.current = true;
+      toast.message('Preview opening — audit will run automatically once loaded.');
+      return;
+    }
+    await runAxeOnPreview();
+  };
+
+  // Fires when the preview iframe finishes loading. If a save (or first
+  // open) flagged an auto-audit, run axe now so results stay in sync.
+  const handlePreviewIframeLoad = useCallback(() => {
+    if (!autoAuditPendingRef.current) return;
+    autoAuditPendingRef.current = false;
+    // Give the SPA inside the iframe a tick to mount its tree before scanning.
+    setTimeout(() => { runAxeOnPreview({ silent: true }); }, 400);
+  }, [runAxeOnPreview]);
+
+  // Opening the preview for the first time should also trigger an audit so
+  // authors don't have to click twice.
+  useEffect(() => {
+    if (showPreview && axeIssues === null) {
+      autoAuditPendingRef.current = true;
+    }
+  }, [showPreview, axeIssues]);
 
   if (!accessChecked || pageLoading) {
     return (
@@ -307,6 +486,30 @@ export default function CanvasPageEditorPage() {
         <Button
           variant="outline"
           size="sm"
+          onClick={handleRunFullAudit}
+          disabled={axeRunning}
+          data-testid="button-run-full-audit"
+          title="Run a full axe-core audit against the rendered preview"
+        >
+          {axeRunning
+            ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            : <Accessibility className="w-4 h-4 mr-2" />}
+          {axeRunning ? 'Auditing…' : 'Run full audit'}
+          {axeIssues && axeIssues.length > 0 && (
+            <Badge className="ml-2 bg-amber-100 text-amber-700" data-testid="badge-axe-count">
+              {axeIssues.length}
+            </Badge>
+          )}
+          {axeStale && (
+            <Badge className="ml-2 bg-slate-200 text-slate-700" data-testid="badge-axe-stale">
+              Stale
+            </Badge>
+          )}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
           onClick={handleTogglePublish}
           disabled={saveDesignMutation.isPending || updatePageMetaMutation.isPending}
           data-testid="button-toggle-publish"
@@ -336,7 +539,8 @@ export default function CanvasPageEditorPage() {
             onSave={handleSave}
             isSaving={saveDesignMutation.isPending}
             isDirty={isDirty}
-            onDirtyChange={setIsDirty}
+            onDirtyChange={handleDirtyChange}
+            extraIssues={axeStale ? [] : (axeIssues || [])}
           />
         </div>
 
@@ -369,6 +573,7 @@ export default function CanvasPageEditorPage() {
             <div className="flex-1 overflow-hidden flex justify-center bg-slate-200">
               {page.slug ? (
                 <iframe
+                  ref={previewIframeRef}
                   key={previewNonce}
                   title="Page preview"
                   src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}`}
@@ -377,6 +582,7 @@ export default function CanvasPageEditorPage() {
                     width: breakpoint === 'mobile' ? 375 :
                            breakpoint === 'tablet' ? 768 : '100%',
                   }}
+                  onLoad={handlePreviewIframeLoad}
                   data-testid="iframe-preview"
                 />
               ) : (

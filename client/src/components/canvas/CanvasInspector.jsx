@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import {
   resolveBlockAtBreakpoint,
   hasOverride,
@@ -11,7 +11,16 @@ import {
   clearBpOverride,
   BREAKPOINTS,
   validateBlock,
+  BLOCK_TYPES,
 } from '@/lib/canvasDesign';
+import {
+  SEVERITY,
+  contrastRatio,
+  meetsAA,
+  blockTextColor,
+  blockBackgroundColor,
+  blockHeadingLevel,
+} from '@/lib/canvasA11y';
 import { getBlockDefinition } from './blocks/registry';
 
 function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override }) {
@@ -49,10 +58,14 @@ function NumberField({ id, label, value, onChange, min, max, step = 1, testId, o
 export default function CanvasInspector({
   selectedBlocks,
   breakpoint,
+  blockIssues = [],
   onUpdateBlock,
   onToggleLocked,
   onToggleHidden,
   onClearOverride,
+  onReorderBlock,
+  readingOrderIndex = -1,
+  readingOrderTotal = 0,
 }) {
   const single = selectedBlocks.length === 1 ? selectedBlocks[0] : null;
 
@@ -89,11 +102,117 @@ export default function CanvasInspector({
   return <SingleBlockInspector
     block={single}
     breakpoint={breakpoint}
+    blockIssues={blockIssues}
     onUpdate={(updater) => onUpdateBlock(single.id, updater)}
     onToggleLocked={() => onToggleLocked(single.id)}
     onToggleHidden={() => onToggleHidden(single.id)}
     onClearOverride={(field) => onClearOverride(single.id, breakpoint, field)}
+    onReorder={onReorderBlock ? (dir) => onReorderBlock(single.id, dir) : null}
+    readingOrderIndex={readingOrderIndex}
+    readingOrderTotal={readingOrderTotal}
   />;
+}
+
+const SEV_ICON = {
+  [SEVERITY.ERROR]: CircleAlert,
+  [SEVERITY.WARNING]: AlertTriangle,
+  [SEVERITY.INFO]: Info,
+};
+const SEV_CLASS = {
+  [SEVERITY.ERROR]: 'text-destructive',
+  [SEVERITY.WARNING]: 'text-amber-600',
+  [SEVERITY.INFO]: 'text-slate-500',
+};
+
+function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrderTotal }) {
+  const fg = blockTextColor(block);
+  const bg = blockBackgroundColor(block);
+  const ratio = contrastRatio(fg, bg);
+  const isLarge = blockHeadingLevel(block) != null
+    || block.type === BLOCK_TYPES.HERO
+    || block.type === BLOCK_TYPES.STAT;
+  const passes = meetsAA(ratio, { isLargeText: isLarge });
+
+  return (
+    <Section title="Accessibility checks">
+      {onReorder && readingOrderIndex >= 0 && (
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-600 mb-1">
+          <span>
+            Reading order:&nbsp;
+            <span className="font-medium text-slate-800" data-testid="text-reading-order-index">
+              {readingOrderIndex + 1} of {readingOrderTotal}
+            </span>
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => onReorder('up')}
+              disabled={readingOrderIndex <= 0}
+              title="Move earlier in reading order"
+              data-testid="button-reading-order-up"
+            >
+              <ArrowUp className="w-4 h-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => onReorder('down')}
+              disabled={readingOrderIndex >= readingOrderTotal - 1}
+              title="Move later in reading order"
+              data-testid="button-reading-order-down"
+            >
+              <ArrowDown className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+      {issues.length === 0 ? (
+        <div className="text-xs text-slate-600" data-testid="inspector-a11y-clean">
+          No accessibility issues detected on this element.
+        </div>
+      ) : (
+        <ul className="space-y-1" data-testid="inspector-a11y-issues">
+          {issues.map((it, i) => {
+            const Icon = SEV_ICON[it.severity] || Info;
+            return (
+              <li
+                key={`${it.rule}-${i}`}
+                className="flex items-start gap-1.5 text-xs"
+                data-testid={`inspector-a11y-issue-${it.rule}`}
+              >
+                <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${SEV_CLASS[it.severity]}`} />
+                <div className="min-w-0">
+                  <div className="text-slate-700">{it.message}</div>
+                  <div className="text-[10px] text-slate-500 font-mono">{it.rule}</div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {ratio != null && (
+        <div
+          className={`mt-2 rounded border p-2 text-xs ${
+            passes
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}
+          data-testid="inspector-contrast-readout"
+          data-passes={passes ? 'true' : 'false'}
+        >
+          <div className="font-medium">
+            Contrast {ratio.toFixed(2)}:1 — {passes ? 'passes' : 'fails'} WCAG AA
+          </div>
+          <div className="text-[10px] mt-0.5">
+            Required: {isLarge ? '3:1 (large text)' : '4.5:1 (body text)'} ·
+            text {fg} on {bg}
+          </div>
+        </div>
+      )}
+    </Section>
+  );
 }
 
 function ContentSection({ block, onUpdate }) {
@@ -120,7 +239,7 @@ function ContentSection({ block, onUpdate }) {
   );
 }
 
-function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onToggleHidden, onClearOverride }) {
+function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onToggleLocked, onToggleHidden, onClearOverride, onReorder, readingOrderIndex, readingOrderTotal }) {
   const geom = useMemo(() => resolveBlockAtBreakpoint(block, breakpoint), [block, breakpoint]);
 
   const updateGeom = (field, value) => {
@@ -185,6 +304,14 @@ function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onT
       </div>
 
       <ContentSection block={block} onUpdate={onUpdate} />
+
+      <A11ySection
+        block={block}
+        issues={blockIssues || []}
+        onReorder={onReorder}
+        readingOrderIndex={readingOrderIndex}
+        readingOrderTotal={readingOrderTotal}
+      />
 
       <Section title={`Position (${breakpoint})`}>
         <div className="grid grid-cols-2 gap-2">
@@ -365,15 +492,51 @@ function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onT
               data-testid="input-aria-label"
             />
           </div>
+          {block.type === BLOCK_TYPES.IMAGE && (
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Alt text</Label>
+              <Input
+                value={block.content?.alt || ''}
+                onChange={(e) => onUpdate((b) => ({
+                  ...b,
+                  content: { ...b.content, alt: e.target.value },
+                }))}
+                placeholder="Describe the image for screen readers"
+                className="h-8"
+                data-testid="input-alt-text"
+              />
+              <p className="text-[10px] text-slate-500">
+                Leave blank and toggle aria-hidden if the image is purely decorative.
+              </p>
+            </div>
+          )}
+          {block.type === BLOCK_TYPES.CARD && (
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Card image alt text</Label>
+              <Input
+                value={block.content?.imageAlt || ''}
+                onChange={(e) => onUpdate((b) => ({
+                  ...b,
+                  content: { ...b.content, imageAlt: e.target.value },
+                }))}
+                placeholder="Describe the card image"
+                className="h-8"
+                data-testid="input-alt-text"
+              />
+            </div>
+          )}
           <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Alt text</Label>
+            <Label className="text-xs text-slate-600">Language (BCP-47)</Label>
             <Input
-              value={block.a11y.altText || ''}
-              onChange={(e) => updateA11y({ altText: e.target.value })}
-              placeholder="Used by image-bearing blocks"
+              value={block.a11y.lang || ''}
+              onChange={(e) => updateA11y({ lang: e.target.value })}
+              placeholder="e.g. en, fr, es-MX"
               className="h-8"
-              data-testid="input-alt-text"
+              data-testid="input-lang"
             />
+            <p className="text-[10px] text-slate-500">
+              Set when this block's content is in a different language than the page.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">

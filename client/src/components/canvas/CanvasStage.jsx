@@ -197,6 +197,8 @@ export default function CanvasStage({
   gridSize = 8,
   showGrid = true,
   zoom = 1,
+  showReadingOrder = false,
+  issuesByBlock,
   onSelect,
   onApplyGeometry, // (updates: { [id]: { x, y, w, h } }) => void  (commits to history)
   onMarqueeSelect, // (ids: string[], additive: boolean) => void
@@ -427,19 +429,64 @@ export default function CanvasStage({
       data-testid="canvas-stage"
       data-breakpoint={breakpoint}
     >
-      {resolvedBlocks.map(({ block, geom }) => {
+      {resolvedBlocks.map(({ block, geom }, index) => {
         const preview = previewGeoms[block.id];
         const effective = preview ? { ...geom, ...preview } : geom;
+        const blockIssues = issuesByBlock?.get?.(block.id) || [];
+        const sev = blockIssues.some((i) => i.severity === 'error')
+          ? 'error'
+          : blockIssues.some((i) => i.severity === 'warning')
+            ? 'warning'
+            : null;
         return (
-          <CanvasBlockView
-            key={block.id}
-            block={block}
-            geom={effective}
-            breakpoint={breakpoint}
-            isSelected={selectedIds.includes(block.id)}
-            onPointerDownBlock={handlePointerDownBlock}
-            onPointerDownResize={handlePointerDownResize}
-          />
+          <div key={block.id}>
+            <CanvasBlockView
+              block={block}
+              geom={effective}
+              breakpoint={breakpoint}
+              isSelected={selectedIds.includes(block.id)}
+              onPointerDownBlock={handlePointerDownBlock}
+              onPointerDownResize={handlePointerDownResize}
+            />
+            {!effective.hidden && sev && (
+              <div
+                className={`absolute pointer-events-none rounded-full border ${
+                  sev === 'error'
+                    ? 'bg-destructive text-white border-destructive'
+                    : 'bg-amber-500 text-white border-amber-500'
+                }`}
+                style={{
+                  left: effective.x + effective.w - 18,
+                  top: effective.y - 8,
+                  width: 16,
+                  height: 16,
+                  fontSize: 11,
+                  lineHeight: '14px',
+                  textAlign: 'center',
+                  fontWeight: 700,
+                }}
+                title={blockIssues.map((i) => i.message).join('\n')}
+                data-testid={`canvas-block-a11y-${block.id}`}
+                data-severity={sev}
+              >
+                !
+              </div>
+            )}
+            {!effective.hidden && showReadingOrder && (
+              <div
+                className="absolute pointer-events-none bg-primary text-primary-foreground rounded-md text-xs font-bold"
+                style={{
+                  left: effective.x + 4,
+                  top: effective.y + 4,
+                  padding: '2px 6px',
+                  zIndex: 9999,
+                }}
+                data-testid={`reading-order-${block.id}`}
+              >
+                {index + 1}
+              </div>
+            )}
+          </div>
         );
       })}
 

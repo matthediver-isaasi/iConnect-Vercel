@@ -30,6 +30,8 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  ListOrdered,
+  Accessibility,
 } from 'lucide-react';
 import {
   createBlock,
@@ -46,6 +48,13 @@ import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasInspector from './CanvasInspector';
 import CanvasLayers from './CanvasLayers';
+import CanvasA11yPanel from './CanvasA11yPanel';
+import {
+  auditCanvasDesign,
+  issuesByBlock as buildIssuesByBlock,
+  suggestHeadingLevel,
+  headingFieldFor,
+} from '@/lib/canvasA11y';
 
 const BREAKPOINTS = [
   { id: 'desktop', label: 'Desktop', icon: Monitor },
@@ -156,6 +165,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   isSaving,
   isDirty: isDirtyProp,
   onDirtyChange,
+  extraIssues = [],
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -164,6 +174,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [showGrid, setShowGrid] = useState(true);
   const [gridSize, setGridSize] = useState(8);
   const [zoom, setZoom] = useState(1);
+  const [showReadingOrder, setShowReadingOrder] = useState(false);
+  const [showA11yPanel, setShowA11yPanel] = useState(false);
   const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
   const zoomIn = () => setZoom((z) => ZOOM_LEVELS.find((l) => l > z + 0.001) ?? z);
   const zoomOut = () => setZoom((z) => [...ZOOM_LEVELS].reverse().find((l) => l < z - 0.001) ?? z);
@@ -230,6 +242,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     saveNow: () => performSave(),
     isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
     getDesign: () => design,
+    getA11yIssues: () => auditCanvasDesign(design),
   }), [performSave, design, lastSavedSnapshot]);
 
   // Autosave (debounced) — only fires when dirty and onSave provided.
@@ -278,6 +291,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, []);
 
   const children = useMemo(() => getRootChildren(design), [design]);
+
+  // Live accessibility audit (recomputes on every design change).
+  const heuristicA11yIssues = useMemo(() => auditCanvasDesign(design), [design]);
+  const a11yIssues = useMemo(
+    () => [...heuristicA11yIssues, ...(Array.isArray(extraIssues) ? extraIssues : [])],
+    [heuristicA11yIssues, extraIssues],
+  );
+  const a11yIssuesByBlock = useMemo(() => buildIssuesByBlock(a11yIssues), [a11yIssues]);
 
   const replaceChildren = useCallback((updater) => {
     setDesign((prev) => {
@@ -378,9 +399,33 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     const newBlock = createBlock(newType, {
       desktop: { x, y, hidden: false },
     });
+    // Intelligent heading-level default: avoid duplicate H1s and keep
+    // sibling Text/Hero/Card blocks from skipping levels.
+    const suggested = suggestHeadingLevel(design, newType);
+    const headingField = headingFieldFor(newType);
+    if (suggested != null && headingField) {
+      newBlock.content = {
+        ...newBlock.content,
+        [headingField]: headingField === 'headingAs' ? String(suggested) : suggested,
+      };
+    }
     replaceChildren((arr) => [...arr, newBlock]);
     setSelectedIds([newBlock.id]);
   };
+
+  // Move a block up or down in the children array (= DOM/reading order).
+  const moveBlockInReadingOrder = useCallback((id, direction) => {
+    replaceChildren((arr) => {
+      const idx = arr.findIndex((b) => b.id === id);
+      if (idx < 0) return arr;
+      const target = direction === 'up' ? idx - 1 : idx + 1;
+      if (target < 0 || target >= arr.length) return arr;
+      const next = arr.slice();
+      const [item] = next.splice(idx, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  }, [replaceChildren]);
 
   // ---- Layer reorder ----
   const handleReorderLayers = useCallback((newChildren) => {
@@ -683,6 +728,40 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <div className="flex-1" />
           <Button
             size="sm" variant="ghost"
+            onClick={() => setShowReadingOrder((v) => !v)}
+            className={`toggle-elevate ${showReadingOrder ? 'toggle-elevated' : ''}`}
+            aria-pressed={showReadingOrder}
+            title="Show reading (DOM/tab) order"
+            data-testid="button-toggle-reading-order"
+          >
+            <ListOrdered className="w-4 h-4 mr-1.5" /> Order
+          </Button>
+          <Button
+            size="sm" variant="ghost"
+            onClick={() => setShowA11yPanel((v) => !v)}
+            className={`toggle-elevate ${showA11yPanel ? 'toggle-elevated' : ''}`}
+            aria-pressed={showA11yPanel}
+            title="Show accessibility audit"
+            data-testid="button-toggle-a11y"
+          >
+            <Accessibility className="w-4 h-4 mr-1.5" />
+            A11y
+            {a11yIssues.length > 0 && (
+              <Badge
+                variant="outline"
+                className={`ml-1.5 ${
+                  a11yIssues.some((i) => i.severity === 'error')
+                    ? 'border-destructive/40 text-destructive'
+                    : ''
+                }`}
+                data-testid="badge-a11y-issue-count"
+              >
+                {a11yIssues.length}
+              </Badge>
+            )}
+          </Button>
+          <Button
+            size="sm" variant="ghost"
             onClick={() => setShowGrid((v) => !v)}
             className={`toggle-elevate ${showGrid ? 'toggle-elevated' : ''}`}
             aria-pressed={showGrid}
@@ -737,6 +816,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 blocks={children}
                 selectedIds={selectedIds}
                 breakpoint={breakpoint}
+                issuesByBlock={a11yIssuesByBlock}
                 onSelect={handleSelect}
                 onReorder={handleReorderLayers}
                 onToggleHidden={toggleHiddenById}
@@ -746,6 +826,21 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 onRename={renameById}
               />
             </div>
+            {showA11yPanel && (
+              <div className="mt-6 pt-4 border-t border-slate-200">
+                <CanvasA11yPanel
+                  issues={a11yIssues}
+                  selectedIds={selectedIds}
+                  onJumpToBlock={(id) => {
+                    setSelectedIds([id]);
+                    const el = document.querySelector(`[data-testid="canvas-block-${id}"]`);
+                    if (el && typeof el.scrollIntoView === 'function') {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                />
+              </div>
+            )}
           </aside>
 
           {/* Stage */}
@@ -789,6 +884,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     gridSize={gridSize}
                     showGrid={showGrid}
                     zoom={zoom}
+                    showReadingOrder={showReadingOrder}
+                    issuesByBlock={a11yIssuesByBlock}
                     onSelect={handleSelect}
                     onApplyGeometry={applyGeometry}
                     onMarqueeSelect={handleMarqueeSelect}
@@ -807,10 +904,22 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}
+              blockIssues={
+                selectedBlocks.length === 1
+                  ? (a11yIssuesByBlock.get(selectedBlocks[0].id) || [])
+                  : []
+              }
               onUpdateBlock={updateBlock}
               onToggleLocked={toggleLockedById}
               onToggleHidden={toggleHiddenById}
               onClearOverride={clearOverrideById}
+              onReorderBlock={moveBlockInReadingOrder}
+              readingOrderIndex={
+                selectedBlocks.length === 1
+                  ? children.findIndex((b) => b.id === selectedBlocks[0].id)
+                  : -1
+              }
+              readingOrderTotal={children.length}
             />
           </aside>
         </div>

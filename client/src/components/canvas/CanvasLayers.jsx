@@ -25,13 +25,29 @@ import {
   Copy,
   GripVertical,
   Layers,
+  CircleAlert,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
+import { SEVERITY, worstSeverity } from '@/lib/canvasA11y';
+
+const SEV_ICON = {
+  [SEVERITY.ERROR]: CircleAlert,
+  [SEVERITY.WARNING]: AlertTriangle,
+  [SEVERITY.INFO]: Info,
+};
+const SEV_CLASS = {
+  [SEVERITY.ERROR]: 'text-destructive',
+  [SEVERITY.WARNING]: 'text-amber-600',
+  [SEVERITY.INFO]: 'text-slate-400',
+};
 
 function LayerRow({
   block,
   isSelected,
   breakpoint,
+  issues,
   onSelect,
   onToggleHidden,
   onToggleLocked,
@@ -73,6 +89,22 @@ function LayerRow({
         <GripVertical className="w-3.5 h-3.5 text-slate-400" />
       </div>
       <Square className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+      {(() => {
+        const sev = worstSeverity(issues);
+        if (!sev) return null;
+        const Icon = SEV_ICON[sev];
+        const tip = issues.map((i) => i.message).join('\n');
+        return (
+          <span
+            className={`shrink-0 ${SEV_CLASS[sev]}`}
+            title={tip}
+            data-testid={`layer-a11y-${block.id}`}
+            data-severity={sev}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </span>
+        );
+      })()}
       {editing ? (
         <input
           autoFocus
@@ -147,6 +179,7 @@ export default function CanvasLayers({
   blocks,
   selectedIds,
   breakpoint,
+  issuesByBlock,
   onSelect,
   onReorder,
   onToggleHidden,
@@ -192,6 +225,7 @@ export default function CanvasLayers({
                   block={b}
                   isSelected={selectedIds.includes(b.id)}
                   breakpoint={breakpoint}
+                  issues={issuesByBlock?.get?.(b.id) || []}
                   onSelect={onSelect}
                   onToggleHidden={onToggleHidden}
                   onToggleLocked={onToggleLocked}
