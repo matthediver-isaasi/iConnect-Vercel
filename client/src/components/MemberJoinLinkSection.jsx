@@ -91,7 +91,7 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     queryFn: async () => {
       // Fetch ALL org-scoped preference fields (active + inactive). The join-link
       // resolver tolerates stale / duplicate org_type field rows: a saved
-      // OrganizationPreferenceValue may carry a preference_field_id that points
+      // OrganizationPreferenceValue may carry a field_id that points
       // at a legacy or now-inactive PreferenceField, and we still want to find
       // it. The "primary" org_type field (the active one) is preferred when
       // multiple candidates exist.
@@ -154,10 +154,10 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     if (!orgTypeField) return null;
     // Prefer the active org_type field id, but tolerate value rows that carry a
     // legacy / duplicate field id by also accepting any candidate in the set.
-    const exact = orgPreferenceValues.find(v => v.preference_field_id === orgTypeField.id);
+    const exact = orgPreferenceValues.find(v => v.field_id === orgTypeField.id);
     if (exact) return exact;
     if (orgTypeFieldIdSet.size > 1) {
-      return orgPreferenceValues.find(v => orgTypeFieldIdSet.has(v.preference_field_id)) || null;
+      return orgPreferenceValues.find(v => orgTypeFieldIdSet.has(v.field_id)) || null;
     }
     return null;
   }, [orgTypeField, orgTypeFieldIdSet, orgPreferenceValues]);
@@ -271,7 +271,7 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
       try {
         const rawMatch = orgTypeValueMatch;
         const exactIdMatch = orgPreferenceValues.find(
-          v => orgTypeField && v.preference_field_id === orgTypeField.id
+          v => orgTypeField && v.field_id === orgTypeField.id
         );
         // eslint-disable-next-line no-console
         console.groupCollapsed(`[MemberJoinLink] org ${organizationId}`);
@@ -286,11 +286,11 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
         // eslint-disable-next-line no-console
         console.log('orgPreferenceValues.length', orgPreferenceValues.length);
         // eslint-disable-next-line no-console
-        console.log('orgPreferenceValues (all rows)', orgPreferenceValues.map(v => ({ preference_field_id: v.preference_field_id, value: v.value })));
+        console.log('orgPreferenceValues (all rows)', orgPreferenceValues.map(v => ({ field_id: v.field_id, value: v.value })));
         // eslint-disable-next-line no-console
-        console.log('any row matches orgTypeField.id exactly?', !!exactIdMatch, exactIdMatch ? { preference_field_id: exactIdMatch.preference_field_id, value: exactIdMatch.value } : null);
+        console.log('any row matches orgTypeField.id exactly?', !!exactIdMatch, exactIdMatch ? { field_id: exactIdMatch.field_id, value: exactIdMatch.value } : null);
         // eslint-disable-next-line no-console
-        console.log('selected orgTypeValueMatch (after legacy-id tolerance)', rawMatch ? { preference_field_id: rawMatch.preference_field_id, value: rawMatch.value } : null);
+        console.log('selected orgTypeValueMatch (after legacy-id tolerance)', rawMatch ? { field_id: rawMatch.field_id, value: rawMatch.value } : null);
         // eslint-disable-next-line no-console
         console.log('raw OrganizationPreferenceValue.value', rawMatch?.value, '(typeof:', typeof rawMatch?.value, ')');
         // eslint-disable-next-line no-console
