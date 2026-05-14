@@ -21,6 +21,7 @@ import {
   Bell, Award, Check, Heart, Mail, Phone, Globe, Calendar, Clock,
   Users, Building2, Briefcase, BookOpen, GraduationCap, Lightbulb,
   Shield, Zap, ChevronDown,
+  Component as ComponentIcon,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -157,10 +158,36 @@ function ColorField({ label, value, onChange, testId }) {
 }
 
 function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
+  // The "Media library" button asks the editor shell to open the shared
+  // MediaLibraryDialog. The shell wires up a window event listener that
+  // sets a callback so the picked asset flows back here. This keeps
+  // block inspectors decoupled from the dialog implementation.
+  const openLibrary = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+      detail: {
+        onPick: (asset) => {
+          if (asset?.url) onChangeSrc(asset.url);
+          if (onChangeAlt && asset?.alt_text) onChangeAlt(asset.alt_text);
+        },
+      },
+    }));
+  };
   return (
     <div className="space-y-2">
       <Label className="text-xs text-slate-600">{label}</Label>
       <ImageSelector value={value} onChange={onChangeSrc} />
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={openLibrary}
+        className="w-full"
+        data-testid={`${testId}-open-library`}
+      >
+        <Images className="w-4 h-4 mr-2" />
+        Choose from media library
+      </Button>
       {onChangeAlt && (
         <Input
           value={alt || ''}
@@ -772,6 +799,28 @@ function VideoInspector({ block, update }) {
         testId="select-video-provider"
       />
       <TextField label="Video URL" value={c.url} onChange={(v) => set({ url: v })} testId="input-video-url" />
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="w-full"
+        onClick={() => {
+          if (typeof window === 'undefined') return;
+          // Open the shared media library filtered to videos so the
+          // picker only shows mp4/webm/ogg assets; the picked URL flows
+          // back into the block's `url` content field.
+          window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+            detail: {
+              kind: 'video',
+              onPick: (asset) => { if (asset?.url) set({ provider: 'mp4', url: asset.url }); },
+            },
+          }));
+        }}
+        data-testid="button-video-media-library"
+      >
+        <Images className="w-4 h-4 mr-2" />
+        Choose from media library (video)
+      </Button>
       <SelectField
         label="Aspect ratio"
         value={c.aspectRatio || '16:9'}
@@ -1514,6 +1563,46 @@ function BoxInspector() {
   );
 }
 
+// SYMBOL (Phase 7) -----------------------------------------------------------
+// Symbol blocks reference a tenant-scoped canvas_symbol. The editor shows a
+// labelled placeholder; the public renderer splices in the resolved symbol
+// children before rendering. We deliberately hide symbol from the palette —
+// authors insert them from the "Symbols" dialog so they pick which symbol
+// up-front.
+function SymbolRender({ block, asEditor }) {
+  const c = block.content || {};
+  const symbolChildren = block.__symbolChildren;
+  if (!asEditor && Array.isArray(symbolChildren) && symbolChildren.length > 0) {
+    // In the public renderer, defer to the host page's renderer to draw the
+    // spliced-in children. We return null here because CanvasPageRenderer
+    // walks __symbolChildren itself; emitting markup again would duplicate.
+    return null;
+  }
+  return (
+    <div
+      className="w-full h-full flex items-center justify-center border border-dashed border-slate-300 bg-slate-50 text-slate-600"
+      data-symbol-id={c.symbolId || ''}
+    >
+      <div className="flex flex-col items-center gap-1 px-3 text-center">
+        <ComponentIcon className="w-5 h-5 text-slate-400" />
+        <span className="text-xs font-semibold uppercase tracking-wide">Symbol</span>
+        <span className="text-sm">{c.symbolName || c.symbolId || 'Pick a symbol'}</span>
+      </div>
+    </div>
+  );
+}
+function SymbolInspector({ block }) {
+  const c = block.content || {};
+  return (
+    <div className="space-y-2 text-xs text-slate-600">
+      <p><strong>Symbol:</strong> {c.symbolName || c.symbolId || '—'}</p>
+      <p className="text-slate-500">
+        This block reuses a saved symbol. Open the Symbols dialog to manage symbols, or use Unlink to convert this instance back into editable blocks on the page.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -1537,6 +1626,7 @@ const REGISTRY = {
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
+  [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
 };
 

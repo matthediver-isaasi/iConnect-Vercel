@@ -160,6 +160,9 @@ export const BLOCK_TYPES = {
   CAMPAIGN_EMBED: 'campaign-embed',
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
+  // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
+  // and is rendered by inlining the referenced canvas_symbol design.
+  SYMBOL: 'symbol',
 };
 
 const DEFAULT_STYLE = {
@@ -203,20 +206,25 @@ export const BLOCK_DEFAULTS = {
   },
   [BLOCK_TYPES.HERO]: {
     name: 'Hero',
+    // Theme tokens — the renderer scopes --cb-color-* / --cb-font-* vars
+    // onto every canvas page (from tenant_canvas_theme). Defaulting to
+    // var() with a hardcoded fallback means new blocks pick up tenant
+    // branding automatically while still rendering sensibly when no
+    // theme is configured.
     geom: { w: 800, h: 420 },
-    style: { background: '#0f172a', borderWidth: 0, borderRadius: 0 },
+    style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
     a11y: {},
     content: {
       headline: 'Your headline here',
       headingLevel: 1,
       subheadline: 'A short supporting message that frames the page.',
-      bgType: 'color', // 'color' | 'image' | 'video'
-      bgColor: '#0f172a',
+      bgType: 'color',
+      bgColor: 'var(--cb-color-primary, #0f172a)',
       bgImageUrl: '',
       bgVideoUrl: '',
       darkWash: 0.4,
-      alignment: 'center', // left | center | right
-      textColor: '#ffffff',
+      alignment: 'center',
+      textColor: 'var(--cb-color-on-primary, #ffffff)',
       ctas: [
         { label: 'Primary CTA', href: '#', variant: 'primary' },
       ],
@@ -300,7 +308,7 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       lineStyle: 'solid', // solid | dashed | dotted
-      color: '#e2e8f0',
+      color: 'var(--cb-color-border, #e2e8f0)',
       thickness: 1,
     },
   },
@@ -341,7 +349,7 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       icon: 'Star',
-      color: '#0f172a',
+      color: 'var(--cb-color-primary, #0f172a)',
       size: 48,
       ariaLabel: '',
     },
@@ -349,7 +357,7 @@ export const BLOCK_DEFAULTS = {
   [BLOCK_TYPES.CARD]: {
     name: 'Card',
     geom: { w: 320, h: 380 },
-    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8, paddingTop: 16, paddingRight: 16, paddingBottom: 16, paddingLeft: 16 },
+    style: { background: 'var(--cb-color-surface, #ffffff)', borderWidth: 1, borderColor: 'var(--cb-color-border, #e2e8f0)', borderRadius: 8, paddingTop: 16, paddingRight: 16, paddingBottom: 16, paddingLeft: 16 },
     content: {
       imageUrl: '',
       imageAlt: '',
@@ -518,8 +526,101 @@ export const BLOCK_DEFAULTS = {
   },
 };
 
+BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
+  name: 'Symbol',
+  geom: { w: 600, h: 240 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { symbolId: '', symbolName: '' },
+};
+
 export function getBlockDefaults(type) {
   return BLOCK_DEFAULTS[type] || BLOCK_DEFAULTS[BLOCK_TYPES.BOX];
+}
+
+// Phase 7 — Resolve symbol references inside a canvas design. Each `symbol`
+// block keeps its own geometry (x/y/w/h on the host page) but its visual
+// content comes from the referenced canvas_symbol design document. The
+// renderer calls this to splice symbol children into the page at render
+// time. Resolution is purely a read transform — the underlying page design
+// stays unchanged so authors can unlink symbols later.
+export function resolveSymbolsInDesign(design, symbolsById) {
+  if (!design || !symbolsById || symbolsById.size === 0) return design;
+  const d = normalizeCanvasDesign(design);
+  const sections = d.root.sections.map((section) => ({
+    ...section,
+    children: section.children.map((b) => {
+      if (b.type !== BLOCK_TYPES.SYMBOL) return b;
+      const sym = symbolsById.get(b?.content?.symbolId);
+      if (!sym || !sym.design) {
+        return { ...b, name: b.name || 'Missing symbol' };
+      }
+      // Pull the symbol's first-section children and re-key their ids so
+      // multiple instances of the same symbol don't collide. Geometry is
+      // preserved verbatim from the symbol design.
+      const symDesign = normalizeCanvasDesign(sym.design);
+      // Translate each child by the host symbol block's per-breakpoint
+      // origin so the symbol renders at its placed position on the host
+      // page. Without this, every symbol instance would render at
+      // top-left (its own local origin) and overlap with the others.
+      const hostBp = b.bp || {};
+      const symChildren = getRootChildren(symDesign).map((c, i) => {
+        const cBp = c.bp || {};
+        const nextBp = {};
+        for (const key of ['desktop', 'tablet', 'mobile']) {
+          const hostFrame = hostBp[key] || hostBp.desktop || {};
+          const childFrame = cBp[key] || cBp.desktop || {};
+          if (!childFrame) continue;
+          nextBp[key] = {
+            ...childFrame,
+            x: (childFrame.x || 0) + (hostFrame.x || 0),
+            y: (childFrame.y || 0) + (hostFrame.y || 0),
+            hidden: childFrame.hidden ?? hostFrame.hidden ?? false,
+          };
+        }
+        return {
+          ...c,
+          id: `${b.id}__${c.id || i}`,
+          locked: true,
+          bp: nextBp,
+        };
+      });
+      // Wrap symbol children in a single transparent "container" block so
+      // the host geometry (x/y/w/h) still controls placement. We do this
+      // by emitting a synthetic section-style block that contains the
+      // symbol's children translated into its local coordinate space.
+      return {
+        ...b,
+        // Keep host block geometry & a11y. Replace content children for the
+        // renderer to pick up.
+        __symbolChildren: symChildren,
+      };
+    }),
+  }));
+  return { ...d, root: { ...d.root, sections } };
+}
+
+// Build a CSS variable map from a tenant theme object. Used by the renderer
+// to inject :root-scoped overrides on the canvas page wrapper.
+export function buildThemeCssVars(theme) {
+  if (!theme || typeof theme !== 'object') return '';
+  const lines = [];
+  const colors = theme.colors || {};
+  for (const [k, v] of Object.entries(colors)) {
+    if (!v) continue;
+    // Accept either H S% L% or hex / rgb — pass through as-is.
+    lines.push(`--cb-color-${k}: ${v};`);
+  }
+  const typography = theme.typography || {};
+  for (const [k, v] of Object.entries(typography)) {
+    if (!v) continue;
+    lines.push(`--cb-font-${k}: ${v};`);
+  }
+  const spacing = theme.spacing || {};
+  for (const [k, v] of Object.entries(spacing)) {
+    if (v == null || v === '') continue;
+    lines.push(`--cb-space-${k}: ${typeof v === 'number' ? `${v}px` : v};`);
+  }
+  return lines.join('\n');
 }
 
 export function createEmptyCanvasDesign() {

@@ -238,13 +238,6 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     }
   }, [design, onSave]);
 
-  useImperativeHandle(ref, () => ({
-    saveNow: () => performSave(),
-    isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
-    getDesign: () => design,
-    getA11yIssues: () => auditCanvasDesign(design),
-  }), [performSave, design, lastSavedSnapshot]);
-
   // Autosave (debounced) — only fires when dirty and onSave provided.
   useEffect(() => {
     if (!onSave) return;
@@ -307,6 +300,46 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       return setRootChildren(prev, next);
     });
   }, [setDesign]);
+
+  // Imperative API — declared after `children` and `replaceChildren` so
+  // useImperativeHandle's dependency array does not reference Temporal
+  // Dead Zone bindings during the first render.
+  useImperativeHandle(ref, () => ({
+    saveNow: () => performSave(),
+    isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
+    getDesign: () => design,
+    getA11yIssues: () => auditCanvasDesign(design),
+    // Phase 7 — programmatic block insertion used by templates / symbols /
+    // command palette. Accepts an array of partial block objects which are
+    // passed through createBlock so defaults & ids are populated. Returns
+    // the ids that were actually inserted.
+    addBlocks: (blocks) => {
+      const arr = Array.isArray(blocks) ? blocks : [blocks];
+      const created = arr.map((b) => createBlock(b.type || BLOCK_TYPES.BOX, b));
+      replaceChildren((existing) => [...existing, ...created]);
+      const newIds = created.map((c) => c.id);
+      setSelectedIds(newIds);
+      return newIds;
+    },
+    getSelectedIds: () => selectedIds,
+    getSelectedBlocks: () => children.filter((b) => selectedIds.includes(b.id)),
+    setDesign: (next) => setDesignState(normalizeCanvasDesign(next)),
+    // Phase 7 — used by the command palette to jump to a block. Scrolls
+    // the block into view inside the editor stage and selects it so the
+    // inspector opens automatically.
+    setSelection: (ids) => {
+      const arr = Array.isArray(ids) ? ids : [ids];
+      setSelectedIds(arr);
+      if (arr[0] && typeof document !== 'undefined') {
+        setTimeout(() => {
+          const el = document.querySelector(`[data-block-id="${arr[0]}"]`);
+          if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 50);
+      }
+    },
+  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children]);
 
   const updateBlock = useCallback((id, updater) => {
     replaceChildren((arr) =>
@@ -521,6 +554,54 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       }
       if (meta && e.key.toLowerCase() === 'd') {
         e.preventDefault(); duplicateSelected(); return;
+      }
+      // Copy / cut / paste — clipboard lives on window so users can paste
+      // between pages within the same browser session.
+      if (meta && e.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+        e.preventDefault();
+        const copies = children
+          .filter((b) => selectedIds.includes(b.id))
+          .map((b) => JSON.parse(JSON.stringify(b)));
+        window.__canvasClipboard = copies;
+        return;
+      }
+      if (meta && e.key.toLowerCase() === 'x' && selectedIds.length > 0) {
+        e.preventDefault();
+        const copies = children
+          .filter((b) => selectedIds.includes(b.id))
+          .map((b) => JSON.parse(JSON.stringify(b)));
+        window.__canvasClipboard = copies;
+        deleteSelected();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === 'v') {
+        const clip = window.__canvasClipboard;
+        if (Array.isArray(clip) && clip.length > 0) {
+          e.preventDefault();
+          const newIds = [];
+          replaceChildren((arr) => {
+            const copies = clip.map((b) => {
+              const copy = createBlock(b.type, {
+                desktop: {
+                  ...(b.bp?.desktop || {}),
+                  x: (b.bp?.desktop?.x || 0) + 24,
+                  y: (b.bp?.desktop?.y || 0) + 24,
+                },
+                tablet: { ...(b.bp?.tablet || {}) },
+                mobile: { ...(b.bp?.mobile || {}) },
+                style: { ...(b.style || {}) },
+                a11y: { ...(b.a11y || {}) },
+                content: JSON.parse(JSON.stringify(b.content || {})),
+                name: b.name,
+              });
+              newIds.push(copy.id);
+              return copy;
+            });
+            return [...arr, ...copies];
+          });
+          setSelectedIds(newIds);
+          return;
+        }
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedIds.length > 0) {

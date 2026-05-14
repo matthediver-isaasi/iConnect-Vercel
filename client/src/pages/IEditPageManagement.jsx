@@ -40,7 +40,19 @@ export default function IEditPageManagementPage() {
     description: "",
     layout_type: "public",
     status: "draft",
-    builder_type: "iedit"
+    builder_type: "iedit",
+    canvas_template_id: "",
+  });
+  // Templates list, loaded lazily when the user picks the Canvas builder.
+  const { data: templatesData } = useQuery({
+    queryKey: ['canvas-templates'],
+    queryFn: async () => {
+      const r = await fetch('/api/canvas-templates', { credentials: 'include' });
+      if (!r.ok) return { templates: [] };
+      return r.json();
+    },
+    enabled: showCreateDialog && newPage.builder_type === 'canvas',
+    staleTime: 30_000,
   });
 
   const navigate = useNavigate();
@@ -72,7 +84,7 @@ export default function IEditPageManagementPage() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setShowCreateDialog(false);
-      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit" });
+      setNewPage({ title: "", slug: "", description: "", layout_type: "public", status: "draft", builder_type: "iedit", canvas_template_id: "" });
       toast.success('Page created successfully');
       const editorPage = created.builder_type === 'canvas' ? 'CanvasPageEditor' : 'IEditPageEditor';
       navigate(createPageUrl(editorPage) + `?pageId=${created.id}`);
@@ -109,6 +121,20 @@ export default function IEditPageManagementPage() {
         published_at: newStatus === 'published' ? new Date().toISOString() : null
       };
       await base44.entities.IEditPage.update(page.id, updateData);
+      // Phase 7 — every publish creates a version snapshot, regardless of
+      // which surface initiated it. This keeps rollback-on-publish
+      // available for pages published from the list view as well as the
+      // canvas editor. Failures here are non-fatal: the publish itself
+      // already succeeded.
+      if (newStatus === 'published' && page.builder_type === 'canvas') {
+        try {
+          await fetch(`/api/canvas-versions/${page.id}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'publish', label: `Published ${new Date().toLocaleString()}` }),
+          });
+        } catch { /* snapshot best-effort */ }
+      }
       return { ...page, ...updateData };
     },
     onSuccess: (updatedPage) => {
@@ -212,7 +238,7 @@ export default function IEditPageManagementPage() {
     }
   });
 
-  const handleCreatePage = () => {
+  const handleCreatePage = async () => {
     if (!newPage.title.trim() || !newPage.slug.trim()) {
       toast.error('Title and slug are required');
       return;
@@ -224,7 +250,21 @@ export default function IEditPageManagementPage() {
       return;
     }
 
-    createPageMutation.mutate(newPage);
+    // If the user picked a Canvas template, pre-fetch the template design
+    // so the new page is created with canvas_design already populated.
+    const payload = { ...newPage };
+    delete payload.canvas_template_id;
+    if (newPage.builder_type === 'canvas' && newPage.canvas_template_id) {
+      try {
+        const r = await fetch(`/api/canvas-templates/${newPage.canvas_template_id}`, { credentials: 'include' });
+        if (r.ok) {
+          const body = await r.json();
+          if (body?.template?.design) payload.canvas_design = body.template.design;
+        }
+      } catch {/* non-fatal — page will be created empty */}
+    }
+
+    createPageMutation.mutate(payload);
   };
 
   const handleDeletePage = () => {
@@ -539,6 +579,29 @@ export default function IEditPageManagementPage() {
                   {newPage.builder_type === 'canvas' && 'Free-form drag-and-drop canvas with per-breakpoint layouts. The builder cannot be changed after the page is created.'}
                 </p>
               </div>
+
+              {newPage.builder_type === 'canvas' && (
+                <div>
+                  <Label htmlFor="canvas_template_id">Start from template (optional)</Label>
+                  <Select
+                    value={newPage.canvas_template_id || 'blank'}
+                    onValueChange={(value) => setNewPage({ ...newPage, canvas_template_id: value === 'blank' ? '' : value })}
+                  >
+                    <SelectTrigger data-testid="select-canvas-template">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="blank">Blank page</SelectItem>
+                      {(templatesData?.templates || []).map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}{t.is_starter ? ' (Starter)' : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Templates copy their layout into the new page so you can keep editing without affecting the template.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <Label htmlFor="layout_type">View Type</Label>

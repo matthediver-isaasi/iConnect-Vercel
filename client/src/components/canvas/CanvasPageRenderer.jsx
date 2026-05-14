@@ -6,9 +6,60 @@ import {
   buildCanvasCss,
   findLcpBlockId,
   getSectionLandmarkTag,
+  resolveSymbolsInDesign,
+  buildThemeCssVars,
   BLOCK_TYPES,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
+
+// Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
+// symbols. Both are best-effort; failures degrade to "no theme" and
+// "symbol placeholder" respectively so a missing endpoint never blocks
+// rendering.
+function useTenantCanvasTheme() {
+  const [theme, setTheme] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/tenant-canvas-theme', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => { if (!cancelled && body) setTheme(body.theme || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  return theme;
+}
+
+function useSymbolsForDesign(design) {
+  const symbolIds = useMemo(() => {
+    const ids = new Set();
+    try {
+      for (const section of design?.root?.sections || []) {
+        for (const b of section.children || []) {
+          if (b.type === BLOCK_TYPES.SYMBOL && b?.content?.symbolId) ids.add(b.content.symbolId);
+        }
+      }
+    } catch {}
+    return Array.from(ids);
+  }, [design]);
+  const [byId, setById] = useState(() => new Map());
+  useEffect(() => {
+    if (symbolIds.length === 0) { setById(new Map()); return; }
+    let cancelled = false;
+    // Public read endpoint resolves tenant by host, so anonymous
+    // visitors can still see resolved symbol content.
+    fetch('/api/public/canvas-symbols', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return;
+        const m = new Map();
+        for (const s of body.symbols || []) m.set(s.id, s);
+        setById(m);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [symbolIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  return byId;
+}
 
 // Public renderer for Canvas Builder pages.
 //
@@ -131,9 +182,30 @@ const A11Y_DEFAULTS_CSS = `
 `;
 
 export default function CanvasPageRenderer({ page }) {
-  const design = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
-  const children = useMemo(() => getRootChildren(design), [design]);
+  const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
+  const symbolsById = useSymbolsForDesign(baseDesign);
+  const theme = useTenantCanvasTheme();
+  const design = useMemo(
+    () => resolveSymbolsInDesign(baseDesign, symbolsById) || baseDesign,
+    [baseDesign, symbolsById],
+  );
+  // Splice symbol children into the flat block list so the CSS layout
+  // generator picks them up. Symbols themselves render as transparent
+  // wrappers; their children take over geometry.
+  const children = useMemo(() => {
+    const root = getRootChildren(design);
+    const out = [];
+    for (const b of root) {
+      if (b.type === BLOCK_TYPES.SYMBOL && Array.isArray(b.__symbolChildren)) {
+        out.push(...b.__symbolChildren);
+      } else {
+        out.push(b);
+      }
+    }
+    return out;
+  }, [design]);
   const hasBlocks = children.length > 0;
+  const themeCss = useMemo(() => buildThemeCssVars(theme), [theme]);
 
   // Stable scope id so the per-page CSS only affects this page's stage.
   const scopeId = useMemo(
@@ -195,6 +267,9 @@ export default function CanvasPageRenderer({ page }) {
         Skip to content
       </a>
       <style>{A11Y_DEFAULTS_CSS}</style>
+      {themeCss && (
+        <style dangerouslySetInnerHTML={{ __html: `#${scopeId}{${themeCss}}` }} />
+      )}
       <style dangerouslySetInnerHTML={{ __html: css }} />
       {/*
         The stage wrapper is intentionally a non-landmark <div> so that:

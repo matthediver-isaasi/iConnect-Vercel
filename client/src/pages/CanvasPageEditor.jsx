@@ -7,6 +7,9 @@ import {
   ArrowLeft, Save, Eye, EyeOff,
   Monitor, Tablet, Smartphone,
   Accessibility, Loader2,
+  LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
+  Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
+  Unlink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -19,6 +22,10 @@ import {
 } from "@/lib/canvasDesign";
 import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
+import {
+  TemplatesDialog, SymbolsDialog, VersionsDialog, MediaLibraryDialog,
+  ThemeDialog, ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
+} from "@/components/canvas/CanvasPhase7Dialogs";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
 // Handles loading, saving (manual + autosave), and previewing the page.
@@ -39,6 +46,30 @@ export default function CanvasPageEditorPage() {
   const [breakpoint, setBreakpoint] = useState('desktop');
   const [showPreview, setShowPreview] = useState(false);
   const [previewNonce, setPreviewNonce] = useState(0);
+  // Phase 7 dialog visibility flags. The command palette and shortcut
+  // overlay are toggled via global keyboard shortcuts (Cmd+K and ?).
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showSymbols, setShowSymbols] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
+  const [showTheme, setShowTheme] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [previewAsVisitor, setPreviewAsVisitor] = useState(false);
+  // Picker callback for the media library dialog. When a block inspector
+  // requests the library, we capture its onPick so the dialog can hand
+  // the selected asset back through this single channel.
+  const [mediaPickHandler, setMediaPickHandler] = useState(null);
+  // Phase 7 — block inspectors can ask the library to be filtered down
+  // to image- or video-only assets (e.g. the video block).
+  const [mediaPickKind, setMediaPickKind] = useState(null);
+  // Loaded for the command palette's "jump to page" entries. Cheap to
+  // fetch alongside the editor and reused by the picker UI.
+  const { data: allPages } = useQuery({
+    queryKey: ['iedit-pages'],
+    queryFn: () => base44.entities.IEditPage.list(),
+    staleTime: 30_000,
+  });
   const previewIframeRef = useRef(null);
   const [axeIssues, setAxeIssues] = useState(null); // null = never run
   const [axeRunning, setAxeRunning] = useState(false);
@@ -245,7 +276,52 @@ export default function CanvasPageEditorPage() {
         published_at: newStatus === 'published' ? new Date().toISOString() : null,
       },
     });
+
+    // Snapshot on publish so authors can roll back. Best-effort — failure
+    // here doesn't block publishing.
+    if (newStatus === 'published') {
+      try {
+        const design = canvasRef.current?.getDesign?.();
+        if (design) {
+          await fetch(`/api/canvas-versions/${encodeURIComponent(pageId)}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ design, source: 'publish', label: 'Published' }),
+          });
+        }
+      } catch (e) { /* non-fatal */ }
+    }
   };
+
+  // Cmd+K palette + ? shortcut overlay — global shortcuts at the editor
+  // shell level so they also fire when no block is selected.
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = e.target?.tagName;
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault(); setShowPalette(true); return;
+      }
+      if (!inField && e.key === '?') {
+        e.preventDefault(); setShowShortcuts(true); return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleManualSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    const onOpenMedia = (e) => {
+      setMediaPickHandler(() => e.detail?.onPick || null);
+      setMediaPickKind(e.detail?.kind || null);
+      setShowMedia(true);
+    };
+    window.addEventListener('canvas:open-media-library', onOpenMedia);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('canvas:open-media-library', onOpenMedia);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Core axe runner used by both the manual button and the post-save
   // auto-audit. Returns the mapped issue list (or null on hard failure) and
@@ -517,6 +593,40 @@ export default function CanvasPageEditorPage() {
           {page.status === 'published' ? 'Unpublish' : 'Publish'}
         </Button>
 
+        <Button size="sm" variant="outline" onClick={() => setShowTemplates(true)} data-testid="button-open-templates" title="Templates">
+          <LayoutTemplate className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowSymbols(true)} data-testid="button-open-symbols" title="Symbols">
+          <ComponentIcon className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowMedia(true)} data-testid="button-open-media" title="Media library">
+          <ImagesIcon className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowVersions(true)} data-testid="button-open-versions" title="Version history">
+          <HistoryIcon className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowTheme(true)} data-testid="button-open-theme" title="Tenant theme">
+          <Palette className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowShortcuts(true)} data-testid="button-open-shortcuts" title="Keyboard shortcuts (?)">
+          <Keyboard className="w-4 h-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setShowPalette(true)} data-testid="button-open-palette" title="Command palette (Cmd+K)">
+          <CommandIcon className="w-4 h-4" />
+        </Button>
+        {page?.slug && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(`/${page.slug}`, '_blank', 'noopener')}
+            data-testid="button-preview-as-visitor"
+            title="Open as visitor"
+          >
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Preview as visitor
+          </Button>
+        )}
+
         <Button
           size="sm"
           onClick={handleManualSave}
@@ -594,6 +704,76 @@ export default function CanvasPageEditorPage() {
           </aside>
         )}
       </div>
+
+      {/* Phase 7 dialogs */}
+      <TemplatesDialog open={showTemplates} onOpenChange={setShowTemplates} canvasRef={canvasRef} />
+      <SymbolsDialog open={showSymbols} onOpenChange={setShowSymbols} canvasRef={canvasRef} />
+      <VersionsDialog open={showVersions} onOpenChange={setShowVersions} pageId={pageId} onRestored={() => {
+        queryClient.invalidateQueries({ queryKey: ['canvas-page', pageId] });
+      }} />
+      <MediaLibraryDialog
+        open={showMedia}
+        kind={mediaPickKind}
+        onOpenChange={(o) => { setShowMedia(o); if (!o) { setMediaPickHandler(null); setMediaPickKind(null); } }}
+        onPick={(asset) => {
+          if (mediaPickHandler) {
+            // Called from a block inspector — route the asset back to it
+            // so the existing block updates in place.
+            mediaPickHandler(asset);
+            setMediaPickHandler(null);
+            setMediaPickKind(null);
+            toast.success('Asset set');
+            return;
+          }
+          // Toolbar entry point — insert a new image block.
+          canvasRef.current?.addBlocks?.([{
+            type: 'image',
+            name: asset.name || 'Image',
+            desktop: { x: 40, y: 40, w: asset.width || 320, h: asset.height || 200, hidden: false },
+            content: { src: asset.url, alt: asset.alt_text || asset.name || '' },
+          }]);
+          toast.success('Image inserted');
+        }}
+      />
+      <ThemeDialog open={showTheme} onOpenChange={setShowTheme} />
+      <ShortcutsOverlay open={showShortcuts} onOpenChange={setShowShortcuts} />
+      <CommandPalette
+        open={showPalette}
+        onOpenChange={setShowPalette}
+        actions={[
+          { id: 'save', label: 'Save page', hint: 'Cmd+S', run: handleManualSave },
+          { id: 'publish', label: page?.status === 'published' ? 'Unpublish page' : 'Publish page', run: handleTogglePublish },
+          { id: 'templates', label: 'Open templates…', run: () => setShowTemplates(true) },
+          { id: 'symbols', label: 'Open symbols…', run: () => setShowSymbols(true) },
+          { id: 'versions', label: 'Version history…', run: () => setShowVersions(true) },
+          { id: 'media', label: 'Media library…', run: () => setShowMedia(true) },
+          { id: 'theme', label: 'Edit tenant theme…', run: () => setShowTheme(true) },
+          { id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', run: () => setShowShortcuts(true) },
+          { id: 'unlink-symbol', label: 'Unlink selected symbol', run: () => unlinkSelectedSymbol(canvasRef) },
+          { id: 'preview-visitor', label: 'Preview as visitor', run: () => page?.slug && window.open(`/${page.slug}`, '_blank', 'noopener') },
+          { id: 'toggle-preview', label: showPreview ? 'Hide live preview' : 'Show live preview', run: () => setShowPreview((v) => !v) },
+          // Live block index — every block on this page becomes a
+          // jump target. Selecting one scrolls to it and opens its
+          // inspector via the CanvasBuilder imperative API.
+          ...(canvasRef.current?.getDesign?.()?.root?.sections?.[0]?.children || []).map((b) => ({
+            id: `jump-${b.id}`,
+            label: `Jump to ${b.name || b.type}`,
+            hint: 'block',
+            run: () => canvasRef.current?.setSelection?.(b.id),
+          })),
+          // Other canvas pages — jump to them in the editor without
+          // leaving the keyboard. We rely on the IEditPage list already
+          // hydrated for the page picker.
+          ...(allPages || [])
+            .filter((p) => p.id !== pageId && p.builder_type === 'canvas')
+            .map((p) => ({
+              id: `goto-${p.id}`,
+              label: `Open page: ${p.title || p.slug}`,
+              hint: 'page',
+              run: () => navigate(createPageUrl(`CanvasPageEditor?pageId=${p.id}`)),
+            })),
+        ]}
+      />
     </div>
   );
 }
