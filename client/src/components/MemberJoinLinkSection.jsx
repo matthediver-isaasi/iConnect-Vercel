@@ -169,54 +169,124 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     const mapping = joinFormsByOrgTypeSetting?.value || {};
     const mappingKeys = Object.keys(mapping);
     const fallback = joinFormSetting?.value || null;
-    if (mappingKeys.length === 0) return fallback;
 
-    const normalizedIndex = {};
-    for (const k of mappingKeys) {
-      const norm = normalizeKey(k);
-      if (norm && !(norm in normalizedIndex)) normalizedIndex[norm] = k;
-    }
-    const canonicalStr = (canonicalOrgTypeValue !== null && canonicalOrgTypeValue !== undefined && canonicalOrgTypeValue !== '')
-      ? String(canonicalOrgTypeValue) : null;
-    const rawStr = (orgTypeValue !== null && orgTypeValue !== undefined && orgTypeValue !== '')
-      ? String(orgTypeValue) : null;
-    if (canonicalStr && mapping[canonicalStr]?.id) return mapping[canonicalStr];
-    if (canonicalStr) {
-      const norm = normalizeKey(canonicalStr);
-      const found = norm ? normalizedIndex[norm] : null;
-      if (found && mapping[found]?.id) return mapping[found];
-    }
-    if (rawStr && rawStr !== canonicalStr) {
-      const norm = normalizeKey(rawStr);
-      const found = norm ? normalizedIndex[norm] : null;
-      if (found && mapping[found]?.id) return mapping[found];
-    }
+    const debugEnabled = typeof window !== 'undefined' && !isLoading && (
+      (typeof window.location !== 'undefined' && new URLSearchParams(window.location.search).get('debugJoinLink') === '1') ||
+      window.__DEBUG_JOIN_LINK__ === true
+    );
 
-    // Final pass: resolve each mapping key to an option (by value OR label,
-    // case/whitespace-insensitive, JSON-encoded primitives unwrapped) and
-    // match against the org's resolved option. Handles legacy mappings keyed
-    // by option label instead of option value.
-    const orgOption = resolveToOption(orgTypeValue);
-    if (orgOption) {
-      const targetValueStr = String(orgOption.value);
-      for (const key of mappingKeys) {
-        if (!mapping[key]?.id) continue;
-        const keyPrimitive = extractPrimitiveValue(key);
-        const keyOption = resolveToOption(keyPrimitive);
-        if (keyOption && String(keyOption.value) === targetValueStr) {
-          return mapping[key];
+    let matchedBranch = 'fallback-default';
+    let result = fallback;
+
+    const compute = () => {
+      if (mappingKeys.length === 0) {
+        matchedBranch = 'fallback-no-mapping';
+        return fallback;
+      }
+
+      const normalizedIndex = {};
+      for (const k of mappingKeys) {
+        const norm = normalizeKey(k);
+        if (norm && !(norm in normalizedIndex)) normalizedIndex[norm] = k;
+      }
+      const canonicalStr = (canonicalOrgTypeValue !== null && canonicalOrgTypeValue !== undefined && canonicalOrgTypeValue !== '')
+        ? String(canonicalOrgTypeValue) : null;
+      const rawStr = (orgTypeValue !== null && orgTypeValue !== undefined && orgTypeValue !== '')
+        ? String(orgTypeValue) : null;
+      if (canonicalStr && mapping[canonicalStr]?.id) {
+        matchedBranch = 'canonical-exact';
+        return mapping[canonicalStr];
+      }
+      if (canonicalStr) {
+        const norm = normalizeKey(canonicalStr);
+        const found = norm ? normalizedIndex[norm] : null;
+        if (found && mapping[found]?.id) {
+          matchedBranch = 'canonical-normalized';
+          return mapping[found];
         }
+      }
+      if (rawStr && rawStr !== canonicalStr) {
+        const norm = normalizeKey(rawStr);
+        const found = norm ? normalizedIndex[norm] : null;
+        if (found && mapping[found]?.id) {
+          matchedBranch = 'raw-normalized';
+          return mapping[found];
+        }
+      }
+
+      const orgOption = resolveToOption(orgTypeValue);
+      if (orgOption) {
+        const targetValueStr = String(orgOption.value);
+        for (const key of mappingKeys) {
+          if (!mapping[key]?.id) continue;
+          const keyPrimitive = extractPrimitiveValue(key);
+          const keyOption = resolveToOption(keyPrimitive);
+          if (keyOption && String(keyOption.value) === targetValueStr) {
+            matchedBranch = 'option-roundtrip';
+            return mapping[key];
+          }
+        }
+      }
+
+      matchedBranch = 'fallback-default';
+      return fallback;
+    };
+
+    result = compute();
+
+    if (debugEnabled) {
+      try {
+        const rawMatch = orgPreferenceValues.find(v => orgTypeField && v.preference_field_id === orgTypeField.id);
+        // eslint-disable-next-line no-console
+        console.groupCollapsed(`[MemberJoinLink] org ${organizationId}`);
+        // eslint-disable-next-line no-console
+        console.log('orgTypeField', orgTypeField ? { id: orgTypeField.id, name: orgTypeField.name } : null);
+        // eslint-disable-next-line no-console
+        console.log('raw OrganizationPreferenceValue.value', rawMatch?.value, '(typeof:', typeof rawMatch?.value, ')');
+        // eslint-disable-next-line no-console
+        console.log('extractPrimitiveValue(raw)', orgTypeValue, '(typeof:', typeof orgTypeValue, ')');
+        // eslint-disable-next-line no-console
+        console.log('orgTypeField.options', orgTypeField?.options);
+        // eslint-disable-next-line no-console
+        console.log('normalizedOptions', normalizedOptions);
+        // eslint-disable-next-line no-console
+        console.log('resolveToOption(orgTypeValue)', resolveToOption(orgTypeValue));
+        // eslint-disable-next-line no-console
+        console.log('canonicalOrgTypeValue', canonicalOrgTypeValue);
+        // eslint-disable-next-line no-console
+        console.log('joinFormsByOrgTypeSetting.value keys', mappingKeys);
+        // eslint-disable-next-line no-console
+        console.log('mapping entries', mappingKeys.map(k => ({ key: k, id: mapping[k]?.id, slug: mapping[k]?.slug })));
+        // eslint-disable-next-line no-console
+        console.log('matched branch', matchedBranch);
+        // eslint-disable-next-line no-console
+        console.log('resolvedForm', result ? { id: result.id, slug: result.slug } : null);
+        // eslint-disable-next-line no-console
+        console.groupEnd();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[MemberJoinLink] debug log failed', e);
       }
     }
 
-    return fallback;
-  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting, resolveToOption]);
+    return result;
+  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting, resolveToOption, isLoading, normalizedOptions, orgPreferenceValues, orgTypeField, organizationId]);
 
   const hasConfiguredForm = !!resolvedForm?.id;
   const slug = resolvedForm?.slug;
   const joinFormUrl = slug && organizationId
     ? `${window.location.origin}${createPageUrl('FormView')}?slug=${encodeURIComponent(slug)}&organization_id=${encodeURIComponent(organizationId)}`
     : null;
+
+  if (typeof window !== 'undefined' && !isLoading) {
+    const debugEnabled =
+      (typeof window.location !== 'undefined' && new URLSearchParams(window.location.search).get('debugJoinLink') === '1') ||
+      window.__DEBUG_JOIN_LINK__ === true;
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.log(`[MemberJoinLink] org ${organizationId} -> joinFormUrl`, { slug, joinFormUrl });
+    }
+  }
 
   const handleCopy = async () => {
     if (!joinFormUrl) return;
