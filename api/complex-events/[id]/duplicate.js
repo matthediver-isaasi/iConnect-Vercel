@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { recomputeComplexEventDates } from '../../_lib/complexEventDateSync.js';
 
 const EVENT_FIELDS = [
   'title', 'summary', 'description', 'event_type', 'program_tag', 'start_date',
@@ -171,6 +172,12 @@ export default async function handler(req, res) {
       });
       const { error: tcErr } = await supabase.from('complex_event_ticket_class').insert(tcRows);
       if (tcErr) throw new Error(`insert ticket_classes: ${tcErr.message}`);
+    }
+
+    try {
+      await recomputeComplexEventDates(supabase, newEventId, tenantId);
+    } catch (recomputeErr) {
+      console.error('[DuplicateComplexEvent] Date recompute failed:', recomputeErr?.message || recomputeErr);
     }
 
     console.log(`[DuplicateComplexEvent] ${id} → ${newEventId} tenant=${tenantId} tracks=${trackIdMap.size} sessions=${sessionIdMap.size} by=${ctx.tenantUserId || ctx.memberId || 'unknown'}`);

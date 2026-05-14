@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
+import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -418,6 +419,12 @@ export default async function handler(req, res) {
           console.error('[Sessions] Zoom auto-provision error:', zoomErr.message);
           zoomProvisioningError = zoomErr.message;
         }
+      }
+
+      try {
+        await recomputeComplexEventDates(supabase, effectiveEventId, tenantId);
+      } catch (recomputeErr) {
+        console.error('[Sessions] Date recompute failed:', recomputeErr?.message || recomputeErr);
       }
 
       return res.json({ success: true, session: finalSession, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });

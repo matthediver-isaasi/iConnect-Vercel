@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
+import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // Converts a datetime-local string (e.g. "2025-06-15T10:00") representing a time
@@ -314,6 +315,18 @@ export default async function handler(req, res) {
         }
       }
 
+      if (body.complex_event_id && body.complex_event_id !== existing.complex_event_id) {
+        const { data: targetEvent, error: targetErr } = await supabase
+          .from('complex_event')
+          .select('id')
+          .eq('id', body.complex_event_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        if (targetErr || !targetEvent) {
+          return res.status(403).json({ error: 'Target complex event not found in this tenant' });
+        }
+      }
+
       const ALLOWED_FIELDS = [
         'title', 'description', 'start_time', 'end_time',
         'display_order', 'location',
@@ -386,6 +399,19 @@ export default async function handler(req, res) {
         }
       }
 
+      try {
+        const eventIdsToRecompute = new Set();
+        if (finalSession.complex_event_id) eventIdsToRecompute.add(finalSession.complex_event_id);
+        if (existing.complex_event_id && existing.complex_event_id !== finalSession.complex_event_id) {
+          eventIdsToRecompute.add(existing.complex_event_id);
+        }
+        for (const evId of eventIdsToRecompute) {
+          await recomputeComplexEventDates(supabase, evId, tenantId);
+        }
+      } catch (recomputeErr) {
+        console.error('[Sessions] Date recompute failed:', recomputeErr?.message || recomputeErr);
+      }
+
       return res.json({ ...finalSession, ...(zoomProvisioningError ? { zoom_provisioning_error: zoomProvisioningError } : {}) });
     } catch (error) {
       console.error('[Sessions] Update error:', error);
@@ -397,7 +423,7 @@ export default async function handler(req, res) {
     try {
       const { data: session, error: fetchError } = await supabase
         .from('complex_event_session')
-        .select('id, tenant_id')
+        .select('id, tenant_id, complex_event_id')
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -415,6 +441,12 @@ export default async function handler(req, res) {
       if (deleteError) {
         console.error('[Sessions] Delete error:', deleteError);
         return res.status(500).json({ error: 'Failed to delete session' });
+      }
+
+      try {
+        await recomputeComplexEventDates(supabase, session.complex_event_id, tenantId);
+      } catch (recomputeErr) {
+        console.error('[Sessions] Date recompute failed:', recomputeErr?.message || recomputeErr);
       }
 
       return res.json({ success: true });
