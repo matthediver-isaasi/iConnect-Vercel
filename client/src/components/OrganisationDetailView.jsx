@@ -242,8 +242,10 @@ export default function OrganisationDetailView({
   const [memberRoleFilter, setMemberRoleFilter] = useState('all');
   const [newNoteAttachments, setNewNoteAttachments] = useState([]);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const notesPerPage = 5;
   const noteFileInputRef = useRef(null);
+  const logoFileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -684,6 +686,36 @@ export default function OrganisationDetailView({
       toast.error('Failed to update organisation: ' + error.message);
     }
   });
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file || !organization?.id || isUploadingLogo) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Please upload a valid image file (JPEG, PNG, GIF, or WebP)');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be smaller than 5MB');
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const result = await base44.integrations.Core.UploadFile({ file });
+      await base44.entities.Organization.update(organization.id, { logo_url: result.file_url });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization.id] });
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      toast.success('Logo updated');
+    } catch (error) {
+      toast.error('Failed to update logo: ' + (error?.message || 'Unknown error'));
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
 
   const updateCustomFieldMutation = useMutation({
     mutationFn: async ({ fieldId, value }) => {
@@ -1271,12 +1303,48 @@ export default function OrganisationDetailView({
                   </div>
                 ) : (() => {
                   const safeSrc = safeLogoSrc(organization?.logo_url);
-                  return safeSrc ? (
+                  const inner = safeSrc ? (
                     <img src={safeSrc} alt={organization.name} className="w-14 h-14 rounded-lg object-contain bg-slate-100" />
                   ) : (
                     <div className="w-14 h-14 rounded-lg bg-blue-100 flex items-center justify-center">
                       <Building2 className="w-7 h-7 text-blue-600" />
                     </div>
+                  );
+                  if (!isAdmin) return inner;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => !isUploadingLogo && logoFileInputRef.current?.click()}
+                        disabled={isUploadingLogo}
+                        aria-label={safeSrc ? 'Change organisation logo' : 'Upload organisation logo'}
+                        title={safeSrc ? 'Click to change logo' : 'Click to upload logo'}
+                        className="group relative w-14 h-14 rounded-lg overflow-hidden cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-wait"
+                        data-testid="button-org-logo-upload"
+                      >
+                        {inner}
+                        {isUploadingLogo ? (
+                          <span
+                            className="absolute inset-0 flex items-center justify-center bg-black/40"
+                            data-testid="status-org-logo-uploading"
+                          >
+                            <Loader2 className="w-5 h-5 text-white animate-spin" />
+                          </span>
+                        ) : (
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors">
+                            <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </span>
+                        )}
+                      </button>
+                      <input
+                        ref={logoFileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                        className="hidden"
+                        onChange={handleLogoUpload}
+                        data-testid="input-org-logo-file"
+                      />
+                    </>
                   );
                 })()}
                 <div>
