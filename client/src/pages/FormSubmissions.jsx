@@ -96,7 +96,7 @@ export default function FormSubmissionsPage() {
   const { data: submissions = [], isLoading: submissionsLoading } = useQuery({
     queryKey: ['form-submissions'],
     queryFn: async () => {
-      const allSubmissions = await base44.entities.FormSubmission.list();
+      const allSubmissions = await base44.entities.FormSubmission.listAll();
       return allSubmissions.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     }
   });
@@ -117,7 +117,7 @@ export default function FormSubmissionsPage() {
   // Used by CSV export to resolve organisation_dropdown UUIDs to names.
   const { data: organisationsForExport = [] } = useQuery({
     queryKey: ['organizations-for-form-submissions-export'],
-    queryFn: async () => await base44.entities.Organization.list(),
+    queryFn: async () => await base44.entities.Organization.listAll(),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -176,7 +176,7 @@ export default function FormSubmissionsPage() {
     queryKey: ['members-for-form-submissions-export'],
     queryFn: async () => {
       try {
-        return await base44.entities.Member.list();
+        return await base44.entities.Member.listAll();
       } catch {
         return [];
       }
