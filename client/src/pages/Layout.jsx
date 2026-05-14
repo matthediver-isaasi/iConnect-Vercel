@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake } from "lucide-react";
+import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
@@ -316,6 +316,12 @@ const adminNavigationItems = [
     url: createPageUrl("AIReports"),
     icon: Sparkles,
     featureId: "page_AIReports"
+  },
+  {
+    title: "Accessibility Audits",
+    url: createPageUrl("AccessibilityAudits"),
+    icon: Accessibility,
+    featureId: "page_AccessibilityAudits"
   },
   {
     title: "Engagement Report",
@@ -1129,7 +1135,7 @@ useEffect(() => {
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
   const hybridPages = ["PostJob", "ArticleView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "EventRegistrationReport", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = [];
@@ -1191,6 +1197,7 @@ useEffect(() => {
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
     'OrganisationEngagementReport': 'page_admin_OrganisationEngagementReport',
     'AIReports': 'page_admin_AIReports',
+    'AccessibilityAudits': 'page_admin_AccessibilityAudits',
     'MembershipTierManagement': 'page_admin_MembershipTierManagement',
     'MembershipSettings': 'page_MembershipSettings',
     'AwardManagement': 'page_admin_AwardManagement',

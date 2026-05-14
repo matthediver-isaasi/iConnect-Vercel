@@ -179,7 +179,9 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_SupportManagement": "support.management",
   "page_PostJob": "jobs.my-postings",
   "page_AIReports": "admin.ai-reports",
-  "page_admin_AIReports": "admin.ai-reports"
+  "page_admin_AIReports": "admin.ai-reports",
+  "page_AccessibilityAudits": "admin.accessibility-audits",
+  "page_admin_AccessibilityAudits": "admin.accessibility-audits"
 };
 
 function migrateLegacyFeatureId(legacyId) {

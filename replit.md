@@ -7,7 +7,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Typecheck:** `npm run typecheck`
 -   **Codegen:** `npm run codegen`
 -   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`)
--   **Env Vars:** `DATABASE_URL`, `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`
+-   **Env Vars:** `DATABASE_URL`, `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`, `BROWSERLESS_API_TOKEN` (powers Accessibility Audits via browserless.io; optional `BROWSERLESS_BASE_URL`, `BROWSERLESS_AUDIT_TIMEOUT_MS`)
 
 ## Stack
 -   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
@@ -30,6 +30,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Identity Management:** Unified identity system with per-tenant password isolation, Google OAuth, and feature-based role management.
 -   **Event Deletion Safety:** Event deletion uses a cancellation flow that ensures refunds, reinstatements, and Zoom unregistration are processed before event data is purged.
 -   **Strict Tenant Context:** Shared entity API hard-fails requests without a valid tenant context to prevent cross-tenant data leaks.
+-   **Accessibility Audits:** Admin page `Accessibility Audits` (RBAC permission `admin.accessibility-audits`) drives axe-core scans via browserless.io for tenant-supplied public URLs. Results are stored per tenant in `accessibility_audit` / `accessibility_audit_result` with severity counts (critical/serious/moderate/minor), pass/violation totals, score, and the full axe JSON. Endpoints under `/api/admin/accessibility-audits` (`api/admin/accessibility-audits/index.js`, `[id].js`) hard-fail without tenant context and check `hasFeatureAccess(roleId, 'admin.accessibility-audits')`. Runner helper: `api/_lib/browserlessAxe.js` (HTTP `/function` endpoint, axe-core 4.10 injected from CDN). v1 limits: ≤10 URLs/run, http(s) only, no credentials in URL, per-URL timeout from `BROWSERLESS_AUDIT_TIMEOUT_MS` (default 60s). Out of scope for v1: scheduled audits, site crawling, authenticated pages, PDF export, trend charts.
 
 ## Product
 -   **Core Platform:** Member, Event, Booking, Resource, Blog Management.

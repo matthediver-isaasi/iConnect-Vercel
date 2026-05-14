@@ -657,6 +657,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.ai-reports",
         label: "AI Report Generator"
+      },
+      {
+        id: "admin.accessibility-audits",
+        label: "Accessibility Audits"
       }
     ]
   },
@@ -1052,6 +1056,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_ProjectBoard": "projects.board-view",
   "page_AIReports": "admin.ai-reports",
   "page_admin_AIReports": "admin.ai-reports",
+  "page_AccessibilityAudits": "admin.accessibility-audits",
+  "page_admin_AccessibilityAudits": "admin.accessibility-audits",
   "page_BriefManagement": "publications.briefmanagement",
   "page_BriefDetail": "content.briefs",
   "page_BriefSettings": "content.brief-settings",

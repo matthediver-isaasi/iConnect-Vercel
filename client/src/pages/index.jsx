@@ -285,6 +285,7 @@ import ProjectBoard from "./ProjectBoard";
 import ReportsDashboard from "./ReportsDashboard";
 
 import AIReports from "./AIReports";
+import AccessibilityAudits from "./AccessibilityAudits";
 
 import EventRegistrationReport from "./EventRegistrationReport";
 
@@ -670,6 +671,7 @@ const PAGES = {
     ForumManagement: ForumManagement,
     
     AIReports: AIReports,
+    AccessibilityAudits: AccessibilityAudits,
     
     CreateComplexEvent: CreateComplexEvent,
     PublicComplexEvents: PublicComplexEvents,
@@ -1032,6 +1034,7 @@ function PagesContent() {
                 
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 <Route path="/AIReports" element={<AIReports />} />
+                <Route path="/AccessibilityAudits" element={<AccessibilityAudits />} />
                 
                 <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
                 <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />
