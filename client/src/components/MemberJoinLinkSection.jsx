@@ -89,14 +89,20 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
   const { data: orgScopedFields = [], isLoading: fieldsLoading } = useQuery({
     queryKey: ['org-preference-fields-for-join-link'],
     queryFn: async () => {
+      // Fetch ALL org-scoped preference fields (active + inactive). The join-link
+      // resolver tolerates stale / duplicate org_type field rows: a saved
+      // OrganizationPreferenceValue may carry a preference_field_id that points
+      // at a legacy or now-inactive PreferenceField, and we still want to find
+      // it. The "primary" org_type field (the active one) is preferred when
+      // multiple candidates exist.
       try {
         const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' },
+          filter: { entity_scope: 'organization' },
         });
         return fields || [];
       } catch {
         try {
-          const all = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
+          const all = await base44.entities.PreferenceField.list({});
           return (all || []).filter(f => f.entity_scope === 'organization');
         } catch {
           return [];
@@ -106,11 +112,28 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     enabled: !!organizationId,
   });
 
-  const orgTypeField = useMemo(() => {
-    return orgScopedFields.find(f =>
+  const orgTypeFieldCandidates = useMemo(() => {
+    const matches = orgScopedFields.filter(f =>
       f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
     );
+    // Prefer active fields first, then inactive — so the canonical/active field
+    // wins when picking a single representative (for options + display).
+    return matches.slice().sort((a, b) => {
+      const aActive = a?.is_active === true ? 0 : 1;
+      const bActive = b?.is_active === true ? 0 : 1;
+      return aActive - bActive;
+    });
   }, [orgScopedFields]);
+
+  const orgTypeField = useMemo(() => orgTypeFieldCandidates[0] || null, [orgTypeFieldCandidates]);
+
+  const orgTypeFieldIdSet = useMemo(() => {
+    const set = new Set();
+    for (const f of orgTypeFieldCandidates) {
+      if (f?.id) set.add(f.id);
+    }
+    return set;
+  }, [orgTypeFieldCandidates]);
 
   const { data: orgPreferenceValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['org-preference-values-for-join-link', organizationId],
@@ -127,12 +150,22 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     enabled: !!organizationId && !!orgTypeField,
   });
 
-  const orgTypeValue = useMemo(() => {
+  const orgTypeValueMatch = useMemo(() => {
     if (!orgTypeField) return null;
-    const match = orgPreferenceValues.find(v => v.preference_field_id === orgTypeField.id);
-    if (!match) return null;
-    return extractPrimitiveValue(match.value);
-  }, [orgTypeField, orgPreferenceValues]);
+    // Prefer the active org_type field id, but tolerate value rows that carry a
+    // legacy / duplicate field id by also accepting any candidate in the set.
+    const exact = orgPreferenceValues.find(v => v.preference_field_id === orgTypeField.id);
+    if (exact) return exact;
+    if (orgTypeFieldIdSet.size > 1) {
+      return orgPreferenceValues.find(v => orgTypeFieldIdSet.has(v.preference_field_id)) || null;
+    }
+    return null;
+  }, [orgTypeField, orgTypeFieldIdSet, orgPreferenceValues]);
+
+  const orgTypeValue = useMemo(() => {
+    if (!orgTypeValueMatch) return null;
+    return extractPrimitiveValue(orgTypeValueMatch.value);
+  }, [orgTypeValueMatch]);
 
   const normalizedOptions = useMemo(() => {
     const options = orgTypeField?.options;
@@ -236,11 +269,28 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
 
     if (debugEnabled) {
       try {
-        const rawMatch = orgPreferenceValues.find(v => orgTypeField && v.preference_field_id === orgTypeField.id);
+        const rawMatch = orgTypeValueMatch;
+        const exactIdMatch = orgPreferenceValues.find(
+          v => orgTypeField && v.preference_field_id === orgTypeField.id
+        );
         // eslint-disable-next-line no-console
         console.groupCollapsed(`[MemberJoinLink] org ${organizationId}`);
         // eslint-disable-next-line no-console
-        console.log('orgTypeField', orgTypeField ? { id: orgTypeField.id, name: orgTypeField.name } : null);
+        console.log('orgTypeField', orgTypeField ? { id: orgTypeField.id, name: orgTypeField.name, is_active: orgTypeField.is_active, entity_scope: orgTypeField.entity_scope, tenant_id: orgTypeField.tenant_id } : null);
+        // eslint-disable-next-line no-console
+        console.log('orgTypeFieldCandidates', orgTypeFieldCandidates.map(f => ({ id: f.id, name: f.name, is_active: f.is_active, entity_scope: f.entity_scope, tenant_id: f.tenant_id })));
+        // eslint-disable-next-line no-console
+        console.log('orgTypeFieldIdSet', Array.from(orgTypeFieldIdSet));
+        // eslint-disable-next-line no-console
+        console.log('loading flags', { fieldsLoading, valuesLoading });
+        // eslint-disable-next-line no-console
+        console.log('orgPreferenceValues.length', orgPreferenceValues.length);
+        // eslint-disable-next-line no-console
+        console.log('orgPreferenceValues (all rows)', orgPreferenceValues.map(v => ({ preference_field_id: v.preference_field_id, value: v.value })));
+        // eslint-disable-next-line no-console
+        console.log('any row matches orgTypeField.id exactly?', !!exactIdMatch, exactIdMatch ? { preference_field_id: exactIdMatch.preference_field_id, value: exactIdMatch.value } : null);
+        // eslint-disable-next-line no-console
+        console.log('selected orgTypeValueMatch (after legacy-id tolerance)', rawMatch ? { preference_field_id: rawMatch.preference_field_id, value: rawMatch.value } : null);
         // eslint-disable-next-line no-console
         console.log('raw OrganizationPreferenceValue.value', rawMatch?.value, '(typeof:', typeof rawMatch?.value, ')');
         // eslint-disable-next-line no-console
@@ -270,7 +320,7 @@ export default function MemberJoinLinkSection({ organizationId, showHeading = tr
     }
 
     return result;
-  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting, resolveToOption, isLoading, normalizedOptions, orgPreferenceValues, orgTypeField, organizationId]);
+  }, [joinFormsByOrgTypeSetting, canonicalOrgTypeValue, orgTypeValue, joinFormSetting, resolveToOption, isLoading, normalizedOptions, orgPreferenceValues, orgTypeField, orgTypeFieldCandidates, orgTypeFieldIdSet, orgTypeValueMatch, fieldsLoading, valuesLoading, organizationId]);
 
   const hasConfiguredForm = !!resolvedForm?.id;
   const slug = resolvedForm?.slug;
