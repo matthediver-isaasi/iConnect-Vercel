@@ -53,7 +53,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('i_edit_page')
-      .select('id, title, slug, status, layout_type, builder_type, canvas_design, updated_date')
+      .select('id, title, slug, status, layout_type, builder_type, canvas_design')
       .eq('id', pageId)
       .eq('tenant_id', tenantId)
       .maybeSingle();
@@ -110,7 +110,7 @@ export default async function handler(req, res) {
       .update({ canvas_design: body.canvas_design })
       .eq('id', pageId)
       .eq('tenant_id', tenantId)
-      .select('id, canvas_design, updated_date')
+      .select('id, canvas_design')
       .single();
 
     if (updateErr) {

@@ -104,7 +104,7 @@ export default async function handler(req, res) {
         .update({ canvas_design: version.design })
         .eq('id', pageId)
         .eq('tenant_id', tenantId)
-        .select('id, canvas_design, updated_date')
+        .select('id, canvas_design')
         .single();
       if (uErr) return res.status(500).json({ error: 'Failed to restore version' });
       return res.status(200).json({ page: updated });
