@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS preference_field (
   field_type VARCHAR(50) NOT NULL CHECK (field_type IN ('text', 'number', 'decimal', 'picklist', 'dropdown')),
   options JSONB, -- For picklist/dropdown: array of {value, label} objects
   is_required BOOLEAN DEFAULT false,
+  is_filterable BOOLEAN DEFAULT false,
+  filter_multi_select BOOLEAN DEFAULT false,
   display_order INTEGER DEFAULT 0,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
