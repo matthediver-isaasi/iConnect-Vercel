@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, ExternalLink, ClipboardList, Mail, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -421,19 +422,21 @@ export default function OrganisationDirectoryPage() {
     }
     
     // Filter by custom fields
-    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => value && value !== 'all');
+    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      return value && value !== 'all';
+    });
     if (activeFilters.length > 0) {
       filtered = filtered.filter(org => {
         const orgValues = orgPreferenceMap[org.id] || {};
         return activeFilters.every(([fieldId, filterValue]) => {
           const orgValue = orgValues[fieldId];
-          if (!orgValue) return false;
-          // For picklist (array), check if filterValue is in the array
+          if (orgValue === undefined || orgValue === null || orgValue === '') return false;
+          const selected = Array.isArray(filterValue) ? filterValue : [filterValue];
           if (Array.isArray(orgValue)) {
-            return orgValue.includes(filterValue);
+            return selected.some(v => orgValue.includes(v));
           }
-          // For dropdown (single value), check exact match
-          return orgValue === filterValue;
+          return selected.includes(orgValue);
         });
       });
     }
@@ -585,33 +588,58 @@ export default function OrganisationDirectoryPage() {
               
               {filterableFields.length > 0 && (
                 <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
-                  {filterableFields.map(field => (
-                    <div key={field.id} className="flex items-center gap-2">
-                      <span className="text-sm text-slate-700">{field._displayLabel || field.label}:</span>
-                      <Select 
-                        value={customFieldFilters[field.id] || "all"} 
-                        onValueChange={(value) => {
-                          setCustomFieldFilters(prev => ({
-                            ...prev,
-                            [field.id]: value === "all" ? "" : value
-                          }));
-                          setCurrentPage(1);
-                        }}
-                      >
-                        <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                          <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          {(field.options || []).map(option => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
+                  {filterableFields.map(field => {
+                    const label = field._displayLabel || field.label;
+                    if (field.filter_multi_select) {
+                      const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
+                      return (
+                        <div key={field.id} className="flex items-center gap-2">
+                          <span className="text-sm text-slate-700">{label}:</span>
+                          <MultiSelectFilter
+                            options={field.options || []}
+                            selected={current}
+                            onChange={(vals) => {
+                              setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
+                              setCurrentPage(1);
+                            }}
+                            placeholder={`All ${label}`}
+                            className="w-[180px]"
+                            data-testid={`select-filter-${field.name}`}
+                          />
+                        </div>
+                      );
+                    }
+                    const singleValue = Array.isArray(customFieldFilters[field.id])
+                      ? (customFieldFilters[field.id][0] || 'all')
+                      : (customFieldFilters[field.id] || 'all');
+                    return (
+                      <div key={field.id} className="flex items-center gap-2">
+                        <span className="text-sm text-slate-700">{label}:</span>
+                        <Select
+                          value={singleValue}
+                          onValueChange={(value) => {
+                            setCustomFieldFilters(prev => ({
+                              ...prev,
+                              [field.id]: value === "all" ? "" : value
+                            }));
+                            setCurrentPage(1);
+                          }}
+                        >
+                          <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
+                            <SelectValue placeholder={`All ${label}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All</SelectItem>
+                            {(field.options || []).map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -66,7 +66,11 @@ export default async function handler(req, res) {
       allFilterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
     }
     for (const [fieldId, value] of Object.entries(customFilters)) {
-      if (value && value !== 'all') {
+      if (Array.isArray(value)) {
+        if (value.length > 0) {
+          allFilterFields.push({ fieldId, value });
+        }
+      } else if (value && value !== 'all') {
         allFilterFields.push({ fieldId, value });
       }
     }
@@ -217,6 +221,13 @@ async function getMemberIdsForFieldValue(tenantId, fieldId, filterValue) {
 }
 
 function matchesValue(storedValue, filterValue) {
+  if (Array.isArray(filterValue)) {
+    return filterValue.some(v => matchesSingleValue(storedValue, v));
+  }
+  return matchesSingleValue(storedValue, filterValue);
+}
+
+function matchesSingleValue(storedValue, filterValue) {
   if (storedValue === filterValue) return true;
 
   if (Array.isArray(storedValue)) {

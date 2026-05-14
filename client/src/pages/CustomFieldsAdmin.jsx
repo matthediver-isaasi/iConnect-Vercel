@@ -223,6 +223,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [newOptionValue, setNewOptionValue] = useState('');
   const [newOptionLabel, setNewOptionLabel] = useState('');
   const [fieldFilterable, setFieldFilterable] = useState(false);
+  const [fieldFilterMultiSelect, setFieldFilterMultiSelect] = useState(false);
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
   const [minLength, setMinLength] = useState('');
@@ -371,6 +372,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setNewOptionValue('');
     setNewOptionLabel('');
     setFieldFilterable(false);
+    setFieldFilterMultiSelect(false);
     setMinSelections('');
     setMaxSelections('');
     setMinLength('');
@@ -405,6 +407,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldRequired(field.is_required || false);
     setFieldOptions(field.options || []);
     setFieldFilterable(field.is_filterable || false);
+    setFieldFilterMultiSelect(field.filter_multi_select === true);
     setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
     setMaxSelections(field.max_selections != null ? String(field.max_selections) : '');
     setMinLength(field.min_length != null ? String(field.min_length) : '');
@@ -511,6 +514,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       is_active: true,
       entity_scope: entityScope,
       is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') ? fieldFilterable : false,
+      filter_multi_select: (
+        (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries')
+        && fieldFilterable
+      ) ? fieldFilterMultiSelect : false,
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
       max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
       min_length: fieldType === 'textarea' && minLength ? parseInt(minLength, 10) : null,
@@ -1224,23 +1231,46 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
               </div>
             )}
 
-            {(fieldType === 'picklist' || fieldType === 'dropdown') && (
-              <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
-                <div>
-                  <Label htmlFor="fieldFilterable" className="cursor-pointer flex items-center gap-2">
-                    <Filter className="w-4 h-4 text-purple-600" />
-                    Use as Directory Filter
-                  </Label>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Show this field as a dropdown filter in the {entityScope === 'member' ? 'Member' : 'Organisation'} Directory
-                  </p>
+            {(fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') && (
+              <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="fieldFilterable" className="cursor-pointer flex items-center gap-2">
+                      <Filter className="w-4 h-4 text-purple-600" />
+                      Use as Directory Filter
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Show this field as a dropdown filter in the {entityScope === 'member' ? 'Member' : 'Organisation'} Directory
+                    </p>
+                  </div>
+                  <Switch
+                    id="fieldFilterable"
+                    checked={fieldFilterable}
+                    onCheckedChange={(checked) => {
+                      setFieldFilterable(checked);
+                      if (!checked) setFieldFilterMultiSelect(false);
+                    }}
+                    data-testid="switch-field-filterable"
+                  />
                 </div>
-                <Switch
-                  id="fieldFilterable"
-                  checked={fieldFilterable}
-                  onCheckedChange={setFieldFilterable}
-                  data-testid="switch-field-filterable"
-                />
+                {fieldFilterable && (
+                  <div className="flex items-center justify-between pt-3 border-t border-purple-200">
+                    <div>
+                      <Label htmlFor="fieldFilterMultiSelect" className="cursor-pointer">
+                        Allow multiple selection
+                      </Label>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Let visitors pick more than one value; records matching any selected value are shown.
+                      </p>
+                    </div>
+                    <Switch
+                      id="fieldFilterMultiSelect"
+                      checked={fieldFilterMultiSelect}
+                      onCheckedChange={setFieldFilterMultiSelect}
+                      data-testid="switch-field-filter-multi-select"
+                    />
+                  </div>
+                )}
               </div>
             )}
 

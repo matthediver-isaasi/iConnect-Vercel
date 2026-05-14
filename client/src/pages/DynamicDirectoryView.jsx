@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, ExternalLink, ClipboardList, User, AlertCircle, Mail, FileText, Trophy, Shield, Calendar, Briefcase, ChevronDown, ChevronUp, Linkedin, ArrowUpDown, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -82,7 +83,11 @@ export default function DynamicDirectoryView() {
   const activeCustomFilters = useMemo(() => {
     const active = {};
     for (const [key, val] of Object.entries(customFieldFilters)) {
-      if (val && val !== 'all') active[key] = val;
+      if (Array.isArray(val)) {
+        if (val.length > 0) active[key] = val;
+      } else if (val && val !== 'all') {
+        active[key] = val;
+      }
     }
     return Object.keys(active).length > 0 ? active : null;
   }, [customFieldFilters]);
@@ -645,15 +650,19 @@ export default function DynamicDirectoryView() {
       );
     }
 
-    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => value && value !== 'all');
+    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      return value && value !== 'all';
+    });
     if (activeFilters.length > 0) {
       filtered = filtered.filter(org => {
         const orgValues = orgPreferenceMap[org.id] || {};
         return activeFilters.every(([fieldId, filterValue]) => {
           const orgValue = orgValues[fieldId];
-          if (!orgValue) return false;
-          if (Array.isArray(orgValue)) return orgValue.includes(filterValue);
-          return orgValue === filterValue;
+          if (orgValue === undefined || orgValue === null || orgValue === '') return false;
+          const selected = Array.isArray(filterValue) ? filterValue : [filterValue];
+          if (Array.isArray(orgValue)) return selected.some(v => orgValue.includes(v));
+          return selected.includes(orgValue);
         });
       });
     }
@@ -858,33 +867,58 @@ export default function DynamicDirectoryView() {
                 
                 {filterableOrgFields.length > 0 && (
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
-                    {filterableOrgFields.map(field => (
-                      <div key={field.id} className="flex items-center gap-2">
-                        <span className="text-sm text-slate-700">{field._displayLabel || field.label}:</span>
-                        <Select 
-                          value={customFieldFilters[field.id] || "all"} 
-                          onValueChange={(value) => {
-                            setCustomFieldFilters(prev => ({
-                              ...prev,
-                              [field.id]: value === "all" ? "" : value
-                            }));
-                            setCurrentPage(1);
-                          }}
-                        >
-                          <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All</SelectItem>
-                            {(field.options || []).map(option => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
+                    {filterableOrgFields.map(field => {
+                      const label = field._displayLabel || field.label;
+                      if (field.filter_multi_select) {
+                        const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
+                        return (
+                          <div key={field.id} className="flex items-center gap-2">
+                            <span className="text-sm text-slate-700">{label}:</span>
+                            <MultiSelectFilter
+                              options={field.options || []}
+                              selected={current}
+                              onChange={(vals) => {
+                                setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
+                                setCurrentPage(1);
+                              }}
+                              placeholder={`All ${label}`}
+                              className="w-[180px]"
+                              data-testid={`select-filter-${field.name}`}
+                            />
+                          </div>
+                        );
+                      }
+                      const singleValue = Array.isArray(customFieldFilters[field.id])
+                        ? (customFieldFilters[field.id][0] || 'all')
+                        : (customFieldFilters[field.id] || 'all');
+                      return (
+                        <div key={field.id} className="flex items-center gap-2">
+                          <span className="text-sm text-slate-700">{label}:</span>
+                          <Select
+                            value={singleValue}
+                            onValueChange={(value) => {
+                              setCustomFieldFilters(prev => ({
+                                ...prev,
+                                [field.id]: value === "all" ? "" : value
+                              }));
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
+                              <SelectValue placeholder={`All ${label}`} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {(field.options || []).map(option => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1343,30 +1377,52 @@ export default function DynamicDirectoryView() {
 
                 {filterableMemberFields.length > 0 && (
                   <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-200">
-                    {filterableMemberFields.map(field => (
-                      <div key={field.id} className="flex items-center gap-2">
-                        <Label className="text-sm text-slate-700">{field._displayLabel || field.label}:</Label>
-                        <Select 
-                          value={customFieldFilters[field.id] || "all"} 
-                          onValueChange={(value) => {
-                            setCustomFieldFilters(prev => ({
-                              ...prev,
-                              [field.id]: value === "all" ? "" : value
-                            }));
-                          }}
-                        >
-                          <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
-                            <SelectValue placeholder={`All ${field._displayLabel || field.label}`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All</SelectItem>
-                            {(field.options || []).map(option => (
-                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
+                    {filterableMemberFields.map(field => {
+                      const label = field._displayLabel || field.label;
+                      if (field.filter_multi_select) {
+                        const current = Array.isArray(customFieldFilters[field.id]) ? customFieldFilters[field.id] : [];
+                        return (
+                          <div key={field.id} className="flex items-center gap-2">
+                            <Label className="text-sm text-slate-700">{label}:</Label>
+                            <MultiSelectFilter
+                              options={field.options || []}
+                              selected={current}
+                              onChange={(vals) => setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }))}
+                              placeholder={`All ${label}`}
+                              className="w-[180px]"
+                              data-testid={`select-filter-${field.name}`}
+                            />
+                          </div>
+                        );
+                      }
+                      const singleValue = Array.isArray(customFieldFilters[field.id])
+                        ? (customFieldFilters[field.id][0] || 'all')
+                        : (customFieldFilters[field.id] || 'all');
+                      return (
+                        <div key={field.id} className="flex items-center gap-2">
+                          <Label className="text-sm text-slate-700">{label}:</Label>
+                          <Select
+                            value={singleValue}
+                            onValueChange={(value) => {
+                              setCustomFieldFilters(prev => ({
+                                ...prev,
+                                [field.id]: value === "all" ? "" : value
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="w-[180px]" data-testid={`select-filter-${field.name}`}>
+                              <SelectValue placeholder={`All ${label}`} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {(field.options || []).map(option => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
