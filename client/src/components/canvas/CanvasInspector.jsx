@@ -3,14 +3,16 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw } from 'lucide-react';
+import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle } from 'lucide-react';
 import {
   resolveBlockAtBreakpoint,
   hasOverride,
   setBlockBp,
   clearBpOverride,
   BREAKPOINTS,
+  validateBlock,
 } from '@/lib/canvasDesign';
+import { getBlockDefinition } from './blocks/registry';
 
 function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override }) {
   return (
@@ -94,6 +96,30 @@ export default function CanvasInspector({
   />;
 }
 
+function ContentSection({ block, onUpdate }) {
+  const def = getBlockDefinition(block.type);
+  const InspectorComponent = def.Inspector;
+  if (!InspectorComponent) return null;
+  const errors = validateBlock(block);
+  return (
+    <Section title={`Content (${def.label})`}>
+      {errors.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 space-y-1" data-testid="inspector-block-errors">
+          <div className="flex items-center gap-1 font-medium">
+            <AlertTriangle className="w-3.5 h-3.5" /> Required fields missing
+          </div>
+          <ul className="list-disc pl-4 space-y-0.5">
+            {errors.map((err, i) => <li key={i}>{err}</li>)}
+          </ul>
+        </div>
+      )}
+      <div className="space-y-2">
+        <InspectorComponent block={block} update={onUpdate} />
+      </div>
+    </Section>
+  );
+}
+
 function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onToggleHidden, onClearOverride }) {
   const geom = useMemo(() => resolveBlockAtBreakpoint(block, breakpoint), [block, breakpoint]);
 
@@ -157,6 +183,8 @@ function SingleBlockInspector({ block, breakpoint, onUpdate, onToggleLocked, onT
           data-testid="input-block-name"
         />
       </div>
+
+      <ContentSection block={block} onUpdate={onUpdate} />
 
       <Section title={`Position (${breakpoint})`}>
         <div className="grid grid-cols-2 gap-2">

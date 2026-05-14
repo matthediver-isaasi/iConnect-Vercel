@@ -14,6 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import {
   createEmptyCanvasDesign,
   normalizeCanvasDesign,
+  validateCanvasDesign,
 } from "@/lib/canvasDesign";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 
@@ -153,6 +154,26 @@ export default function CanvasPageEditorPage() {
   const handleTogglePublish = async () => {
     if (!page) return;
     const newStatus = page.status === 'published' ? 'draft' : 'published';
+
+    // Block publishing pages that contain blocks with required fields
+    // missing. Surface every failing block in a toast so the author can
+    // fix them before retrying.
+    if (newStatus === 'published') {
+      const designToCheck = canvasRef.current?.getDesign?.() || page.canvas_design;
+      const issues = validateCanvasDesign(designToCheck);
+      if (issues.length > 0) {
+        const summary = issues
+          .slice(0, 5)
+          .map((i) => `• ${i.blockName || i.blockType}: ${i.errors[0]}`)
+          .join('\n');
+        const more = issues.length > 5 ? `\n…and ${issues.length - 5} more` : '';
+        toast.error(`Can't publish — ${issues.length} block(s) need attention:\n${summary}${more}`, {
+          duration: 8000,
+        });
+        return;
+      }
+    }
+
     if (canvasRef.current?.isDirty?.()) {
       const ok = await canvasRef.current.saveNow();
       if (!ok) return;

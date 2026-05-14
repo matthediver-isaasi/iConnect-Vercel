@@ -1,22 +1,12 @@
 import { useDraggable } from '@dnd-kit/core';
-import { Square } from 'lucide-react';
-import { BLOCK_TYPES } from '@/lib/canvasDesign';
-
-const PALETTE_ITEMS = [
-  {
-    type: BLOCK_TYPES.BOX,
-    label: 'Box',
-    description: 'Generic container',
-    Icon: Square,
-  },
-];
+import { listPaletteBlocks, BLOCK_CATEGORIES } from './blocks/registry';
 
 function PaletteItem({ item }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${item.type}`,
     data: { fromPalette: true, type: item.type },
   });
-  const { Icon } = item;
+  const Icon = item.icon;
   return (
     <div
       ref={setNodeRef}
@@ -27,23 +17,37 @@ function PaletteItem({ item }) {
       }`}
       data-testid={`palette-item-${item.type}`}
     >
-      <Icon className="w-4 h-4 text-slate-500" />
+      {Icon && <Icon className="w-4 h-4 text-slate-500 shrink-0" />}
       <div className="flex flex-col min-w-0">
-        <span className="text-sm font-medium text-slate-900">{item.label}</span>
-        <span className="text-xs text-slate-500 truncate">{item.description}</span>
+        <span className="text-sm font-medium text-slate-900 truncate">{item.label}</span>
       </div>
     </div>
   );
 }
 
 export default function CanvasPalette() {
+  const items = listPaletteBlocks();
+  const grouped = BLOCK_CATEGORIES.map((cat) => ({
+    ...cat,
+    items: items.filter((i) => i.category === cat.id),
+  })).filter((g) => g.items.length > 0);
+
   return (
-    <div className="space-y-2" data-testid="canvas-palette">
-      <p className="text-xs text-slate-500 mb-2">
+    <div className="space-y-3" data-testid="canvas-palette">
+      <p className="text-xs text-slate-500">
         Drag a block onto the canvas to place it.
       </p>
-      {PALETTE_ITEMS.map((item) => (
-        <PaletteItem key={item.type} item={item} />
+      {grouped.map((group) => (
+        <div key={group.id} className="space-y-1.5" data-testid={`palette-group-${group.id}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            {group.label}
+          </div>
+          <div className="space-y-1">
+            {group.items.map((item) => (
+              <PaletteItem key={item.type} item={item} />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );

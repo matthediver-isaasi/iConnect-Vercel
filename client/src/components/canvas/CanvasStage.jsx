@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
+import { getBlockDefinition } from './blocks/registry';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
@@ -109,11 +110,14 @@ function CanvasBlockView({
   block,
   geom,
   isSelected,
+  breakpoint,
   onPointerDownBlock,
   onPointerDownResize,
 }) {
   if (geom.hidden) return null;
   const { style, a11y } = block;
+  const def = getBlockDefinition(block.type);
+  const EditorComponent = def.Editor;
   return (
     <div
       role={a11y.role || undefined}
@@ -138,11 +142,18 @@ function CanvasBlockView({
         paddingBottom: style.paddingBottom || 0,
         paddingLeft: style.paddingLeft || 0,
         boxSizing: 'border-box',
+        overflow: 'hidden',
       }}
       onPointerDown={(e) => onPointerDownBlock(e, block.id)}
       data-testid={`canvas-block-${block.id}`}
       data-block-id={block.id}
+      data-block-type={block.type}
     >
+      {EditorComponent && (
+        <div className="absolute inset-0 pointer-events-none" data-testid={`canvas-block-content-${block.id}`}>
+          <EditorComponent block={block} breakpoint={breakpoint} asEditor />
+        </div>
+      )}
       {isSelected && !block.locked && (
         <>
           {RESIZE_HANDLES.map((h) => (
@@ -424,6 +435,7 @@ export default function CanvasStage({
             key={block.id}
             block={block}
             geom={effective}
+            breakpoint={breakpoint}
             isSelected={selectedIds.includes(block.id)}
             onPointerDownBlock={handlePointerDownBlock}
             onPointerDownResize={handlePointerDownResize}
@@ -462,7 +474,7 @@ export default function CanvasStage({
           <div className="text-center px-6 py-8 rounded-md border border-dashed border-slate-300 bg-slate-50">
             <p className="text-sm font-medium text-slate-700 mb-1">Empty canvas</p>
             <p className="text-xs text-slate-500 max-w-xs">
-              Drag a Box from the left palette onto the canvas to get started.
+              Drag a block from the left palette onto the canvas to get started.
             </p>
           </div>
         </div>

@@ -5,6 +5,7 @@ import {
   getRootChildren,
   BREAKPOINT_WIDTHS,
 } from "@/lib/canvasDesign";
+import { getBlockDefinition } from "./blocks/registry";
 
 // Phase 2 public renderer for Canvas Builder pages.
 //
@@ -37,17 +38,43 @@ function CanvasBlockRender({ block, breakpoint }) {
   const geom = resolveBlockAtBreakpoint(block, breakpoint);
   if (geom.hidden) return null;
   const { style, a11y } = block;
-  return (
-    <div
-      role={a11y?.role || undefined}
-      aria-label={a11y?.ariaLabel || undefined}
-      data-block-id={block.id}
-      style={{
+  const def = getBlockDefinition(block.type);
+  const Renderer = def.Renderer;
+
+  const isSection = block.type === 'section';
+  const isFullBleed = isSection && !!(block.content && block.content.fullBleed);
+
+  // Full-bleed sections escape the centered, max-width stage by anchoring
+  // to the stage's horizontal center (which equals the viewport center
+  // because the stage is `justify-center`-flexed) and stretching to the
+  // full viewport width. Their vertical position/height still comes from
+  // the design geometry so authors can compose them with other blocks.
+  const positionStyle = isFullBleed
+    ? {
+        position: 'absolute',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100vw',
+        top: geom.y,
+        height: geom.h,
+      }
+    : {
         position: 'absolute',
         left: geom.x,
         top: geom.y,
         width: geom.w,
         height: geom.h,
+      };
+
+  return (
+    <div
+      role={a11y?.role || undefined}
+      aria-label={a11y?.ariaLabel || undefined}
+      data-block-id={block.id}
+      data-block-type={block.type}
+      data-full-bleed={isFullBleed ? 'true' : undefined}
+      style={{
+        ...positionStyle,
         background: style.background,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,
@@ -60,10 +87,15 @@ function CanvasBlockRender({ block, breakpoint }) {
         paddingBottom: style.paddingBottom || 0,
         paddingLeft: style.paddingLeft || 0,
         boxSizing: 'border-box',
+        // Sections never clip; everything else does so absolute-positioned
+        // children can't overflow each other unexpectedly.
+        overflow: isSection ? 'visible' : 'hidden',
       }}
       tabIndex={typeof a11y?.tabIndex === 'number' ? a11y.tabIndex : undefined}
       aria-hidden={a11y?.ariaHidden ? true : undefined}
-    />
+    >
+      {Renderer && <Renderer block={block} breakpoint={breakpoint} />}
+    </div>
   );
 }
 

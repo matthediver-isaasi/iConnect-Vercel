@@ -229,6 +229,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   useImperativeHandle(ref, () => ({
     saveNow: () => performSave(),
     isDirty: () => JSON.stringify(design) !== lastSavedSnapshot,
+    getDesign: () => design,
   }), [performSave, design, lastSavedSnapshot]);
 
   // Autosave (debounced) — only fires when dirty and onSave provided.
@@ -373,9 +374,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       y = Math.max(0, Math.round(localY / gridSize) * gridSize);
     }
 
-    const newBlock = createBlock(active.data?.current?.type || BLOCK_TYPES.BOX, {
-      desktop: { x, y, w: 160, h: 100, hidden: false },
-      name: `Box ${children.length + 1}`,
+    const newType = active.data?.current?.type || BLOCK_TYPES.BOX;
+    const newBlock = createBlock(newType, {
+      desktop: { x, y, hidden: false },
     });
     replaceChildren((arr) => [...arr, newBlock]);
     setSelectedIds([newBlock.id]);
@@ -406,6 +407,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           mobile: { ...b.bp.mobile },
           style: { ...b.style },
           a11y: { ...b.a11y },
+          content: JSON.parse(JSON.stringify(b.content || {})),
           name: `${b.name} copy`,
         });
         newIds.push(copy.id);
@@ -426,6 +428,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       mobile: { ...b.bp.mobile },
       style: { ...b.style },
       a11y: { ...b.a11y },
+      content: JSON.parse(JSON.stringify(b.content || {})),
       name: `${b.name} copy`,
     });
     replaceChildren((arr) => [...arr, copy]);
