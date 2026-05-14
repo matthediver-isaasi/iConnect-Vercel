@@ -213,13 +213,15 @@ export async function applyInvoicePoUpdate({
     found.transactions.some((t) => t.purchase_order_number && t.purchase_order_number.trim());
 
   let bookingsUpdated = 0;
-  if (found.bookings.length > 0) {
-    const ids = found.bookings.map((b) => b.id);
+  const bookingIdsToUpdate = found.bookings
+    .filter((b) => !b.purchase_order_number || !b.purchase_order_number.trim())
+    .map((b) => b.id);
+  if (bookingIdsToUpdate.length > 0) {
+    const ids = bookingIdsToUpdate;
     const { data: updated, error: bErr } = await client
       .from('booking')
       .update({ purchase_order_number: trimmedPO, po_to_follow: false })
       .in('id', ids)
-      .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (bErr) {
       console.error(
@@ -239,13 +241,15 @@ export async function applyInvoicePoUpdate({
   }
 
   let transactionsUpdated = 0;
-  if (found.transactions.length > 0) {
-    const ids = found.transactions.map((t) => t.id);
+  const transactionIdsToUpdate = found.transactions
+    .filter((t) => !t.purchase_order_number || !t.purchase_order_number.trim())
+    .map((t) => t.id);
+  if (transactionIdsToUpdate.length > 0) {
+    const ids = transactionIdsToUpdate;
     const { data: updated, error: tErr } = await client
       .from('program_ticket_transaction')
       .update({ purchase_order_number: trimmedPO })
       .in('id', ids)
-      .or('purchase_order_number.is.null,purchase_order_number.eq.')
       .select('id');
     if (tErr) {
       console.error(
