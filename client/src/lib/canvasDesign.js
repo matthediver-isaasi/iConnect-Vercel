@@ -151,6 +151,15 @@ export const BLOCK_TYPES = {
   STAT: 'stat',
   LOGO_STRIP: 'logo-strip',
   MAP: 'map',
+  // Dynamic / data-bound blocks (Phase 4)
+  EVENT_LIST: 'event-list',
+  EVENT_TEASER: 'event-teaser',
+  ARTICLE_LIST: 'article-list',
+  RESOURCE_LIST: 'resource-list',
+  FORM_EMBED: 'form-embed',
+  CAMPAIGN_EMBED: 'campaign-embed',
+  MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
+  DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
 };
 
 const DEFAULT_STYLE = {
@@ -384,6 +393,127 @@ export const BLOCK_DEFAULTS = {
       query: 'London, UK',
       zoom: 12,
       title: 'Location',
+    },
+  },
+  // ---- Dynamic blocks ----
+  [BLOCK_TYPES.EVENT_LIST]: {
+    name: 'Event list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Upcoming events',
+      headingLevel: 2,
+      limit: 6,
+      filter: 'upcoming', // upcoming | past | all
+      featuredOnly: false,
+      programTag: '',
+      sortBy: 'start-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      ctaLabel: 'View details',
+      emptyText: 'No upcoming events to show yet.',
+    },
+  },
+  [BLOCK_TYPES.EVENT_TEASER]: {
+    name: 'Event teaser',
+    geom: { w: 520, h: 320 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      eventSlug: '',
+      showImage: true,
+      showSummary: true,
+      showCta: true,
+      ctaLabel: 'Find out more',
+    },
+  },
+  [BLOCK_TYPES.ARTICLE_LIST]: {
+    name: 'Article / news list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Latest articles',
+      headingLevel: 2,
+      source: 'articles', // articles | news
+      limit: 6,
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showSummary: true,
+      showImage: true,
+      emptyText: 'No articles yet.',
+    },
+  },
+  [BLOCK_TYPES.RESOURCE_LIST]: {
+    name: 'Resource list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Resources',
+      headingLevel: 2,
+      limit: 6,
+      resourceType: '',
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      emptyText: 'No resources available.',
+    },
+  },
+  [BLOCK_TYPES.FORM_EMBED]: {
+    name: 'Form embed',
+    geom: { w: 640, h: 480 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      formSlug: '',
+      mode: 'inline', // inline | iframe | link
+      title: '',
+      ctaLabel: 'Open form',
+    },
+  },
+  [BLOCK_TYPES.CAMPAIGN_EMBED]: {
+    name: 'Fundraising campaign',
+    geom: { w: 560, h: 380 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      campaignSlug: '',
+      showProgress: true,
+      showImage: true,
+      ctaLabel: 'Donate now',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_DIRECTORY_EMBED]: {
+    name: 'Member directory',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      directorySlug: '',
+      title: 'Member directory',
+      headingLevel: 2,
+      limit: 12,
+      sort: 'name-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showPhoto: true,
+      showJobTitle: true,
+      ctaLabel: 'View directory',
+      emptyText: 'No members to show yet.',
+    },
+  },
+  [BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED]: {
+    name: 'Dynamic directory',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      directorySlug: '',
+      title: '',
+      headingLevel: 2,
+      limit: 12,
+      sort: 'name-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showPhoto: true,
+      ctaLabel: 'View full directory',
+      emptyText: 'No records to show yet.',
     },
   },
 };
@@ -642,6 +772,21 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.CUSTOM_HTML:
       if (!c.html || !String(c.html).trim()) errors.push('Custom HTML block is empty.');
+      break;
+    case BLOCK_TYPES.EVENT_TEASER:
+      if (!c.eventId && !c.eventSlug) errors.push('Event teaser requires an event.');
+      break;
+    case BLOCK_TYPES.FORM_EMBED:
+      if (!c.formSlug) errors.push('Form embed requires a form.');
+      break;
+    case BLOCK_TYPES.CAMPAIGN_EMBED:
+      if (!c.campaignSlug) errors.push('Campaign embed requires a campaign.');
+      break;
+    case BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED:
+      if (!c.directorySlug) errors.push('Dynamic directory embed requires a directory.');
+      break;
+    case BLOCK_TYPES.MEMBER_DIRECTORY_EMBED:
+      if (!c.directorySlug) errors.push('Member directory embed requires a directory.');
       break;
     default:
       break;

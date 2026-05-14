@@ -799,6 +799,164 @@ function renderCanvasDesignBody(design) {
   return { sections, firstImage, allTexts };
 }
 
+// Walk a canvas_design document and return all dynamic data blocks (in
+// source order) that the prerender knows how to inline.
+const INLINE_CANVAS_BLOCK_TYPES = new Set([
+  'event-list', 'article-list', 'resource-list', 'campaign-embed',
+]);
+
+function collectCanvasBlocks(design) {
+  const out = [];
+  if (!design || typeof design !== 'object') return out;
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type && INLINE_CANVAS_BLOCK_TYPES.has(node.type)) out.push(node);
+    // Recurse into common container fields. Canvas blocks may nest children
+    // under `children`, `sections`, `blocks`, `columns`, or `items`.
+    const containers = ['children', 'sections', 'blocks', 'columns', 'items', 'rows'];
+    for (const key of containers) {
+      const arr = node[key];
+      if (Array.isArray(arr)) arr.forEach(visit);
+    }
+    if (node.content && typeof node.content === 'object') {
+      for (const key of containers) {
+        const arr = node.content[key];
+        if (Array.isArray(arr)) arr.forEach(visit);
+      }
+    }
+  };
+  const sections = Array.isArray(design.root?.sections) ? design.root.sections : [];
+  sections.forEach(visit);
+  return out;
+}
+
+function clampLimit(n, def, max) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return def;
+  return Math.min(max, Math.floor(v));
+}
+
+async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
+  const c = block.content || {};
+  try {
+    if (block.type === 'event-list') {
+      const limit = clampLimit(c.limit, 6, 20);
+      let q = supabaseClient
+        .from('event')
+        .select('id, title, slug, summary, description, start_date, location, image_url, is_featured')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published');
+      const filter = c.filter || 'upcoming';
+      const nowIso = new Date().toISOString();
+      if (filter === 'upcoming') q = q.gte('start_date', nowIso).order('start_date', { ascending: true });
+      else if (filter === 'past') q = q.lt('start_date', nowIso).order('start_date', { ascending: false });
+      else q = q.order('start_date', { ascending: c.sortBy !== 'start-desc' });
+      if (c.featuredOnly) q = q.eq('is_featured', true);
+      const { data } = await q.limit(limit);
+      const items = data || [];
+      if (items.length === 0) return null;
+      const texts = []; let firstImage = null;
+      const cards = items.map((e) => {
+        if (!firstImage && e.image_url) firstImage = e.image_url;
+        const summary = e.summary || stripHtml(e.description || '');
+        if (e.title) texts.push(e.title);
+        if (summary) texts.push(summary);
+        return `<article>
+  <h3>${escapeHtml(e.title || '')}</h3>
+  ${e.start_date ? `<p><strong>Date:</strong> ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-GB', { dateStyle: 'long' }))}</p>` : ''}
+  ${e.location ? `<p><strong>Location:</strong> ${escapeHtml(e.location)}</p>` : ''}
+  ${summary ? `<p>${escapeHtml(truncate(summary, 240))}</p>` : ''}
+  ${e.slug || e.id ? `<p><a href="/Events/${escapeHtml(e.slug || e.id)}">View event</a></p>` : ''}
+</article>`;
+      }).join('\n');
+      const html = `<section>${c.title ? `<h2>${escapeHtml(c.title)}</h2>` : ''}${cards}</section>`;
+      return { html, texts, firstImage };
+    }
+
+    if (block.type === 'article-list') {
+      const limit = clampLimit(c.limit, 6, 20);
+      const source = c.source === 'news' ? 'news_post' : 'blog_post';
+      const { data } = await supabaseClient
+        .from(source)
+        .select('id, title, slug, summary, content, feature_image_url, published_date')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .order('published_date', { ascending: false })
+        .limit(limit);
+      const items = data || [];
+      if (items.length === 0) return null;
+      const texts = []; let firstImage = null;
+      const linkBase = source === 'news_post' ? '/NewsView?slug=' : '/Articles?slug=';
+      const cards = items.map((a) => {
+        if (!firstImage && a.feature_image_url) firstImage = a.feature_image_url;
+        const summary = a.summary || stripHtml(a.content || '');
+        if (a.title) texts.push(a.title);
+        if (summary) texts.push(summary);
+        return `<article>
+  <h3>${escapeHtml(a.title || '')}</h3>
+  ${a.published_date ? `<p><strong>Published:</strong> ${escapeHtml(new Date(a.published_date).toLocaleDateString('en-GB', { dateStyle: 'long' }))}</p>` : ''}
+  ${summary ? `<p>${escapeHtml(truncate(summary, 240))}</p>` : ''}
+  ${a.slug ? `<p><a href="${linkBase}${escapeHtml(a.slug)}">Read more</a></p>` : ''}
+</article>`;
+      }).join('\n');
+      const html = `<section>${c.title ? `<h2>${escapeHtml(c.title)}</h2>` : ''}${cards}</section>`;
+      return { html, texts, firstImage };
+    }
+
+    if (block.type === 'resource-list') {
+      const limit = clampLimit(c.limit, 6, 20);
+      let q = supabaseClient
+        .from('resource')
+        .select('id, title, slug, description, resource_type, image_url, status, is_public, target_url')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+      if (c.resourceType) q = q.eq('resource_type', c.resourceType);
+      const { data } = await q.limit(limit);
+      const items = (data || []).filter((r) => r.is_public !== false);
+      if (items.length === 0) return null;
+      const texts = []; let firstImage = null;
+      const cards = items.map((r) => {
+        if (!firstImage && r.image_url) firstImage = r.image_url;
+        if (r.title) texts.push(r.title);
+        if (r.description) texts.push(stripHtml(r.description));
+        return `<article>
+  <h3>${escapeHtml(r.title || '')}</h3>
+  ${r.resource_type ? `<p><strong>Type:</strong> ${escapeHtml(r.resource_type)}</p>` : ''}
+  ${r.description ? `<p>${escapeHtml(truncate(stripHtml(r.description), 240))}</p>` : ''}
+</article>`;
+      }).join('\n');
+      const html = `<section>${c.title ? `<h2>${escapeHtml(c.title)}</h2>` : ''}${cards}</section>`;
+      return { html, texts, firstImage };
+    }
+
+    if (block.type === 'campaign-embed') {
+      if (!c.campaignSlug) return null;
+      const { data: campaign } = await supabaseClient
+        .from('fundraising_campaign')
+        .select('id, name, slug, public_description, description, cover_image_url, goal_amount, currency, status, hide_campaign_target')
+        .eq('tenant_id', tenant.id)
+        .eq('slug', c.campaignSlug)
+        .single();
+      if (!campaign || campaign.status !== 'active') return null;
+      const texts = [];
+      if (campaign.name) texts.push(campaign.name);
+      const desc = campaign.public_description || campaign.description;
+      if (desc) texts.push(stripHtml(desc));
+      const html = `<section>
+  <h2>${escapeHtml(campaign.name || '')}</h2>
+  ${desc ? `<p>${escapeHtml(truncate(stripHtml(desc), 300))}</p>` : ''}
+  ${!campaign.hide_campaign_target && campaign.goal_amount ? `<p><strong>Goal:</strong> ${escapeHtml(String(campaign.goal_amount))} ${escapeHtml(campaign.currency || '')}</p>` : ''}
+  <p><a href="/Campaign/${escapeHtml(campaign.slug)}">Donate now</a></p>
+</section>`;
+      return { html, texts, firstImage: campaign.cover_image_url || null };
+    }
+  } catch (err) {
+    console.error('[Prerender] Failed to inline canvas block', block.type, err);
+  }
+  return null;
+}
+
 async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   if (!pageSlug) return null;
 
@@ -823,6 +981,8 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
     // preserving heading levels, images with alt text, buttons-as-links,
     // and FAQ/testimonial structure. Crawlers/social unfurl bots see the
     // full semantic body up-front without waiting for JS to hydrate.
+    // Then inline content from dynamic data blocks so social unfurls /
+    // SEO crawlers get the same first-N items a visitor sees.
     if (page.canvas_design && typeof page.canvas_design === 'object') {
       const { sections, firstImage, allTexts: canvasTexts } = renderCanvasDesignBody(page.canvas_design);
       for (const s of sections) bodySections.push(s);
@@ -830,6 +990,16 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
         if (t && !isPlaceholderText(t)) allTexts.push(t);
       }
       if (firstImage) ogImage = firstImage;
+
+      const dynamicBlocks = collectCanvasBlocks(page.canvas_design);
+      for (const block of dynamicBlocks) {
+        const section = await renderCanvasDynamicBlock(supabaseClient, tenant, block);
+        if (section) {
+          if (section.html) bodySections.push(section.html);
+          if (section.texts) allTexts.push(...section.texts);
+          if (!ogImage && section.firstImage) ogImage = section.firstImage;
+        }
+      }
     }
   } else {
     const { data: elements } = await supabaseClient

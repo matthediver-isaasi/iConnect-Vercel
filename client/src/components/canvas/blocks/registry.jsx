@@ -31,6 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BLOCK_TYPES, buildResponsiveImage } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
+import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
 // that don't use it.
@@ -1536,6 +1537,7 @@ const REGISTRY = {
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
+  ...DYNAMIC_BLOCK_DEFINITIONS,
 };
 
 export const BLOCK_CATEGORIES = [
@@ -1543,6 +1545,7 @@ export const BLOCK_CATEGORIES = [
   { id: 'layout',   label: 'Layout' },
   { id: 'media',    label: 'Media' },
   { id: 'ui',       label: 'UI elements' },
+  { id: 'data',     label: 'Dynamic data' },
   { id: 'advanced', label: 'Advanced' },
 ];
 
