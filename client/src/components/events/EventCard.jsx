@@ -848,7 +848,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             
             // Always show the cheapest ticket price across all ticket classes,
             // regardless of viewer login state or ticket visibility_mode.
-            const cheapestPrice = getCheapestTicketPrice(event);
+            // Prefer the server-provided cheapest_price (which sees members-only tickets
+            // hidden from public payloads); fall back to local computation for older
+            // payloads / admin surfaces that still pass full pricing data.
+            const serverCheapest = (event && event.cheapest_price !== undefined && event.cheapest_price !== null)
+              ? Number(event.cheapest_price)
+              : null;
+            const cheapestPrice = (serverCheapest !== null && Number.isFinite(serverCheapest))
+              ? serverCheapest
+              : getCheapestTicketPrice(event);
             
             // Only show if we have pricing info
             if (cheapestPrice === null) return null;

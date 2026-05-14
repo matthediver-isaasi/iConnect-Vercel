@@ -79,7 +79,23 @@ export default async function handler(req, res) {
 
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
 
-    const publicTicketClasses = (event.pricing_config?.ticket_classes || [])
+    const allTicketClasses = event.pricing_config?.ticket_classes || [];
+    const allPrices = allTicketClasses
+      .map(tc => {
+        if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
+        return Number(tc.price);
+      })
+      .filter(p => Number.isFinite(p));
+    let cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
+    if (cheapestPrice === null) {
+      const legacy = event.pricing_config?.ticket_price;
+      if (legacy !== undefined && legacy !== null && legacy !== '') {
+        const n = Number(legacy);
+        if (Number.isFinite(n)) cheapestPrice = n;
+      }
+    }
+
+    const publicTicketClasses = allTicketClasses
       .filter(tc => {
         if (allowGuestsToViewAllTickets) return true;
         if (tc.visibility_mode) {
@@ -148,6 +164,7 @@ export default async function handler(req, res) {
       seo_description: event.seo_description || null,
       og_image_url: event.og_image_url || null,
       is_complex: event.is_complex || false,
+      cheapest_price: cheapestPrice,
       cta_override_url: event.cta_override_url || null,
       cta_override_mode: event.cta_override_mode || 'card'
     };

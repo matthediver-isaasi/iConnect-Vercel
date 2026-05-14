@@ -62,7 +62,22 @@ export default async function handler(req, res) {
       .order('start_date', { ascending: true });
 
     const events = (rawEvents || []).map(event => {
-      const publicTicketClasses = (event.pricing_config?.ticket_classes || [])
+      const allTicketClasses = event.pricing_config?.ticket_classes || [];
+      const allPrices = allTicketClasses
+        .map(tc => {
+          if (tc.price === undefined || tc.price === null || tc.price === '') return NaN;
+          return Number(tc.price);
+        })
+        .filter(p => Number.isFinite(p));
+      let cheapestPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
+      if (cheapestPrice === null) {
+        const legacy = event.pricing_config?.ticket_price;
+        if (legacy !== undefined && legacy !== null && legacy !== '') {
+          const n = Number(legacy);
+          if (Number.isFinite(n)) cheapestPrice = n;
+        }
+      }
+      const publicTicketClasses = allTicketClasses
         .filter(tc => {
           if (tc.visibility_mode) {
             return tc.visibility_mode === 'members_and_public' || tc.visibility_mode === 'public_only';
@@ -103,6 +118,7 @@ export default async function handler(req, res) {
         event_state: event.event_state,
         registration_closes_at: event.registration_closes_at,
         is_featured: event.is_featured || false,
+        cheapest_price: cheapestPrice,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card'
