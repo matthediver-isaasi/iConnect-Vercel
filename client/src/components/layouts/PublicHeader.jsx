@@ -294,6 +294,7 @@ export default function PublicHeader() {
   const [hoveredMenu, setHoveredMenu] = useState(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
   const [socialIcons, setSocialIcons] = useState(null);
+  const [headerIconsConfig, setHeaderIconsConfig] = useState({ login: true, search: true, social: true });
   const [closeTimeout, setCloseTimeout] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedMenus, setMobileExpandedMenus] = useState({});
@@ -420,6 +421,31 @@ export default function PublicHeader() {
     };
 
     fetchSocialConfig();
+  }, []);
+
+  // Fetch header icons visibility configuration
+  useEffect(() => {
+    const fetchHeaderIconsConfig = async () => {
+      try {
+        const setting = await publicClient.getSystemSetting('header_icons_config');
+        if (setting?.setting_value) {
+          try {
+            const parsed = JSON.parse(setting.setting_value);
+            setHeaderIconsConfig({
+              login: parsed.login !== false,
+              search: parsed.search !== false,
+              social: parsed.social !== false,
+            });
+          } catch (e) {
+            console.error('Failed to parse header icons config:', e);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch header icons config:', error);
+      }
+    };
+
+    fetchHeaderIconsConfig();
   }, []);
 
   const handleLogout = async () => {
@@ -1129,15 +1155,19 @@ export default function PublicHeader() {
                 {navItems.topNav?.map(item => renderNavItem(item, true))}
 
                 {/* Static Items - Login / Member Area */}
-                <Link
-                  to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
-                  className="flex items-center gap-1 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
-                >
-                  <User className="w-4 h-4" />
-                  <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
-                </Link>
+                {headerIconsConfig.login && (
+                  <Link
+                    to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
+                    className="flex items-center gap-1 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
+                    data-testid="link-header-login"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>{isLoggedIn ? 'Member Area' : 'Login'}</span>
+                  </Link>
+                )}
 
                 {/* Search */}
+                {headerIconsConfig.search && (
                 <div className="relative">
                   <button
                     onClick={() => setSearchOpen(!searchOpen)}
@@ -1243,6 +1273,7 @@ export default function PublicHeader() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Logout Icon */}
                 {isLoggedIn && (
@@ -1256,7 +1287,7 @@ export default function PublicHeader() {
                 )}
 
                 {/* Social Media Icons */}
-                {socialIcons && (
+                {headerIconsConfig.social && socialIcons && (
                   <div className="flex items-center gap-2">
                     {socialIcons.linkedin?.enabled && socialIcons.linkedin?.url && (
                       <a
@@ -1425,38 +1456,48 @@ export default function PublicHeader() {
         {/* Mobile Menu Content */}
         <div className="flex flex-col h-[calc(100%-73px)] overflow-y-auto">
           {/* Login/Logout - at the top */}
+          {(headerIconsConfig.login || isLoggedIn) && (
           <div className="px-4 py-3 border-b border-slate-200">
             {isLoggedIn ? (
               <div className="flex items-center justify-between gap-3">
-                <Link
-                  to={createPageUrl(memberLandingPage)}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-2 py-2 text-slate-900 font-medium"
-                >
-                  <User className="w-5 h-5 text-slate-600" />
-                  Member Area
-                </Link>
+                {headerIconsConfig.login ? (
+                  <Link
+                    to={createPageUrl(memberLandingPage)}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+                    data-testid="link-mobile-member-area"
+                  >
+                    <User className="w-5 h-5 text-slate-600" />
+                    Member Area
+                  </Link>
+                ) : (
+                  <span />
+                )}
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 py-2 text-red-600 font-medium"
+                  data-testid="button-mobile-logout"
                 >
                   <LogOut className="w-5 h-5" />
                   Logout
                 </button>
               </div>
-            ) : (
+            ) : headerIconsConfig.login ? (
               <Link
                 to="/login"
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+                data-testid="link-mobile-login"
               >
                 <User className="w-5 h-5 text-slate-600" />
                 Login
               </Link>
-            )}
+            ) : null}
           </div>
+          )}
 
           {/* Search Bar */}
+          {headerIconsConfig.search && (
           <div className="p-4 border-b border-slate-200">
             <div className="relative">
               {isMobileSearching ? (
@@ -1525,6 +1566,7 @@ export default function PublicHeader() {
               </div>
             )}
           </div>
+          )}
 
           {/* Navigation Items */}
           <div className="flex-1 py-2">
