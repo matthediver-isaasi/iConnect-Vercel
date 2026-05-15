@@ -393,55 +393,79 @@ export default function NavigationManagementPage() {
     staleTime: 60 * 1000,
   });
 
-  // Fetch tenant branding for footer columns setting
-  const { data: tenantBranding, refetch: refetchBranding } = useQuery({
+  // Fetch tenant branding for footer columns setting (admin endpoint only — this is an admin page)
+  const {
+    data: tenantBranding,
+    refetch: refetchBranding,
+    error: brandingError,
+    isLoading: brandingLoading,
+  } = useQuery({
     queryKey: ['tenant-branding'],
     queryFn: async () => {
-      try {
-        // Try authenticated admin endpoint first
-        let res = await fetch('/api/admin/tenant-branding', { credentials: 'include' });
-        if (res.ok) return res.json();
-        // Fall back to public endpoint (member portal context)
-        res = await fetch('/api/tenant-branding', { credentials: 'include' });
-        if (res.ok) return res.json();
-        return null;
-      } catch {
-        return null;
+      const res = await fetch('/api/admin/tenant-branding', { credentials: 'include' });
+      if (!res.ok) {
+        const err = new Error(`Failed to load branding settings (${res.status})`);
+        err.status = res.status;
+        throw err;
       }
+      return res.json();
     },
     staleTime: 0,
+    retry: false,
   });
   const brandingData = tenantBranding?.branding;
   const footerColumns = brandingData?.footer_config?.columns || 4;
   const columnAlignments = brandingData?.footer_config?.columnAlignments || {};
 
+  const getBrandingErrorMessage = () => {
+    if (!brandingError) return null;
+    if (brandingError.status === 401 || brandingError.status === 403) {
+      return "Couldn't load branding settings — please sign in again with an admin account.";
+    }
+    return "Couldn't load branding settings. Please refresh and try again.";
+  };
+
+  useEffect(() => {
+    if (brandingError) {
+      toast.error(getBrandingErrorMessage());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandingError]);
+
   const handleColumnAlignmentChange = async (colNum, alignment) => {
-    if (!brandingData) {
-      toast.error('Branding settings not loaded');
+    if (brandingError) {
+      toast.error(getBrandingErrorMessage());
       return;
     }
-    
+    if (brandingLoading || !brandingData) {
+      toast.error('Branding settings are still loading — please try again in a moment.');
+      return;
+    }
+
     try {
       const updatedAlignments = {
         ...columnAlignments,
         [colNum]: alignment
       };
-      
+
       const response = await fetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           footer_config: {
-            ...brandingData?.footer_config,
+            ...(brandingData.footer_config || {}),
             columnAlignments: updatedAlignments
           }
         })
       });
-      
+
       if (response.ok) {
         await refetchBranding();
+        await queryClient.invalidateQueries({ queryKey: ['tenant-branding'] });
         toast.success(`Column ${colNum} alignment updated`);
+      } else if (response.status === 401 || response.status === 403) {
+        toast.error("Couldn't save — please sign in again with an admin account.");
       } else {
         throw new Error('Failed to save');
       }
