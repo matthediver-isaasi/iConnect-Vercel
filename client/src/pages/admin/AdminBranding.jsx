@@ -101,6 +101,7 @@ export default function AdminBranding() {
     branding_config: {
       footerLogoHeight: '',
       footerLogoWidth: '',
+      footerLogoInvert: false,
       headerSocialIconColor: '#5C0085',
       footerSocialIconColor: '#FFFFFF'
     },
@@ -210,6 +211,7 @@ export default function AdminBranding() {
               branding_config: {
                 footerLogoHeight: t?.branding_config?.footerLogoHeight || '',
                 footerLogoWidth: t?.branding_config?.footerLogoWidth || '',
+                footerLogoInvert: t?.branding_config?.footerLogoInvert === true,
                 headerSocialIconColor: t?.branding_config?.headerSocialIconColor || '#5C0085',
                 footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF'
               },
@@ -765,6 +767,26 @@ export default function AdminBranding() {
                 </div>
               </div>
               <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
+
+              <div className="flex items-center justify-between p-4 mt-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="pr-4">
+                  <Label className="text-white font-medium">Render logo in white</Label>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Forces the footer logo to display as a solid white silhouette. Useful for dark single-color logos that need to be visible on a dark footer background. Leave off to display the logo in its original colors.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!formData.branding_config?.footerLogoInvert}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    branding_config: {
+                      ...formData.branding_config,
+                      footerLogoInvert: checked
+                    }
+                  })}
+                  data-testid="switch-footer-logo-invert"
+                />
+              </div>
             </CardContent>
           </Card>
 

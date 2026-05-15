@@ -513,7 +513,7 @@ export default function PublicLayout({ children, currentPageName }) {
                           <img 
                             src={branding.logoUrl} 
                             alt={branding?.name || 'Logo'} 
-                            className="object-contain"
+                            className={`object-contain${branding?.brandingConfig?.footerLogoInvert ? ' brightness-0 invert' : ''}`}
                             style={{
                               height: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
                               width: branding?.brandingConfig?.footerLogoWidth ? `${branding.brandingConfig.footerLogoWidth}px` : 'auto',
