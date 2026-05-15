@@ -965,7 +965,7 @@ function geomRule(geom, { fullBleed, fullWidth } = {}) {
   ].join('');
 }
 
-function stageHeightForBreakpoint(blocks, breakpoint) {
+export function stageHeightForBreakpoint(blocks, breakpoint) {
   let h = 240;
   for (const b of blocks) {
     const g = resolveBlockAtBreakpoint(b, breakpoint);

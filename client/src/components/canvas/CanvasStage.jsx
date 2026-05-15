@@ -219,11 +219,26 @@ export default function CanvasStage({
   onSelect,
   onApplyGeometry, // (updates: { [id]: { x, y, w, h } }) => void  (commits to history)
   onMarqueeSelect, // (ids: string[], additive: boolean) => void
+  onPreviewBottomChange, // (maxBottomY: number) => void  (live drag/resize bottom)
 }) {
   const stageRef = useRef(null);
   const [interactionState, setInteractionState] = useState(null);
   // interactionState: { kind: 'drag' | 'resize' | 'marquee', ... }
   const [previewGeoms, setPreviewGeoms] = useState({}); // live preview overrides while dragging
+
+  // Emit live preview bottom Y so the parent can grow the stage in real time
+  // during a drag/resize. Cleared to 0 when previewGeoms is empty.
+  useEffect(() => {
+    if (!onPreviewBottomChange) return;
+    let maxBottom = 0;
+    for (const id in previewGeoms) {
+      const g = previewGeoms[id];
+      if (!g) continue;
+      const b = (g.y || 0) + (g.h || 0);
+      if (b > maxBottom) maxBottom = b;
+    }
+    onPreviewBottomChange(maxBottom);
+  }, [previewGeoms, onPreviewBottomChange]);
   const [guides, setGuides] = useState({ vertical: [], horizontal: [] });
   const [marqueeRect, setMarqueeRect] = useState(null);
 

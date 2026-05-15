@@ -43,6 +43,7 @@ import {
   setRootChildren,
   BREAKPOINT_WIDTHS,
   BLOCK_TYPES,
+  stageHeightForBreakpoint,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
@@ -297,6 +298,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, []);
 
   const children = useMemo(() => getRootChildren(design), [design]);
+  // Live bottom Y of in-progress drag/resize previews emitted by CanvasStage.
+  // 0 when no interaction is active.
+  const [livePreviewBottom, setLivePreviewBottom] = useState(0);
+  const stageHeight = useMemo(() => {
+    const committed = stageHeightForBreakpoint(children, breakpoint);
+    const live = livePreviewBottom > 0 ? livePreviewBottom + 80 : 0;
+    return Math.max(STAGE_MIN_HEIGHT, committed, live);
+  }, [children, breakpoint, livePreviewBottom]);
 
   // Live accessibility audit (recomputes on every design change).
   const heuristicA11yIssues = useMemo(() => auditCanvasDesign(design), [design]);
@@ -1059,7 +1068,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               </div>
               <CanvasRulers
                 width={canvasWidth}
-                height={STAGE_MIN_HEIGHT}
+                height={stageHeight}
                 gridSize={gridSize}
                 zoom={zoom}
               >
@@ -1068,7 +1077,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     transform: `scale(${zoom})`,
                     transformOrigin: 'top left',
                     width: canvasWidth * zoom,
-                    height: STAGE_MIN_HEIGHT * zoom,
+                    height: stageHeight * zoom,
                   }}
                 >
                   <CanvasStage
@@ -1077,7 +1086,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     anchorId={anchorId}
                     breakpoint={breakpoint}
                     canvasWidth={canvasWidth}
-                    canvasHeight={STAGE_MIN_HEIGHT}
+                    canvasHeight={stageHeight}
                     gridSize={gridSize}
                     showGrid={showGrid}
                     zoom={zoom}
@@ -1086,6 +1095,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     onSelect={handleSelect}
                     onApplyGeometry={applyGeometry}
                     onMarqueeSelect={handleMarqueeSelect}
+                    onPreviewBottomChange={setLivePreviewBottom}
                   />
                 </div>
               </CanvasRulers>
