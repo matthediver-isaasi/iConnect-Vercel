@@ -352,6 +352,16 @@ export default async function handler(req, res) {
     (organizations || []).forEach(o => { orgMap[o.id] = o; });
 
     const voucherMap = {};
+    // Tracks whether the `voucher.issued_at` column exists in this
+    // environment. The migration adding it (20260515_add_voucher_issued_at)
+    // may not yet be applied. If a query fails with 42703 ("column does not
+    // exist") we retry without `issued_at` and disable it for subsequent
+    // queries in this request.
+    let voucherHasIssuedAt = true;
+    const voucherSelectCols = () =>
+      voucherHasIssuedAt
+        ? 'id, code, description, expires_at, value, organization_id, issued_at'
+        : 'id, code, description, expires_at, value, organization_id';
     if (needVoucher) {
       const voucherIds = Array.from(new Set(
         allTransactions.map(t => t.voucher_id).filter(Boolean)
@@ -360,10 +370,18 @@ export default async function handler(req, res) {
         const batchSize = 200;
         for (let i = 0; i < voucherIds.length; i += batchSize) {
           const batch = voucherIds.slice(i, i + batchSize);
-          const { data: vouchers, error: vErr } = await supabase
+          let { data: vouchers, error: vErr } = await supabase
             .from('voucher')
-            .select('id, code, description, expires_at, value, organization_id, issued_at')
+            .select(voucherSelectCols())
             .in('id', batch);
+          if (vErr && vErr.code === '42703' && voucherHasIssuedAt) {
+            voucherHasIssuedAt = false;
+            console.warn('[VoucherExportCSV] voucher.issued_at missing; retrying without it. Apply migration 20260515_add_voucher_issued_at to enable date-filtered awarded rows.');
+            ({ data: vouchers, error: vErr } = await supabase
+              .from('voucher')
+              .select(voucherSelectCols())
+              .in('id', batch));
+          }
           if (vErr) {
             console.error('[VoucherExportCSV] Voucher lookup error:', vErr);
             return res.status(500).json({ error: 'Failed to fetch vouchers' });
@@ -532,13 +550,13 @@ export default async function handler(req, res) {
       // active date window, even if they have no other transactions in
       // range — otherwise a voucher issued during the period would be
       // silently dropped from the report.
-      if (dateFilterActive && canUseDbDateFilter) {
+      if (dateFilterActive && canUseDbDateFilter && voucherHasIssuedAt) {
         const issuedPageSize = 1000;
         let issuedFrom = 0;
         while (true) {
           let issuedQuery = supabase
             .from('voucher')
-            .select('id, code, description, expires_at, value, organization_id, issued_at')
+            .select(voucherSelectCols())
             .eq('tenant_id', tenantId);
           if (fromIso) issuedQuery = issuedQuery.gte('issued_at', fromIso);
           if (toIso) issuedQuery = issuedQuery.lte('issued_at', toIso);
@@ -546,6 +564,9 @@ export default async function handler(req, res) {
           issuedQuery = issuedQuery.range(issuedFrom, issuedFrom + issuedPageSize - 1);
           const { data: issuedVouchers, error: issuedErr } = await issuedQuery;
           if (issuedErr) {
+            if (issuedErr.code === '42703') {
+              voucherHasIssuedAt = false;
+            }
             console.warn('[VoucherExportCSV] Issued-in-range voucher lookup error (non-blocking):', issuedErr.message);
             break;
           }
