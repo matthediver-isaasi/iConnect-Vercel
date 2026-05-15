@@ -561,12 +561,12 @@ export default function CanvasPageEditorPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setShowAuditModal(true)}
+          onClick={() => setShowAuditModal((v) => !v)}
           data-testid="button-toggle-preview"
           aria-pressed={showAuditModal}
         >
           <Eye className="w-4 h-4 mr-2" />
-          Preview
+          {showAuditModal ? 'Close preview' : 'Preview'}
         </Button>
 
         <Button
