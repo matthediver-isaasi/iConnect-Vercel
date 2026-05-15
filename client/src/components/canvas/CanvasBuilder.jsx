@@ -634,6 +634,17 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, selectedIds, children, breakpoint, applyGeometry, gridSize]);
 
   // ---- Align / distribute ----
+  // With 2+ blocks selected the most-recently-selected id (last in
+  // `selectedIds`) is treated as the **anchor** — other selected blocks
+  // align to its edges/center (Figma/Sketch "select anchor last" pattern).
+  // The anchor itself does not move. With a single selection we still
+  // align that block to the canvas bounds.
+  const anchorId = selectedIds.length >= 2 ? selectedIds[selectedIds.length - 1] : null;
+  const anchorBlock = useMemo(
+    () => (anchorId ? children.find((b) => b.id === anchorId) : null),
+    [anchorId, children],
+  );
+
   const alignSelected = useCallback((mode) => {
     if (selectedIds.length < 1) return;
     const blocksGeom = selectedIds
@@ -645,9 +656,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       .filter(Boolean);
     if (blocksGeom.length < 1) return;
 
-    // Single-select: align the block to the canvas bounds for the active
-    // breakpoint. Multi-select: align relative to the selection bounding box
-    // (existing behaviour).
+    // Determine the alignment reference frame:
+    //  - Single select  -> canvas bounds.
+    //  - Multi  select  -> the anchor block's bounds (last selected).
     let minX, maxRight, minY, maxBottom;
     if (blocksGeom.length === 1) {
       const cW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
@@ -657,19 +668,18 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       minY = 0;
       maxBottom = cH;
     } else {
-      const xs = blocksGeom.map(({ geom }) => geom.x);
-      const ys = blocksGeom.map(({ geom }) => geom.y);
-      const rights = blocksGeom.map(({ geom }) => geom.x + geom.w);
-      const bottoms = blocksGeom.map(({ geom }) => geom.y + geom.h);
-      minX = Math.min(...xs);
-      maxRight = Math.max(...rights);
-      minY = Math.min(...ys);
-      maxBottom = Math.max(...bottoms);
+      const anchor = blocksGeom.find((b) => b.id === anchorId) || blocksGeom[blocksGeom.length - 1];
+      minX = anchor.geom.x;
+      maxRight = anchor.geom.x + anchor.geom.w;
+      minY = anchor.geom.y;
+      maxBottom = anchor.geom.y + anchor.geom.h;
     }
     const centerX = (minX + maxRight) / 2;
     const centerY = (minY + maxBottom) / 2;
     const updates = {};
     for (const { id, geom } of blocksGeom) {
+      // Never move the anchor itself.
+      if (blocksGeom.length > 1 && id === anchorId) continue;
       let nx = geom.x, ny = geom.y;
       if (mode === 'left') nx = minX;
       if (mode === 'right') nx = maxRight - geom.w;
@@ -679,8 +689,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       if (mode === 'vcenter') ny = Math.round(centerY - geom.h / 2);
       updates[id] = { x: nx, y: ny, w: geom.w, h: geom.h };
     }
-    applyGeometry(updates);
-  }, [selectedIds, children, breakpoint, applyGeometry]);
+    if (Object.keys(updates).length > 0) applyGeometry(updates);
+  }, [selectedIds, anchorId, children, breakpoint, applyGeometry]);
 
   const distributeSelected = useCallback((axis) => {
     if (selectedIds.length < 3) return;
@@ -778,7 +788,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
   const hasAnySelect = selectedIds.length >= 1;
-  const alignTarget = selectedIds.length === 1 ? 'canvas' : 'selection';
+  const anchorName = anchorBlock?.name || 'anchor';
+  const alignTarget = selectedIds.length === 1
+    ? 'canvas'
+    : (anchorBlock ? anchorName : 'selection');
   const alignTitle = (label) => `${label} (to ${alignTarget})`;
 
   return (
@@ -813,7 +826,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           </Button>
           {hasAnySelect && (
             <Badge variant="secondary" className="ml-1" data-testid="badge-align-target">
-              Align to: {selectedIds.length === 1 ? 'Canvas' : 'Selection'}
+              Align to: {selectedIds.length === 1
+                ? 'Canvas'
+                : (anchorBlock ? anchorName : 'Selection')}
             </Badge>
           )}
           <div className="w-px h-6 bg-slate-200 mx-1" />
@@ -983,6 +998,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                   <CanvasStage
                     blocks={children}
                     selectedIds={selectedIds}
+                    anchorId={anchorId}
                     breakpoint={breakpoint}
                     canvasWidth={canvasWidth}
                     canvasHeight={STAGE_MIN_HEIGHT}

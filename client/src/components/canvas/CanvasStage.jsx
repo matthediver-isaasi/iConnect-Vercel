@@ -113,6 +113,7 @@ function CanvasBlockView({
   block,
   geom,
   isSelected,
+  isAnchor,
   breakpoint,
   onPointerDownBlock,
   onPointerDownResize,
@@ -126,13 +127,18 @@ function CanvasBlockView({
     ? 'cursor-not-allowed'
     : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
   const handles = fullWidth ? FULL_WIDTH_RESIZE_HANDLES : RESIZE_HANDLES;
+  // Anchor (align-to target) gets a thicker, pink outline so users can
+  // visually distinguish which block other blocks will align to.
+  const outlineClass = isAnchor
+    ? 'outline outline-[3px] outline-pink-500 outline-offset-[-2px]'
+    : isSelected
+      ? 'outline outline-2 outline-primary outline-offset-[-1px]'
+      : '';
   return (
     <div
       role={a11y.role || undefined}
       aria-label={a11y.ariaLabel || undefined}
-      className={`absolute ${cursor} ${
-        isSelected ? 'outline outline-2 outline-primary outline-offset-[-1px]' : ''
-      } ${fullWidth ? 'ring-1 ring-primary/40 ring-inset' : ''}`}
+      className={`absolute ${cursor} ${outlineClass} ${fullWidth ? 'ring-1 ring-primary/40 ring-inset' : ''}`}
       data-full-width={fullWidth ? 'true' : undefined}
       style={{
         left: geom.x,
@@ -157,6 +163,7 @@ function CanvasBlockView({
       data-testid={`canvas-block-${block.id}`}
       data-block-id={block.id}
       data-block-type={block.type}
+      data-anchor={isAnchor ? 'true' : undefined}
     >
       {EditorComponent && (
         <div className="absolute inset-0 pointer-events-none" data-testid={`canvas-block-content-${block.id}`}>
@@ -200,6 +207,7 @@ function handleCursor(h) {
 export default function CanvasStage({
   blocks,
   selectedIds,
+  anchorId,
   breakpoint,
   canvasWidth,
   canvasHeight,
@@ -487,9 +495,24 @@ export default function CanvasStage({
               geom={effective}
               breakpoint={breakpoint}
               isSelected={selectedIds.includes(block.id)}
+              isAnchor={anchorId === block.id}
               onPointerDownBlock={handlePointerDownBlock}
               onPointerDownResize={handlePointerDownResize}
             />
+            {!effective.hidden && anchorId === block.id && (
+              <div
+                className="absolute pointer-events-none bg-pink-500 text-white rounded-md text-[10px] font-bold uppercase tracking-wide"
+                style={{
+                  left: effective.x + 4,
+                  top: effective.y + effective.h + 4,
+                  padding: '2px 6px',
+                  zIndex: 9998,
+                }}
+                data-testid={`anchor-tag-${block.id}`}
+              >
+                Anchor
+              </div>
+            )}
             {!effective.hidden && sev && (
               <div
                 className={`absolute pointer-events-none rounded-full border ${
