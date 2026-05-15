@@ -4,7 +4,7 @@
 // using TanStack Query. The same renderer is used in the editor and on the
 // public page; in the editor we add `data-canvas-editor` to suppress link
 // navigation. Skeleton/empty states and accessibility metadata are baked in.
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
@@ -568,6 +568,8 @@ function EventCarouselRender({ block, asEditor }) {
   }, [allEvents, eventIds]);
 
   const [index, setIndex] = useState(0);
+  const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
+  const touchStartRef = useRef(null);
   useEffect(() => {
     if (index > Math.max(0, items.length - 1)) setIndex(0);
   }, [items.length, index]);
@@ -576,9 +578,48 @@ function EventCarouselRender({ block, asEditor }) {
     if (asEditor) return;
     if (!c.autoplay || items.length < 2) return;
     const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
-    const t = setInterval(() => setIndex((i) => (i + 1) % items.length), ms);
+    const pauseMs = Math.max(ms, 4000);
+    const t = setInterval(() => {
+      if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setIndex((i) => (i + 1) % items.length);
+    }, ms);
     return () => clearInterval(t);
-  }, [asEditor, c.autoplay, c.autoplayMs, items.length]);
+  }, [asEditor, c.autoplay, c.autoplayMs, items.length, autoplayPausedAt]);
+
+  const goPrev = () => setIndex((i) => (i - 1 + items.length) % items.length);
+  const goNext = () => setIndex((i) => (i + 1) % items.length);
+
+  const handleTouchStart = (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (!t) return;
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+  };
+  const handleTouchEnd = (ev) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || items.length < 2) return;
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const SWIPE_THRESHOLD = 40;
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) goNext(); else goPrev();
+    setAutoplayPausedAt(Date.now());
+  };
+  const handleKeyDown = (ev) => {
+    if (items.length < 2) return;
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      goPrev();
+      setAutoplayPausedAt(Date.now());
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      goNext();
+      setAutoplayPausedAt(Date.now());
+    }
+  };
 
   if (eventIds.length === 0) {
     return <EmptyState icon={Images} text={c.emptyText || 'Pick one or more events in the inspector.'} />;
@@ -601,9 +642,16 @@ function EventCarouselRender({ block, asEditor }) {
 
   return (
     <div
-      className="relative w-full h-full overflow-hidden"
+      className="relative w-full h-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       aria-label={block.a11y?.ariaLabel || event.title || 'Event carousel'}
       data-testid="event-carousel"
+      role="region"
+      aria-roledescription="carousel"
+      tabIndex={hasMany ? 0 : -1}
+      onTouchStart={hasMany ? handleTouchStart : undefined}
+      onTouchEnd={hasMany ? handleTouchEnd : undefined}
+      onKeyDown={hasMany ? handleKeyDown : undefined}
+      style={hasMany ? { touchAction: 'pan-y' } : undefined}
     >
       <div className="flex flex-col md:flex-row w-full h-full">
         {/* Image is always first in source order so it stacks above the
@@ -653,7 +701,7 @@ function EventCarouselRender({ block, asEditor }) {
         <>
           <button
             type="button"
-            onClick={() => setIndex((i) => (i - 1 + items.length) % items.length)}
+            onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
             className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
             aria-label="Previous event"
             data-testid="button-event-carousel-prev"
@@ -662,7 +710,7 @@ function EventCarouselRender({ block, asEditor }) {
           </button>
           <button
             type="button"
-            onClick={() => setIndex((i) => (i + 1) % items.length)}
+            onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
             aria-label="Next event"
             data-testid="button-event-carousel-next"
