@@ -1338,11 +1338,11 @@ export default function EventDetailsPage() {
         <div className="grid lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 space-y-6">
             {event.image_url && (
-              <div className="rounded-xl overflow-hidden shadow-lg">
+              <div className="rounded-xl overflow-hidden shadow-lg aspect-video max-h-[28rem] mx-auto w-full">
                 <img
                   src={event.image_url}
                   alt={event.title}
-                  className="w-full h-64 object-cover"
+                  className="w-full h-full object-cover"
                   style={getFocalPointStyle(event.image_focal_point)}
                 />
               </div>
