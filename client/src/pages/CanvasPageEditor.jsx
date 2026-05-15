@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -452,6 +452,24 @@ export default function CanvasPageEditorPage() {
     }
   }, [showAuditModal, axeIssues]);
 
+  // Severity breakdown for the persistent audit summary indicator. Authors
+  // need to keep an eye on audit health even after closing the preview
+  // modal, so we surface a count + per-severity totals (and the stale
+  // flag) on the editor toolbar. Hidden until the first audit has run.
+  const axeSummary = useMemo(() => {
+    if (!Array.isArray(axeIssues)) return null;
+    return axeIssues.reduce(
+      (acc, m) => {
+        acc.total += 1;
+        if (m.severity === 'error') acc.error += 1;
+        else if (m.severity === 'warning') acc.warning += 1;
+        else acc.info += 1;
+        return acc;
+      },
+      { total: 0, error: 0, warning: 0, info: 0 },
+    );
+  }, [axeIssues]);
+
   if (!accessChecked || pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="loading-canvas-editor">
@@ -581,17 +599,73 @@ export default function CanvasPageEditorPage() {
             ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             : <Accessibility className="w-4 h-4 mr-2" />}
           {axeRunning ? 'Auditing…' : 'Run full audit'}
-          {axeIssues && axeIssues.length > 0 && (
-            <Badge className="ml-2 bg-amber-100 text-amber-700" data-testid="badge-axe-count">
-              {axeIssues.length}
-            </Badge>
-          )}
-          {axeStale && (
-            <Badge className="ml-2 bg-slate-200 text-slate-700" data-testid="badge-axe-stale">
-              Stale
-            </Badge>
-          )}
         </Button>
+
+        {axeSummary && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAuditModal(true)}
+            data-testid="button-audit-summary"
+            title={
+              axeSummary.total === 0
+                ? 'Last audit passed — click to review in the preview modal.'
+                : `Last audit: ${axeSummary.error} error · ${axeSummary.warning} warning · ${axeSummary.info} info. Click to open the preview modal.`
+            }
+            aria-label={
+              axeSummary.total === 0
+                ? 'Last audit passed. Open audit modal.'
+                : `Last audit found ${axeSummary.total} issues (${axeSummary.error} error, ${axeSummary.warning} warning, ${axeSummary.info} info). Open audit modal.`
+            }
+          >
+            {axeSummary.total === 0 ? (
+              <Badge
+                className="bg-emerald-100 text-emerald-700"
+                data-testid="badge-axe-summary-pass"
+              >
+                Audit: 0 issues
+              </Badge>
+            ) : (
+              <span className="inline-flex items-center gap-1" data-testid="badge-axe-summary">
+                <span className="text-slate-700">
+                  Audit: {axeSummary.total} issue{axeSummary.total === 1 ? '' : 's'}
+                </span>
+                {axeSummary.error > 0 && (
+                  <Badge
+                    className="bg-rose-100 text-rose-700"
+                    data-testid="badge-axe-summary-error"
+                  >
+                    {axeSummary.error} error
+                  </Badge>
+                )}
+                {axeSummary.warning > 0 && (
+                  <Badge
+                    className="bg-amber-100 text-amber-700"
+                    data-testid="badge-axe-summary-warning"
+                  >
+                    {axeSummary.warning} warning
+                  </Badge>
+                )}
+                {axeSummary.info > 0 && (
+                  <Badge
+                    className="bg-sky-100 text-sky-700"
+                    data-testid="badge-axe-summary-info"
+                  >
+                    {axeSummary.info} info
+                  </Badge>
+                )}
+              </span>
+            )}
+            {axeStale && (
+              <Badge
+                className="ml-2 bg-slate-200 text-slate-700"
+                data-testid="badge-axe-summary-stale"
+              >
+                Stale
+              </Badge>
+            )}
+          </Button>
+        )}
 
         <Button
           variant="outline"
