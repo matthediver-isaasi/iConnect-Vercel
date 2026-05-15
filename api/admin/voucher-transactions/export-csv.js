@@ -46,11 +46,12 @@ function formatTransactionTypeLabel(type) {
     case 'cancellation_refund': return 'Cancellation Refund';
     case 'credit_adjustment': return 'Credit Adjustment';
     case 'debit_adjustment': return 'Debit Adjustment';
+    case 'voucher_awarded': return 'Voucher awarded';
     default: return type || '';
   }
 }
 
-const POSITIVE_TYPES = new Set(['cancellation_refund', 'credit_adjustment']);
+const POSITIVE_TYPES = new Set(['cancellation_refund', 'credit_adjustment', 'voucher_awarded']);
 const NEGATIVE_TYPES = new Set(['booking_usage', 'debit_adjustment']);
 
 function formatSignedAmount(txn) {
@@ -307,7 +308,7 @@ export default async function handler(req, res) {
   const referencesAny = (keys) =>
     keys.some(k => columnKeys.includes(k) || sortFieldsReferenced.has(k));
 
-  const needVoucher = referencesAny(['voucher_code', 'voucher_description', 'voucher_expiry_date']);
+  const needVoucher = true;
   const needMember = referencesAny(['member']);
   const needEventRef = referencesAny(['event_internal_reference']);
   const needEventDate = referencesAny(['event_date']);
@@ -361,7 +362,7 @@ export default async function handler(req, res) {
           const batch = voucherIds.slice(i, i + batchSize);
           const { data: vouchers, error: vErr } = await supabase
             .from('voucher')
-            .select('id, code, description, expires_at, tenant_id')
+            .select('id, code, description, expires_at, value, created_at, tenant_id')
             .in('id', batch);
           if (vErr) {
             console.warn('[VoucherExportCSV] Voucher lookup error (non-blocking):', vErr.message);
@@ -516,6 +517,82 @@ export default async function handler(req, res) {
       }
       return v;
     };
+
+    {
+      const voucherIdsInReport = new Set();
+      for (const t of allTransactions) {
+        if (t.voucher_id) voucherIdsInReport.add(t.voucher_id);
+      }
+
+      const netByVoucher = {};
+      const voucherIdList = Array.from(voucherIdsInReport);
+      if (voucherIdList.length > 0) {
+        const batchSize = 200;
+        for (let i = 0; i < voucherIdList.length; i += batchSize) {
+          const batch = voucherIdList.slice(i, i + batchSize);
+          const { data: allForVouchers, error: allErr } = await supabase
+            .from('voucher_transaction')
+            .select('voucher_id, amount, type')
+            .eq('tenant_id', tenantId)
+            .in('voucher_id', batch);
+          if (allErr) {
+            console.warn('[VoucherExportCSV] Full voucher history lookup error (non-blocking):', allErr.message);
+            continue;
+          }
+          for (const t of (allForVouchers || [])) {
+            if (!t.voucher_id) continue;
+            const amt = Math.abs(parseFloat(t.amount || 0));
+            if (isNaN(amt)) continue;
+            let signed = 0;
+            if (NEGATIVE_TYPES.has(t.type)) signed = -amt;
+            else if (POSITIVE_TYPES.has(t.type)) signed = amt;
+            else {
+              const raw = parseFloat(t.amount || 0);
+              signed = isNaN(raw) ? 0 : raw;
+            }
+            netByVoucher[t.voucher_id] = (netByVoucher[t.voucher_id] || 0) + signed;
+          }
+        }
+      }
+      const synthetic = [];
+      for (const vid of voucherIdsInReport) {
+        const v = voucherMap[vid];
+        if (!v) continue;
+        const currentValue = parseFloat(v.value);
+        if (isNaN(currentValue)) continue;
+        const originalValue = currentValue - (netByVoucher[vid] || 0);
+        const sampleTxn = allTransactions.find(t => t.voucher_id === vid) || {};
+        synthetic.push({
+          id: `awarded-${vid}`,
+          voucher_id: vid,
+          organization_id: sampleTxn.organization_id || null,
+          booking_reference: null,
+          event_id: null,
+          event_title: null,
+          member_id: null,
+          member_email: null,
+          amount: originalValue,
+          balance_before: null,
+          balance_after: originalValue,
+          type: 'voucher_awarded',
+          created_at: v.created_at || null,
+        });
+      }
+      if (dateFilterActive && canUseDbDateFilter) {
+        const fromMs = fromIso ? new Date(fromIso).getTime() : null;
+        const toMs = toIso ? new Date(toIso).getTime() : null;
+        for (const s of synthetic) {
+          if (!s.created_at) continue;
+          const ms = new Date(s.created_at).getTime();
+          if (isNaN(ms)) continue;
+          if (fromMs !== null && ms < fromMs) continue;
+          if (toMs !== null && ms > toMs) continue;
+          allTransactions.push(s);
+        }
+      } else {
+        allTransactions.push(...synthetic);
+      }
+    }
 
     if (!canUseDbDateFilter && dateFilterActive) {
       const filtered = allTransactions.filter((t) => {
