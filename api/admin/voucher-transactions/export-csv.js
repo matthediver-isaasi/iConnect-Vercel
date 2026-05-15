@@ -362,7 +362,7 @@ export default async function handler(req, res) {
           const batch = voucherIds.slice(i, i + batchSize);
           const { data: vouchers, error: vErr } = await supabase
             .from('voucher')
-            .select('id, code, description, expires_at, value, organization_id')
+            .select('id, code, description, expires_at, value, organization_id, issued_at')
             .in('id', batch);
           if (vErr) {
             console.error('[VoucherExportCSV] Voucher lookup error:', vErr);
@@ -528,6 +528,36 @@ export default async function handler(req, res) {
         if (t.voucher_id) voucherIdsInReport.add(t.voucher_id);
       }
 
+      // Also include vouchers whose issue date itself falls inside the
+      // active date window, even if they have no other transactions in
+      // range — otherwise a voucher issued during the period would be
+      // silently dropped from the report.
+      if (dateFilterActive && canUseDbDateFilter) {
+        const issuedPageSize = 1000;
+        let issuedFrom = 0;
+        while (true) {
+          let issuedQuery = supabase
+            .from('voucher')
+            .select('id, code, description, expires_at, value, organization_id, issued_at')
+            .eq('tenant_id', tenantId);
+          if (fromIso) issuedQuery = issuedQuery.gte('issued_at', fromIso);
+          if (toIso) issuedQuery = issuedQuery.lte('issued_at', toIso);
+          if (orgFilterActive) issuedQuery = issuedQuery.in('organization_id', requestedOrgIds);
+          issuedQuery = issuedQuery.range(issuedFrom, issuedFrom + issuedPageSize - 1);
+          const { data: issuedVouchers, error: issuedErr } = await issuedQuery;
+          if (issuedErr) {
+            console.warn('[VoucherExportCSV] Issued-in-range voucher lookup error (non-blocking):', issuedErr.message);
+            break;
+          }
+          for (const v of (issuedVouchers || [])) {
+            voucherIdsInReport.add(v.id);
+            if (!voucherMap[v.id]) voucherMap[v.id] = v;
+          }
+          if (!issuedVouchers || issuedVouchers.length < issuedPageSize) break;
+          issuedFrom += issuedPageSize;
+        }
+      }
+
       const netByVoucher = {};
       const voucherIdList = Array.from(voucherIdsInReport);
       if (voucherIdList.length > 0) {
@@ -579,16 +609,14 @@ export default async function handler(req, res) {
           balance_before: null,
           balance_after: originalValue,
           type: 'voucher_awarded',
-          created_at: null,
+          created_at: v.issued_at || null,
         });
       }
       if (dateFilterActive && canUseDbDateFilter) {
-        // Per-row date filtering: include awarded rows whose creation date
-        // falls inside the active window; omit rows with missing or
-        // out-of-range dates. Today the voucher table has no creation-date
-        // column so created_at is always null and every awarded row is
-        // omitted here — but once a real issue-date column lands this
-        // logic will start including the rows that fall in range.
+        // Per-row date filtering: include awarded rows whose voucher
+        // issue date (voucher.issued_at, surfaced as the synthetic row's
+        // created_at) falls inside the active window; omit rows with
+        // missing or out-of-range dates.
         const fromMs = fromIso ? new Date(fromIso).getTime() : null;
         const toMs = toIso ? new Date(toIso).getTime() : null;
         for (const s of synthetic) {

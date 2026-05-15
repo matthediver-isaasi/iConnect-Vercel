@@ -206,7 +206,8 @@ export async function reinstateVoucherDirect(booking, refund_allocation, reversa
           description: `Replacement for expired voucher ${voucher.code} (cancellation of ${booking.booking_reference})`,
           expires_at: replacementOption.newExpiryDate,
           status: 'active',
-          tenant_id: tenantId
+          tenant_id: tenantId,
+          issued_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -313,7 +314,8 @@ export async function reinstateVoucherFromTransactions(booking, refund_allocatio
             description: `Replacement for expired voucher ${voucher.code} (cancellation of ${booking.booking_reference})`,
             expires_at: replacementOption.newExpiryDate,
             status: 'active',
-            tenant_id: tenantId
+            tenant_id: tenantId,
+            issued_at: new Date().toISOString()
           })
           .select()
           .single();
