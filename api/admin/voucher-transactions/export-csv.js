@@ -362,14 +362,18 @@ export default async function handler(req, res) {
           const batch = voucherIds.slice(i, i + batchSize);
           const { data: vouchers, error: vErr } = await supabase
             .from('voucher')
-            .select('id, code, description, expires_at, value, created_at, tenant_id')
+            .select('id, code, description, expires_at, value, organization_id')
             .in('id', batch);
           if (vErr) {
-            console.warn('[VoucherExportCSV] Voucher lookup error (non-blocking):', vErr.message);
-            continue;
+            console.error('[VoucherExportCSV] Voucher lookup error:', vErr);
+            return res.status(500).json({ error: 'Failed to fetch vouchers' });
           }
+          // voucherMap is built from voucher_ids that already came from
+          // tenant-scoped voucher_transaction rows, so tenant isolation
+          // is enforced upstream. Don't further filter by orgMap because
+          // a voucher's organisation may have been soft-deleted while
+          // its transactions remain in the report.
           (vouchers || []).forEach(v => {
-            if (v.tenant_id && v.tenant_id !== tenantId) return;
             voucherMap[v.id] = v;
           });
         }
@@ -565,7 +569,7 @@ export default async function handler(req, res) {
         synthetic.push({
           id: `awarded-${vid}`,
           voucher_id: vid,
-          organization_id: sampleTxn.organization_id || null,
+          organization_id: sampleTxn.organization_id || v.organization_id || null,
           booking_reference: null,
           event_id: null,
           event_title: null,
@@ -575,10 +579,16 @@ export default async function handler(req, res) {
           balance_before: null,
           balance_after: originalValue,
           type: 'voucher_awarded',
-          created_at: v.created_at || null,
+          created_at: null,
         });
       }
       if (dateFilterActive && canUseDbDateFilter) {
+        // Per-row date filtering: include awarded rows whose creation date
+        // falls inside the active window; omit rows with missing or
+        // out-of-range dates. Today the voucher table has no creation-date
+        // column so created_at is always null and every awarded row is
+        // omitted here — but once a real issue-date column lands this
+        // logic will start including the rows that fall in range.
         const fromMs = fromIso ? new Date(fromIso).getTime() : null;
         const toMs = toIso ? new Date(toIso).getTime() : null;
         for (const s of synthetic) {
@@ -590,6 +600,10 @@ export default async function handler(req, res) {
           allTransactions.push(s);
         }
       } else {
+        // No date filter (or JS-side date filtering further down handles
+        // the window): emit all synthetic rows. The downstream JS date
+        // filter at line ~597 will drop any with a null/out-of-range
+        // creation date when a non-DB date filter is active.
         allTransactions.push(...synthetic);
       }
     }
