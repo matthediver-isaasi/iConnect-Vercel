@@ -45,6 +45,7 @@ import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import { createPageUrl, getEventUrl } from "@/utils";
+import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -115,6 +116,8 @@ export default function CreateEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
   const [showSeatCount, setShowSeatCount] = useState(true); // Per-event seat visibility (default: show)
   const [showTicketAvailability, setShowTicketAvailability] = useState(false); // Per-event ticket availability display
+  const [attachedDocuments, setAttachedDocuments] = useState([]);
+  const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
   
   // Handler for timing changes - clears TBC-incompatible fields synchronously
   const handleTimingChange = (newTiming) => {
@@ -766,7 +769,9 @@ export default function CreateEvent() {
       is_complex: false,
       status: eventTiming,
       event_state: eventState,
-      is_featured: isFeatured
+      is_featured: isFeatured,
+      attached_documents: attachedDocuments,
+      documents_section_title: documentsSectionTitle.trim() || null
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
@@ -2696,6 +2701,22 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
 
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Documents</CardTitle>
+              <CardDescription>
+                Upload public files (programmes, agendas, info packs) shown on the event page. PDFs open in an in-page viewer; other files open in a new tab.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventDocumentsManager
+                sectionTitle={documentsSectionTitle}
+                onSectionTitleChange={setDocumentsSectionTitle}
+                documents={attachedDocuments}
+                onDocumentsChange={setAttachedDocuments}
+              />
+            </CardContent>
+          </Card>
 
           <div className="flex items-center justify-end gap-4">
             <Button

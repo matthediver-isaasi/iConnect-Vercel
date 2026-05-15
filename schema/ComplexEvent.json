@@ -50,6 +50,25 @@
     "is_featured": {
       "type": "boolean",
       "description": "If true, event is featured and displayed prominently at the top of event listings"
+    },
+    "attached_documents": {
+      "type": "array",
+      "description": "Public documents (programmes, agendas, info packs) rendered on the event page. PDFs open in an in-page viewer; other files open in a new tab.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "url": { "type": "string" },
+          "file_name": { "type": "string" },
+          "mime_type": { "type": "string" },
+          "size": { "type": "number" }
+        }
+      }
+    },
+    "documents_section_title": {
+      "type": "string",
+      "description": "Heading shown above the documents list on the public event page (e.g. \"Programmes\"). Falls back to \"Documents\" when blank."
     }
   },
   "required": ["title", "slug"]

@@ -54,6 +54,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -191,6 +192,8 @@ export default function EditEvent() {
 
   // SEO state
   const [seoTitle, setSeoTitle] = useState("");
+  const [attachedDocuments, setAttachedDocuments] = useState([]);
+  const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [ogImageUrl, setOgImageUrl] = useState("");
 
@@ -981,6 +984,8 @@ export default function EditEvent() {
       setSeoTitle(event.seo_title || "");
       setSeoDescription(event.seo_description || "");
       setOgImageUrl(event.og_image_url || "");
+      setAttachedDocuments(Array.isArray(event.attached_documents) ? event.attached_documents : []);
+      setDocumentsSectionTitle(event.documents_section_title || "");
       setInitialDataLoaded(true);
 
       if (event.donation_config) {
@@ -1440,7 +1445,9 @@ export default function EditEvent() {
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
-      og_image_url: ogImageUrl || null
+      og_image_url: ogImageUrl || null,
+      attached_documents: attachedDocuments,
+      documents_section_title: documentsSectionTitle.trim() || null
     };
 
     // Add ticket classes for one-off events
@@ -3567,6 +3574,24 @@ export default function EditEvent() {
                   onChange={(point) => handleInputChange('image_focal_point', point)}
                 />
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Documents</CardTitle>
+              <CardDescription>
+                Upload public files (programmes, agendas, info packs) shown on the event page. PDFs open in an in-page viewer; other files open in a new tab.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventDocumentsManager
+                sectionTitle={documentsSectionTitle}
+                onSectionTitleChange={setDocumentsSectionTitle}
+                documents={attachedDocuments}
+                onDocumentsChange={setAttachedDocuments}
+                entityId={eventId}
+              />
             </CardContent>
           </Card>
 

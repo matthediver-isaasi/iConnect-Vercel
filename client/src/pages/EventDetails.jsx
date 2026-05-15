@@ -5,6 +5,7 @@ import { publicClient } from "@/api/publicClient";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
+import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1467,6 +1468,16 @@ export default function EventDetailsPage() {
                       )}
                     </Button>
                   </div>
+                </CardContent>
+              )}
+
+              {/* Documents */}
+              {Array.isArray(event.attached_documents) && event.attached_documents.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <PublicDocumentsSection
+                    documents={event.attached_documents}
+                    sectionTitle={event.documents_section_title}
+                  />
                 </CardContent>
               )}
 

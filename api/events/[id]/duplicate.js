@@ -13,7 +13,7 @@ const FIELDS_TO_COPY = [
   'is_online', 'pricing_config', 'speaker_ids', 'filter_tags',
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'event_timing', 'timezone',
-  'organization_id', 'program_id'
+  'organization_id', 'program_id', 'attached_documents', 'documents_section_title'
 ];
 
 // Best-effort deep-copy. Tables that don't exist in this tenant's schema

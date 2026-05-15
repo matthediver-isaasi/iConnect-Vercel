@@ -60,7 +60,9 @@ export default async function handler(req, res) {
         og_image_url,
         is_complex,
         cta_override_url,
-        cta_override_mode
+        cta_override_mode,
+        attached_documents,
+        documents_section_title
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc', 'draft']);
@@ -166,7 +168,9 @@ export default async function handler(req, res) {
       is_complex: event.is_complex || false,
       cheapest_price: cheapestPrice,
       cta_override_url: event.cta_override_url || null,
-      cta_override_mode: event.cta_override_mode || 'card'
+      cta_override_mode: event.cta_override_mode || 'card',
+      attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
+      documents_section_title: event.documents_section_title || null
     };
 
     return res.status(200).json(publicEvent);

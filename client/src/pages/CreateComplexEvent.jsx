@@ -31,6 +31,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
@@ -708,6 +709,8 @@ export default function CreateComplexEvent() {
   const [selectedSponsors, setSelectedSponsors] = useState([]);
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
   const [seoTitle, setSeoTitle] = useState("");
+  const [attachedDocuments, setAttachedDocuments] = useState([]);
+  const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [ogImageUrl, setOgImageUrl] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
@@ -1192,6 +1195,8 @@ export default function CreateComplexEvent() {
       setSeoTitle(existingEvent.seo_title || "");
       setSeoDescription(existingEvent.seo_description || "");
       setOgImageUrl(existingEvent.og_image_url || "");
+      setAttachedDocuments(Array.isArray(existingEvent.attached_documents) ? existingEvent.attached_documents : []);
+      setDocumentsSectionTitle(existingEvent.documents_section_title || "");
       if (existingEvent.program_tag) {
         setIsProgramEvent(true);
       }
@@ -1747,6 +1752,8 @@ export default function CreateComplexEvent() {
         seo_title: seoTitle || null,
         seo_description: seoDescription || null,
         og_image_url: ogImageUrl || null,
+        attached_documents: attachedDocuments,
+        documents_section_title: documentsSectionTitle.trim() || null,
         program_tag: formData.program_tag || null,
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
@@ -2768,6 +2775,24 @@ export default function CreateComplexEvent() {
                     onChange={(point) => updateField('image_focal_point', point)}
                   />
                 )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Documents</CardTitle>
+                <CardDescription>
+                  Upload public files (programmes, agendas, info packs) shown on the event page. PDFs open in an in-page viewer; other files open in a new tab.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventDocumentsManager
+                  sectionTitle={documentsSectionTitle}
+                  onSectionTitleChange={setDocumentsSectionTitle}
+                  documents={attachedDocuments}
+                  onDocumentsChange={setAttachedDocuments}
+                  entityId={editId || null}
+                />
               </CardContent>
             </Card>
 

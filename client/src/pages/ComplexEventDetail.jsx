@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -2150,6 +2151,17 @@ export default function ComplexEventDetail() {
                   ) : (
                     <p className="text-slate-600">{event.summary}</p>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {Array.isArray(event.attached_documents) && event.attached_documents.length > 0 && (
+              <Card className="border-slate-200">
+                <CardContent className="p-6">
+                  <PublicDocumentsSection
+                    documents={event.attached_documents}
+                    sectionTitle={event.documents_section_title}
+                  />
                 </CardContent>
               </Card>
             )}

@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode')
+      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode, attached_documents, documents_section_title')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc', 'draft']);
 
@@ -120,6 +120,8 @@ export default async function handler(req, res) {
       is_complex: true,
       cta_override_url: event.cta_override_url || null,
       cta_override_mode: event.cta_override_mode || 'card',
+      attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
+      documents_section_title: event.documents_section_title || null,
       tracks: tracks || [],
       pricing_config: {
         ...(publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : {}),
