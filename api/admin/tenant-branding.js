@@ -1,4 +1,4 @@
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
 
@@ -30,13 +30,18 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  
-  if (!tenantUser) {
+  // Resolve tenant via the shared tenant-context helper so we support both
+  // tenant_user (admin dashboard) sessions and member sessions with admin
+  // permissions. Hard-fail without a tenant context per the strict-tenant rule.
+  const context = await getTenantContext(req);
+  if (!context.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  if (!context.tenantId) {
+    return res.status(400).json({ error: 'Tenant context not found' });
+  }
 
-  const tenantId = tenantUser.tenant_id;
+  const tenantId = context.tenantId;
 
   if (req.method === 'GET') {
     try {
@@ -56,6 +61,12 @@ export default async function handler(req, res) {
       res.status(500).json({ error: 'Failed to get tenant branding' });
     }
   } else if (req.method === 'PATCH') {
+    // PATCH requires admin-level access in the same tenant (tenant_user OR
+    // member with admin role permissions).
+    const isAdmin = await hasAdminAccess(context);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     try {
       const allowedFields = [
         'primary_color',
