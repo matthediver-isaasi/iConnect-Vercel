@@ -657,6 +657,7 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     type,
     name: overrides.name || defaults.name || 'Block',
     locked: false,
+    fullWidth: !!overrides.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(overrides.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(overrides.a11y || {}) },
     content: deepClone({ ...(defaults.content || {}), ...(overrides.content || {}) }),
@@ -720,6 +721,7 @@ function normalizeBlock(block) {
     type,
     name: block.name || defaults.name || 'Block',
     locked: !!block.locked,
+    fullWidth: !!block.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(block.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(block.a11y || {}) },
     content: { ...(defaults.content || {}), ...(block.content || {}) },
@@ -733,15 +735,32 @@ function normalizeBlock(block) {
 
 // Resolve geometry/visibility for a block at a given breakpoint by
 // cascading mobile -> tablet -> desktop. Returns { x, y, w, h, hidden }.
-export function resolveBlockAtBreakpoint(block, breakpoint) {
+//
+// If the block is marked `fullWidth`, x is pinned to 0 and w is forced to
+// the breakpoint's canvas width (overriding any stored bp values). The
+// stored bp.x / bp.w values are preserved on the block — turning the
+// toggle off restores manual sizing on top of whatever is currently
+// stored (or the inspector can snapshot the rendered geometry first).
+export function resolveBlockAtBreakpoint(block, breakpoint, options) {
   const d = block.bp?.desktop || {};
   const t = block.bp?.tablet || {};
   const m = block.bp?.mobile || {};
   const base = { x: 40, y: 40, w: 200, h: 120, hidden: false, ...d };
-  if (breakpoint === 'desktop') return base;
-  const withTablet = { ...base, ...stripUndefined(t) };
-  if (breakpoint === 'tablet') return withTablet;
-  return { ...withTablet, ...stripUndefined(m) };
+  let geom;
+  if (breakpoint === 'desktop') {
+    geom = base;
+  } else if (breakpoint === 'tablet') {
+    geom = { ...base, ...stripUndefined(t) };
+  } else {
+    geom = { ...base, ...stripUndefined(t), ...stripUndefined(m) };
+  }
+  if (block.fullWidth) {
+    const cw = options && Number.isFinite(options.canvasWidth)
+      ? options.canvasWidth
+      : (BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop);
+    return { ...geom, x: 0, w: cw };
+  }
+  return geom;
 }
 
 function stripUndefined(obj) {
@@ -913,7 +932,7 @@ function fmtPx(n) {
   return `${Math.round(Number(n) || 0)}px`;
 }
 
-function geomRule(geom, { fullBleed } = {}) {
+function geomRule(geom, { fullBleed, fullWidth } = {}) {
   if (geom.hidden) return 'display:none;';
   if (fullBleed) {
     return [
@@ -922,6 +941,16 @@ function geomRule(geom, { fullBleed } = {}) {
       'left:50%;',
       'transform:translateX(-50%);',
       'width:100vw;',
+      `top:${fmtPx(geom.y)};`,
+      `height:${fmtPx(geom.h)};`,
+    ].join('');
+  }
+  if (fullWidth) {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:0;',
+      'width:100%;',
       `top:${fmtPx(geom.y)};`,
       `height:${fmtPx(geom.h)};`,
     ].join('');
@@ -967,8 +996,9 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
     const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
-    lines.push(`${sel}{${geomRule(dG, { fullBleed })}}`);
+    lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth })}}`);
   }
 
   // Tablet overrides.
@@ -978,13 +1008,14 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
     const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     if (
       tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h ||
       !!tG.hidden !== !!dG.hidden
     ) {
-      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed })}}`);
+      tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth })}}`);
     }
   }
   if (tabletRules.length) {
@@ -1003,13 +1034,14 @@ export function buildCanvasCss(blocks, scope) {
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
     const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullWidth = !!b.fullWidth;
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     const mG = resolveBlockAtBreakpoint(b, 'mobile');
     if (
       mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h ||
       !!mG.hidden !== !!tG.hidden
     ) {
-      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed })}}`);
+      mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth })}}`);
     }
   }
   if (mobileRules.length) {

@@ -114,9 +114,14 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
     const g = resolveBlockAtBreakpoint(block, forcedBreakpoint);
     if (g.hidden) return null;
     const fullBleed = isSection && !!(block.content && block.content.fullBleed);
-    forcedStyle = fullBleed
-      ? { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top: g.y, height: g.h }
-      : { position: 'absolute', left: g.x, top: g.y, width: g.w, height: g.h };
+    const fullWidth = !!block.fullWidth;
+    if (fullBleed) {
+      forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top: g.y, height: g.h };
+    } else if (fullWidth) {
+      forcedStyle = { position: 'absolute', left: 0, top: g.y, width: '100%', height: g.h };
+    } else {
+      forcedStyle = { position: 'absolute', left: g.x, top: g.y, width: g.w, height: g.h };
+    }
   }
 
   // If we upgraded the wrapper to a semantic landmark tag, drop the

@@ -380,11 +380,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     replaceChildren((arr) => arr.map((b) => {
       const u = updates[b.id];
       if (!u) return b;
-      // Round to integers for clean serialization
-      const patch = {
-        x: Math.round(u.x), y: Math.round(u.y),
-        w: Math.round(u.w), h: Math.round(u.h),
-      };
+      // Round to integers for clean serialization. Full-width blocks
+      // ignore horizontal geometry (x/w are derived from the canvas).
+      const patch = b.fullWidth
+        ? { y: Math.round(u.y), h: Math.round(u.h) }
+        : {
+            x: Math.round(u.x), y: Math.round(u.y),
+            w: Math.round(u.w), h: Math.round(u.h),
+          };
       return setBlockBp(b, breakpoint, patch);
     }));
   }, [replaceChildren, breakpoint]);

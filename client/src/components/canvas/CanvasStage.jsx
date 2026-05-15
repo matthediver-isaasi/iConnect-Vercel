@@ -4,6 +4,9 @@ import { resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
 import { getBlockDefinition } from './blocks/registry';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+// Full-width blocks only allow vertical resize; horizontal handles are
+// hidden because width is pinned to the canvas at the current breakpoint.
+const FULL_WIDTH_RESIZE_HANDLES = ['n', 's'];
 
 function snap(value, gridSize) {
   if (!gridSize || gridSize <= 0) return value;
@@ -118,13 +121,19 @@ function CanvasBlockView({
   const { style, a11y } = block;
   const def = getBlockDefinition(block.type);
   const EditorComponent = def.Editor;
+  const fullWidth = !!block.fullWidth;
+  const cursor = block.locked
+    ? 'cursor-not-allowed'
+    : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
+  const handles = fullWidth ? FULL_WIDTH_RESIZE_HANDLES : RESIZE_HANDLES;
   return (
     <div
       role={a11y.role || undefined}
       aria-label={a11y.ariaLabel || undefined}
-      className={`absolute ${block.locked ? 'cursor-not-allowed' : 'cursor-move'} ${
+      className={`absolute ${cursor} ${
         isSelected ? 'outline outline-2 outline-primary outline-offset-[-1px]' : ''
-      }`}
+      } ${fullWidth ? 'ring-1 ring-primary/40 ring-inset' : ''}`}
+      data-full-width={fullWidth ? 'true' : undefined}
       style={{
         left: geom.x,
         top: geom.y,
@@ -156,7 +165,7 @@ function CanvasBlockView({
       )}
       {isSelected && !block.locked && (
         <>
-          {RESIZE_HANDLES.map((h) => (
+          {handles.map((h) => (
             <div
               key={h}
               onPointerDown={(e) => { e.stopPropagation(); onPointerDownResize(e, block.id, h); }}
@@ -221,8 +230,11 @@ export default function CanvasStage({
   }, [setDropRef]);
 
   const resolvedBlocks = useMemo(
-    () => blocks.map((b) => ({ block: b, geom: resolveBlockAtBreakpoint(b, breakpoint) })),
-    [blocks, breakpoint],
+    () => blocks.map((b) => ({
+      block: b,
+      geom: resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth }),
+    })),
+    [blocks, breakpoint, canvasWidth],
   );
 
   const getStageCoords = useCallback((clientX, clientY) => {
@@ -265,7 +277,7 @@ export default function CanvasStage({
     const initialGeoms = {};
     for (const id of idsToDrag) {
       const b = blocks.find((bb) => bb.id === id);
-      initialGeoms[id] = resolveBlockAtBreakpoint(b, breakpoint);
+      initialGeoms[id] = resolveBlockAtBreakpoint(b, breakpoint, { canvasWidth });
     }
     setInteractionState({
       kind: 'drag',
@@ -275,7 +287,7 @@ export default function CanvasStage({
       hasMoved: false,
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
-  }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint]);
+  }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint, canvasWidth]);
 
   // ----- Resize handle pointer down -----
   const handlePointerDownResize = useCallback((e, blockId, handle) => {
@@ -283,16 +295,17 @@ export default function CanvasStage({
     const block = blocks.find((b) => b.id === blockId);
     if (!block || block.locked) return;
     const start = getStageCoords(e.clientX, e.clientY);
-    const geom = resolveBlockAtBreakpoint(block, breakpoint);
+    const geom = resolveBlockAtBreakpoint(block, breakpoint, { canvasWidth });
     setInteractionState({
       kind: 'resize',
       id: blockId,
       handle,
       start,
       initialGeom: geom,
+      fullWidth: !!block.fullWidth,
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
-  }, [blocks, getStageCoords, breakpoint]);
+  }, [blocks, getStageCoords, breakpoint, canvasWidth]);
 
   // ----- Stage background pointer down: clear selection + marquee start -----
   const handleStagePointerDown = useCallback((e) => {
@@ -314,10 +327,19 @@ export default function CanvasStage({
     const handleMove = (e) => {
       const cur = getStageCoords(e.clientX, e.clientY);
       if (interactionState.kind === 'drag') {
-        const dx = cur.x - interactionState.start.x;
+        const dxRaw = cur.x - interactionState.start.x;
         const dy = cur.y - interactionState.start.y;
         const previews = {};
         let appliedGuides = { vertical: [], horizontal: [] };
+
+        // If every dragged block is full-width, horizontal motion is
+        // disabled — pin dx to 0 so neither geometry nor snap guides
+        // move sideways.
+        const allFullWidth = interactionState.ids.every((id) => {
+          const b = blocks.find((bb) => bb.id === id);
+          return b && b.fullWidth;
+        });
+        const dx = allFullWidth ? 0 : dxRaw;
 
         // Compute snap for first dragged block; apply same delta to rest
         const firstId = interactionState.ids[0];
@@ -331,21 +353,35 @@ export default function CanvasStage({
         // Grid snap
         candidate.x = snap(candidate.x, gridSize);
         candidate.y = snap(candidate.y, gridSize);
-        // Sibling snap
-        const siblings = resolvedBlocks
-          .filter(({ block }) => !interactionState.ids.includes(block.id))
-          .map(({ geom }) => geom);
-        const { rect: snappedRect, guides: g } = snapToSiblings(candidate, siblings, canvasWidth, canvasHeight);
-        candidate.x = snappedRect.x;
-        candidate.y = snappedRect.y;
-        appliedGuides = g;
+        // Sibling snap (skip horizontal snap entirely when fully pinned)
+        if (!allFullWidth) {
+          const siblings = resolvedBlocks
+            .filter(({ block }) => !interactionState.ids.includes(block.id))
+            .map(({ geom }) => geom);
+          const { rect: snappedRect, guides: g } = snapToSiblings(candidate, siblings, canvasWidth, canvasHeight);
+          candidate.x = snappedRect.x;
+          candidate.y = snappedRect.y;
+          appliedGuides = g;
+        } else {
+          const siblings = resolvedBlocks
+            .filter(({ block }) => !interactionState.ids.includes(block.id))
+            .map(({ geom }) => geom);
+          // Only collect vertical (y) guides; x is fixed at 0.
+          const { rect: snappedRect, guides: g } = snapToSiblings(
+            { ...candidate, x: firstInitial.x }, siblings, canvasWidth, canvasHeight,
+          );
+          candidate.y = snappedRect.y;
+          appliedGuides = { vertical: [], horizontal: g.horizontal };
+        }
 
         const finalDx = candidate.x - firstInitial.x;
         const finalDy = candidate.y - firstInitial.y;
         for (const id of interactionState.ids) {
           const init = interactionState.initialGeoms[id];
+          const b = blocks.find((bb) => bb.id === id);
+          const lockX = !!(b && b.fullWidth);
           previews[id] = {
-            x: clamp(init.x + finalDx, 0, Math.max(0, canvasWidth - init.w)),
+            x: lockX ? init.x : clamp(init.x + finalDx, 0, Math.max(0, canvasWidth - init.w)),
             y: Math.max(0, init.y + finalDy),
             w: init.w,
             h: init.h,
@@ -357,13 +393,19 @@ export default function CanvasStage({
           setInteractionState((s) => s ? { ...s, hasMoved: true } : s);
         }
       } else if (interactionState.kind === 'resize') {
-        const dx = cur.x - interactionState.start.x;
+        const dx = interactionState.fullWidth ? 0 : (cur.x - interactionState.start.x);
         const dy = cur.y - interactionState.start.y;
         let next = applyResize(interactionState.handle, interactionState.initialGeom, dx, dy);
         // grid snap for x/y and w/h edges that changed
-        next.x = snap(next.x, gridSize);
+        if (!interactionState.fullWidth) {
+          next.x = snap(next.x, gridSize);
+          next.w = Math.max(10, snap(next.w, gridSize));
+        } else {
+          // Force x/w back to the pinned values regardless of handle.
+          next.x = interactionState.initialGeom.x;
+          next.w = interactionState.initialGeom.w;
+        }
         next.y = snap(next.y, gridSize);
-        next.w = Math.max(10, snap(next.w, gridSize));
         next.h = Math.max(10, snap(next.h, gridSize));
         setPreviewGeoms({ [interactionState.id]: next });
         setGuides({ vertical: [], horizontal: [] });
@@ -412,7 +454,7 @@ export default function CanvasStage({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, canvasWidth, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect]);
+  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, blocks, canvasWidth, canvasHeight, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect]);
 
   const gridStyle = showGrid ? {
     backgroundImage: `linear-gradient(to right, rgba(148,163,184,0.18) 1px, transparent 1px),

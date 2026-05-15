@@ -3,13 +3,14 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown } from 'lucide-react';
+import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown, Maximize2 } from 'lucide-react';
 import {
   resolveBlockAtBreakpoint,
   hasOverride,
   setBlockBp,
   clearBpOverride,
   BREAKPOINTS,
+  BREAKPOINT_WIDTHS,
   validateBlock,
   BLOCK_TYPES,
 } from '@/lib/canvasDesign';
@@ -23,7 +24,7 @@ import {
 } from '@/lib/canvasA11y';
 import { getBlockDefinition } from './blocks/registry';
 
-function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override }) {
+function NumberField({ id, label, value, onChange, min, max, step = 1, testId, override, disabled }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
@@ -48,6 +49,7 @@ function NumberField({ id, label, value, onChange, min, max, step = 1, testId, o
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         className="h-8"
         data-testid={testId}
       />
@@ -257,6 +259,20 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
 
   const updateName = (name) => onUpdate((b) => ({ ...b, name }));
 
+  const toggleFullWidth = () => {
+    const cw = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+    onUpdate((b) => {
+      if (b.fullWidth) {
+        // Turning off: snapshot the currently rendered x=0/w=cw into
+        // the current breakpoint so the block keeps its visual size,
+        // then disable the pin.
+        const withGeom = setBlockBp(b, breakpoint, { x: 0, w: cw });
+        return { ...withGeom, fullWidth: false };
+      }
+      return { ...b, fullWidth: true };
+    });
+  };
+
   const visibilityToggleOnBp = (bp) => {
     onUpdate((b) => {
       const current = resolveBlockAtBreakpoint(b, bp).hidden;
@@ -314,12 +330,37 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
       />
 
       <Section title={`Position (${breakpoint})`}>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span>Full width</span>
+          </div>
+          <Button
+            size="sm"
+            variant={block.fullWidth ? 'default' : 'outline'}
+            onClick={toggleFullWidth}
+            className="toggle-elevate"
+            data-testid="button-toggle-full-width"
+            data-state={block.fullWidth ? 'on' : 'off'}
+            title={block.fullWidth
+              ? 'Disable full width (release horizontal pin)'
+              : 'Pin block to full canvas width at every breakpoint'}
+          >
+            {block.fullWidth ? 'On' : 'Off'}
+          </Button>
+        </div>
+        {block.fullWidth && (
+          <p className="text-xs text-slate-500 mb-2" data-testid="text-full-width-hint">
+            X and Width are pinned to the canvas at each breakpoint. Disable to edit horizontally.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <NumberField
             id="inp-x" label="X" testId="input-x"
             value={geom.x}
             onChange={(v) => updateGeom('x', v)}
             override={hasOverride(block, breakpoint, 'x')}
+            disabled={block.fullWidth}
           />
           <NumberField
             id="inp-y" label="Y" testId="input-y"
@@ -332,6 +373,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
             value={geom.w}
             onChange={(v) => updateGeom('w', v)}
             override={hasOverride(block, breakpoint, 'w')}
+            disabled={block.fullWidth}
           />
           <NumberField
             id="inp-h" label="Height" testId="input-h" min={10}
