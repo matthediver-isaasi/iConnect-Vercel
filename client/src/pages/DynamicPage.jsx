@@ -22,7 +22,39 @@ export default function DynamicPage() {
   const { slug } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
+  // When the Canvas Page Editor opens the live preview iframe, it appends
+  // `?_canvasPreview=<nonce>`. In that mode we must bypass the publish gate
+  // (and the public endpoint, which only returns published pages) so the
+  // editor can preview and run accessibility audits against unpublished
+  // drafts. Authorization is still enforced — the authenticated
+  // IEditPage.list endpoint only returns pages the user can access, so
+  // unauthenticated visitors hitting this URL get the normal not-found
+  // branch.
+  const isCanvasPreview = useMemo(() => {
+    try {
+      return new URLSearchParams(location.search).has('_canvasPreview');
+    } catch {
+      return false;
+    }
+  }, [location.search]);
+  const { memberInfo, memberRole, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  // Preview mode is only honoured when the viewer actually has the
+  // Canvas page editor capability. A bare ?_canvasPreview=… param from
+  // an ordinary tenant member must NOT bypass the publish gate, or
+  // drafts would leak to anyone authenticated in the tenant.
+  //
+  // Tenant admin (admin dashboard) sessions don't populate `memberInfo`,
+  // so `isAccessReady` stays false for them. We allow preview when there
+  // is no member session at all — those callers either are a tenant admin
+  // or are unauthenticated; the server-side gates on `/api/entities/IEditPage*`
+  // and `/api/canvas-design/[pageId]` make sure drafts only come back for
+  // tenant admins or members with `site-builder.page-editor`.
+  const canPreviewDrafts = useMemo(() => {
+    if (!isCanvasPreview) return false;
+    if (!memberInfo) return true; // tenant admin or anonymous — server gate decides
+    if (!isAccessReady) return false;
+    return !isFeatureExcluded('site-builder.page-editor');
+  }, [isCanvasPreview, memberInfo, isAccessReady, isFeatureExcluded]);
   const { setForcePublicLayout, setForceBlankLayout, setChromeReady } = useLayoutContext();
   const { branding } = useTenantBranding();
   
@@ -70,16 +102,21 @@ export default function DynamicPage() {
 
   // Fetch page and elements together using public endpoint first, fall back to authenticated
   const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
-    queryKey: ['iedit-dynamic-page', slug],
+    queryKey: ['iedit-dynamic-page', slug, isCanvasPreview ? 'preview' : 'live'],
     queryFn: async () => {
-      // Try public endpoint first (works for unauthenticated users on public pages)
-      try {
-        const data = await publicClient.getPage(slug);
-        if (data) {
-          return { page: data.page, elements: data.elements };
+      // In Canvas Page Editor preview mode we skip the public endpoint
+      // entirely — it only serves published pages, and the preview iframe
+      // is explicitly authoring an unpublished draft.
+      if (!isCanvasPreview) {
+        // Try public endpoint first (works for unauthenticated users on public pages)
+        try {
+          const data = await publicClient.getPage(slug);
+          if (data) {
+            return { page: data.page, elements: data.elements };
+          }
+        } catch (e) {
+          // Fall through to authenticated endpoint
         }
-      } catch (e) {
-        // Fall through to authenticated endpoint
       }
       
       // Fall back to authenticated endpoints for protected pages or logged-in users
@@ -395,7 +432,7 @@ export default function DynamicPage() {
     );
   }
 
-  if (!isPublished) {
+  if (!isPublished && !canPreviewDrafts) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="page-not-published">
         <div className="text-center">

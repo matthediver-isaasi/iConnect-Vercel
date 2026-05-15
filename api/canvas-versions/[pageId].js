@@ -10,7 +10,7 @@
 // Tenant hard-fail on every request — version data is authoring-only.
 
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 const MAX_KEEP = 50;
 
@@ -37,6 +37,16 @@ export default async function handler(req, res) {
   catch (err) { return res.status(500).json({ error: 'Failed to resolve tenant context' }); }
   if (!context?.tenantId) return res.status(403).json({ error: 'Tenant context required' });
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+
+  // SECURITY: Canvas version snapshots contain full draft authoring
+  // payloads. Require tenant admin OR `site-builder.page-editor`. Return
+  // 404 (not 403) to avoid leaking page-id existence to non-editors.
+  let canEditCanvasPages = !!context.tenantUserId;
+  if (!canEditCanvasPages && context.roleId) {
+    canEditCanvasPages = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  }
+  if (!canEditCanvasPages) return res.status(404).json({ error: 'Page not found' });
+
   const tenantId = context.tenantId;
 
   const pageCheck = await loadCanvasPage(pageId, tenantId);

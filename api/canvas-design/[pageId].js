@@ -13,7 +13,7 @@
 // match both `id` and the caller's tenant_id.
 
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 function badRequest(res, message) {
   return res.status(400).json({ error: message });
@@ -46,6 +46,19 @@ export default async function handler(req, res) {
   }
   if (!context.isAuthenticated) {
     return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // SECURITY: Canvas design documents are authoring data (drafts +
+  // published). Only tenant admin users (admin dashboard) or members with
+  // the `site-builder.page-editor` feature may read or write them.
+  // Returning 404 instead of 403 avoids leaking which page IDs exist.
+  const isTenantAdminUser = !!context.tenantUserId;
+  let canEditCanvasPages = isTenantAdminUser;
+  if (!canEditCanvasPages && context.roleId) {
+    canEditCanvasPages = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  }
+  if (!canEditCanvasPages) {
+    return res.status(404).json({ error: 'Page not found' });
   }
 
   const tenantId = context.tenantId;

@@ -3,7 +3,7 @@ import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken 
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
@@ -900,6 +900,39 @@ export default async function handler(req, res) {
       // This ensures pagination works correctly
       if (entityNorm === 'member') {
         query = query.not('email', 'ilike', 'deleted_%@deleted.local');
+      }
+
+      // SECURITY: For IEditPage / IEditPageElement, only members with the
+      // `site-builder.page-editor` feature (the same gate used by the
+      // Canvas Page Editor itself) may read unpublished/draft rows. Without
+      // this check, any authenticated tenant member could fetch draft
+      // canvas_design payloads via the generic entity API by hitting
+      // `/api/entities/IEditPage?filter={"slug":"…"}` — which would also
+      // back-door the Canvas Editor live-preview iframe's `?_canvasPreview`
+      // flag. Tenant users (admin dashboard) keep full access.
+      if (entity === 'IEditPage' && !tenantCtx.tenantUserId) {
+        const allowDrafts = tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'site-builder.page-editor')
+          : false;
+        if (!allowDrafts) {
+          query = query.eq('status', 'published');
+        }
+      } else if (entity === 'IEditPageElement' && !tenantCtx.tenantUserId) {
+        const allowDrafts = tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'site-builder.page-editor')
+          : false;
+        if (!allowDrafts) {
+          // Restrict to elements belonging to published pages in the tenant.
+          let publishedQuery = supabase
+            .from('i_edit_page')
+            .select('id')
+            .eq('status', 'published');
+          if (tenantCtx.tenantId) publishedQuery = publishedQuery.eq('tenant_id', tenantCtx.tenantId);
+          const { data: publishedPages } = await publishedQuery;
+          const ids = (publishedPages || []).map((p) => p.id);
+          if (ids.length === 0) return res.json([]);
+          query = query.in('page_id', ids);
+        }
       }
 
       // Use pre-parsed filter from tenantCtx if available, otherwise parse now

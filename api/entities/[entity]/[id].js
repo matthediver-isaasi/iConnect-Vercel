@@ -2,7 +2,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
@@ -244,6 +244,39 @@ export default async function handler(req, res) {
         }
       }
       
+      // SECURITY: Mirror the IEditPage / IEditPageElement draft gate from
+      // the list endpoint. Without `site-builder.page-editor`, members can
+      // only fetch published pages by id (and elements that belong to
+      // published pages). Tenant users (admin dashboard) keep full access.
+      if (entity === 'IEditPage' && !tenantCtx.tenantUserId) {
+        const allowDrafts = tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'site-builder.page-editor')
+          : false;
+        if (!allowDrafts) {
+          query = query.eq('status', 'published');
+        }
+      } else if (entity === 'IEditPageElement' && !tenantCtx.tenantUserId) {
+        const allowDrafts = tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'site-builder.page-editor')
+          : false;
+        if (!allowDrafts) {
+          const { data: elementRow } = await supabase
+            .from('i_edit_page_element')
+            .select('page_id')
+            .eq('id', id)
+            .single();
+          if (!elementRow?.page_id) return res.status(404).json({ error: 'Not found' });
+          const { data: parentPage } = await supabase
+            .from('i_edit_page')
+            .select('status')
+            .eq('id', elementRow.page_id)
+            .single();
+          if (parentPage?.status !== 'published') {
+            return res.status(404).json({ error: 'Not found' });
+          }
+        }
+      }
+
       const { data, error } = await query.single();
 
       if (error) {

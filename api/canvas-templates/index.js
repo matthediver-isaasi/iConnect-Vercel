@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -9,6 +9,14 @@ export default async function handler(req, res) {
   catch (err) { return res.status(500).json({ error: 'Failed to resolve tenant context' }); }
   if (!context?.tenantId) return res.status(403).json({ error: 'Tenant context required' });
   if (!context.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+
+  // SECURITY: Canvas templates (including their full design payloads) are
+  // editor authoring assets. Require tenant admin OR `site-builder.page-editor`.
+  let canEditCanvasPages = !!context.tenantUserId;
+  if (!canEditCanvasPages && context.roleId) {
+    canEditCanvasPages = await hasFeatureAccess(context.roleId, 'site-builder.page-editor');
+  }
+  if (!canEditCanvasPages) return res.status(403).json({ error: 'Forbidden' });
 
   const tenantId = context.tenantId;
 
