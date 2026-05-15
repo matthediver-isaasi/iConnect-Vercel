@@ -154,6 +154,7 @@ export const BLOCK_TYPES = {
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
+  EVENT_CAROUSEL: 'event-carousel',
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
   FORM_EMBED: 'form-embed',
@@ -433,6 +434,24 @@ export const BLOCK_DEFAULTS = {
       showSummary: true,
       showCta: true,
       ctaLabel: 'Find out more',
+    },
+  },
+  [BLOCK_TYPES.EVENT_CAROUSEL]: {
+    name: 'Event carousel',
+    geom: { w: 800, h: 400 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventIds: [],
+      ctaLabel: 'Find out more',
+      showSummary: true,
+      showDate: true,
+      imageSide: 'left',
+      imageAspect: '4/3',
+      autoplay: false,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      emptyText: 'Pick one or more events in the inspector.',
     },
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {

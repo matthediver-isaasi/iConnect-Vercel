@@ -4,19 +4,25 @@
 // using TanStack Query. The same renderer is used in the editor and on the
 // public page; in the editor we add `data-canvas-editor` to suppress link
 // navigation. Skeleton/empty states and accessibility metadata are baked in.
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
+  ChevronLeft, ChevronRight, Images,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
 import { BLOCK_TYPES } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
@@ -465,6 +471,378 @@ function EventTeaserInspector({ block, update }) {
       <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-event-teaser-summary" />
       <ToggleField label="Show CTA" value={c.showCta !== false} onChange={(v) => set({ showCta: v })} testId="toggle-event-teaser-cta" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-event-teaser-cta-label" />
+    </>
+  );
+}
+
+// ============================================================================
+// EVENT CAROUSEL (50/50 split cards rotating through selected events)
+// ============================================================================
+function CarouselArrayList({ items, onChange, renderItem, makeNew, addLabel, testIdPrefix }) {
+  return (
+    <div className="space-y-2">
+      {(items || []).map((item, idx) => (
+        <div
+          key={idx}
+          className="space-y-2 p-2 rounded-md border border-slate-200 bg-slate-50"
+          data-testid={`${testIdPrefix}-item-${idx}`}
+        >
+          {renderItem(item, idx, (patch) => {
+            const next = [...items];
+            next[idx] = typeof patch === 'object' && patch !== null && !Array.isArray(patch)
+              ? { ...next[idx], ...patch }
+              : patch;
+            onChange(next);
+          })}
+          <div className="flex items-center justify-end gap-1">
+            {idx > 0 && (
+              <Button
+                size="sm" variant="ghost" type="button"
+                onClick={() => {
+                  const next = [...items];
+                  [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                  onChange(next);
+                }}
+                data-testid={`${testIdPrefix}-up-${idx}`}
+              >Up</Button>
+            )}
+            {idx < items.length - 1 && (
+              <Button
+                size="sm" variant="ghost" type="button"
+                onClick={() => {
+                  const next = [...items];
+                  [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                  onChange(next);
+                }}
+                data-testid={`${testIdPrefix}-down-${idx}`}
+              >Down</Button>
+            )}
+            <Button
+              size="sm" variant="ghost" type="button"
+              onClick={() => onChange((items || []).filter((_, i) => i !== idx))}
+              data-testid={`${testIdPrefix}-remove-${idx}`}
+            >Remove</Button>
+          </div>
+        </div>
+      ))}
+      <Button
+        size="sm" variant="outline" type="button"
+        onClick={() => onChange([...(items || []), makeNew()])}
+        data-testid={`${testIdPrefix}-add`}
+      >
+        {addLabel || 'Add'}
+      </Button>
+    </div>
+  );
+}
+
+function aspectClassForRatio(ratio) {
+  switch (ratio) {
+    case '1/1': return 'aspect-square';
+    case '16/9': return 'aspect-[16/9]';
+    case '3/2': return 'aspect-[3/2]';
+    case '21/9': return 'aspect-[21/9]';
+    case '4/3':
+    default: return 'aspect-[4/3]';
+  }
+}
+
+function EventCarouselRender({ block, asEditor }) {
+  const c = block.content || {};
+  const eventIds = Array.isArray(c.eventIds) ? c.eventIds.filter(Boolean) : [];
+  const { data: allEvents, isLoading, isError } = useQuery({
+    queryKey: ['canvas', 'public-events'],
+    queryFn: () => publicClient.listEvents(),
+    staleTime: 60_000,
+    enabled: eventIds.length > 0,
+  });
+
+  const items = useMemo(() => {
+    if (!Array.isArray(allEvents) || eventIds.length === 0) return [];
+    const byKey = new Map();
+    for (const e of allEvents) {
+      if (e.slug) byKey.set(String(e.slug), e);
+      if (e.id != null) byKey.set(String(e.id), e);
+    }
+    return eventIds.map((k) => byKey.get(String(k))).filter(Boolean);
+  }, [allEvents, eventIds]);
+
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (index > Math.max(0, items.length - 1)) setIndex(0);
+  }, [items.length, index]);
+
+  useEffect(() => {
+    if (asEditor) return;
+    if (!c.autoplay || items.length < 2) return;
+    const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
+    const t = setInterval(() => setIndex((i) => (i + 1) % items.length), ms);
+    return () => clearInterval(t);
+  }, [asEditor, c.autoplay, c.autoplayMs, items.length]);
+
+  if (eventIds.length === 0) {
+    return <EmptyState icon={Images} text={c.emptyText || 'Pick one or more events in the inspector.'} />;
+  }
+  if (isLoading) return <ListSkeleton count={1} columns={1} gap={0} />;
+  if (isError) return <ErrorState message="Couldn't load events right now." />;
+  if (items.length === 0) {
+    return <EmptyState icon={Images} text="Selected events are unavailable." />;
+  }
+
+  const event = items[Math.min(index, items.length - 1)];
+  const imageSide = c.imageSide === 'right' ? 'right' : 'left';
+  const aspectCls = aspectClassForRatio(c.imageAspect || '4/3');
+  const hasMany = items.length > 1;
+  const showArrows = hasMany && c.showArrows !== false;
+  const showIndicators = hasMany && c.showIndicators !== false;
+
+  const imageOrderCls = imageSide === 'right' ? 'md:order-2' : 'md:order-1';
+  const contentOrderCls = imageSide === 'right' ? 'md:order-1' : 'md:order-2';
+
+  return (
+    <div
+      className="relative w-full h-full overflow-hidden"
+      aria-label={block.a11y?.ariaLabel || event.title || 'Event carousel'}
+      data-testid="event-carousel"
+    >
+      <div className="flex flex-col md:flex-row w-full h-full">
+        {/* Image is always first in source order so it stacks above the
+            content on narrow screens; desktop ordering is controlled by
+            imageSide via md:order-* utilities. */}
+        <div className={`relative w-full md:w-1/2 bg-slate-100 ${aspectCls} md:aspect-auto md:h-full overflow-hidden order-1 ${imageOrderCls}`}>
+          {event.image_url ? (
+            <img
+              src={event.image_url}
+              alt=""
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-400">
+              <Calendar className="w-10 h-10" aria-hidden="true" />
+            </div>
+          )}
+        </div>
+        <div className={`w-full md:w-1/2 p-4 md:p-6 flex flex-col gap-2 justify-center min-w-0 order-2 ${contentOrderCls}`}>
+          {c.showDate !== false && event.start_date ? (
+            <div className="text-xs text-slate-600 flex items-center gap-1">
+              <Calendar className="w-3 h-3" aria-hidden="true" />
+              {formatDate(event.start_date)}
+            </div>
+          ) : null}
+          <h3 className="text-lg font-semibold text-slate-900 m-0 line-clamp-2">{event.title}</h3>
+          {c.showSummary !== false && (event.summary || event.description) ? (
+            <p className="text-sm text-slate-600 line-clamp-3 m-0">
+              {event.summary || String(event.description || '').replace(/<[^>]+>/g, '').slice(0, 240)}
+            </p>
+          ) : null}
+          <div className="mt-1">
+            <a
+              href={asEditor ? undefined : `/Events/${encodeURIComponent(event.slug || event.id)}`}
+              onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+              data-testid={`link-event-carousel-${event.id}`}
+              aria-label={`${c.ctaLabel || 'Find out more'}: ${event.title || 'event'}`}
+            >
+              {c.ctaLabel || 'Find out more'} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </a>
+          </div>
+        </div>
+      </div>
+      {showArrows ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setIndex((i) => (i - 1 + items.length) % items.length)}
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+            aria-label="Previous event"
+            data-testid="button-event-carousel-prev"
+          >
+            <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIndex((i) => (i + 1) % items.length)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+            aria-label="Next event"
+            data-testid="button-event-carousel-next"
+          >
+            <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+          </button>
+        </>
+      ) : null}
+      {showIndicators ? (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+          {items.map((it, i) => (
+            <button
+              key={it.id || i}
+              type="button"
+              onClick={() => setIndex(i)}
+              aria-label={`Show event ${i + 1} of ${items.length}`}
+              aria-current={i === index ? 'true' : undefined}
+              className={`w-2 h-2 rounded-full border border-white/80 ${i === index ? 'bg-slate-900' : 'bg-slate-400/70'}`}
+              data-testid={`button-event-carousel-indicator-${i}`}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EventCarouselPickerRow({ value, onChange, testId, disabledValues = [] }) {
+  const { data: events, isLoading } = useQuery({
+    queryKey: ['canvas', 'public-events'],
+    queryFn: () => publicClient.listEvents(),
+    staleTime: 60_000,
+  });
+  const [open, setOpen] = useState(false);
+  const options = (events || []).map((e) => ({ value: e.slug || String(e.id), label: e.title || '(untitled)' }));
+  const current = options.find((o) => o.value === value);
+  const disabledSet = new Set(disabledValues || []);
+  return (
+    <Field label="Event" hint={isLoading ? 'Loading events…' : null}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full h-8 justify-between font-normal"
+            data-testid={testId}
+          >
+            <span className="truncate text-left">{current ? current.label : 'Select an event'}</span>
+            <ChevronRight className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" aria-hidden="true" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+          <Command>
+            <CommandInput placeholder="Search events…" data-testid={`${testId}-search`} />
+            <CommandList>
+              <CommandEmpty>No events found.</CommandEmpty>
+              <CommandGroup>
+                {options.map((o) => {
+                  const isDisabled = disabledSet.has(o.value) && o.value !== value;
+                  return (
+                    <CommandItem
+                      key={o.value}
+                      value={`${o.label} ${o.value}`}
+                      disabled={isDisabled}
+                      onSelect={() => { onChange(o.value); setOpen(false); }}
+                      data-testid={`${testId}-option-${o.value}`}
+                    >
+                      <span className="truncate">{o.label}</span>
+                      {isDisabled ? (
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">Added</span>
+                      ) : null}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </Field>
+  );
+}
+
+function EventCarouselInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const ids = Array.isArray(c.eventIds) ? c.eventIds : [];
+  return (
+    <>
+      <Field label="Events" hint="Add one or more events to feature. Use Up/Down to reorder.">
+        <CarouselArrayList
+          items={ids}
+          onChange={(next) => set({ eventIds: next })}
+          renderItem={(item, idx, setItem) => (
+            <EventCarouselPickerRow
+              value={item || ''}
+              onChange={(v) => setItem(v)}
+              testId={`select-event-carousel-event-${idx}`}
+              disabledValues={ids.filter((_, i) => i !== idx)}
+            />
+          )}
+          makeNew={() => ''}
+          addLabel="Add event"
+          testIdPrefix="event-carousel-events"
+        />
+      </Field>
+      <TextField
+        label="CTA label"
+        value={c.ctaLabel}
+        onChange={(v) => set({ ctaLabel: v })}
+        testId="input-event-carousel-cta-label"
+      />
+      <ToggleField
+        label="Show date"
+        value={c.showDate !== false}
+        onChange={(v) => set({ showDate: v })}
+        testId="toggle-event-carousel-date"
+      />
+      <ToggleField
+        label="Show summary"
+        value={c.showSummary !== false}
+        onChange={(v) => set({ showSummary: v })}
+        testId="toggle-event-carousel-summary"
+      />
+      <SelectField
+        label="Image side"
+        value={c.imageSide || 'left'}
+        onChange={(v) => set({ imageSide: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-event-carousel-image-side"
+      />
+      <SelectField
+        label="Image aspect ratio"
+        value={c.imageAspect || '4/3'}
+        onChange={(v) => set({ imageAspect: v })}
+        options={[
+          { value: '4/3', label: '4 : 3' },
+          { value: '3/2', label: '3 : 2' },
+          { value: '16/9', label: '16 : 9' },
+          { value: '1/1', label: '1 : 1 (square)' },
+          { value: '21/9', label: '21 : 9 (wide)' },
+        ]}
+        testId="select-event-carousel-image-aspect"
+      />
+      <ToggleField
+        label="Autoplay"
+        value={!!c.autoplay}
+        onChange={(v) => set({ autoplay: v })}
+        testId="toggle-event-carousel-autoplay"
+      />
+      <NumberField
+        label="Autoplay interval (ms)"
+        min={1500}
+        value={c.autoplayMs || 5000}
+        onChange={(v) => set({ autoplayMs: Math.max(1500, Number(v) || 5000) })}
+        testId="input-event-carousel-autoplay-ms"
+      />
+      <ToggleField
+        label="Show prev/next arrows"
+        value={c.showArrows !== false}
+        onChange={(v) => set({ showArrows: v })}
+        testId="toggle-event-carousel-arrows"
+      />
+      <ToggleField
+        label="Show slide indicators"
+        value={c.showIndicators !== false}
+        onChange={(v) => set({ showIndicators: v })}
+        testId="toggle-event-carousel-indicators"
+      />
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(v) => set({ emptyText: v })}
+        testId="input-event-carousel-empty"
+      />
     </>
   );
 }
@@ -1332,6 +1710,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <EventTeaserRender {...props} asEditor />,
     Renderer: EventTeaserRender,
     Inspector: EventTeaserInspector,
+  },
+  [BLOCK_TYPES.EVENT_CAROUSEL]: {
+    label: 'Event carousel',
+    icon: Images,
+    category: 'data',
+    Editor: (props) => <EventCarouselRender {...props} asEditor />,
+    Renderer: EventCarouselRender,
+    Inspector: EventCarouselInspector,
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
     label: 'Article / news list',
