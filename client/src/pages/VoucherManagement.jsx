@@ -504,6 +504,7 @@ export default function VoucherManagementPage() {
       code: "",
       value: 0,
       description: "",
+      issued_at: format(new Date(), "yyyy-MM-dd"),
       expires_at: "",
       status: "active"
     });
@@ -511,8 +512,10 @@ export default function VoucherManagementPage() {
   };
 
   const handleEdit = (voucher) => {
+    const issuedSource = voucher.issued_at || voucher.created_at;
     setEditingVoucher({
       ...voucher,
+      issued_at: issuedSource ? format(new Date(issuedSource), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
       expires_at: voucher.expires_at ? format(new Date(voucher.expires_at), "yyyy-MM-dd") : "",
       _originalValue: voucher.value
     });
@@ -545,6 +548,10 @@ export default function VoucherManagementPage() {
       toast.error('Expiry date is required');
       return;
     }
+    if (!editingVoucher.issued_at) {
+      toast.error('Awarded date is required');
+      return;
+    }
 
     const newValue = parseFloat(editingVoucher.value);
     const data = {
@@ -552,6 +559,7 @@ export default function VoucherManagementPage() {
       code: editingVoucher.code.toUpperCase().trim(),
       value: newValue,
       description: editingVoucher.description || "",
+      issued_at: new Date(editingVoucher.issued_at).toISOString(),
       expires_at: new Date(editingVoucher.expires_at).toISOString(),
       status: editingVoucher.status
     };
@@ -661,6 +669,11 @@ export default function VoucherManagementPage() {
                 <p className={`text-3xl font-bold ${(selectedVoucher.value || 0) > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                   £{(selectedVoucher.value || 0).toFixed(2)}
                 </p>
+                {(selectedVoucher.issued_at || selectedVoucher.created_at) && (
+                  <p className="text-xs text-slate-400 mt-1" data-testid="text-voucher-awarded-detail">
+                    Awarded: {format(new Date(selectedVoucher.issued_at || selectedVoucher.created_at), 'dd MMM yyyy')}
+                  </p>
+                )}
                 {selectedVoucher.expires_at && (
                   <p className="text-xs text-slate-400 mt-1">
                     Expires: {format(new Date(selectedVoucher.expires_at), 'dd MMM yyyy')}
@@ -946,6 +959,14 @@ export default function VoucherManagementPage() {
                                 <Building2 className="w-4 h-4" />
                                 <span>{org?.name || 'Unknown Organisation'}</span>
                               </div>
+                              {(voucher.issued_at || voucher.created_at) && (
+                                <div className="flex items-center gap-1" data-testid={`text-voucher-awarded-${voucher.id}`}>
+                                  <CalendarIcon className="w-4 h-4" />
+                                  <span>
+                                    Awarded: {format(new Date(voucher.issued_at || voucher.created_at), 'MMM d, yyyy')}
+                                  </span>
+                                </div>
+                              )}
                               {voucher.expires_at && (
                                 <div className="flex items-center gap-1">
                                   <CalendarIcon className="w-4 h-4" />
@@ -1183,6 +1204,17 @@ export default function VoucherManagementPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    <Label htmlFor="issued_at">Awarded Date *</Label>
+                    <Input
+                      id="issued_at"
+                      type="date"
+                      value={editingVoucher.issued_at || ""}
+                      onChange={(e) => setEditingVoucher({ ...editingVoucher, issued_at: e.target.value })}
+                      data-testid="input-voucher-issued"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="expires_at">Expiry Date *</Label>
                     <Input
                       id="expires_at"
@@ -1192,7 +1224,9 @@ export default function VoucherManagementPage() {
                       data-testid="input-voucher-expiry"
                     />
                   </div>
+                </div>
 
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>
                     <Select

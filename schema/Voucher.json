@@ -23,6 +23,11 @@
         "format": "date-time",
         "description": "When this voucher expires"
       },
+      "issued_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When this voucher was awarded/issued"
+      },
       "status": {
         "type": "string",
         "enum": [
