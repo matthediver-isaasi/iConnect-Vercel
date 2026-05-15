@@ -169,6 +169,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
+  // Manual anchor override — set via the "Align to" dropdown. Cleared
+  // automatically whenever the selection changes so the implicit
+  // "last selected = anchor" rule resumes.
+  const [manualAnchorId, setManualAnchorId] = useState(null);
+  const selectionKey = useMemo(() => selectedIds.join('|'), [selectedIds]);
+  useEffect(() => { setManualAnchorId(null); }, [selectionKey]);
   const [activeDragId, setActiveDragId] = useState(null);
   const [activeDragType, setActiveDragType] = useState(null);
   const [showGrid, setShowGrid] = useState(true);
@@ -639,7 +645,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // align to its edges/center (Figma/Sketch "select anchor last" pattern).
   // The anchor itself does not move. With a single selection we still
   // align that block to the canvas bounds.
-  const anchorId = selectedIds.length >= 2 ? selectedIds[selectedIds.length - 1] : null;
+  // Manual override wins when the user has explicitly picked an anchor
+  // from the dropdown and that block is still selected. Otherwise we
+  // fall back to the implicit "last selected = anchor" rule.
+  const anchorId = selectedIds.length >= 2
+    ? (manualAnchorId && selectedIds.includes(manualAnchorId)
+        ? manualAnchorId
+        : selectedIds[selectedIds.length - 1])
+    : null;
   const anchorBlock = useMemo(
     () => (anchorId ? children.find((b) => b.id === anchorId) : null),
     [anchorId, children],
@@ -824,12 +837,33 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           <Button size="icon" variant="ghost" onClick={() => alignSelected('bottom')} disabled={!hasAnySelect} title={alignTitle('Align bottom')} data-testid="button-align-bottom">
             <AlignEndVertical className="w-4 h-4" />
           </Button>
-          {hasAnySelect && (
+          {hasAnySelect && selectedIds.length < 2 && (
             <Badge variant="secondary" className="ml-1" data-testid="badge-align-target">
-              Align to: {selectedIds.length === 1
-                ? 'Canvas'
-                : (anchorBlock ? anchorName : 'Selection')}
+              Align to: Canvas
             </Badge>
+          )}
+          {selectedIds.length >= 2 && (
+            <div className="flex items-center gap-1 ml-1" data-testid="align-anchor-picker">
+              <span className="text-xs text-slate-500">Align to:</span>
+              <select
+                className="h-8 text-xs border border-slate-200 rounded px-2 bg-white max-w-[12rem]"
+                value={anchorId || ''}
+                onChange={(e) => setManualAnchorId(e.target.value || null)}
+                aria-label="Anchor block to align to"
+                data-testid="select-align-anchor"
+              >
+                {selectedIds.map((id, idx) => {
+                  const b = children.find((c) => c.id === id);
+                  if (!b) return null;
+                  const isImplicit = idx === selectedIds.length - 1;
+                  return (
+                    <option key={id} value={id} data-testid={`option-align-anchor-${id}`}>
+                      {b.name || b.type}{isImplicit ? ' (last selected)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           )}
           <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={() => distributeSelected('h')} disabled={selectedIds.length < 3} title="Distribute horizontally" data-testid="button-distribute-h">
