@@ -632,7 +632,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   // ---- Align / distribute ----
   const alignSelected = useCallback((mode) => {
-    if (selectedIds.length < 2) return;
+    if (selectedIds.length < 1) return;
     const blocksGeom = selectedIds
       .map((id) => {
         const b = children.find((c) => c.id === id);
@@ -640,15 +640,29 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         return { id, geom: resolveBlockAtBreakpoint(b, breakpoint) };
       })
       .filter(Boolean);
-    if (blocksGeom.length < 2) return;
-    const xs = blocksGeom.map(({ geom }) => geom.x);
-    const ys = blocksGeom.map(({ geom }) => geom.y);
-    const rights = blocksGeom.map(({ geom }) => geom.x + geom.w);
-    const bottoms = blocksGeom.map(({ geom }) => geom.y + geom.h);
-    const minX = Math.min(...xs);
-    const maxRight = Math.max(...rights);
-    const minY = Math.min(...ys);
-    const maxBottom = Math.max(...bottoms);
+    if (blocksGeom.length < 1) return;
+
+    // Single-select: align the block to the canvas bounds for the active
+    // breakpoint. Multi-select: align relative to the selection bounding box
+    // (existing behaviour).
+    let minX, maxRight, minY, maxBottom;
+    if (blocksGeom.length === 1) {
+      const cW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+      const cH = STAGE_MIN_HEIGHT;
+      minX = 0;
+      maxRight = cW;
+      minY = 0;
+      maxBottom = cH;
+    } else {
+      const xs = blocksGeom.map(({ geom }) => geom.x);
+      const ys = blocksGeom.map(({ geom }) => geom.y);
+      const rights = blocksGeom.map(({ geom }) => geom.x + geom.w);
+      const bottoms = blocksGeom.map(({ geom }) => geom.y + geom.h);
+      minX = Math.min(...xs);
+      maxRight = Math.max(...rights);
+      minY = Math.min(...ys);
+      maxBottom = Math.max(...bottoms);
+    }
     const centerX = (minX + maxRight) / 2;
     const centerY = (minY + maxBottom) / 2;
     const updates = {};
@@ -760,7 +774,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const canUndo = undoStack.current.length > 0;
   const canRedo = redoStack.current.length > 0;
-  const hasMultiSelect = selectedIds.length >= 2;
+  const hasAnySelect = selectedIds.length >= 1;
+  const alignTarget = selectedIds.length === 1 ? 'canvas' : 'selection';
+  const alignTitle = (label) => `${label} (to ${alignTarget})`;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -774,24 +790,29 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <Redo2 className="w-4 h-4" />
           </Button>
           <div className="w-px h-6 bg-slate-200 mx-1" />
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('left')} disabled={!hasMultiSelect} title="Align left" data-testid="button-align-left">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('left')} disabled={!hasAnySelect} title={alignTitle('Align left')} data-testid="button-align-left">
             <AlignLeft className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('hcenter')} disabled={!hasMultiSelect} title="Align horizontal center" data-testid="button-align-hcenter">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('hcenter')} disabled={!hasAnySelect} title={alignTitle('Align horizontal center')} data-testid="button-align-hcenter">
             <AlignCenter className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('right')} disabled={!hasMultiSelect} title="Align right" data-testid="button-align-right">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('right')} disabled={!hasAnySelect} title={alignTitle('Align right')} data-testid="button-align-right">
             <AlignRight className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('top')} disabled={!hasMultiSelect} title="Align top" data-testid="button-align-top">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('top')} disabled={!hasAnySelect} title={alignTitle('Align top')} data-testid="button-align-top">
             <AlignStartVertical className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('vcenter')} disabled={!hasMultiSelect} title="Align vertical center" data-testid="button-align-vcenter">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('vcenter')} disabled={!hasAnySelect} title={alignTitle('Align vertical center')} data-testid="button-align-vcenter">
             <AlignCenterVertical className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => alignSelected('bottom')} disabled={!hasMultiSelect} title="Align bottom" data-testid="button-align-bottom">
+          <Button size="icon" variant="ghost" onClick={() => alignSelected('bottom')} disabled={!hasAnySelect} title={alignTitle('Align bottom')} data-testid="button-align-bottom">
             <AlignEndVertical className="w-4 h-4" />
           </Button>
+          {hasAnySelect && (
+            <Badge variant="secondary" className="ml-1" data-testid="badge-align-target">
+              Align to: {selectedIds.length === 1 ? 'Canvas' : 'Selection'}
+            </Badge>
+          )}
           <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={() => distributeSelected('h')} disabled={selectedIds.length < 3} title="Distribute horizontally" data-testid="button-distribute-h">
             <AlignHorizontalDistributeCenter className="w-4 h-4" />
