@@ -515,10 +515,10 @@ export default function PublicLayout({ children, currentPageName }) {
                             alt={branding?.name || 'Logo'} 
                             className={`object-contain${branding?.brandingConfig?.footerLogoInvert ? ' brightness-0 invert' : ''}`}
                             style={{
-                              height: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
-                              width: branding?.brandingConfig?.footerLogoWidth ? `${branding.brandingConfig.footerLogoWidth}px` : 'auto',
+                              width: 'auto',
+                              height: 'auto',
                               maxHeight: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
-                              maxWidth: branding?.brandingConfig?.footerLogoWidth ? `${branding.brandingConfig.footerLogoWidth}px` : 'none'
+                              maxWidth: branding?.brandingConfig?.footerLogoWidth ? `min(${branding.brandingConfig.footerLogoWidth}px, 100%)` : '100%'
                             }}
                           />
                         ) : (
