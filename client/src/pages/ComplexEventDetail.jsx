@@ -2210,7 +2210,7 @@ export default function ComplexEventDetail() {
                         <button
                           key={speaker.id}
                           onClick={() => { setSelectedSpeaker(speaker); setShowSpeakerModal(true); }}
-                          className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-left"
+                          className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-left w-full"
                           data-testid={`button-speaker-${speaker.id}`}
                         >
                           <Avatar className="h-12 w-12 shrink-0">
@@ -2221,7 +2221,7 @@ export default function ComplexEventDetail() {
                               {displayName.charAt(0)}
                             </AvatarFallback>
                           </Avatar>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="font-medium text-slate-900">{displayName}</div>
                             {speaker.job_title && <div className="text-xs text-slate-500">{speaker.job_title}</div>}
                             {speaker.organization && <div className="text-xs text-slate-500">{speaker.organization}</div>}

@@ -1555,7 +1555,7 @@ export default function EventDetailsPage() {
                     <Mic className="w-5 h-5 text-purple-600" />
                     {speakerPlural}
                   </h3>
-                  <div className="flex flex-wrap gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {eventSpeakers.map((speaker) => (
                       <button
                         key={speaker.id}
@@ -1563,10 +1563,10 @@ export default function EventDetailsPage() {
                           setSelectedSpeaker(speaker);
                           setShowSpeakerModal(true);
                         }}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors cursor-pointer text-left group"
+                        className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors cursor-pointer text-left group w-full"
                         data-testid={`button-speaker-${speaker.id}`}
                       >
-                        <Avatar className="h-12 w-12">
+                        <Avatar className="h-12 w-12 shrink-0">
                           {speaker.profile_photo_url ? (
                             <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
                           ) : null}
@@ -1574,19 +1574,19 @@ export default function EventDetailsPage() {
                             {speaker.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <div>
-                          <div className="font-medium text-slate-900 group-hover:text-purple-700">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-slate-900 group-hover:text-purple-700 break-words">
                             {speaker.full_name}
                           </div>
                           {(speaker.job_title || speaker.organization) && (
-                            <div className="text-sm text-slate-500">
+                            <div className="text-sm text-slate-500 break-words">
                               {speaker.job_title}
                               {speaker.job_title && speaker.organization && ', '}
                               {speaker.organization}
                             </div>
                           )}
                         </div>
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 ml-2" />
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 ml-2 shrink-0" />
                       </button>
                     ))}
                   </div>
