@@ -4,7 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowLeft, Save, Eye, EyeOff,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  ArrowLeft, Save, Eye,
   Monitor, Tablet, Smartphone,
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
@@ -44,7 +47,12 @@ export default function CanvasPageEditorPage() {
   const [isDirty, setIsDirty] = useState(false);
   const canvasRef = useRef(null);
   const [breakpoint, setBreakpoint] = useState('desktop');
-  const [showPreview, setShowPreview] = useState(false);
+  // The live preview + audit iframe used to live in a fixed 420px side
+  // panel, which was useless on large desktops and made the axe-core
+  // scan run against a layout the visitor never sees. It now lives in a
+  // centred modal sized to the selected breakpoint (or up to the
+  // viewport on desktop), and is the single host for `previewIframeRef`.
+  const [showAuditModal, setShowAuditModal] = useState(false);
   const [previewNonce, setPreviewNonce] = useState(0);
   // Phase 7 dialog visibility flags. The command palette and shortcut
   // overlay are toggled via global keyboard shortcuts (Cmd+K and ?).
@@ -168,9 +176,9 @@ export default function CanvasPageEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
       setIsDirty(false);
       setPreviewNonce((n) => n + 1);
-      // The iframe will reload on the nonce bump; if the preview is visible
-      // queue an automatic axe re-run for when it finishes loading.
-      if (showPreview) {
+      // The iframe will reload on the nonce bump; if the preview modal is
+      // open, queue an automatic axe re-run for when it finishes loading.
+      if (showAuditModal) {
         autoAuditPendingRef.current = true;
       }
     },
@@ -410,14 +418,16 @@ export default function CanvasPageEditorPage() {
     }
   }, []);
 
-  // Manual "Run full audit" entry point — opens the preview if needed.
+  // Manual "Run full audit" entry point — opens the preview modal if
+  // needed. axe-core needs the iframe document, so the modal must be
+  // mounted before we can scan.
   const handleRunFullAudit = async () => {
     if (!page?.slug) {
       toast.error('Save a slug for this page before running a full audit.');
       return;
     }
-    if (!showPreview) {
-      setShowPreview(true);
+    if (!showAuditModal) {
+      setShowAuditModal(true);
       autoAuditPendingRef.current = true;
       toast.message('Preview opening — audit will run automatically once loaded.');
       return;
@@ -434,13 +444,13 @@ export default function CanvasPageEditorPage() {
     setTimeout(() => { runAxeOnPreview({ silent: true }); }, 400);
   }, [runAxeOnPreview]);
 
-  // Opening the preview for the first time should also trigger an audit so
-  // authors don't have to click twice.
+  // Opening the preview modal for the first time should also trigger an
+  // audit so authors don't have to click twice.
   useEffect(() => {
-    if (showPreview && axeIssues === null) {
+    if (showAuditModal && axeIssues === null) {
       autoAuditPendingRef.current = true;
     }
-  }, [showPreview, axeIssues]);
+  }, [showAuditModal, axeIssues]);
 
   if (!accessChecked || pageLoading) {
     return (
@@ -551,12 +561,12 @@ export default function CanvasPageEditorPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setShowPreview((v) => !v)}
+          onClick={() => setShowAuditModal(true)}
           data-testid="button-toggle-preview"
-          aria-pressed={showPreview}
+          aria-pressed={showAuditModal}
         >
-          {showPreview ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
-          {showPreview ? 'Hide preview' : 'Show preview'}
+          <Eye className="w-4 h-4 mr-2" />
+          Preview
         </Button>
 
         <Button
@@ -654,56 +664,103 @@ export default function CanvasPageEditorPage() {
           />
         </div>
 
-        {/* Preview pane */}
-        {showPreview && (
-          <aside
-            className="w-[420px] border-l border-slate-200 bg-slate-50 flex flex-col"
-            aria-label="Live preview"
-            data-testid="panel-preview"
-          >
-            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-white">
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-slate-500" />
-                <span className="text-sm font-semibold text-slate-900">Preview ({breakpoint})</span>
+      </div>
+
+      {/* Preview & audit modal — the iframe inside is the single host for
+          `previewIframeRef`, so closing the modal also tears down the
+          scannable document. Re-running the audit re-scans this iframe;
+          the last result remains visible on the canvas after close. */}
+      <Dialog open={showAuditModal} onOpenChange={setShowAuditModal}>
+        <DialogContent
+          className="max-w-[min(96vw,1480px)] w-[96vw] p-0 gap-0 sm:rounded-md flex flex-col"
+          style={{ height: 'min(92vh, 960px)' }}
+          data-testid="dialog-preview-audit"
+        >
+          <DialogHeader className="px-4 py-3 border-b border-slate-200 bg-white shrink-0">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3 flex-wrap">
+                <DialogTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-slate-500" />
+                  Preview &amp; audit
+                </DialogTitle>
+                <div className="flex items-center gap-1" role="group" aria-label="Preview breakpoint">
+                  {BREAKPOINTS.map((bp) => {
+                    const Icon = bp.icon;
+                    const active = breakpoint === bp.id;
+                    return (
+                      <Button
+                        key={bp.id}
+                        variant={active ? 'default' : 'outline'}
+                        size="icon"
+                        onClick={() => setBreakpoint(bp.id)}
+                        aria-pressed={active}
+                        aria-label={`${bp.label} preview`}
+                        title={bp.label}
+                        data-testid={`button-modal-breakpoint-${bp.id}`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </Button>
+                    );
+                  })}
+                </div>
                 {isDirty && (
                   <Badge className="bg-amber-100 text-amber-700" data-testid="badge-preview-stale">
                     Save to refresh
                   </Badge>
                 )}
+                {axeStale && axeIssues && (
+                  <Badge className="bg-slate-200 text-slate-700" data-testid="badge-modal-axe-stale">
+                    Audit stale
+                  </Badge>
+                )}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPreviewNonce((n) => n + 1)}
-                data-testid="button-refresh-preview"
-              >
-                Refresh
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreviewNonce((n) => n + 1)}
+                  data-testid="button-refresh-preview"
+                >
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => runAxeOnPreview()}
+                  disabled={axeRunning}
+                  data-testid="button-modal-run-audit"
+                >
+                  {axeRunning
+                    ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    : <Accessibility className="w-4 h-4 mr-2" />}
+                  {axeRunning ? 'Auditing…' : 'Run full audit'}
+                </Button>
+              </div>
             </div>
-            <div className="flex-1 overflow-hidden flex justify-center bg-slate-200">
-              {page.slug ? (
-                <iframe
-                  ref={previewIframeRef}
-                  key={previewNonce}
-                  title="Page preview"
-                  src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}`}
-                  className="border-0 bg-white h-full"
-                  style={{
-                    width: breakpoint === 'mobile' ? 375 :
-                           breakpoint === 'tablet' ? 768 : '100%',
-                  }}
-                  onLoad={handlePreviewIframeLoad}
-                  data-testid="iframe-preview"
-                />
-              ) : (
-                <div className="p-4 text-sm text-slate-500" data-testid="text-preview-no-slug">
-                  Save a slug for this page before previewing.
-                </div>
-              )}
-            </div>
-          </aside>
-        )}
-      </div>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto flex justify-center bg-slate-200">
+            {page?.slug ? (
+              <iframe
+                ref={previewIframeRef}
+                key={previewNonce}
+                title="Page preview"
+                src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}`}
+                className="border-0 bg-white h-full"
+                style={{
+                  width: breakpoint === 'mobile' ? 375 :
+                         breakpoint === 'tablet' ? 768 : '100%',
+                  maxWidth: '100%',
+                }}
+                onLoad={handlePreviewIframeLoad}
+                data-testid="iframe-preview"
+              />
+            ) : (
+              <div className="p-4 text-sm text-slate-500" data-testid="text-preview-no-slug">
+                Save a slug for this page before previewing.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Phase 7 dialogs */}
       <TemplatesDialog open={showTemplates} onOpenChange={setShowTemplates} canvasRef={canvasRef} />
@@ -751,7 +808,7 @@ export default function CanvasPageEditorPage() {
           { id: 'shortcuts', label: 'Keyboard shortcuts', hint: '?', run: () => setShowShortcuts(true) },
           { id: 'unlink-symbol', label: 'Unlink selected symbol', run: () => unlinkSelectedSymbol(canvasRef) },
           { id: 'preview-visitor', label: 'Preview as visitor', run: () => page?.slug && window.open(`/${page.slug}`, '_blank', 'noopener') },
-          { id: 'toggle-preview', label: showPreview ? 'Hide live preview' : 'Show live preview', run: () => setShowPreview((v) => !v) },
+          { id: 'toggle-preview', label: showAuditModal ? 'Close preview' : 'Open preview & audit', run: () => setShowAuditModal((v) => !v) },
           // Live block index — every block on this page becomes a
           // jump target. Selecting one scrolls to it and opens its
           // inspector via the CanvasBuilder imperative API.
