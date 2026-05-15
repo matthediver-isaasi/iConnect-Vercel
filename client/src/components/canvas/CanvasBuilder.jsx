@@ -182,6 +182,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
+  // Alignment reference frame for the align toolbar buttons:
+  //  - 'anchor'    -> last-selected block (Figma/Sketch pattern). With a
+  //                   single selection this falls back to canvas bounds
+  //                   since there is nothing else to anchor against.
+  //  - 'selection' -> bounding box of all selected blocks.
+  //  - 'canvas'    -> canvas bounds at the active breakpoint.
+  const [alignRef, setAlignRef] = useState('anchor');
   const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
   const zoomIn = () => setZoom((z) => ZOOM_LEVELS.find((l) => l > z + 0.001) ?? z);
   const zoomOut = () => setZoom((z) => [...ZOOM_LEVELS].reverse().find((l) => l < z - 0.001) ?? z);
@@ -643,11 +650,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // With 2+ blocks selected the most-recently-selected id (last in
   // `selectedIds`) is treated as the **anchor** — other selected blocks
   // align to its edges/center (Figma/Sketch "select anchor last" pattern).
-  // The anchor itself does not move. With a single selection we still
-  // align that block to the canvas bounds.
-  // Manual override wins when the user has explicitly picked an anchor
-  // from the dropdown and that block is still selected. Otherwise we
-  // fall back to the implicit "last selected = anchor" rule.
+  // Users can override the reference frame via the toolbar selector
+  // (Anchor / Selection / Canvas). When in 'anchor' mode, a manual
+  // override wins when the user has explicitly picked an anchor from
+  // the dropdown and that block is still selected. Otherwise we fall
+  // back to the implicit "last selected = anchor" rule.
   const anchorId = selectedIds.length >= 2
     ? (manualAnchorId && selectedIds.includes(manualAnchorId)
         ? manualAnchorId
@@ -657,6 +664,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     () => (anchorId ? children.find((b) => b.id === anchorId) : null),
     [anchorId, children],
   );
+
+  // Effective reference frame for the current selection: 'anchor' with a
+  // single selection has nothing to anchor against, so it collapses to
+  // 'canvas' for that case.
+  const effectiveAlignRef = useMemo(() => {
+    if (alignRef === 'anchor' && selectedIds.length < 2) return 'canvas';
+    return alignRef;
+  }, [alignRef, selectedIds.length]);
 
   const alignSelected = useCallback((mode) => {
     if (selectedIds.length < 1) return;
@@ -669,19 +684,26 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       .filter(Boolean);
     if (blocksGeom.length < 1) return;
 
-    // Determine the alignment reference frame:
-    //  - Single select  -> canvas bounds.
-    //  - Multi  select  -> the anchor block's bounds (last selected).
+    // Determine the alignment reference frame.
     let minX, maxRight, minY, maxBottom;
-    if (blocksGeom.length === 1) {
+    let activeAnchorId = null;
+    if (effectiveAlignRef === 'canvas') {
       const cW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
       const cH = STAGE_MIN_HEIGHT;
       minX = 0;
       maxRight = cW;
       minY = 0;
       maxBottom = cH;
+    } else if (effectiveAlignRef === 'selection') {
+      minX = Math.min(...blocksGeom.map((b) => b.geom.x));
+      maxRight = Math.max(...blocksGeom.map((b) => b.geom.x + b.geom.w));
+      minY = Math.min(...blocksGeom.map((b) => b.geom.y));
+      maxBottom = Math.max(...blocksGeom.map((b) => b.geom.y + b.geom.h));
     } else {
+      // 'anchor' — last-selected block (guaranteed to exist here since
+      // effectiveAlignRef collapses to 'canvas' for single selections).
       const anchor = blocksGeom.find((b) => b.id === anchorId) || blocksGeom[blocksGeom.length - 1];
+      activeAnchorId = anchor.id;
       minX = anchor.geom.x;
       maxRight = anchor.geom.x + anchor.geom.w;
       minY = anchor.geom.y;
@@ -691,8 +713,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     const centerY = (minY + maxBottom) / 2;
     const updates = {};
     for (const { id, geom } of blocksGeom) {
-      // Never move the anchor itself.
-      if (blocksGeom.length > 1 && id === anchorId) continue;
+      // Never move the anchor itself when aligning to it.
+      if (activeAnchorId && id === activeAnchorId) continue;
       let nx = geom.x, ny = geom.y;
       if (mode === 'left') nx = minX;
       if (mode === 'right') nx = maxRight - geom.w;
@@ -703,7 +725,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       updates[id] = { x: nx, y: ny, w: geom.w, h: geom.h };
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
-  }, [selectedIds, anchorId, children, breakpoint, applyGeometry]);
+  }, [selectedIds, anchorId, children, breakpoint, applyGeometry, effectiveAlignRef]);
 
   const distributeSelected = useCallback((axis) => {
     if (selectedIds.length < 3) return;
@@ -802,9 +824,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const canRedo = redoStack.current.length > 0;
   const hasAnySelect = selectedIds.length >= 1;
   const anchorName = anchorBlock?.name || 'anchor';
-  const alignTarget = selectedIds.length === 1
+  const alignTarget = effectiveAlignRef === 'canvas'
     ? 'canvas'
-    : (anchorBlock ? anchorName : 'selection');
+    : effectiveAlignRef === 'selection'
+      ? 'selection'
+      : anchorName;
+  const alignTargetLabel = effectiveAlignRef === 'canvas'
+    ? 'Canvas'
+    : effectiveAlignRef === 'selection'
+      ? 'Selection'
+      : anchorName;
   const alignTitle = (label) => `${label} (to ${alignTarget})`;
 
   return (
@@ -819,6 +848,19 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <Redo2 className="w-4 h-4" />
           </Button>
           <div className="w-px h-6 bg-slate-200 mx-1" />
+          <select
+            className="h-8 text-xs border border-slate-200 rounded px-2 bg-white disabled:opacity-50"
+            value={alignRef}
+            onChange={(e) => setAlignRef(e.target.value)}
+            disabled={!hasAnySelect}
+            title="Alignment reference frame"
+            aria-label="Alignment reference"
+            data-testid="select-align-ref"
+          >
+            <option value="anchor">Align to: Anchor</option>
+            <option value="selection">Align to: Selection</option>
+            <option value="canvas">Align to: Canvas</option>
+          </select>
           <Button size="icon" variant="ghost" onClick={() => alignSelected('left')} disabled={!hasAnySelect} title={alignTitle('Align left')} data-testid="button-align-left">
             <AlignLeft className="w-4 h-4" />
           </Button>
@@ -839,7 +881,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           </Button>
           {hasAnySelect && selectedIds.length < 2 && (
             <Badge variant="secondary" className="ml-1" data-testid="badge-align-target">
-              Align to: Canvas
+              {alignTargetLabel}
             </Badge>
           )}
           {selectedIds.length >= 2 && (
