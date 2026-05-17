@@ -31,11 +31,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -89,7 +91,11 @@ export default function FormSubmissionsPage() {
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState('csv');
   const [selectedExportFields, setSelectedExportFields] = useState([]);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState(() => new Set());
+  const [isExportingWord, setIsExportingWord] = useState(false);
+  const tenantBranding = useTenantBranding();
 
   const queryClient = useQueryClient();
 
@@ -545,10 +551,208 @@ export default function FormSubmissionsPage() {
     return [...METADATA_FIELDS, ...dynamicFields];
   }, [filteredSubmissions, formsById]);
 
-  const handleOpenExportModal = () => {
+  const handleOpenExportModal = (format = 'csv') => {
+    setExportFormat(format);
     setSelectedExportFields(exportFieldOptions.map(f => f.key));
     setExportModalOpen(true);
   };
+
+  const toggleSubmissionSelected = (id) => {
+    setSelectedSubmissionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const buildExportResolvers = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+    const resolveOrgName = (orgId) => {
+      if (orgId == null || orgId === '') return '';
+      const id = String(orgId);
+      return organisationNamesById[id] || id;
+    };
+    const resolveMemberName = (memberId) => {
+      if (memberId == null || memberId === '') return '';
+      const id = String(memberId);
+      return memberNamesById[id] || id;
+    };
+    const resolveRoleName = (roleId) => {
+      if (roleId == null || roleId === '') return '';
+      const id = String(roleId);
+      return roleNamesById[id] || id;
+    };
+    const resolveResourceCategoryLabel = (raw) => {
+      if (raw == null || raw === '') return '';
+      const key = String(raw);
+      return resourceCategoryNamesById[key] || key;
+    };
+    const resolveCommunicationPreferences = (val) => {
+      if (val == null || typeof val !== 'object' || Array.isArray(val)) {
+        return val == null ? '' : String(val);
+      }
+      return Object.entries(val)
+        .filter(([, isSubscribed]) => isSubscribed === true)
+        .map(([categoryId]) => communicationCategoryNamesById[categoryId] || categoryId)
+        .join(', ');
+    };
+    const resolveImageButtonLabel = (val, fieldDef) => {
+      if (val == null || val === '') return '';
+      const options = Array.isArray(fieldDef?.image_options) ? fieldDef.image_options : [];
+      const match = options.find(opt => opt && opt.value === val);
+      return match?.label || String(val);
+    };
+    const resolveCustomFieldValue = (val, fieldDef) => {
+      if (val == null || val === '') return '';
+      const customFieldId = fieldDef?.custom_field_id;
+      const customDef = customFieldId ? customFieldDefById[customFieldId] : null;
+      const options = Array.isArray(customDef?.options) ? customDef.options : [];
+      const lookupLabel = (raw) => {
+        if (raw == null || raw === '') return '';
+        const match = options.find(opt => {
+          if (!opt) return false;
+          const optValue = opt.value != null ? opt.value : opt.label;
+          return optValue === raw;
+        });
+        return match?.label || String(raw);
+      };
+      if (Array.isArray(val)) return val.map(lookupLabel).filter(Boolean).join(', ');
+      if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+      if (options.length === 0) return String(val);
+      return lookupLabel(val);
+    };
+    const resolveFile = (raw) => {
+      if (raw == null || raw === '') return null;
+      let parsed = raw;
+      if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try { parsed = JSON.parse(trimmed); } catch { parsed = trimmed; }
+        } else {
+          return { name: trimmed.split('/').pop() || 'file', url: trimmed };
+        }
+      }
+      if (Array.isArray(parsed)) {
+        // Should not reach here — caller flattens arrays
+        return null;
+      }
+      if (parsed && typeof parsed === 'object') {
+        const name = parsed.file_name || parsed.name || (parsed.storage_path ? String(parsed.storage_path).split('/').pop() : 'file');
+        if (parsed.bucket && parsed.storage_path) {
+          return { name, url: `${origin}/api/storage/secure-url?bucket=${encodeURIComponent(parsed.bucket)}&path=${encodeURIComponent(parsed.storage_path)}&redirect=true` };
+        }
+        if (parsed.file_url) return { name, url: String(parsed.file_url) };
+        return { name, url: null };
+      }
+      return null;
+    };
+    return {
+      resolveFormName,
+      getSubmitterEmail,
+      resolveOrgName,
+      resolveMemberName,
+      resolveRoleName,
+      resolveResourceCategoryLabel,
+      resolveCommunicationPreferences,
+      resolveImageButtonLabel,
+      resolveCustomFieldValue,
+      resolveFile,
+    };
+  };
+
+  const buildAvailableFieldOptionsForSubmission = (submission) => {
+    const form = formsById[submission.form_id];
+    const dynamicEntries = Object.keys(submission.submission_data || {}).map(key => {
+      const field = form?.fields?.find(f => f.id === key);
+      return { key, label: field?.label || key };
+    });
+    return [...METADATA_FIELDS, ...dynamicEntries];
+  };
+
+  const runWordExport = async ({ subs, options, fileName, documentTitle }) => {
+    if (!subs || subs.length === 0) {
+      toast.error('No submissions to export');
+      return;
+    }
+    setIsExportingWord(true);
+    try {
+      await downloadSubmissionsDocx({
+        submissions: subs,
+        formsById,
+        selectedOptions: options,
+        resolvers: buildExportResolvers(),
+        tenantName: tenantBranding?.branding?.name || '',
+        tenantLogoUrl: tenantBranding?.branding?.logoUrl || '',
+        documentTitle,
+        fileName,
+      });
+      toast.success(`Exported ${subs.length} ${subs.length === 1 ? 'submission' : 'submissions'} to Word`);
+    } catch (err) {
+      console.error('[WordExport] Error:', err);
+      toast.error('Failed to generate Word document');
+    } finally {
+      setIsExportingWord(false);
+    }
+  };
+
+  const handleExportWord = async (scope) => {
+    const selectedOptions = exportFieldOptions.filter(f => selectedExportFields.includes(f.key));
+    if (selectedOptions.length === 0) return;
+
+    let subs = filteredSubmissions;
+    if (selectedSubmissionIds.size > 0) {
+      subs = filteredSubmissions.filter(s => selectedSubmissionIds.has(s.id));
+    }
+
+    const baseDate = moment().format('YYYY-MM-DD');
+    const year = moment().format('YYYY');
+    const formNameRaw = selectedForm !== 'all' ? formsById[selectedForm]?.name : null;
+    const formNameSafe = sanitizeFileName(formNameRaw || 'Form_Submissions');
+
+    if (scope === 'team' || scope === 'individual') {
+      const wantTeam = scope === 'team';
+      const filtered = subs.filter(s => {
+        const t = resolveAwardType(s, formsById[s.form_id]);
+        return wantTeam ? t === 'team' : t === 'individual';
+      });
+      if (filtered.length === 0) {
+        toast.error(`No ${wantTeam ? 'team' : 'individual'} award submissions in the current set`);
+        return;
+      }
+      const fileName = `${wantTeam ? 'Team' : 'Individual'}_Award_Submissions_${year}.docx`;
+      const documentTitle = `${wantTeam ? 'Team' : 'Individual'} Award Submissions`;
+      await runWordExport({ subs: filtered, options: selectedOptions, fileName, documentTitle });
+      setExportModalOpen(false);
+      return;
+    }
+
+    const fileName = `${formNameSafe}_Submissions_${baseDate}.docx`;
+    const documentTitle = formNameRaw ? `${formNameRaw} — Submissions` : 'Form Submissions';
+    await runWordExport({ subs, options: selectedOptions, fileName, documentTitle });
+    setExportModalOpen(false);
+  };
+
+  const handleDownloadSingleWord = async (submission) => {
+    const options = buildAvailableFieldOptionsForSubmission(submission);
+    const applicant = submission.submitted_by_name || submission.submission_data?.applicant_name || submission.id;
+    const fileName = `Award_Submission_${sanitizeFileName(applicant) || `submission-${submission.id}`}.docx`;
+    const documentTitle = `Award Submission — ${applicant}`;
+    await runWordExport({ subs: [submission], options, fileName, documentTitle });
+  };
+
+  const awardTypeCountsInSelection = useMemo(() => {
+    const subs = selectedSubmissionIds.size > 0
+      ? filteredSubmissions.filter(s => selectedSubmissionIds.has(s.id))
+      : filteredSubmissions;
+    let team = 0, individual = 0;
+    subs.forEach(s => {
+      const t = resolveAwardType(s, formsById[s.form_id]);
+      if (t === 'team') team++;
+      else if (t === 'individual') individual++;
+    });
+    return { team, individual };
+  }, [filteredSubmissions, selectedSubmissionIds, formsById]);
 
   const handleToggleExportField = (fieldKey) => {
     setSelectedExportFields(prev =>
@@ -973,12 +1177,21 @@ export default function FormSubmissionsPage() {
               )}
               <Button
                 variant="outline"
-                onClick={handleOpenExportModal}
+                onClick={() => handleOpenExportModal('csv')}
                 disabled={selectedForm === "all" || filteredSubmissions.length === 0}
                 data-testid="button-export-csv"
               >
                 <Download className="w-4 h-4 mr-2" />
                 Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleOpenExportModal('word')}
+                disabled={filteredSubmissions.length === 0}
+                data-testid="button-export-word"
+              >
+                <FileDown className="w-4 h-4 mr-2" />
+                Export Word
               </Button>
             </div>
           </CardContent>
@@ -1004,7 +1217,15 @@ export default function FormSubmissionsPage() {
                 return (
                 <Card key={submission.id} className="border-slate-200 hover:shadow-lg transition-shadow">
                   <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="pt-1">
+                        <Checkbox
+                          checked={selectedSubmissionIds.has(submission.id)}
+                          onCheckedChange={() => toggleSubmissionSelected(submission.id)}
+                          data-testid={`checkbox-select-submission-${submission.id}`}
+                          aria-label="Select submission for export"
+                        />
+                      </div>
                       <div className="flex-1">
                         <CardTitle className="text-base mb-2">{resolveFormName(submission)}</CardTitle>
                         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -1050,6 +1271,16 @@ export default function FormSubmissionsPage() {
                             View Full
                           </Button>
                         </Link>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDownloadSingleWord(submission)}
+                          disabled={isExportingWord}
+                          data-testid={`button-download-word-${submission.id}`}
+                          title="Download as Word document"
+                        >
+                          {isExportingWord ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -1283,10 +1514,17 @@ export default function FormSubmissionsPage() {
       <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
         <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Export CSV</DialogTitle>
+            <DialogTitle>{exportFormat === 'word' ? 'Export Word' : 'Export CSV'}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-slate-600" data-testid="text-export-count">
-            {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'submission' : 'submissions'} will be exported
+            {(() => {
+              const useSelection = exportFormat === 'word' && selectedSubmissionIds.size > 0;
+              const count = useSelection
+                ? filteredSubmissions.filter(s => selectedSubmissionIds.has(s.id)).length
+                : filteredSubmissions.length;
+              const scope = useSelection ? ' selected' : '';
+              return `${count}${scope} ${count === 1 ? 'submission' : 'submissions'} will be exported`;
+            })()}
           </p>
           <div className="flex items-center gap-3 mb-2">
             <Button
@@ -1331,22 +1569,67 @@ export default function FormSubmissionsPage() {
               </div>
             ))}
           </div>
-          <div className="flex justify-end gap-3 pt-4 border-t mt-2">
-            <Button
-              variant="outline"
-              onClick={() => setExportModalOpen(false)}
-              data-testid="button-cancel-export"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleExportCSV}
-              disabled={selectedExportFields.length === 0}
-              data-testid="button-confirm-export"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'Row' : 'Rows'}
-            </Button>
+          <div className="flex flex-col gap-2 pt-4 border-t mt-2">
+            {exportFormat === 'word' ? (
+              <>
+                <div className="text-xs text-slate-500">
+                  Detected in current set: {awardTypeCountsInSelection.team} team · {awardTypeCountsInSelection.individual} individual
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setExportModalOpen(false)}
+                    data-testid="button-cancel-export"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleExportWord('team')}
+                    disabled={isExportingWord || selectedExportFields.length === 0 || awardTypeCountsInSelection.team === 0}
+                    data-testid="button-export-word-team"
+                  >
+                    {isExportingWord ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
+                    Team Only
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleExportWord('individual')}
+                    disabled={isExportingWord || selectedExportFields.length === 0 || awardTypeCountsInSelection.individual === 0}
+                    data-testid="button-export-word-individual"
+                  >
+                    {isExportingWord ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
+                    Individual Only
+                  </Button>
+                  <Button
+                    onClick={() => handleExportWord('all')}
+                    disabled={isExportingWord || selectedExportFields.length === 0}
+                    data-testid="button-confirm-export-word"
+                  >
+                    {isExportingWord ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
+                    Export All
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setExportModalOpen(false)}
+                  data-testid="button-cancel-export"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleExportCSV}
+                  disabled={selectedExportFields.length === 0}
+                  data-testid="button-confirm-export"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'Row' : 'Rows'}
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
