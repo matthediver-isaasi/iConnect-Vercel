@@ -61,23 +61,33 @@ function stripBulletPrefix(line) {
   return line.replace(/^\s*([-*•])\s+/, '');
 }
 
-function makeParagraphsFromText(value) {
+function makeLinesFromText(value) {
   const cleaned = cleanMojibake(value);
-  if (!cleaned) return [new Paragraph({ children: [new TextRun('')] })];
-  const lines = cleaned.split(/\r?\n/);
+  if (!cleaned) return [{ kind: 'text', text: '' }];
+  const rawLines = cleaned.split(/\r?\n/);
   const out = [];
-  for (const raw of lines) {
+  for (const raw of rawLines) {
     const line = raw.replace(/\s+$/, '');
     if (isBulletLine(line)) {
-      out.push(new Paragraph({
-        children: [new TextRun(stripBulletPrefix(line))],
-        bullet: { level: 0 },
-      }));
+      out.push({ kind: 'bullet', text: stripBulletPrefix(line) });
     } else {
-      out.push(new Paragraph({ children: [new TextRun(line)] }));
+      out.push({ kind: 'text', text: line });
     }
   }
   return out;
+}
+
+function paragraphsFromLines(lines) {
+  return (lines || []).map(l => {
+    if (l && l.kind === 'bullet') {
+      return new Paragraph({ children: [new TextRun(l.text || '')], bullet: { level: 0 } });
+    }
+    return new Paragraph({ children: [new TextRun((l && l.text) || '')] });
+  });
+}
+
+function makeParagraphsFromText(value) {
+  return paragraphsFromLines(makeLinesFromText(value));
 }
 
 function makeCell(children, opts = {}) {
@@ -171,8 +181,8 @@ function getAwardCategory(submission, form) {
   return '';
 }
 
-function formatResponseValue(value, fieldDef, resolvers) {
-  if (value == null || value === '') return { paragraphs: [new Paragraph({ children: [new TextRun('')] })], files: [] };
+function formatResponseValueToJson(value, fieldDef, resolvers) {
+  if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
   const fieldType = fieldDef?.type;
   const r = resolvers || {};
 
@@ -187,96 +197,151 @@ function formatResponseValue(value, fieldDef, resolvers) {
       }
     }
     if (!Array.isArray(rawList)) rawList = [rawList];
-    return { paragraphs: null, files: rawList.map(f => r.resolveFile(f)).filter(Boolean) };
+    return { lines: null, files: rawList.map(f => r.resolveFile(f)).filter(Boolean) };
   }
 
   if (fieldType === 'organisation_dropdown') {
     const v = Array.isArray(value) ? value.map(r.resolveOrgName).join(', ') : r.resolveOrgName(value);
-    return { paragraphs: makeParagraphsFromText(v), files: [] };
+    return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'member_dropdown') {
     const v = Array.isArray(value) ? value.map(r.resolveMemberName).join(', ') : r.resolveMemberName(value);
-    return { paragraphs: makeParagraphsFromText(v), files: [] };
+    return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'role_dropdown') {
     const v = Array.isArray(value) ? value.map(r.resolveRoleName).join(', ') : r.resolveRoleName(value);
-    return { paragraphs: makeParagraphsFromText(v), files: [] };
+    return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'category_dropdown' || fieldType === 'category_multiselect') {
     const v = Array.isArray(value) ? value.map(r.resolveResourceCategoryLabel).join(', ') : r.resolveResourceCategoryLabel(value);
-    return { paragraphs: makeParagraphsFromText(v), files: [] };
+    return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'communication_preferences') {
-    return { paragraphs: makeParagraphsFromText(r.resolveCommunicationPreferences(value)), files: [] };
+    return { lines: makeLinesFromText(r.resolveCommunicationPreferences(value)), files: [] };
   }
   if (fieldType === 'image_buttons') {
     const v = Array.isArray(value)
       ? value.map(x => r.resolveImageButtonLabel(x, fieldDef)).join(', ')
       : r.resolveImageButtonLabel(value, fieldDef);
-    return { paragraphs: makeParagraphsFromText(v), files: [] };
+    return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'custom_field') {
-    return { paragraphs: makeParagraphsFromText(r.resolveCustomFieldValue(value, fieldDef)), files: [] };
+    return { lines: makeLinesFromText(r.resolveCustomFieldValue(value, fieldDef)), files: [] };
   }
 
   if (Array.isArray(value)) {
     const allStrings = value.every(v => v == null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean');
     if (allStrings) {
-      const paragraphs = value
+      const lines = value
         .filter(v => v !== '' && v != null)
-        .map(v => new Paragraph({ children: [new TextRun(cleanMojibake(String(v)))], bullet: { level: 0 } }));
-      return { paragraphs: paragraphs.length ? paragraphs : [new Paragraph({ children: [new TextRun('')] })], files: [] };
+        .map(v => ({ kind: 'bullet', text: cleanMojibake(String(v)) }));
+      return { lines: lines.length ? lines : [{ kind: 'text', text: '' }], files: [] };
     }
-    return { paragraphs: makeParagraphsFromText(value.map(v => JSON.stringify(v)).join(', ')), files: [] };
+    return { lines: makeLinesFromText(value.map(v => JSON.stringify(v)).join(', ')), files: [] };
   }
 
   if (typeof value === 'object') {
-    const lines = Object.entries(value)
+    const text = Object.entries(value)
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
       .join('\n');
-    return { paragraphs: makeParagraphsFromText(lines), files: [] };
+    return { lines: makeLinesFromText(text), files: [] };
   }
 
   if (typeof value === 'boolean') {
-    return { paragraphs: makeParagraphsFromText(value ? 'Yes' : 'No'), files: [] };
+    return { lines: makeLinesFromText(value ? 'Yes' : 'No'), files: [] };
   }
 
-  return { paragraphs: makeParagraphsFromText(String(value)), files: [] };
+  return { lines: makeLinesFromText(String(value)), files: [] };
 }
 
-export function buildSubmissionSection({ submission, form, selectedOptions, resolvers, isLast }) {
+function formatResponseValue(value, fieldDef, resolvers) {
+  const json = formatResponseValueToJson(value, fieldDef, resolvers);
+  return {
+    paragraphs: json.lines ? paragraphsFromLines(json.lines) : null,
+    files: json.files,
+  };
+}
+
+// Build a JSON-serializable description of a submission section.
+// This is the checkpointable intermediate format used by the background
+// export worker so progress survives across function invocations.
+export function resolveSubmissionToPrepared({ submission, form, selectedOptions, resolvers }) {
   const applicantName = cleanMojibake(getApplicantName(submission, form));
   const awardCategory = cleanMojibake(getAwardCategory(submission, form));
+  const formMissing = !form;
+  const fieldDefsById = {};
+  (form?.fields || []).forEach(f => { if (f && f.id) fieldDefsById[f.id] = f; });
 
+  const rows = [];
+  const supportingDocs = [];
+
+  for (const opt of selectedOptions) {
+    const label = cleanMojibake(opt.label || '');
+    let lines = null;
+    let files = [];
+
+    switch (opt.key) {
+      case '__form_name':
+        lines = makeLinesFromText(resolvers.resolveFormName(submission));
+        break;
+      case '__submitter_name':
+        lines = makeLinesFromText(submission.submitted_by_name || '');
+        break;
+      case '__submitter_email':
+        lines = makeLinesFromText(resolvers.getSubmitterEmail(submission) || '');
+        break;
+      case '__status': {
+        const s = submission.status || 'new';
+        lines = makeLinesFromText(s.charAt(0).toUpperCase() + s.slice(1));
+        break;
+      }
+      case '__submission_date':
+        lines = makeLinesFromText(moment(submission.created_date).format('YYYY-MM-DD HH:mm'));
+        break;
+      default: {
+        const val = submission.submission_data?.[opt.key];
+        const fieldDef = fieldDefsById[opt.key];
+        const result = formatResponseValueToJson(val, fieldDef, resolvers);
+        lines = result.lines;
+        files = result.files || [];
+        if (files.length) supportingDocs.push({ label, files });
+      }
+    }
+
+    if (lines) {
+      rows.push({ label, kind: 'lines', lines });
+    } else if (files.length) {
+      rows.push({ label, kind: 'filesNote', count: files.length });
+    }
+  }
+
+  return { applicantName, awardCategory, formMissing, rows, supportingDocs };
+}
+
+// Render a prepared JSON section to docx children. Inverse of resolveSubmissionToPrepared.
+export function renderPreparedSection(prepared, isLast) {
   const children = [];
-
   children.push(new Paragraph({
     heading: HeadingLevel.HEADING_1,
-    children: [new TextRun({ text: applicantName, bold: true })],
+    children: [new TextRun({ text: prepared.applicantName || '', bold: true })],
     spacing: { before: 200, after: 80 },
   }));
-
-  if (awardCategory) {
+  if (prepared.awardCategory) {
     children.push(new Paragraph({
       heading: HeadingLevel.HEADING_2,
-      children: [new TextRun({ text: awardCategory, italics: true })],
+      children: [new TextRun({ text: prepared.awardCategory, italics: true })],
       spacing: { after: 120 },
     }));
   }
-
-  if (!form) {
+  if (prepared.formMissing) {
     children.push(new Paragraph({
       children: [new TextRun({ text: '[Form definition not available — raw responses only]', italics: true, color: '888888' })],
       spacing: { after: 120 },
     }));
   }
 
-  const fieldDefsById = {};
-  (form?.fields || []).forEach(f => { if (f && f.id) fieldDefsById[f.id] = f; });
-
-  const supportingDocs = [];
-  const rows = [
+  const tableRows = [
     new TableRow({
       tableHeader: true,
       children: [
@@ -286,75 +351,38 @@ export function buildSubmissionSection({ submission, form, selectedOptions, reso
     }),
   ];
 
-  for (const opt of selectedOptions) {
-    let label = opt.label;
-    let paragraphs = null;
-    let files = [];
-
-    switch (opt.key) {
-      case '__form_name':
-        paragraphs = makeParagraphsFromText(resolvers.resolveFormName(submission));
-        break;
-      case '__submitter_name':
-        paragraphs = makeParagraphsFromText(submission.submitted_by_name || '');
-        break;
-      case '__submitter_email':
-        paragraphs = makeParagraphsFromText(resolvers.getSubmitterEmail(submission) || '');
-        break;
-      case '__status': {
-        const s = submission.status || 'new';
-        paragraphs = makeParagraphsFromText(s.charAt(0).toUpperCase() + s.slice(1));
-        break;
-      }
-      case '__submission_date':
-        paragraphs = makeParagraphsFromText(moment(submission.created_date).format('YYYY-MM-DD HH:mm'));
-        break;
-      default: {
-        const val = submission.submission_data?.[opt.key];
-        const fieldDef = fieldDefsById[opt.key];
-        const result = formatResponseValue(val, fieldDef, resolvers);
-        paragraphs = result.paragraphs;
-        files = result.files;
-        if (files.length) {
-          supportingDocs.push({ label, files });
-        }
-      }
-    }
-
-    if (paragraphs) {
-      rows.push(new TableRow({
+  for (const row of prepared.rows || []) {
+    if (row.kind === 'lines') {
+      tableRows.push(new TableRow({
         children: [
-          makeCell(new Paragraph({ children: [new TextRun({ text: cleanMojibake(label) })] })),
-          makeCell(paragraphs),
+          makeCell(new Paragraph({ children: [new TextRun({ text: row.label })] })),
+          makeCell(paragraphsFromLines(row.lines)),
         ],
       }));
-    } else if (files.length) {
-      rows.push(new TableRow({
+    } else if (row.kind === 'filesNote') {
+      tableRows.push(new TableRow({
         children: [
-          makeCell(new Paragraph({ children: [new TextRun({ text: cleanMojibake(label) })] })),
-          makeCell(new Paragraph({ children: [new TextRun({ text: `${files.length} file(s) — see Supporting Documents below`, italics: true })] })),
+          makeCell(new Paragraph({ children: [new TextRun({ text: row.label })] })),
+          makeCell(new Paragraph({ children: [new TextRun({ text: `${row.count} file(s) — see Supporting Documents below`, italics: true })] })),
         ],
       }));
     }
   }
 
-  children.push(new Table({
-    rows,
-    width: { size: 100, type: WidthType.PERCENTAGE },
-  }));
+  children.push(new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }));
 
-  if (supportingDocs.length) {
+  if (prepared.supportingDocs && prepared.supportingDocs.length) {
     children.push(new Paragraph({
       heading: HeadingLevel.HEADING_3,
       children: [new TextRun({ text: 'Supporting Documents', bold: true })],
       spacing: { before: 200, after: 80 },
     }));
-    for (const group of supportingDocs) {
+    for (const group of prepared.supportingDocs) {
       children.push(new Paragraph({
         children: [new TextRun({ text: group.label, bold: true })],
         spacing: { before: 80, after: 40 },
       }));
-      for (const file of group.files) {
+      for (const file of group.files || []) {
         const name = cleanMojibake(file.name || 'file');
         if (file.url) {
           children.push(new Paragraph({
@@ -382,6 +410,12 @@ export function buildSubmissionSection({ submission, form, selectedOptions, reso
 
   return children;
 }
+
+export function buildSubmissionSection({ submission, form, selectedOptions, resolvers, isLast }) {
+  const prepared = resolveSubmissionToPrepared({ submission, form, selectedOptions, resolvers });
+  return renderPreparedSection(prepared, isLast);
+}
+
 
 export function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
   const blocks = [];

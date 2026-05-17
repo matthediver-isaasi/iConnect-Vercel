@@ -674,13 +674,14 @@ export default function FormSubmissionsPage() {
   const SERVER_EXPORT_THRESHOLD = 100;
 
   const runServerWordExport = async ({ subs, options, fileName, documentTitle, scope }) => {
-    const res = await fetch('/api/admin/form-submissions-word-export', {
+    // Create the background job. The server returns 202 with a jobId, then a
+    // worker invocation (kicked off via fire-and-forget plus a cron backstop)
+    // renders the document and uploads the .docx to private storage so the
+    // total elapsed time isn't bounded by the per-request platform timeout.
+    const createRes = await fetch('/api/admin/form-submission-export-jobs', {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/x-ndjson',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         submissionIds: subs.map(s => s.id),
         selectedOptions: options,
@@ -689,76 +690,64 @@ export default function FormSubmissionsPage() {
         fileName,
       }),
     });
-    if (!res.ok) {
-      let msg = 'Failed to generate Word document';
-      try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+    if (!createRes.ok) {
+      let msg = 'Failed to start Word export';
+      try { const j = await createRes.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
       throw new Error(msg);
     }
+    const { jobId } = await createRes.json();
+    if (!jobId) throw new Error('Export job did not return an id');
 
-    const contentType = res.headers.get('content-type') || '';
-    const { saveAs } = await import('file-saver');
+    setExportProgress({ processed: 0, total: subs.length, phase: 'queued' });
 
-    if (!contentType.includes('application/x-ndjson') || !res.body) {
-      // Server fell back to legacy binary response.
-      const blob = await res.blob();
-      saveAs(blob, fileName);
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let completed = null;
-    let streamError = null;
-
-    setExportProgress({ processed: 0, total: subs.length, phase: 'rendering' });
-
-    const handleEvent = (line) => {
-      if (!line) return;
-      let evt;
-      try { evt = JSON.parse(line); } catch { return; }
-      if (evt.type === 'progress') {
-        setExportProgress({
-          processed: Number(evt.processed) || 0,
-          total: Number(evt.total) || subs.length,
-          phase: evt.phase || 'rendering',
-        });
-      } else if (evt.type === 'complete') {
-        completed = evt;
-      } else if (evt.type === 'error') {
-        streamError = evt.error || 'Failed to generate Word document';
-      }
-    };
+    // Poll job status until complete or error.
+    const POLL_INTERVAL_MS = 1500;
+    const MAX_WAIT_MS = 30 * 60 * 1000; // 30 minutes safety ceiling
+    const startedAt = Date.now();
+    let lastStatus = null;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { value, done } = await reader.read();
-      if (value) {
-        buffer += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, idx).trim();
-          buffer = buffer.slice(idx + 1);
-          handleEvent(line);
-        }
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        throw new Error('Export timed out — please try a smaller batch or retry later');
       }
-      if (done) break;
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+      const statusRes = await fetch(`/api/admin/form-submission-export-jobs/${encodeURIComponent(jobId)}`, {
+        credentials: 'include',
+      });
+      if (!statusRes.ok) {
+        // Transient errors shouldn't kill the poll; abort only on 4xx.
+        if (statusRes.status >= 400 && statusRes.status < 500) {
+          let msg = 'Failed to check export status';
+          try { const j = await statusRes.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+          throw new Error(msg);
+        }
+        continue;
+      }
+      lastStatus = await statusRes.json();
+      setExportProgress({
+        processed: Number(lastStatus.processed) || 0,
+        total: Number(lastStatus.total) || subs.length,
+        phase: lastStatus.phase || lastStatus.status || 'processing',
+      });
+      if (lastStatus.status === 'complete') break;
+      if (lastStatus.status === 'error') {
+        throw new Error(lastStatus.error || 'Export job failed');
+      }
     }
-    const tail = buffer.trim();
-    if (tail) handleEvent(tail);
 
-    if (streamError) throw new Error(streamError);
-    if (!completed || !completed.data) {
-      throw new Error('Export stream ended without a document');
+    if (!lastStatus?.downloadUrl) {
+      throw new Error('Export completed but the download link is unavailable');
     }
 
-    const binary = atob(completed.data);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], {
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    });
-    saveAs(blob, completed.fileName || fileName);
+    // Trigger the browser download from the signed Supabase URL.
+    const link = document.createElement('a');
+    link.href = lastStatus.downloadUrl;
+    link.download = lastStatus.fileName || fileName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const runWordExport = async ({ subs, options, fileName, documentTitle, scope }) => {
@@ -1678,9 +1667,15 @@ export default function FormSubmissionsPage() {
                     data-testid="text-word-export-progress"
                   >
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    {exportProgress.phase === 'packaging'
-                      ? `Packaging document (${exportProgress.total} of ${exportProgress.total})…`
-                      : `Rendered ${exportProgress.processed} of ${exportProgress.total} submissions…`}
+                    {exportProgress.phase === 'queued'
+                      ? `Queued — waiting for the export worker to pick up the job…`
+                      : exportProgress.phase === 'loading'
+                        ? `Loading submission data…`
+                        : exportProgress.phase === 'packaging'
+                          ? `Packaging document (${exportProgress.total} of ${exportProgress.total})…`
+                          : exportProgress.phase === 'uploading'
+                            ? `Uploading document for download…`
+                            : `Rendered ${exportProgress.processed} of ${exportProgress.total} submissions…`}
                   </div>
                 )}
                 <div className="flex flex-wrap justify-end gap-2">
