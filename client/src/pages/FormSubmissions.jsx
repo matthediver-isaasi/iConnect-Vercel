@@ -531,6 +531,14 @@ export default function FormSubmissionsPage() {
   ];
 
   const exportFieldOptions = useMemo(() => {
+    if (selectedForm !== 'all') {
+      const form = formsById[selectedForm];
+      const fields = Array.isArray(form?.fields) ? form.fields : [];
+      const dynamicFields = fields
+        .filter(f => f && f.id)
+        .map(f => ({ key: f.id, label: f.label || f.id }));
+      return [...METADATA_FIELDS, ...dynamicFields];
+    }
     const dynamicFieldKeys = new Map();
     filteredSubmissions.forEach(submission => {
       if (!submission.submission_data) return;
@@ -550,7 +558,7 @@ export default function FormSubmissionsPage() {
       label,
     }));
     return [...METADATA_FIELDS, ...dynamicFields];
-  }, [filteredSubmissions, formsById]);
+  }, [filteredSubmissions, formsById, selectedForm]);
 
   const handleOpenExportModal = (format = 'csv') => {
     setExportFormat(format);
