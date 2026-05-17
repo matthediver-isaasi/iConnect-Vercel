@@ -727,32 +727,46 @@ export default function PaymentOptions({
   const isTrainingFundRoleAllowed = trainingFundAllowedRoles.length === 0 || (memberRoleId && trainingFundAllowedRoles.includes(memberRoleId));
   const isVoucherRoleAllowed = voucherAllowedRoles.length === 0 || (memberRoleId && voucherAllowedRoles.includes(memberRoleId));
 
-  // Calculate voucher amount from selected vouchers - capped at (totalCost - trainingFundAmount)
-  // This ensures vouchers only cover the remaining cost after training fund is applied
+  // For one-off events: apply discount code FIRST against the base totalCost,
+  // then cap vouchers and training fund against the discounted remainder.
+  // This matches the complex-event flow (discount on base ticket price first).
+  // For complex events this branch isn't used for payment math (handled elsewhere),
+  // but we keep the same calculation so the displayed remainingBalance is consistent.
+  const discountCodeSavings = appliedDiscount
+    ? (appliedDiscount.discount_type === 'percentage'
+      ? Math.min((totalCost * appliedDiscount.discount_value) / 100, totalCost)
+      : Math.min(appliedDiscount.discount_value, totalCost))
+    : 0;
+
+  const costAfterDiscount = Math.max(0, totalCost - discountCodeSavings);
+
+  // Calculate voucher amount from selected vouchers - capped at (costAfterDiscount - trainingFundAmount)
+  // This ensures vouchers only cover the remaining cost after discount and training fund are applied
   const voucherAmountRaw = selectedVouchers.reduce((sum, voucherId) => {
     const voucher = vouchers.find((v) => v.id === voucherId);
     return sum + (voucher?.value || 0);
   }, 0);
-  const voucherAmount = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed) ? 0 : Math.min(voucherAmountRaw, totalCost - trainingFundAmount);
+  const voucherAmount = (isFeatureExcluded('element_EventUseVouchers') || !isVoucherRoleAllowed)
+    ? 0
+    : Math.max(0, Math.min(voucherAmountRaw, costAfterDiscount - trainingFundAmount));
 
-  // Max available for training fund - capped at (totalCost - voucherAmount)
-  // This ensures training fund only covers remaining cost after vouchers are applied
-  const maxTrainingFund = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : Math.min(
+  // Max available for training fund - capped at (costAfterDiscount - voucherAmount)
+  const maxTrainingFund = (isFeatureExcluded('element_EventUseTrainingFund') || !isTrainingFundRoleAllowed) ? 0 : Math.max(0, Math.min(
     organizationInfo?.training_fund_balance || 0,
-    totalCost - voucherAmount
-  );
+    costAfterDiscount - voucherAmount
+  ));
 
-  // Calculate discount code savings based on remaining cost after vouchers and training fund
-  // This matches the server-side calculation order: vouchers -> training fund -> discount code
-  const costAfterVouchersAndFund = Math.max(0, totalCost - voucherAmount - trainingFundAmount);
-  const discountCodeSavings = appliedDiscount 
-    ? (appliedDiscount.discount_type === 'percentage'
-      ? Math.min((costAfterVouchersAndFund * appliedDiscount.discount_value) / 100, costAfterVouchersAndFund)
-      : Math.min(appliedDiscount.discount_value, costAfterVouchersAndFund))
-    : 0;
+  // Calculate remaining balance automatically (discount applied before vouchers/TF)
+  const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - trainingFundAmount);
 
-  // Calculate remaining balance automatically (includes discount code savings)
-  const remainingBalance = Math.max(0, costAfterVouchersAndFund - discountCodeSavings);
+  // Clamp trainingFundAmount down whenever the cap shrinks (e.g. user applies
+  // a discount code or selects vouchers that reduce the post-discount ceiling),
+  // so the UI state never exceeds the enforceable maximum.
+  useEffect(() => {
+    if (trainingFundAmount > maxTrainingFund) {
+      setTrainingFundAmount(maxTrainingFund);
+    }
+  }, [maxTrainingFund, trainingFundAmount]);
 
   // Handle payment allocation changes
   const handleTrainingFundChange = (value) => {
@@ -1461,7 +1475,7 @@ export default function PaymentOptions({
                       organizationId={organizationInfo?.id}
                       selectedVouchers={selectedVouchers}
                       onVoucherToggle={setSelectedVouchers}
-                      maxAmount={totalCost}
+                      maxAmount={costAfterDiscount}
                     />
                     {voucherAmount > 0 && (
                       <div className="mt-3 pt-3 border-t border-blue-200">

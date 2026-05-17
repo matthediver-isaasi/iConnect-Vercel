@@ -1822,7 +1822,143 @@ const functionHandlers = {
     let voucherAmountApplied = 0;
     const voucherDeductions = [];
     let pendingTrainingFundTxId = null;
-    
+
+    // Validate and recompute discount code amount on server side (never trust client amount).
+    // IMPORTANT: discount code is applied BEFORE vouchers and training fund so that a
+    // percentage discount is calculated against the full ticket price (matching the
+    // complex-event booking flow in api/public/complex-event-booking.js).
+    let validatedDiscountAmount = 0;
+    let validatedDiscountCodeId = null;
+    // Captured for deferred usage-tracking writes (only persisted after all
+    // downstream validations — role checks, voucher/TF tenant resolution —
+    // succeed, so a failed booking does not consume discount usage).
+    let validatedDiscountCodeRecord = null;
+    let validatedDiscountIsMemberTargeted = false;
+
+    if (discountCodeId) {
+      console.log(`[createOneOffEventBooking] Validating discount code ID: ${discountCodeId} for tenant: ${event.tenant_id}`);
+
+      // Validate discount code with tenant scoping for multi-tenant security
+      const { data: discountCode, error: discountCodeError } = await supabase
+        .from('discount_code')
+        .select('*')
+        .eq('id', discountCodeId)
+        .eq('is_active', true)
+        .eq('tenant_id', event.tenant_id) // Ensure code belongs to this tenant
+        .maybeSingle();
+
+      if (discountCodeError || !discountCode) {
+        console.warn(`[createOneOffEventBooking] Discount code validation failed: ${discountCodeError?.message || 'Not found or inactive'}`);
+      } else {
+        const isMemberTargetedCode = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
+        let targetEligible = true;
+
+        // SECURITY: For member-targeted codes, verify session identity matches the booking member
+        if (isMemberTargetedCode && member?.id && req) {
+          try {
+            const sessionMember = await getSessionMember(req);
+            if (!sessionMember || sessionMember.id !== member.id) {
+              console.warn(`[createOneOffEventBooking] Session member ${sessionMember?.id} does not match booking member ${member.id} for member-targeted discount`);
+              targetEligible = false;
+            }
+          } catch (e) {
+            console.warn(`[createOneOffEventBooking] Could not verify session for member-targeted discount: ${e.message}`);
+            targetEligible = false;
+          }
+        }
+
+        // Validate organization-targeted restriction at booking time
+        if (discountCode.organization_id && targetEligible) {
+          if (!org?.id || discountCode.organization_id !== org.id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to org ${discountCode.organization_id}, but booking org is ${org?.id}`);
+            targetEligible = false;
+          }
+        }
+
+        // Validate event-targeted restriction at booking time
+        if (discountCode.event_id && targetEligible) {
+          if (!eventId || discountCode.event_id !== eventId) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to event ${discountCode.event_id}, but booking event is ${eventId}`);
+            targetEligible = false;
+          }
+        }
+
+        // Validate member-targeted restrictions at booking time
+        if (discountCode.member_id && targetEligible) {
+          if (!member?.id || discountCode.member_id !== member.id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to member ${discountCode.member_id}, but booking member is ${member?.id}`);
+            targetEligible = false;
+          }
+        }
+        if (discountCode.role_id && targetEligible) {
+          if (!member?.role_id || member.role_id !== discountCode.role_id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to role ${discountCode.role_id}, but member role is ${member?.role_id}`);
+            targetEligible = false;
+          }
+        }
+        if (discountCode.member_group_id && targetEligible) {
+          if (!member?.id) {
+            targetEligible = false;
+          } else {
+            const { data: grpAssignment } = await supabase
+              .from('member_group_assignment')
+              .select('id')
+              .eq('member_id', member.id)
+              .eq('group_id', discountCode.member_group_id)
+              .maybeSingle();
+            if (!grpAssignment) {
+              console.warn(`[createOneOffEventBooking] Member ${member.id} not in group ${discountCode.member_group_id}`);
+              targetEligible = false;
+            }
+          }
+        }
+
+        // For member-targeted codes, check per-member max usage
+        if (isMemberTargetedCode && targetEligible && member?.id && discountCode.max_usage_count) {
+          const { data: perMemberUsage } = await supabase
+            .from('discount_code_usage')
+            .select('usage_count')
+            .eq('discount_code_id', discountCode.id)
+            .eq('member_id', member.id)
+            .maybeSingle();
+          if (perMemberUsage && perMemberUsage.usage_count >= discountCode.max_usage_count) {
+            console.warn(`[createOneOffEventBooking] Member ${member.id} has reached max uses for discount code`);
+            targetEligible = false;
+          }
+        }
+
+        // Check if discount code has expired (use correct column name: expires_at)
+        if (!targetEligible) {
+          console.warn(`[createOneOffEventBooking] Discount code target eligibility check failed`);
+        } else if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
+          console.warn(`[createOneOffEventBooking] Discount code has expired`);
+        } else if (!isMemberTargetedCode && discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
+          console.warn(`[createOneOffEventBooking] Discount code has reached maximum uses`);
+        } else {
+          // Compute discount amount server-side against the FULL totalCost (before
+          // vouchers and training fund), matching the complex-event flow.
+          if (discountCode.type === 'percentage') {
+            validatedDiscountAmount = Math.min(
+              (totalCost * discountCode.value) / 100,
+              totalCost
+            );
+          } else {
+            validatedDiscountAmount = Math.min(discountCode.value, totalCost);
+          }
+
+          validatedDiscountCodeId = discountCode.id;
+          // Capture for deferred usage-tracking writes (see below, after
+          // voucher/TF validations have all passed).
+          validatedDiscountCodeRecord = discountCode;
+          validatedDiscountIsMemberTargeted = !!isMemberTargetedCode;
+          console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.type}, value=${discountCode.value}, computed amount=${validatedDiscountAmount}`);
+        }
+      }
+    }
+
+    // Ceiling for vouchers + training fund is the cost AFTER the discount code is applied.
+    const costAfterDiscount = Math.max(0, totalCost - validatedDiscountAmount);
+
     if (!isGuestBooking && org) {
       // Server-side role restriction validation for training fund
       const trainingFundAllowedRoles = org.training_fund_allowed_role_ids || [];
@@ -1848,11 +1984,13 @@ const functionHandlers = {
         }
       }
 
-      // Server-side validation: Clamp training fund amount to available balance
+      // Server-side validation: Clamp training fund amount to available balance.
+      // Ceiling is the cost AFTER the discount code is applied (matching the new
+      // discount-first order). See comment above the discount block.
       validatedTrainingFundAmount = Math.min(
         Math.max(0, trainingFundAmount || 0),
         org.training_fund_balance || 0,
-        totalCost
+        costAfterDiscount
       );
       
       // Process voucher deductions if any - with ownership validation
@@ -1873,7 +2011,7 @@ const functionHandlers = {
           
           if (voucher && voucher.value > 0) {
             // Clamp amount to remaining cost
-            const amountToUse = Math.min(voucher.value, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
+            const amountToUse = Math.min(voucher.value, costAfterDiscount - voucherAmountApplied - validatedTrainingFundAmount);
             if (amountToUse > 0) {
               // Resolve tenant_id BEFORE any voucher mutation. If we cannot
               // resolve it, abort before touching voucher.value so we don't
@@ -1990,206 +2128,88 @@ const functionHandlers = {
       }
     }
 
-    // Validate and recompute discount code amount on server side (never trust client amount)
-    let validatedDiscountAmount = 0;
-    let validatedDiscountCodeId = null;
-    
-    if (discountCodeId) {
-      console.log(`[createOneOffEventBooking] Validating discount code ID: ${discountCodeId} for tenant: ${event.tenant_id}`);
-      
-      // Validate discount code with tenant scoping for multi-tenant security
-      const { data: discountCode, error: discountCodeError } = await supabase
-        .from('discount_code')
-        .select('*')
-        .eq('id', discountCodeId)
-        .eq('is_active', true)
-        .eq('tenant_id', event.tenant_id) // Ensure code belongs to this tenant
-        .maybeSingle();
-      
-      if (discountCodeError || !discountCode) {
-        console.warn(`[createOneOffEventBooking] Discount code validation failed: ${discountCodeError?.message || 'Not found or inactive'}`);
-      } else {
-        const isMemberTargetedCode = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
-        let targetEligible = true;
+    // Deferred discount-code usage tracking. We only persist usage increments
+    // AFTER voucher/training-fund role checks and tenant-resolution guards
+    // above have passed, so a request that aborts on those checks does not
+    // consume discount usage (matches pre-task-899 tracking semantics).
+    if (validatedDiscountCodeId && validatedDiscountCodeRecord) {
+      const discountCode = validatedDiscountCodeRecord;
+      const isMemberTargetedCode = validatedDiscountIsMemberTargeted;
 
-        // SECURITY: For member-targeted codes, verify session identity matches the booking member
-        if (isMemberTargetedCode && member?.id && req) {
-          try {
-            const sessionMember = await getSessionMember(req);
-            if (!sessionMember || sessionMember.id !== member.id) {
-              console.warn(`[createOneOffEventBooking] Session member ${sessionMember?.id} does not match booking member ${member.id} for member-targeted discount`);
-              targetEligible = false;
-            }
-          } catch (e) {
-            console.warn(`[createOneOffEventBooking] Could not verify session for member-targeted discount: ${e.message}`);
-            targetEligible = false;
-          }
-        }
+      // Increment current_usage_count for non-member-targeted codes
+      // (member-targeted codes use per-member tracking in discount_code_usage).
+      if (!isMemberTargetedCode) {
+        await supabase
+          .from('discount_code')
+          .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
+          .eq('id', discountCode.id)
+          .eq('tenant_id', event.tenant_id);
+      }
 
-        // Validate organization-targeted restriction at booking time
-        if (discountCode.organization_id && targetEligible) {
-          if (!org?.id || discountCode.organization_id !== org.id) {
-            console.warn(`[createOneOffEventBooking] Discount code targeted to org ${discountCode.organization_id}, but booking org is ${org?.id}`);
-            targetEligible = false;
-          }
-        }
+      // Track usage in discount_code_usage table for reporting (requires organization)
+      if (org?.id) {
+        const { data: existingUsage } = await supabase
+          .from('discount_code_usage')
+          .select('id, usage_count')
+          .eq('discount_code_id', discountCode.id)
+          .eq('organization_id', org.id)
+          .is('member_id', null)
+          .maybeSingle();
 
-        // Validate event-targeted restriction at booking time
-        if (discountCode.event_id && targetEligible) {
-          if (!eventId || discountCode.event_id !== eventId) {
-            console.warn(`[createOneOffEventBooking] Discount code targeted to event ${discountCode.event_id}, but booking event is ${eventId}`);
-            targetEligible = false;
-          }
-        }
-
-        // Validate member-targeted restrictions at booking time
-        if (discountCode.member_id && targetEligible) {
-          if (!member?.id || discountCode.member_id !== member.id) {
-            console.warn(`[createOneOffEventBooking] Discount code targeted to member ${discountCode.member_id}, but booking member is ${member?.id}`);
-            targetEligible = false;
-          }
-        }
-        if (discountCode.role_id && targetEligible) {
-          if (!member?.role_id || member.role_id !== discountCode.role_id) {
-            console.warn(`[createOneOffEventBooking] Discount code targeted to role ${discountCode.role_id}, but member role is ${member?.role_id}`);
-            targetEligible = false;
-          }
-        }
-        if (discountCode.member_group_id && targetEligible) {
-          if (!member?.id) {
-            targetEligible = false;
-          } else {
-            const { data: grpAssignment } = await supabase
-              .from('member_group_assignment')
-              .select('id')
-              .eq('member_id', member.id)
-              .eq('group_id', discountCode.member_group_id)
-              .maybeSingle();
-            if (!grpAssignment) {
-              console.warn(`[createOneOffEventBooking] Member ${member.id} not in group ${discountCode.member_group_id}`);
-              targetEligible = false;
-            }
-          }
-        }
-
-        // For member-targeted codes, check per-member max usage
-        if (isMemberTargetedCode && targetEligible && member?.id && discountCode.max_usage_count) {
-          const { data: perMemberUsage } = await supabase
+        if (existingUsage) {
+          await supabase
             .from('discount_code_usage')
-            .select('usage_count')
-            .eq('discount_code_id', discountCode.id)
-            .eq('member_id', member.id)
-            .maybeSingle();
-          if (perMemberUsage && perMemberUsage.usage_count >= discountCode.max_usage_count) {
-            console.warn(`[createOneOffEventBooking] Member ${member.id} has reached max uses for discount code`);
-            targetEligible = false;
+            .update({ usage_count: (existingUsage.usage_count || 0) + 1 })
+            .eq('id', existingUsage.id);
+          console.log(`[createOneOffEventBooking] Updated discount_code_usage for org ${org.id}: count=${(existingUsage.usage_count || 0) + 1}`);
+        } else {
+          const { error: usageError } = await supabase
+            .from('discount_code_usage')
+            .insert({
+              discount_code_id: discountCode.id,
+              organization_id: org.id,
+              usage_count: 1,
+              tenant_id: event.tenant_id
+            });
+          if (usageError) {
+            console.error('[createOneOffEventBooking] Failed to create discount_code_usage:', usageError.message);
+          } else {
+            console.log(`[createOneOffEventBooking] Created discount_code_usage for org ${org.id}`);
           }
         }
+      } else {
+        console.log(`[createOneOffEventBooking] Skipping discount_code_usage tracking - no organization (guest booking)`);
+      }
 
-        // Check if discount code has expired (use correct column name: expires_at)
-        if (!targetEligible) {
-          console.warn(`[createOneOffEventBooking] Discount code target eligibility check failed`);
-        } else if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
-          console.warn(`[createOneOffEventBooking] Discount code has expired`);
-        } else if (!isMemberTargetedCode && discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
-          console.warn(`[createOneOffEventBooking] Discount code has reached maximum uses`);
+      // Track per-member usage for member/role/group-targeted codes
+      if (isMemberTargetedCode && member?.id) {
+        const { data: existingMemberUsage } = await supabase
+          .from('discount_code_usage')
+          .select('id, usage_count')
+          .eq('discount_code_id', discountCode.id)
+          .eq('member_id', member.id)
+          .maybeSingle();
+
+        if (existingMemberUsage) {
+          await supabase
+            .from('discount_code_usage')
+            .update({ usage_count: (existingMemberUsage.usage_count || 0) + 1 })
+            .eq('id', existingMemberUsage.id);
+          console.log(`[createOneOffEventBooking] Updated per-member discount_code_usage for member ${member.id}: count=${(existingMemberUsage.usage_count || 0) + 1}`);
         } else {
-          // Compute discount amount server-side based on remaining cost after vouchers and training fund
-          const costAfterVouchersAndFund = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
-          
-          // Use correct column names: type, value
-          if (discountCode.type === 'percentage') {
-            validatedDiscountAmount = Math.min(
-              (costAfterVouchersAndFund * discountCode.value) / 100,
-              costAfterVouchersAndFund
-            );
+          const { error: memberUsageError } = await supabase
+            .from('discount_code_usage')
+            .insert({
+              discount_code_id: discountCode.id,
+              member_id: member.id,
+              organization_id: org?.id || null,
+              usage_count: 1,
+              tenant_id: event.tenant_id
+            });
+          if (memberUsageError) {
+            console.error('[createOneOffEventBooking] Failed to create per-member discount_code_usage:', memberUsageError.message);
           } else {
-            validatedDiscountAmount = Math.min(discountCode.value, costAfterVouchersAndFund);
-          }
-          
-          validatedDiscountCodeId = discountCode.id;
-          console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.type}, value=${discountCode.value}, computed amount=${validatedDiscountAmount}`);
-          
-          // Increment current_usage_count for non-member-targeted codes (tenant-scoped for safety)
-          // Member-targeted codes use per-member tracking in discount_code_usage instead
-          if (!isMemberTargetedCode) {
-            await supabase
-              .from('discount_code')
-              .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
-              .eq('id', discountCode.id)
-              .eq('tenant_id', event.tenant_id);
-          }
-          
-          // Track usage in discount_code_usage table for reporting (requires organization)
-          if (org?.id) {
-            // Check if usage record exists for this discount code + organization
-            const { data: existingUsage } = await supabase
-              .from('discount_code_usage')
-              .select('id, usage_count')
-              .eq('discount_code_id', discountCode.id)
-              .eq('organization_id', org.id)
-              .is('member_id', null)
-              .maybeSingle();
-            
-            if (existingUsage) {
-              // Increment usage count
-              await supabase
-                .from('discount_code_usage')
-                .update({ usage_count: (existingUsage.usage_count || 0) + 1 })
-                .eq('id', existingUsage.id);
-              console.log(`[createOneOffEventBooking] Updated discount_code_usage for org ${org.id}: count=${(existingUsage.usage_count || 0) + 1}`);
-            } else {
-              // Create new usage record
-              const { error: usageError } = await supabase
-                .from('discount_code_usage')
-                .insert({
-                  discount_code_id: discountCode.id,
-                  organization_id: org.id,
-                  usage_count: 1,
-                  tenant_id: event.tenant_id
-                });
-              if (usageError) {
-                console.error('[createOneOffEventBooking] Failed to create discount_code_usage:', usageError.message);
-              } else {
-                console.log(`[createOneOffEventBooking] Created discount_code_usage for org ${org.id}`);
-              }
-            }
-          } else {
-            console.log(`[createOneOffEventBooking] Skipping discount_code_usage tracking - no organization (guest booking)`);
-          }
-
-          // Track per-member usage for member/role/group-targeted codes
-          const isMemberTargeted = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
-          if (isMemberTargeted && member?.id) {
-            const { data: existingMemberUsage } = await supabase
-              .from('discount_code_usage')
-              .select('id, usage_count')
-              .eq('discount_code_id', discountCode.id)
-              .eq('member_id', member.id)
-              .maybeSingle();
-
-            if (existingMemberUsage) {
-              await supabase
-                .from('discount_code_usage')
-                .update({ usage_count: (existingMemberUsage.usage_count || 0) + 1 })
-                .eq('id', existingMemberUsage.id);
-              console.log(`[createOneOffEventBooking] Updated per-member discount_code_usage for member ${member.id}: count=${(existingMemberUsage.usage_count || 0) + 1}`);
-            } else {
-              const { error: memberUsageError } = await supabase
-                .from('discount_code_usage')
-                .insert({
-                  discount_code_id: discountCode.id,
-                  member_id: member.id,
-                  organization_id: org?.id || null,
-                  usage_count: 1,
-                  tenant_id: event.tenant_id
-                });
-              if (memberUsageError) {
-                console.error('[createOneOffEventBooking] Failed to create per-member discount_code_usage:', memberUsageError.message);
-              } else {
-                console.log(`[createOneOffEventBooking] Created per-member discount_code_usage for member ${member.id}`);
-              }
-            }
+            console.log(`[createOneOffEventBooking] Created per-member discount_code_usage for member ${member.id}`);
           }
         }
       }
