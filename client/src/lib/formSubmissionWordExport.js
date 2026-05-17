@@ -432,23 +432,15 @@ function buildFooter() {
   });
 }
 
-export async function renderSubmissionsDocx({
+export function buildSubmissionsDocument({
   submissions,
   formsById,
   selectedOptions,
   resolvers,
   tenantName,
-  tenantLogoUrl,
+  tenantLogo,
   documentTitle,
 }) {
-  let tenantLogo = null;
-  if (tenantLogoUrl) {
-    const data = await fetchImageBuffer(tenantLogoUrl);
-    if (data) {
-      tenantLogo = { data, type: detectImageType(tenantLogoUrl) };
-    }
-  }
-
   const body = [];
   body.push(...buildTitleBlock({ tenantName, tenantLogo, documentTitle }));
 
@@ -469,7 +461,7 @@ export async function renderSubmissionsDocx({
     });
   }
 
-  const doc = new Document({
+  return new Document({
     creator: 'iConnect',
     title: documentTitle,
     styles: {
@@ -485,7 +477,34 @@ export async function renderSubmissionsDocx({
       children: body,
     }],
   });
+}
 
+export async function loadTenantLogo(tenantLogoUrl) {
+  if (!tenantLogoUrl) return null;
+  const data = await fetchImageBuffer(tenantLogoUrl);
+  if (!data) return null;
+  return { data, type: detectImageType(tenantLogoUrl) };
+}
+
+export async function renderSubmissionsDocx({
+  submissions,
+  formsById,
+  selectedOptions,
+  resolvers,
+  tenantName,
+  tenantLogoUrl,
+  documentTitle,
+}) {
+  const tenantLogo = await loadTenantLogo(tenantLogoUrl);
+  const doc = buildSubmissionsDocument({
+    submissions,
+    formsById,
+    selectedOptions,
+    resolvers,
+    tenantName,
+    tenantLogo,
+    documentTitle,
+  });
   return Packer.toBlob(doc);
 }
 

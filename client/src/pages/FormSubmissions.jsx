@@ -670,27 +670,56 @@ export default function FormSubmissionsPage() {
     return [...METADATA_FIELDS, ...dynamicEntries];
   };
 
-  const runWordExport = async ({ subs, options, fileName, documentTitle }) => {
+  const SERVER_EXPORT_THRESHOLD = 100;
+
+  const runServerWordExport = async ({ subs, options, fileName, documentTitle, scope }) => {
+    const res = await fetch('/api/admin/form-submissions-word-export', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        submissionIds: subs.map(s => s.id),
+        selectedOptions: options,
+        scope: scope || 'all',
+        documentTitle,
+        fileName,
+      }),
+    });
+    if (!res.ok) {
+      let msg = 'Failed to generate Word document';
+      try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const { saveAs } = await import('file-saver');
+    saveAs(blob, fileName);
+  };
+
+  const runWordExport = async ({ subs, options, fileName, documentTitle, scope }) => {
     if (!subs || subs.length === 0) {
       toast.error('No submissions to export');
       return;
     }
     setIsExportingWord(true);
     try {
-      await downloadSubmissionsDocx({
-        submissions: subs,
-        formsById,
-        selectedOptions: options,
-        resolvers: buildExportResolvers(),
-        tenantName: tenantBranding?.branding?.name || '',
-        tenantLogoUrl: tenantBranding?.branding?.logoUrl || '',
-        documentTitle,
-        fileName,
-      });
+      if (subs.length > SERVER_EXPORT_THRESHOLD) {
+        await runServerWordExport({ subs, options, fileName, documentTitle, scope });
+      } else {
+        await downloadSubmissionsDocx({
+          submissions: subs,
+          formsById,
+          selectedOptions: options,
+          resolvers: buildExportResolvers(),
+          tenantName: tenantBranding?.branding?.name || '',
+          tenantLogoUrl: tenantBranding?.branding?.logoUrl || '',
+          documentTitle,
+          fileName,
+        });
+      }
       toast.success(`Exported ${subs.length} ${subs.length === 1 ? 'submission' : 'submissions'} to Word`);
     } catch (err) {
       console.error('[WordExport] Error:', err);
-      toast.error('Failed to generate Word document');
+      toast.error(err?.message || 'Failed to generate Word document');
     } finally {
       setIsExportingWord(false);
     }
@@ -722,14 +751,14 @@ export default function FormSubmissionsPage() {
       }
       const fileName = `${wantTeam ? 'Team' : 'Individual'}_Award_Submissions_${year}.docx`;
       const documentTitle = `${wantTeam ? 'Team' : 'Individual'} Award Submissions`;
-      await runWordExport({ subs: filtered, options: selectedOptions, fileName, documentTitle });
+      await runWordExport({ subs: filtered, options: selectedOptions, fileName, documentTitle, scope });
       setExportModalOpen(false);
       return;
     }
 
     const fileName = `${formNameSafe}_Submissions_${baseDate}.docx`;
     const documentTitle = formNameRaw ? `${formNameRaw} — Submissions` : 'Form Submissions';
-    await runWordExport({ subs, options: selectedOptions, fileName, documentTitle });
+    await runWordExport({ subs, options: selectedOptions, fileName, documentTitle, scope: 'all' });
     setExportModalOpen(false);
   };
 
