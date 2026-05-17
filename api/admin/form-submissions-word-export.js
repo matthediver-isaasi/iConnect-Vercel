@@ -1,8 +1,11 @@
 import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
-import { Packer } from 'docx';
+import { Document, Packer } from 'docx';
 import {
   buildSubmissionsDocument,
+  buildSubmissionSection,
+  buildTitleBlock,
+  buildFooter,
   loadTenantLogo,
   sanitizeFileName,
   resolveAwardType,
@@ -339,6 +342,74 @@ export default async function handler(req, res) {
 
     const safeLogoUrl = isSafePublicLogoUrl(tenantLogoUrl) ? tenantLogoUrl : '';
     const tenantLogo = safeLogoUrl ? await loadTenantLogo(safeLogoUrl) : null;
+    const safeName = sanitizeFileName(
+      (fileName || 'Form_Submissions').replace(/\.docx$/i, '')
+    ) + '.docx';
+
+    const acceptHeader = String(req.headers.accept || '');
+    const wantStream = acceptHeader.includes('application/x-ndjson');
+
+    if (wantStream) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+      const write = (obj) => {
+        try { res.write(JSON.stringify(obj) + '\n'); } catch { /* client disconnected */ }
+      };
+
+      try {
+        const total = orderedSubmissions.length;
+        write({ type: 'progress', phase: 'rendering', processed: 0, total });
+
+        const body = [];
+        body.push(...buildTitleBlock({ tenantName: tenantName || '', tenantLogo, documentTitle: documentTitle || 'Form Submissions' }));
+
+        for (let i = 0; i < orderedSubmissions.length; i++) {
+          const submission = orderedSubmissions[i];
+          const form = formsById[submission.form_id] || null;
+          body.push(...buildSubmissionSection({
+            submission,
+            form,
+            selectedOptions,
+            resolvers,
+            isLast: i === orderedSubmissions.length - 1,
+          }));
+          // Emit progress after every submission (with a yield so the write flushes)
+          write({ type: 'progress', phase: 'rendering', processed: i + 1, total });
+          // Yield to the event loop so res.write actually flushes to the network.
+          await new Promise(resolve => setImmediate(resolve));
+        }
+
+        write({ type: 'progress', phase: 'packaging', processed: total, total });
+
+        const doc = new Document({
+          creator: 'iConnect',
+          title: documentTitle || 'Form Submissions',
+          styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+          sections: [{
+            properties: {},
+            footers: { default: buildFooter() },
+            children: body,
+          }],
+        });
+
+        const buffer = await Packer.toBuffer(doc);
+        write({
+          type: 'complete',
+          fileName: safeName,
+          size: buffer.length,
+          data: buffer.toString('base64'),
+        });
+        return res.end();
+      } catch (error) {
+        console.error('[Form Submissions Word Export] Streaming error:', error);
+        write({ type: 'error', error: 'Failed to generate Word document' });
+        return res.end();
+      }
+    }
+
     const doc = buildSubmissionsDocument({
       submissions: orderedSubmissions,
       formsById,
@@ -350,9 +421,6 @@ export default async function handler(req, res) {
     });
 
     const buffer = await Packer.toBuffer(doc);
-    const safeName = sanitizeFileName(
-      (fileName || 'Form_Submissions').replace(/\.docx$/i, '')
-    ) + '.docx';
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
@@ -361,6 +429,10 @@ export default async function handler(req, res) {
     return res.status(200).send(buffer);
   } catch (error) {
     console.error('[Form Submissions Word Export] Error:', error);
+    if (res.headersSent) {
+      try { res.end(); } catch { /* ignore */ }
+      return;
+    }
     return res.status(500).json({ error: 'Failed to generate Word document' });
   }
 }

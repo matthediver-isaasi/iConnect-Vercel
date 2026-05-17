@@ -95,6 +95,7 @@ export default function FormSubmissionsPage() {
   const [selectedExportFields, setSelectedExportFields] = useState([]);
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState(() => new Set());
   const [isExportingWord, setIsExportingWord] = useState(false);
+  const [exportProgress, setExportProgress] = useState(null);
   const tenantBranding = useTenantBranding();
 
   const queryClient = useQueryClient();
@@ -676,7 +677,10 @@ export default function FormSubmissionsPage() {
     const res = await fetch('/api/admin/form-submissions-word-export', {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/x-ndjson',
+      },
       body: JSON.stringify({
         submissionIds: subs.map(s => s.id),
         selectedOptions: options,
@@ -690,9 +694,71 @@ export default function FormSubmissionsPage() {
       try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
       throw new Error(msg);
     }
-    const blob = await res.blob();
+
+    const contentType = res.headers.get('content-type') || '';
     const { saveAs } = await import('file-saver');
-    saveAs(blob, fileName);
+
+    if (!contentType.includes('application/x-ndjson') || !res.body) {
+      // Server fell back to legacy binary response.
+      const blob = await res.blob();
+      saveAs(blob, fileName);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let completed = null;
+    let streamError = null;
+
+    setExportProgress({ processed: 0, total: subs.length, phase: 'rendering' });
+
+    const handleEvent = (line) => {
+      if (!line) return;
+      let evt;
+      try { evt = JSON.parse(line); } catch { return; }
+      if (evt.type === 'progress') {
+        setExportProgress({
+          processed: Number(evt.processed) || 0,
+          total: Number(evt.total) || subs.length,
+          phase: evt.phase || 'rendering',
+        });
+      } else if (evt.type === 'complete') {
+        completed = evt;
+      } else if (evt.type === 'error') {
+        streamError = evt.error || 'Failed to generate Word document';
+      }
+    };
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 1);
+          handleEvent(line);
+        }
+      }
+      if (done) break;
+    }
+    const tail = buffer.trim();
+    if (tail) handleEvent(tail);
+
+    if (streamError) throw new Error(streamError);
+    if (!completed || !completed.data) {
+      throw new Error('Export stream ended without a document');
+    }
+
+    const binary = atob(completed.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    saveAs(blob, completed.fileName || fileName);
   };
 
   const runWordExport = async ({ subs, options, fileName, documentTitle, scope }) => {
@@ -701,6 +767,7 @@ export default function FormSubmissionsPage() {
       return;
     }
     setIsExportingWord(true);
+    setExportProgress(null);
     try {
       if (subs.length > SERVER_EXPORT_THRESHOLD) {
         await runServerWordExport({ subs, options, fileName, documentTitle, scope });
@@ -722,6 +789,7 @@ export default function FormSubmissionsPage() {
       toast.error(err?.message || 'Failed to generate Word document');
     } finally {
       setIsExportingWord(false);
+      setExportProgress(null);
     }
   };
 
@@ -1604,6 +1672,17 @@ export default function FormSubmissionsPage() {
                 <div className="text-xs text-slate-500">
                   Detected in current set: {awardTypeCountsInSelection.team} team · {awardTypeCountsInSelection.individual} individual
                 </div>
+                {isExportingWord && exportProgress && exportProgress.total > 0 && (
+                  <div
+                    className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"
+                    data-testid="text-word-export-progress"
+                  >
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {exportProgress.phase === 'packaging'
+                      ? `Packaging document (${exportProgress.total} of ${exportProgress.total})…`
+                      : `Rendered ${exportProgress.processed} of ${exportProgress.total} submissions…`}
+                  </div>
+                )}
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button
                     variant="outline"

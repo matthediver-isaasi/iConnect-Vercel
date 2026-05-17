@@ -245,7 +245,7 @@ function formatResponseValue(value, fieldDef, resolvers) {
   return { paragraphs: makeParagraphsFromText(String(value)), files: [] };
 }
 
-function buildSubmissionSection({ submission, form, selectedOptions, resolvers, isLast }) {
+export function buildSubmissionSection({ submission, form, selectedOptions, resolvers, isLast }) {
   const applicantName = cleanMojibake(getApplicantName(submission, form));
   const awardCategory = cleanMojibake(getAwardCategory(submission, form));
 
@@ -383,7 +383,7 @@ function buildSubmissionSection({ submission, form, selectedOptions, resolvers, 
   return children;
 }
 
-function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
+export function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
   const blocks = [];
   if (tenantLogo) {
     blocks.push(new Paragraph({
@@ -416,7 +416,7 @@ function buildTitleBlock({ tenantName, tenantLogo, documentTitle }) {
   return blocks;
 }
 
-function buildFooter() {
+export function buildFooter() {
   return new Footer({
     children: [
       new Paragraph({
