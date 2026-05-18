@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -120,7 +121,8 @@ async function getBandsForConfig(configId, tenantId) {
     .select('*')
     .eq('config_id', configId)
     .eq('tenant_id', tenantId)
-    .order('min_value', { ascending: true });
+    .order('display_order', { ascending: true, nullsFirst: false })
+    .order('min_value', { ascending: true, nullsFirst: false });
 
   if (error) {
     console.error('[Membership Tiers] Error fetching bands:', error);
@@ -186,7 +188,7 @@ async function getHistory(req, res, tenantId) {
 async function getAvailableFields(req, res, tenantId) {
   const { data: fields, error } = await supabase
     .from('preference_field')
-    .select('id, name, label, field_type, entity_scope')
+    .select('id, name, label, field_type, entity_scope, options')
     .eq('tenant_id', tenantId)
     .eq('entity_scope', 'organization')
     .eq('is_active', true)
@@ -197,15 +199,15 @@ async function getAvailableFields(req, res, tenantId) {
     return res.status(500).json({ error: 'Failed to fetch fields' });
   }
 
-  const numericalFields = (fields || []).filter(f =>
-    ['number', 'integer', 'decimal', 'numeric', 'currency'].includes(f.field_type?.toLowerCase())
+  const usableFields = (fields || []).filter(f =>
+    isNumericFieldType(f.field_type) || isTextFieldType(f.field_type)
   );
 
-  const coreNumericalFields = [
+  const coreFields = [
     { id: 'core:member_count', name: 'member_count', label: 'Member Count', field_type: 'number', entity_scope: 'organization', is_core: true }
   ];
 
-  return res.json([...coreNumericalFields, ...numericalFields]);
+  return res.json([...coreFields, ...usableFields]);
 }
 
 async function getPreview(req, res, tenantId, configId) {
@@ -292,9 +294,8 @@ async function getPreview(req, res, tenantId, configId) {
         .in('organization_id', orgIds.length > 0 ? orgIds : ['__none__']);
 
       (prefValues || []).forEach(pv => {
-        const numVal = parseFloat(pv.value);
-        if (!isNaN(numVal)) {
-          orgValues[pv.organization_id] = numVal;
+        if (pv.value != null && pv.value !== '') {
+          orgValues[pv.organization_id] = pv.value;
         }
       });
     }
@@ -314,18 +315,7 @@ async function getPreview(req, res, tenantId, configId) {
     }
 
     const fieldValue = orgValues[org.id] ?? null;
-    let matchedBand = null;
-
-    if (fieldValue !== null && bands?.length > 0) {
-      for (const band of bands) {
-        const min = parseFloat(band.min_value);
-        const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
-        if (fieldValue >= min && fieldValue <= max) {
-          matchedBand = band;
-          break;
-        }
-      }
-    }
+    const matchedBand = matchBand(fieldValue, bands);
 
     return {
       id: org.id,
@@ -431,9 +421,8 @@ async function getMemberPreview(req, res, tenantId, config) {
           .in('member_id', memberIds);
 
         (prefValues || []).forEach(pv => {
-          const numVal = parseFloat(pv.value);
-          if (!isNaN(numVal)) {
-            memberValues[pv.member_id] = numVal;
+          if (pv.value != null && pv.value !== '') {
+            memberValues[pv.member_id] = pv.value;
           }
         });
       }
@@ -457,18 +446,7 @@ async function getMemberPreview(req, res, tenantId, config) {
     }
 
     const fieldValue = memberValues[member.id] ?? null;
-    let matchedBand = null;
-
-    if (fieldValue !== null && bands?.length > 0) {
-      for (const band of bands) {
-        const min = parseFloat(band.min_value);
-        const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
-        if (fieldValue >= min && fieldValue <= max) {
-          matchedBand = band;
-          break;
-        }
-      }
-    }
+    const matchedBand = matchBand(fieldValue, bands);
 
     return {
       id: member.id,
@@ -499,8 +477,64 @@ async function getMemberPreview(req, res, tenantId, config) {
   });
 }
 
-function validateBands(bands) {
+function parseFieldOptions(raw) {
+  if (!raw) return [];
+  try {
+    const opts = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(opts)) return [];
+    return opts.map(o => {
+      if (typeof o === 'string') return o;
+      return o.value ?? o.label ?? '';
+    }).filter(v => v !== '' && v != null).map(v => String(v));
+  } catch {
+    return [];
+  }
+}
+
+function validateBands(bands, basisField) {
   if (!bands || !Array.isArray(bands) || bands.length === 0) return null;
+
+  const isTextBasis = basisField
+    ? isTextFieldType(basisField.field_type)
+    : bands.some(b => b && b.match_value != null && String(b.match_value).trim() !== '');
+
+  if (isTextBasis) {
+    const allowedOptions = basisField ? parseFieldOptions(basisField.options) : [];
+    const allowedNormalized = new Set(allowedOptions.map(o => normalizeMatchValue(o)));
+    const seen = new Set();
+    for (let i = 0; i < bands.length; i++) {
+      const band = bands[i];
+      const hasNumeric =
+        (band.min_value !== null && band.min_value !== undefined && band.min_value !== '') ||
+        (band.max_value !== null && band.max_value !== undefined && band.max_value !== '');
+      if (hasNumeric) {
+        return { error: `Tier "${band.label || i + 1}" mixes numeric min/max with a text-basis field. Remove the numeric range.` };
+      }
+      const raw = band.match_value != null ? String(band.match_value).trim() : '';
+      if (!raw) {
+        return { error: `Tier "${band.label || i + 1}" needs a match value` };
+      }
+      const norm = normalizeMatchValue(raw);
+      if (seen.has(norm)) {
+        return { error: `Tier "${band.label || i + 1}" has a duplicate match value "${raw}"` };
+      }
+      seen.add(norm);
+      if (allowedNormalized.size > 0 && !allowedNormalized.has(norm)) {
+        return { error: `Tier "${band.label || i + 1}" has match value "${raw}" which is not one of the allowed options (${allowedOptions.join(', ')})` };
+      }
+      if (isNaN(parseFloat(band.annual_cost))) {
+        return { error: `Tier "${band.label || i + 1}" has an invalid cost` };
+      }
+    }
+    return { sortedBands: bands.map((b, i) => ({ ...b, min_value: null, max_value: null, match_value: String(b.match_value).trim(), display_order: i })) };
+  }
+
+  for (let i = 0; i < bands.length; i++) {
+    const band = bands[i];
+    if (band.match_value != null && String(band.match_value).trim() !== '') {
+      return { error: `Tier "${band.label || i + 1}" has a text match value but the selected field is numeric. Remove the match value.` };
+    }
+  }
 
   const sortedBands = [...bands].sort((a, b) => (parseFloat(a.min_value) || 0) - (parseFloat(b.min_value) || 0));
   for (let i = 0; i < sortedBands.length; i++) {
@@ -554,8 +588,29 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Effective from date cannot be in the future. New tier structures take effect from today or a past date.' });
   }
 
-  if (bands && Array.isArray(bands) && bands.length > 0) {
-    const validation = validateBands(bands);
+  let basisField = null;
+  if (config.pricing_model !== 'flat' && bands && Array.isArray(bands) && bands.length > 0) {
+    if (config.field_source === 'core' || (config.field_name === 'member_count' && !config.field_id)) {
+      basisField = { id: null, name: config.field_name || 'member_count', field_type: 'number', options: null, is_core: true };
+    } else if (config.field_id) {
+      const { data: fld, error: fldErr } = await supabase
+        .from('preference_field')
+        .select('id, name, field_type, options')
+        .eq('id', config.field_id)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (fldErr || !fld) {
+        return res.status(400).json({ error: 'Selected basis field could not be resolved for this tenant' });
+      }
+      if (!isNumericFieldType(fld.field_type) && !isTextFieldType(fld.field_type)) {
+        return res.status(400).json({ error: `Selected basis field type "${fld.field_type}" is not supported for tier bands` });
+      }
+      basisField = fld;
+    } else {
+      return res.status(400).json({ error: 'A basis field is required for tiered pricing' });
+    }
+
+    const validation = validateBands(bands, basisField);
     if (validation?.error) {
       return res.status(400).json({ error: validation.error });
     }
@@ -776,6 +831,14 @@ async function checkVatRateColumnExists() {
   return !error;
 }
 
+async function checkMatchValueColumnExists() {
+  const { data, error } = await supabase
+    .from('membership_tier_band')
+    .select('match_value')
+    .limit(0);
+  return !error;
+}
+
 async function saveBandsForConfig(configId, tenantId, bands) {
   if (bands.length === 0) {
     const { error: deleteError } = await supabase
@@ -790,19 +853,24 @@ async function saveBandsForConfig(configId, tenantId, bands) {
   }
 
   const hasVatColumn = await checkVatRateColumnExists();
+  const hasMatchValueColumn = await checkMatchValueColumnExists();
 
   const bandsToInsert = bands.map((band, index) => {
+    const hasMatchValue = band.match_value != null && String(band.match_value).trim() !== '';
     const row = {
       config_id: configId,
       tenant_id: tenantId,
       label: band.label || `Tier ${index + 1}`,
-      min_value: band.min_value ?? 0,
-      max_value: band.max_value ?? null,
+      min_value: hasMatchValue ? null : (band.min_value ?? 0),
+      max_value: hasMatchValue ? null : (band.max_value ?? null),
       annual_cost: band.annual_cost ?? 0,
       display_order: index,
     };
     if (hasVatColumn) {
       row.vat_rate = band.vat_rate || null;
+    }
+    if (hasMatchValueColumn) {
+      row.match_value = hasMatchValue ? String(band.match_value).trim() : null;
     }
     return row;
   });

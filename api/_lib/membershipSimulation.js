@@ -3,6 +3,7 @@ import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountH
 import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
 import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
+import { matchBand } from './tierBandMatcher.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
   const {
@@ -694,19 +695,11 @@ async function getBandsForConfig(configId, tenantId) {
     .select('*')
     .eq('config_id', configId)
     .eq('tenant_id', tenantId)
-    .order('min_value', { ascending: true });
+    .order('display_order', { ascending: true, nullsFirst: false })
+    .order('min_value', { ascending: true, nullsFirst: false });
   return data || [];
 }
 
-function matchBand(fieldValue, bands) {
-  if (fieldValue === null || fieldValue === undefined || !bands?.length) return null;
-  for (const band of bands) {
-    const min = parseFloat(band.min_value);
-    const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
-    if (fieldValue >= min && fieldValue <= max) return band;
-  }
-  return null;
-}
 
 function calculateMembershipYear(config) {
   const startMonth = config.membership_start_month || 1;
@@ -879,8 +872,8 @@ async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
 
   if (config.field_id) {
     if (config.field_id in fieldOverrides) {
-      const num = parseFloat(fieldOverrides[config.field_id]);
-      return isNaN(num) ? null : num;
+      const v = fieldOverrides[config.field_id];
+      return v == null || v === '' ? null : v;
     }
     const { data: pv } = await supabase
       .from('organization_preference_value')
@@ -889,9 +882,8 @@ async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
       .eq('field_id', config.field_id)
       .maybeSingle();
 
-    if (pv?.value) {
-      const num = parseFloat(pv.value);
-      return isNaN(num) ? null : num;
+    if (pv?.value != null && pv.value !== '') {
+      return pv.value;
     }
   }
 
@@ -950,8 +942,8 @@ async function getMemberFieldValue(memberId, tenantId, config, fieldOverrides = 
 
   if (config.field_id) {
     if (config.field_id in fieldOverrides) {
-      const num = parseFloat(fieldOverrides[config.field_id]);
-      return isNaN(num) ? null : num;
+      const v = fieldOverrides[config.field_id];
+      return v == null || v === '' ? null : v;
     }
     const { data: pv } = await supabase
       .from('member_preference_value')
@@ -959,9 +951,8 @@ async function getMemberFieldValue(memberId, tenantId, config, fieldOverrides = 
       .eq('member_id', memberId)
       .eq('field_id', config.field_id)
       .maybeSingle();
-    if (pv?.value) {
-      const num = parseFloat(pv.value);
-      return isNaN(num) ? null : num;
+    if (pv?.value != null && pv.value !== '') {
+      return pv.value;
     }
   }
 

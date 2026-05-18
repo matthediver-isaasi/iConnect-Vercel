@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { matchBand } from '../_lib/tierBandMatcher.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -52,23 +53,13 @@ async function getBandsForConfig(configId, tenantId) {
     .select('*')
     .eq('config_id', configId)
     .eq('tenant_id', tenantId)
-    .order('min_value', { ascending: true });
+    .order('display_order', { ascending: true, nullsFirst: false })
+    .order('min_value', { ascending: true, nullsFirst: false });
 
   if (error) return [];
   return data || [];
 }
 
-function matchBand(fieldValue, bands) {
-  if (fieldValue === null || fieldValue === undefined || !bands?.length) return null;
-  for (const band of bands) {
-    const min = parseFloat(band.min_value);
-    const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
-    if (fieldValue >= min && fieldValue <= max) {
-      return band;
-    }
-  }
-  return null;
-}
 
 function calculateMembershipYear(config) {
   const startMonth = config.membership_start_month || 1;
@@ -153,9 +144,8 @@ async function getOrgFieldValue(orgId, tenantId, config) {
       .eq('organization.tenant_id', tenantId)
       .maybeSingle();
 
-    if (pv?.value) {
-      const num = parseFloat(pv.value);
-      return isNaN(num) ? null : num;
+    if (pv?.value != null && pv.value !== '') {
+      return pv.value;
     }
   }
 

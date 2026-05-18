@@ -471,9 +471,10 @@ export default function MembershipTierManagement() {
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
         ...b,
-        min_value: b.min_value?.toString() || '0',
-        max_value: b.max_value?.toString() || '',
+        min_value: b.min_value != null ? b.min_value.toString() : '',
+        max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
+        match_value: b.match_value ?? '',
       })));
     } else {
       setBands([]);
@@ -558,6 +559,18 @@ export default function MembershipTierManagement() {
   };
 
   const addBand = () => {
+    if (isTextBasisField) {
+      setBands(prev => [...prev, {
+        id: `new-${Date.now()}`,
+        label: `Tier ${prev.length + 1}`,
+        min_value: '',
+        max_value: '',
+        match_value: '',
+        annual_cost: '0',
+      }]);
+      setHasChanges(true);
+      return;
+    }
     const lastBand = bands[bands.length - 1];
     const nextMin = lastBand ? (parseFloat(lastBand.max_value) + 1 || parseFloat(lastBand.min_value) + 100) : 0;
     setBands(prev => [...prev, {
@@ -565,6 +578,7 @@ export default function MembershipTierManagement() {
       label: `Tier ${prev.length + 1}`,
       min_value: nextMin.toString(),
       max_value: '',
+      match_value: '',
       annual_cost: '0',
     }]);
     setHasChanges(true);
@@ -650,11 +664,25 @@ export default function MembershipTierManagement() {
       case 5:
         if (config.pricing_model === 'tiered') {
           if (bands.length === 0) { toast.error('Please add at least one tier band'); return false; }
-          for (let i = 0; i < bands.length; i++) {
-            const band = bands[i];
-            if (!band.label?.trim()) { toast.error(`Tier ${i + 1} needs a label`); return false; }
-            if (isNaN(parseFloat(band.min_value))) { toast.error(`Tier "${band.label}" has an invalid minimum value`); return false; }
-            if (isNaN(parseFloat(band.annual_cost))) { toast.error(`Tier "${band.label}" has an invalid cost`); return false; }
+          if (isTextBasisField) {
+            const seen = new Set();
+            for (let i = 0; i < bands.length; i++) {
+              const band = bands[i];
+              if (!band.label?.trim()) { toast.error(`Tier ${i + 1} needs a label`); return false; }
+              const raw = (band.match_value ?? '').toString().trim();
+              if (!raw) { toast.error(`Tier "${band.label}" needs a match value`); return false; }
+              const norm = raw.toLowerCase();
+              if (seen.has(norm)) { toast.error(`Tier "${band.label}" has a duplicate match value "${raw}"`); return false; }
+              seen.add(norm);
+              if (isNaN(parseFloat(band.annual_cost))) { toast.error(`Tier "${band.label}" has an invalid cost`); return false; }
+            }
+          } else {
+            for (let i = 0; i < bands.length; i++) {
+              const band = bands[i];
+              if (!band.label?.trim()) { toast.error(`Tier ${i + 1} needs a label`); return false; }
+              if (isNaN(parseFloat(band.min_value))) { toast.error(`Tier "${band.label}" has an invalid minimum value`); return false; }
+              if (isNaN(parseFloat(band.annual_cost))) { toast.error(`Tier "${band.label}" has an invalid cost`); return false; }
+            }
           }
         } else {
           if (!config.flat_cost || parseFloat(config.flat_cost) <= 0) {
@@ -708,13 +736,17 @@ export default function MembershipTierManagement() {
         flat_cost: isFlat ? parseFloat(config.flat_cost) || 0 : undefined,
         flat_vat_rate: isFlat ? (config.flat_vat_rate || null) : null,
       },
-      bands: isFlat ? [] : bands.map(b => ({
-        label: b.label,
-        min_value: parseFloat(b.min_value) || 0,
-        max_value: b.max_value !== '' && b.max_value !== null && b.max_value !== undefined ? parseFloat(b.max_value) : null,
-        annual_cost: parseFloat(b.annual_cost) || 0,
-        vat_rate: b.vat_rate || null,
-      })),
+      bands: isFlat ? [] : bands.map(b => {
+        const matchValue = b.match_value != null && String(b.match_value).trim() !== '' ? String(b.match_value).trim() : null;
+        return {
+          label: b.label,
+          min_value: matchValue ? null : (parseFloat(b.min_value) || 0),
+          max_value: matchValue ? null : (b.max_value !== '' && b.max_value !== null && b.max_value !== undefined ? parseFloat(b.max_value) : null),
+          match_value: matchValue,
+          annual_cost: parseFloat(b.annual_cost) || 0,
+          vat_rate: b.vat_rate || null,
+        };
+      }),
       discounts: discounts.map(d => ({
         field_id: d.field_id,
         field_label: d.field_label || null,
@@ -775,9 +807,10 @@ export default function MembershipTierManagement() {
       setBands(tierData.bands.map(b => ({
         ...b,
         id: `new-${Date.now()}-${Math.random()}`,
-        min_value: b.min_value?.toString() || '0',
-        max_value: b.max_value?.toString() || '',
+        min_value: b.min_value != null ? b.min_value.toString() : '',
+        max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
+        match_value: b.match_value ?? '',
       })));
     } else {
       setBands([]);
@@ -852,9 +885,10 @@ export default function MembershipTierManagement() {
       setBands((data.bands || []).map(b => ({
         ...b,
         id: genId(),
-        min_value: b.min_value?.toString() || '0',
-        max_value: b.max_value?.toString() || '',
+        min_value: b.min_value != null ? b.min_value.toString() : '',
+        max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
+        match_value: b.match_value ?? '',
       })));
       setDiscounts((data.discounts || []).map(d => ({
         ...d,
@@ -917,6 +951,33 @@ export default function MembershipTierManagement() {
     const field = availableFields.find(f => f.id === config.field_id);
     return field?.label || field?.name || config.field_name || '';
   }, [config, availableFields]);
+
+  const selectedBasisField = useMemo(() => {
+    if (config.field_source === 'core') return null;
+    return availableFields.find(f => f.id === config.field_id) || null;
+  }, [config.field_source, config.field_id, availableFields]);
+
+  const TEXT_BASIS_TYPES = ['text', 'textarea', 'long_text', 'string', 'select', 'dropdown', 'radio', 'picklist'];
+  const isTextBasisField = useMemo(() => {
+    if (!selectedBasisField) return false;
+    return TEXT_BASIS_TYPES.includes(String(selectedBasisField.field_type || '').toLowerCase());
+  }, [selectedBasisField]);
+
+  const basisFieldOptions = useMemo(() => {
+    if (!selectedBasisField?.options) return [];
+    try {
+      const opts = typeof selectedBasisField.options === 'string'
+        ? JSON.parse(selectedBasisField.options)
+        : selectedBasisField.options;
+      if (Array.isArray(opts)) {
+        return opts.map(o => {
+          if (typeof o === 'string') return { value: o, label: o };
+          return { value: o.value ?? o.label ?? '', label: o.label ?? o.value ?? '' };
+        }).filter(o => o.value !== '');
+      }
+    } catch {}
+    return [];
+  }, [selectedBasisField]);
 
   const isMemberScoped = config.structure_scope_type === 'member';
 
@@ -1299,7 +1360,7 @@ export default function MembershipTierManagement() {
               disabled={!isEditable}
             >
               <SelectTrigger data-testid="select-field">
-                <SelectValue placeholder={loadingFields ? "Loading fields..." : "Select a numerical field"} />
+                <SelectValue placeholder={loadingFields ? "Loading fields..." : "Select a field"} />
               </SelectTrigger>
               <SelectContent>
                 {availableFields.map(field => (
@@ -1314,7 +1375,7 @@ export default function MembershipTierManagement() {
                 ))}
                 {availableFields.length === 0 && !loadingFields && (
                   <SelectItem value="__none" disabled>
-                    No numerical fields found
+                    No fields found
                   </SelectItem>
                 )}
               </SelectContent>
@@ -2096,10 +2157,16 @@ export default function MembershipTierManagement() {
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="hidden md:grid md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+                <div className={`hidden md:grid ${isTextBasisField ? 'md:grid-cols-[1fr_1fr_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]'} gap-2 text-sm font-medium text-muted-foreground px-2`}>
                   <span>Label</span>
-                  <span>Min Value</span>
-                  <span>Max Value</span>
+                  {isTextBasisField ? (
+                    <span>Match Value</span>
+                  ) : (
+                    <>
+                      <span>Min Value</span>
+                      <span>Max Value</span>
+                    </>
+                  )}
                   <span>{periodLabel} Cost ({currencySymbol})</span>
                   <span>VAT Rate</span>
                   <span></span>
@@ -2110,7 +2177,7 @@ export default function MembershipTierManagement() {
                   return (
                     <div
                       key={band.id || index}
-                      className="grid grid-cols-1 md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 items-center p-2 rounded-md border"
+                      className={`grid grid-cols-1 ${isTextBasisField ? 'md:grid-cols-[1fr_1fr_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]'} gap-2 items-center p-2 rounded-md border`}
                       data-testid={`row-band-${index}`}
                     >
                       <Input
@@ -2120,22 +2187,51 @@ export default function MembershipTierManagement() {
                         disabled={!isEditable}
                         data-testid={`input-band-label-${index}`}
                       />
-                      <Input
-                        type="number"
-                        value={band.min_value || ''}
-                        onChange={(e) => updateBand(index, 'min_value', e.target.value)}
-                        placeholder="0"
-                        disabled={!isEditable}
-                        data-testid={`input-band-min-${index}`}
-                      />
-                      <Input
-                        type="number"
-                        value={band.max_value || ''}
-                        onChange={(e) => updateBand(index, 'max_value', e.target.value)}
-                        placeholder="No limit"
-                        disabled={!isEditable}
-                        data-testid={`input-band-max-${index}`}
-                      />
+                      {isTextBasisField ? (
+                        basisFieldOptions.length > 0 ? (
+                          <Select
+                            value={band.match_value || ''}
+                            onValueChange={(value) => updateBand(index, 'match_value', value)}
+                            disabled={!isEditable}
+                          >
+                            <SelectTrigger data-testid={`select-band-match-${index}`}>
+                              <SelectValue placeholder="Select value" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {basisFieldOptions.map((opt, oi) => (
+                                <SelectItem key={oi} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={band.match_value || ''}
+                            onChange={(e) => updateBand(index, 'match_value', e.target.value)}
+                            placeholder="Value to match"
+                            disabled={!isEditable}
+                            data-testid={`input-band-match-${index}`}
+                          />
+                        )
+                      ) : (
+                        <>
+                          <Input
+                            type="number"
+                            value={band.min_value || ''}
+                            onChange={(e) => updateBand(index, 'min_value', e.target.value)}
+                            placeholder="0"
+                            disabled={!isEditable}
+                            data-testid={`input-band-min-${index}`}
+                          />
+                          <Input
+                            type="number"
+                            value={band.max_value || ''}
+                            onChange={(e) => updateBand(index, 'max_value', e.target.value)}
+                            placeholder="No limit"
+                            disabled={!isEditable}
+                            data-testid={`input-band-max-${index}`}
+                          />
+                        </>
+                      )}
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
                         <Input
@@ -2195,8 +2291,12 @@ export default function MembershipTierManagement() {
                   <div className="mt-2 p-3 bg-muted/50 rounded-md">
                     <p className="text-sm text-muted-foreground">
                       {bands.length} tier{bands.length !== 1 ? 's' : ''} defined.
-                      {bands.some(b => !b.max_value && b.max_value !== 0) && (
-                        <span> Tiers without a max value will match any value above their minimum.</span>
+                      {isTextBasisField ? (
+                        <span> Each tier maps to a single field value (matched case-insensitively).</span>
+                      ) : (
+                        bands.some(b => !b.max_value && b.max_value !== 0) && (
+                          <span> Tiers without a max value will match any value above their minimum.</span>
+                        )
                       )}
                     </p>
                   </div>

@@ -51,10 +51,11 @@ async function handleGet(req, res, tenantId) {
     const configsWithBands = await Promise.all((configs || []).map(async (config) => {
       const { data: bands } = await supabase
         .from('membership_tier_band')
-        .select('id, label, min_value, max_value, annual_cost')
+        .select('id, label, min_value, max_value, match_value, annual_cost')
         .eq('config_id', config.id)
         .eq('tenant_id', tenantId)
-        .order('min_value', { ascending: true });
+        .order('display_order', { ascending: true, nullsFirst: false })
+        .order('min_value', { ascending: true, nullsFirst: false });
 
       return { ...config, bands: bands || [] };
     }));
