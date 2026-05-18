@@ -130,7 +130,20 @@ async function createAudit(req, res, context) {
   for (const url of normalizedUrls) {
     const startedAt = new Date().toISOString();
     try {
-      const axeResult = await runAxeAudit(url);
+      let axeResult;
+      try {
+        axeResult = await runAxeAudit(url);
+      } catch (runErr) {
+        console.error('[accessibility-audit] runAxeAudit threw', {
+          auditId: audit.id,
+          tenantId: context.tenantId,
+          url,
+          errorName: runErr && runErr.name,
+          errorMessage: runErr && runErr.message,
+          errorStack: runErr && runErr.stack,
+        });
+        throw runErr;
+      }
       const summary = summarizeAxeResult(axeResult);
       const completedAt = new Date().toISOString();
       const { data: resultRow } = await supabase

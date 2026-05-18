@@ -38,27 +38,109 @@ export default async function ({ page, context }) {
   } catch (err) {
     return { data: { error: 'navigation_failed', message: String(err && err.message || err) }, type: 'application/json' };
   }
+
+  // Capture pre-injection diagnostics about any pre-existing axe globals on
+  // the target page (some sites ship their own copy of axe-core, which can
+  // collide with ours).
+  let preInject = null;
+  try {
+    preInject = await page.evaluate(() => ({
+      hasAxe: typeof window.axe !== 'undefined',
+      axeVersion: (window.axe && window.axe.version) || null,
+      readyState: document.readyState,
+      pageUrl: location.href,
+    }));
+  } catch (err) {
+    preInject = { evalError: String(err && err.message || err) };
+  }
+
   try {
     await page.addScriptTag({ url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js' });
   } catch (err) {
-    return { data: { error: 'axe_inject_failed', message: String(err && err.message || err) }, type: 'application/json' };
+    return { data: { error: 'axe_inject_failed', message: String(err && err.message || err), preInject: preInject }, type: 'application/json' };
   }
+
+  // Capture post-injection diagnostics: confirm axe is present, what version
+  // it reports, whether axe.run looks callable, and whether multiple axe-like
+  // globals (axe, axeCore, _axe) are exposed which could indicate collision.
+  let postInject = null;
   try {
-    const results = await page.evaluate(async () => {
+    postInject = await page.evaluate(() => {
+      const axeLikeGlobals = ['axe', 'axeCore', '_axe', '__axe__'].filter(
+        (k) => typeof window[k] !== 'undefined'
+      );
+      return {
+        hasAxe: typeof window.axe !== 'undefined',
+        axeVersion: (window.axe && window.axe.version) || null,
+        axeRunType: window.axe ? typeof window.axe.run : 'no-axe',
+        axeRunLength: window.axe && typeof window.axe.run === 'function' ? window.axe.run.length : null,
+        axeLikeGlobals: axeLikeGlobals,
+        axeKeysSample: window.axe ? Object.keys(window.axe).slice(0, 20) : [],
+        readyState: document.readyState,
+        pageUrl: location.href,
+      };
+    });
+  } catch (err) {
+    postInject = { evalError: String(err && err.message || err) };
+  }
+
+  try {
+    const runOutcome = await page.evaluate(async () => {
       // Use an explicit context-spec object so axe-core 4.10's
       // normalizeRunParams reliably identifies the first argument as the
       // context (not options). Passing a bare \`document\` reference has
       // been observed to trip "axe.run arguments are invalid" in some
       // browserless evaluation contexts.
-      const context = { include: [document.documentElement] };
+      const ctx = { include: [document.documentElement] };
       const options = { resultTypes: ['violations', 'passes', 'incomplete', 'inapplicable'] };
-      return await window.axe.run(context, options);
+      try {
+        if (!window.axe) {
+          return { ok: false, error: { name: 'NoAxe', message: 'window.axe is undefined at run-time', stack: null } };
+        }
+        const results = await window.axe.run(ctx, options);
+        return { ok: true, results: results };
+      } catch (e) {
+        return {
+          ok: false,
+          error: {
+            name: (e && e.name) || 'Error',
+            message: (e && e.message) || String(e),
+            stack: (e && e.stack) || null,
+            ctorName: (e && e.constructor && e.constructor.name) || null,
+          },
+        };
+      }
     });
-    return { data: results, type: 'application/json' };
+    if (runOutcome && runOutcome.ok) {
+      return { data: runOutcome.results, type: 'application/json' };
+    }
+    return {
+      data: {
+        error: 'axe_run_failed',
+        message: (runOutcome && runOutcome.error && runOutcome.error.message) || 'unknown',
+        errorDetail: runOutcome && runOutcome.error,
+        preInject: preInject,
+        postInject: postInject,
+        axeVersion: 'axe-core@4.10.2',
+      },
+      type: 'application/json',
+    };
   } catch (err) {
-    const axeVersion = 'axe-core@4.10.2';
-    const message = String(err && err.message || err);
-    return { data: { error: 'axe_run_failed', message: message + ' (' + axeVersion + ')' }, type: 'application/json' };
+    return {
+      data: {
+        error: 'axe_run_failed',
+        message: String(err && err.message || err),
+        errorDetail: {
+          name: err && err.name,
+          message: err && err.message,
+          stack: err && err.stack,
+        },
+        preInject: preInject,
+        postInject: postInject,
+        axeVersion: 'axe-core@4.10.2',
+      },
+      type: 'application/json',
+    };
   }
 }
 `;
@@ -97,11 +179,33 @@ export async function runAxeAudit(url) {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
+      // Log full (truncated) non-2xx body server-side for diagnostics; the
+      // thrown error keeps a short message for end users.
+      console.error('[accessibility-audit] browserless non-2xx response', {
+        url,
+        status: response.status,
+        bodyExcerpt: body.slice(0, 2048),
+      });
       throw new Error(`browserless returned ${response.status}: ${body.slice(0, 500)}`);
     }
 
     const data = await response.json();
     if (data && data.error) {
+      // Log the full error envelope (preInject/postInject/errorDetail) before
+      // throwing the short user-facing message. This is the key diagnostic
+      // signal for figuring out why axe.run rejects its arguments.
+      try {
+        console.error('[accessibility-audit] browserless error envelope', {
+          url,
+          envelope: JSON.stringify(data).slice(0, 4096),
+        });
+      } catch {
+        console.error('[accessibility-audit] browserless error envelope (unserializable)', {
+          url,
+          error: data.error,
+          message: data.message,
+        });
+      }
       const msg = data.message || data.error;
       throw new Error(`Audit failed: ${msg}`);
     }
