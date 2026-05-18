@@ -94,6 +94,10 @@ export default function CanvasPageEditorPage() {
   const [axeRunning, setAxeRunning] = useState(false);
   const [axeStale, setAxeStale] = useState(false);
   const [axeLastRunAt, setAxeLastRunAt] = useState(null);
+  // When non-null, the drawer is showing a persisted past run instead of
+  // the most recent in-memory result. Used to disable "stale" warnings and
+  // to surface a "return to latest" affordance.
+  const [viewingRunId, setViewingRunId] = useState(null);
   // Track whether the design has changed since the last axe run so the user
   // knows the previous result may be stale.
   const lastAxeDesignRef = useRef(null);
@@ -426,7 +430,23 @@ export default function CanvasPageEditorPage() {
       setAxeIssues(mapped);
       setAxeStale(false);
       setAxeLastRunAt(Date.now());
+      setViewingRunId(null);
       lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
+      // Persist the run so authors can revisit it later. Best-effort:
+      // failures here don't block the in-editor experience.
+      if (pageId) {
+        try {
+          const resp = await fetch(`/api/canvas-page-audits/${encodeURIComponent(pageId)}`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ issues: mapped }),
+          });
+          if (resp.ok) {
+            queryClient.invalidateQueries({ queryKey: ['canvas-page-audits', pageId] });
+          }
+        } catch { /* non-fatal */ }
+      }
       if (!silent) {
         const summary = mapped.reduce(
           (acc, m) => ({ ...acc, [m.severity]: (acc[m.severity] || 0) + 1 }),
@@ -449,7 +469,7 @@ export default function CanvasPageEditorPage() {
     } finally {
       setAxeRunning(false);
     }
-  }, []);
+  }, [pageId, queryClient]);
 
   // Manual "Run full audit" entry point — opens the preview modal if
   // needed. axe-core needs the iframe document, so the modal must be
@@ -541,6 +561,68 @@ export default function CanvasPageEditorPage() {
       autoAuditPendingRef.current = true;
     }
   }, [showAuditModal, axeIssues]);
+
+  // Persisted audit run history (Task #919). Lets authors see how
+  // accessibility issues have evolved over time and re-open a past run.
+  const { data: auditRunsData } = useQuery({
+    queryKey: ['canvas-page-audits', pageId],
+    queryFn: async () => {
+      const resp = await fetch(`/api/canvas-page-audits/${encodeURIComponent(pageId)}`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) return { runs: [] };
+      return resp.json();
+    },
+    enabled: !!pageId,
+    staleTime: 30_000,
+  });
+  const auditRuns = auditRunsData?.runs || [];
+
+  // Load a persisted past run into the drawer. The current in-memory
+  // result is recoverable via the "Show latest" affordance.
+  const latestInMemoryRef = useRef(null);
+  const handleViewPastRun = useCallback(async (runId) => {
+    if (!pageId || !runId) return;
+    if (viewingRunId === null) {
+      latestInMemoryRef.current = {
+        issues: axeIssues,
+        stale: axeStale,
+        lastRunAt: axeLastRunAt,
+      };
+    }
+    try {
+      const resp = await fetch(
+        `/api/canvas-page-audits/${encodeURIComponent(pageId)}?runId=${encodeURIComponent(runId)}`,
+        { credentials: 'include' },
+      );
+      if (!resp.ok) {
+        toast.error('Failed to load past audit run.');
+        return;
+      }
+      const body = await resp.json();
+      const run = body.run;
+      if (!run) return;
+      setAxeIssues(Array.isArray(run.issues) ? run.issues : []);
+      setAxeStale(false);
+      setAxeLastRunAt(new Date(run.created_at).getTime());
+      setViewingRunId(runId);
+    } catch {
+      toast.error('Failed to load past audit run.');
+    }
+  }, [pageId, viewingRunId, axeIssues, axeStale, axeLastRunAt]);
+
+  const handleReturnToLatest = useCallback(() => {
+    const snap = latestInMemoryRef.current;
+    if (!snap) {
+      setViewingRunId(null);
+      return;
+    }
+    setAxeIssues(snap.issues);
+    setAxeStale(snap.stale);
+    setAxeLastRunAt(snap.lastRunAt);
+    setViewingRunId(null);
+    latestInMemoryRef.current = null;
+  }, []);
 
   // Severity breakdown for the persistent audit summary indicator. Authors
   // need to keep an eye on audit health even after closing the preview
@@ -754,12 +836,20 @@ export default function CanvasPageEditorPage() {
                 )}
               </span>
             )}
-            {axeStale && (
+            {axeStale && !viewingRunId && (
               <Badge
                 className="ml-2 bg-slate-200 text-slate-700"
                 data-testid="badge-axe-summary-stale"
               >
                 Stale
+              </Badge>
+            )}
+            {viewingRunId && (
+              <Badge
+                className="ml-2 bg-sky-100 text-sky-700"
+                data-testid="badge-axe-summary-viewing-past"
+              >
+                Past run
               </Badge>
             )}
           </Button>
@@ -1057,7 +1147,24 @@ export default function CanvasPageEditorPage() {
                   : <Accessibility className="w-4 h-4 mr-2" />}
                 {axeRunning ? 'Auditing…' : 'Run full audit'}
               </Button>
-              {axeStale && axeIssues && (
+              {viewingRunId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleReturnToLatest}
+                  data-testid="button-drawer-return-to-latest"
+                >
+                  Show latest
+                </Button>
+              )}
+              {viewingRunId ? (
+                <Badge
+                  className="bg-sky-100 text-sky-700"
+                  data-testid="badge-drawer-viewing-past"
+                >
+                  Viewing past run
+                </Badge>
+              ) : axeStale && axeIssues && (
                 <Badge
                   className="bg-slate-200 text-slate-700"
                   data-testid="badge-drawer-axe-stale"
@@ -1067,10 +1174,60 @@ export default function CanvasPageEditorPage() {
               )}
               {axeLastRunAt && (
                 <span className="text-[11px] text-slate-500">
-                  Last run {new Date(axeLastRunAt).toLocaleTimeString()}
+                  {viewingRunId ? 'Run' : 'Last run'} {new Date(axeLastRunAt).toLocaleString()}
                 </span>
               )}
             </div>
+            {auditRuns.length > 0 && (
+              <div className="pt-3" data-testid="audit-history-strip">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                  History
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {auditRuns.map((run) => {
+                    const active = viewingRunId === run.id;
+                    const passed = (run.total_count || 0) === 0;
+                    return (
+                      <button
+                        key={run.id}
+                        type="button"
+                        onClick={() => handleViewPastRun(run.id)}
+                        className={`shrink-0 rounded-md border px-2 py-1.5 text-left text-[11px] hover-elevate ${
+                          active
+                            ? 'border-sky-300 bg-sky-50'
+                            : 'border-slate-200 bg-white'
+                        }`}
+                        title={`Run by ${run.run_by_name || 'unknown'} on ${new Date(run.created_at).toLocaleString()}`}
+                        data-testid={`button-audit-history-${run.id}`}
+                      >
+                        <div className="font-medium text-slate-700">
+                          {new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          {' '}
+                          {new Date(run.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {passed ? (
+                            <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
+                          ) : (
+                            <>
+                              {run.error_count > 0 && (
+                                <Badge className="bg-rose-100 text-rose-700">{run.error_count}</Badge>
+                              )}
+                              {run.warning_count > 0 && (
+                                <Badge className="bg-amber-100 text-amber-700">{run.warning_count}</Badge>
+                              )}
+                              {run.info_count > 0 && (
+                                <Badge className="bg-sky-100 text-sky-700">{run.info_count}</Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </SheetHeader>
           <div className="p-4 flex-1 overflow-y-auto space-y-3">
             {axeIssues === null && (
