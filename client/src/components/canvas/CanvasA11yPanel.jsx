@@ -108,7 +108,8 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
                 const selector = Array.isArray(it.selector)
                   ? it.selector.join(' ')
                   : (it.selector || '');
-                const canLocate = !!onLocate && (canJump || !!selector);
+                const canLocate = !!onLocate && canJump;
+                const showDisabledLocate = !!onLocate && !canJump;
                 const handleRowClick = canJump ? () => onJumpToBlock?.(it.blockId) : undefined;
                 const handleRowKey = canJump
                   ? (e) => {
@@ -192,10 +193,30 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
                               className="h-6 px-2 text-[11px]"
                               onClick={(e) => { e.stopPropagation(); onLocate?.(it); }}
                               data-testid={`a11y-issue-locate-${it.rule}`}
+                              title="Select this block on the canvas"
                             >
                               <Crosshair className="w-3 h-3 mr-1" />
                               Locate
                             </Button>
+                          )}
+                          {showDisabledLocate && (
+                            <span
+                              className="inline-flex"
+                              title="This issue applies to the whole page — there is no specific block to locate."
+                              data-testid={`a11y-issue-locate-disabled-wrapper-${it.rule}`}
+                            >
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[11px] pointer-events-none"
+                                disabled
+                                tabIndex={-1}
+                                data-testid={`a11y-issue-locate-disabled-${it.rule}`}
+                              >
+                                <Crosshair className="w-3 h-3 mr-1" />
+                                No block to locate
+                              </Button>
+                            </span>
                           )}
                         </div>
                       </div>

@@ -199,6 +199,34 @@
  */
 @layer utilities {
 
+  /* Brief pulse used to indicate a block on the canvas after a "Locate"
+   * action from the accessibility audit panel. Canvas blocks render
+   * with overflow:hidden so any outward effect on the block itself
+   * would be clipped — instead, we animate `outline` (which paints
+   * outside the element's box and is never clipped by overflow) and
+   * sit on top of the existing selection outline. Respects
+   * prefers-reduced-motion by falling back to a static ring that
+   * doesn't animate. */
+  @keyframes canvas-locate-pulse {
+    0%   { outline-color: rgba(239, 68, 68, 1);   outline-offset: 2px; }
+    50%  { outline-color: rgba(239, 68, 68, 1);   outline-offset: 8px; }
+    100% { outline-color: rgba(239, 68, 68, 0);   outline-offset: 12px; }
+  }
+
+  .canvas-locate-pulse {
+    outline: 3px solid rgba(239, 68, 68, 1);
+    outline-offset: 2px;
+    animation: canvas-locate-pulse 750ms ease-out 2;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .canvas-locate-pulse {
+      animation: none;
+      outline: 3px solid rgba(239, 68, 68, 1);
+      outline-offset: 3px;
+    }
+  }
+
   /* Hide ugly search cancel button in Chrome until we can style it properly */
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;

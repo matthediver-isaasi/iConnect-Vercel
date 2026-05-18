@@ -488,71 +488,39 @@ export default function CanvasPageEditorPage() {
     await runAxeOnPreview();
   };
 
-  // Highlights the offending element inside the preview iframe so the
-  // author can identify it visually. Defined before handlePreviewIframeLoad
-  // so the load handler can call into it without tripping a TDZ error.
-  const pendingLocateRef = useRef(null);
-  const applyPreviewHighlight = useCallback((issue) => {
-    const iframe = previewIframeRef.current;
-    const doc = iframe?.contentDocument;
-    if (!doc || !issue) return false;
-    const target = Array.isArray(issue.target) ? issue.target : issue.selector;
-    const sel = Array.isArray(target) ? target[target.length - 1] : target;
-    if (!sel || typeof sel !== 'string') return false;
-    let el = null;
-    try { el = doc.querySelector(sel); } catch { return false; }
-    if (!el) return false;
-    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* ignore */ }
-    const prevOutline = el.style.outline;
-    const prevOffset = el.style.outlineOffset;
-    const prevTransition = el.style.transition;
-    el.style.transition = 'outline-color 200ms ease-out';
-    el.style.outline = '3px solid #ef4444';
-    el.style.outlineOffset = '2px';
+  const handleLocateIssue = useCallback((issue) => {
+    if (!issue || !issue.blockId) return;
+    // The fix has to be made on the canvas editing surface, so Locate
+    // selects + scrolls + pulses the block here. The preview iframe is
+    // intentionally left alone.
+    try { canvasRef.current?.setSelection?.(issue.blockId); } catch { /* ignore */ }
+    if (typeof document === 'undefined') return;
+    // The setSelection helper schedules its own scrollIntoView on a
+    // microtask; wait one frame so the block is in view before we add
+    // the pulse class.
     setTimeout(() => {
-      try {
-        el.style.outline = prevOutline;
-        el.style.outlineOffset = prevOffset;
-        el.style.transition = prevTransition;
-      } catch { /* ignore */ }
-    }, 2200);
-    return true;
+      const el = document.querySelector(`[data-block-id="${issue.blockId}"]`);
+      if (!el) return;
+      el.classList.remove('canvas-locate-pulse');
+      // Force reflow so re-adding the class restarts the animation when
+      // the same block is located twice in a row.
+      // eslint-disable-next-line no-unused-expressions
+      el.offsetWidth;
+      el.classList.add('canvas-locate-pulse');
+      setTimeout(() => {
+        try { el.classList.remove('canvas-locate-pulse'); } catch { /* ignore */ }
+      }, 1600);
+    }, 80);
   }, []);
 
-  const handleLocateIssue = useCallback((issue) => {
-    if (!issue) return;
-    // For block-scoped issues, also select the block in the canvas so
-    // the inspector follows the user's focus.
-    if (issue.blockId) {
-      try { canvasRef.current?.setSelection?.(issue.blockId); } catch { /* ignore */ }
-    }
-    if (!showAuditModal) {
-      pendingLocateRef.current = issue;
-      setShowAuditModal(true);
-      toast.message('Opening preview to locate the element…');
-      return;
-    }
-    const ok = applyPreviewHighlight(issue);
-    if (!ok) {
-      pendingLocateRef.current = issue;
-      toast.message('Preview is still loading — will highlight once ready.');
-    }
-  }, [showAuditModal, applyPreviewHighlight]);
-
-  // Fires when the preview iframe finishes loading. A pending Locate
-  // action takes priority over an auto-audit so the author lands on the
-  // element they asked to see.
+  // Fires when the preview iframe finishes loading. Used to kick off an
+  // auto-audit once the SPA inside the iframe has mounted.
   const handlePreviewIframeLoad = useCallback(() => {
-    if (pendingLocateRef.current) {
-      const issue = pendingLocateRef.current;
-      pendingLocateRef.current = null;
-      setTimeout(() => { applyPreviewHighlight(issue); }, 450);
-    }
     if (!autoAuditPendingRef.current) return;
     autoAuditPendingRef.current = false;
     // Give the SPA inside the iframe a tick to mount its tree before scanning.
     setTimeout(() => { runAxeOnPreview({ silent: true }); }, 400);
-  }, [runAxeOnPreview, applyPreviewHighlight]);
+  }, [runAxeOnPreview]);
 
   // Opening the preview modal for the first time should also trigger an
   // audit so authors don't have to click twice.
@@ -1247,6 +1215,7 @@ export default function CanvasPageEditorPage() {
                 setShowAuditDrawer(false);
               }}
               onLocate={(issue) => {
+                if (!issue?.blockId) return;
                 setShowAuditDrawer(false);
                 handleLocateIssue(issue);
               }}
