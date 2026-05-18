@@ -355,7 +355,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       setSelectedIds(arr);
       if (arr[0] && typeof document !== 'undefined') {
         setTimeout(() => {
-          const el = document.querySelector(`[data-block-id="${arr[0]}"]`);
+          // Scope to the canvas stage — `data-block-id` also appears on
+          // a11y panel rows, so a document-wide query can resolve to the
+          // wrong element.
+          const stage = document.querySelector('[data-testid="canvas-stage"]');
+          const el = (stage || document).querySelector(
+            `[data-testid="canvas-block-${arr[0]}"]`,
+          );
           if (el && typeof el.scrollIntoView === 'function') {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }

@@ -499,7 +499,13 @@ export default function CanvasPageEditorPage() {
     // microtask; wait one frame so the block is in view before we add
     // the pulse class.
     setTimeout(() => {
-      const el = document.querySelector(`[data-block-id="${issue.blockId}"]`);
+      // Scope to the canvas stage — `data-block-id` is also present on
+      // issue rows in CanvasA11yPanel, so a document-wide query can
+      // resolve to the panel row instead of the canvas block.
+      const stage = document.querySelector('[data-testid="canvas-stage"]');
+      const el = (stage || document).querySelector(
+        `[data-testid="canvas-block-${issue.blockId}"]`,
+      );
       if (!el) return;
       el.classList.remove('canvas-locate-pulse');
       // Force reflow so re-adding the class restarts the animation when
