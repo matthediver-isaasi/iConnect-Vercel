@@ -114,24 +114,6 @@ export default function CanvasPageEditorPage() {
   // onLoad handler will then trigger an automatic axe run.
   const autoAuditPendingRef = useRef(false);
 
-  // Which views apply to this page, in audit order. Hybrid pages render
-  // differently for anonymous visitors vs. logged-in members, so we run a
-  // dual-pass audit and surface both results. Public/member-only pages
-  // only ever render one way, so we audit once. Member is audited first
-  // when applicable because that's the iframe's natural starting state.
-  const viewsToAudit = useMemo(() => {
-    const lt = page?.layout_type || 'public';
-    if (lt === 'hybrid') return ['member', 'public'];
-    if (lt === 'public') return ['public'];
-    return ['member'];
-  }, [page?.layout_type]);
-  // Keep the iframe initial view + drawer tab in sync with the page's
-  // layout type. For single-view pages the value never matters but we
-  // still set it so the iframe and tab labels match the only view.
-  useEffect(() => {
-    setPreviewView(viewsToAudit[0]);
-  }, [viewsToAudit]);
-
   // Wrap dirty-change so any edit after an axe run marks the result stale.
   const handleDirtyChange = useCallback((nextDirty) => {
     setIsDirty(nextDirty);
@@ -180,6 +162,26 @@ export default function CanvasPageEditorPage() {
     enabled: !!pageId,
     staleTime: 0,
   });
+
+  // Which views apply to this page, in audit order. Hybrid pages render
+  // differently for anonymous visitors vs. logged-in members, so we run a
+  // dual-pass audit and surface both results. Public/member-only pages
+  // only ever render one way, so we audit once. Member is audited first
+  // when applicable because that's the iframe's natural starting state.
+  // Declared after the `page` useQuery so its dependency array can read
+  // `page?.layout_type` without tripping a temporal-dead-zone error.
+  const viewsToAudit = useMemo(() => {
+    const lt = page?.layout_type || 'public';
+    if (lt === 'hybrid') return ['member', 'public'];
+    if (lt === 'public') return ['public'];
+    return ['member'];
+  }, [page?.layout_type]);
+  // Keep the iframe initial view + drawer tab in sync with the page's
+  // layout type. For single-view pages the value never matters but we
+  // still set it so the iframe and tab labels match the only view.
+  useEffect(() => {
+    setPreviewView(viewsToAudit[0]);
+  }, [viewsToAudit]);
 
   // Hydrate local editor state only on first load per pageId. Subsequent
   // refetches (e.g. after a successful save invalidates the query) must
