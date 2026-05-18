@@ -896,7 +896,7 @@ export default function CanvasPageEditorPage() {
             isDirty={isDirty}
             onDirtyChange={handleDirtyChange}
             extraIssues={axeStale ? [] : (axeIssues || [])}
-            onLocateInPreview={handleLocateIssue}
+            onLocateIssue={handleLocateIssue}
           />
         </div>
 
@@ -1107,7 +1107,7 @@ export default function CanvasPageEditorPage() {
               <FileText className="w-4 h-4 text-slate-500" /> Audit report
             </SheetTitle>
             <SheetDescription className="text-xs">
-              Every accessibility finding — heuristic checks plus the latest full audit. Click an issue to jump to the block, locate it in the preview, or open the WCAG reference.
+              Every accessibility finding — heuristic checks plus the latest full audit. Click an issue to jump to the block, locate it on the canvas, or open the WCAG reference.
             </SheetDescription>
             <div className="flex items-center gap-2 pt-2 flex-wrap">
               <Button

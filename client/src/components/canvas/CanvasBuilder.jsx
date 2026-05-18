@@ -167,7 +167,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   isDirty: isDirtyProp,
   onDirtyChange,
   extraIssues = [],
-  onLocateInPreview,
+  onLocateIssue,
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1050,7 +1050,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                   }}
-                  onLocate={onLocateInPreview}
+                  onLocate={onLocateIssue}
                 />
               </div>
             )}
