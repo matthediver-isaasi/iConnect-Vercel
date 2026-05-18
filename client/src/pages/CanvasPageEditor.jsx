@@ -65,6 +65,16 @@ export default function CanvasPageEditorPage() {
   //   { blocking: A11yIssue[], missingAudit: bool, staleAudit: bool, newStatus }
   const [publishConfirm, setPublishConfirm] = useState(null);
   const [previewNonce, setPreviewNonce] = useState(0);
+  // Dual-view accessibility audit (Task #925). For hybrid pages the editor
+  // user (logged in) sees the member chrome, but anonymous visitors see a
+  // different layout. We audit both. `previewView` controls which version
+  // the iframe is currently loading: 'member' (default — cookies attached,
+  // portal chrome) or 'public' (DynamicPage forces public layout via the
+  // `_publicView=1` query param). Non-hybrid pages stay on a single view.
+  const [previewView, setPreviewView] = useState('member');
+  // Track which axe view tab the drawer is currently showing on dual-view
+  // pages. Defaults to the first applicable view.
+  const [auditViewTab, setAuditViewTab] = useState('member');
   // Phase 7 dialog visibility flags. The command palette and shortcut
   // overlay are toggled via global keyboard shortcuts (Cmd+K and ?).
   const [showTemplates, setShowTemplates] = useState(false);
@@ -74,7 +84,6 @@ export default function CanvasPageEditorPage() {
   const [showTheme, setShowTheme] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
-  const [previewAsVisitor, setPreviewAsVisitor] = useState(false);
   // Picker callback for the media library dialog. When a block inspector
   // requests the library, we capture its onPick so the dialog can hand
   // the selected asset back through this single channel.
@@ -104,6 +113,26 @@ export default function CanvasPageEditorPage() {
   // Set to true when a save has just bumped the preview iframe; the iframe's
   // onLoad handler will then trigger an automatic axe run.
   const autoAuditPendingRef = useRef(false);
+
+  // Which views apply to this page, in audit order. Hybrid pages render
+  // differently for anonymous visitors vs. logged-in members, so we run a
+  // dual-pass audit and surface both results. Public/member-only pages
+  // only ever render one way, so we audit once. Member is audited first
+  // when applicable because that's the iframe's natural starting state.
+  const viewsToAudit = useMemo(() => {
+    const lt = page?.layout_type || 'public';
+    if (lt === 'hybrid') return ['member', 'public'];
+    if (lt === 'public') return ['public'];
+    return ['member'];
+  }, [page?.layout_type]);
+  const isDualView = viewsToAudit.length > 1;
+  // Keep the iframe initial view + drawer tab in sync with the page's
+  // layout type. For single-view pages the value never matters but we
+  // still set it so the iframe and tab labels match the only view.
+  useEffect(() => {
+    setPreviewView(viewsToAudit[0]);
+    setAuditViewTab((prev) => (viewsToAudit.includes(prev) ? prev : viewsToAudit[0]));
+  }, [viewsToAudit]);
 
   // Wrap dirty-change so any edit after an axe run marks the result stale.
   const handleDirtyChange = useCallback((nextDirty) => {
@@ -354,114 +383,191 @@ export default function CanvasPageEditorPage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Core axe runner used by both the manual button and the post-save
-  // auto-audit. Returns the mapped issue list (or null on hard failure) and
-  // never throws.
-  const runAxeOnPreview = useCallback(async ({ silent = false } = {}) => {
+  // Switch the preview iframe to a target view and resolve when the new
+  // document has loaded. Used by the dual-pass audit runner to flip
+  // between the member and public renderings of a hybrid page. The iframe
+  // element itself persists across view changes (its `key` is tied to
+  // `previewNonce`, not the view) so we can attach a one-shot load
+  // listener before React commits the new src.
+  const reloadIframeForView = useCallback((view) => {
+    return new Promise((resolve, reject) => {
+      const iframe = previewIframeRef.current;
+      if (!iframe) { reject(new Error('iframe missing')); return; }
+      let settled = false;
+      const onLoad = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        iframe.removeEventListener('load', onLoad);
+        // Give the SPA inside the iframe a tick to mount before we scan.
+        setTimeout(resolve, 400);
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        iframe.removeEventListener('load', onLoad);
+        reject(new Error('iframe load timeout'));
+      }, 15000);
+      iframe.addEventListener('load', onLoad);
+      setPreviewView(view);
+    });
+  }, []);
+
+  // Scan whatever is currently in the preview iframe with axe-core and
+  // return mapped issues, tagged with the supplied `view` label. Helper
+  // used by both single- and dual-pass runs.
+  const scanIframeWithAxe = useCallback(async (view) => {
     const iframe = previewIframeRef.current;
     const doc = iframe?.contentDocument;
-    if (!doc) {
+    if (!doc) throw new Error('Preview is not loaded');
+    const axe = (await import('axe-core')).default;
+    // Use an explicit context-spec object so axe-core 4.10's
+    // normalizeRunParams reliably identifies the first arg as context
+    // (not options). Passing the raw iframe `document` trips
+    // "axe.run arguments are invalid" due to cross-realm instanceof
+    // checks — same issue we hit on the server-side runner.
+    const ctx = { include: [doc.documentElement] };
+    const results = await axe.run(ctx, {
+      runOnly: ['wcag2a', 'wcag2aa', 'best-practice'],
+      resultTypes: ['violations'],
+    });
+    const sevFromImpact = (impact) => {
+      if (impact === 'critical' || impact === 'serious') return 'error';
+      if (impact === 'moderate') return 'warning';
+      return 'info';
+    };
+    const blockMap = new Map();
+    try {
+      const design = canvasRef.current?.getDesign?.();
+      const visit = (b) => {
+        if (!b) return;
+        if (b.id) blockMap.set(b.id, b.name || b.type || b.id);
+        (b.children || []).forEach(visit);
+      };
+      (design?.root?.children || []).forEach(visit);
+    } catch { /* best-effort */ }
+    const blockIdForNode = (target) => {
+      const sel = Array.isArray(target) ? target[target.length - 1] : target;
+      if (!sel || typeof sel !== 'string') return null;
+      let el = null;
+      try { el = doc.querySelector(sel); } catch { return null; }
+      while (el && el !== doc.documentElement) {
+        const id = el.getAttribute && el.getAttribute('data-block-id');
+        if (id) return id;
+        el = el.parentElement;
+      }
+      return null;
+    };
+    return (results.violations || []).flatMap((v) =>
+      v.nodes.map((n) => {
+        const blockId = blockIdForNode(n.target);
+        const selector = Array.isArray(n.target) ? n.target : (n.target ? [String(n.target)] : []);
+        return {
+          blockId,
+          blockName: blockId ? (blockMap.get(blockId) || null) : null,
+          rule: `axe:${v.id}`,
+          severity: sevFromImpact(v.impact),
+          message: v.help || v.description || v.id,
+          selector,
+          html: n.html || null,
+          helpUrl: v.helpUrl || null,
+          target: n.target || null,
+          view,
+        };
+      }),
+    );
+  }, []);
+
+  // Core audit runner. Sequentially audits each applicable view (member +
+  // public for hybrid pages, otherwise just one view) and concatenates
+  // the tagged results into a single flat list. Per-view errors don't
+  // abort the other view's pass — they just leave that view's findings
+  // empty and surface a partial-failure toast.
+  const runAxeOnPreview = useCallback(async ({ silent = false } = {}) => {
+    const iframe = previewIframeRef.current;
+    if (!iframe?.contentDocument) {
       if (!silent) toast.error('Preview is not loaded yet. Try again in a moment.');
       return null;
     }
     setAxeRunning(true);
+    const initialView = viewsToAudit[0];
+    const errorViews = [];
+    const allIssues = [];
     try {
-      const axe = (await import('axe-core')).default;
-      // Use an explicit context-spec object so axe-core 4.10's
-      // normalizeRunParams reliably identifies the first arg as context
-      // (not options). Passing the raw iframe `document` trips
-      // "axe.run arguments are invalid" due to cross-realm instanceof
-      // checks — same issue we hit on the server-side runner.
-      const ctx = { include: [doc.documentElement] };
-      const results = await axe.run(ctx, {
-        runOnly: ['wcag2a', 'wcag2aa', 'best-practice'],
-        resultTypes: ['violations'],
-      });
-      const sevFromImpact = (impact) => {
-        if (impact === 'critical' || impact === 'serious') return 'error';
-        if (impact === 'moderate') return 'warning';
-        return 'info';
-      };
-      // Walk up from each failing node to the nearest [data-block-id] so
-      // axe issues can be filed against specific canvas blocks (and surfaced
-      // in the inspector / layers / a11y panel alongside heuristic issues).
-      const blockMap = new Map();
+      // Guard: if the iframe somehow drifted off the expected first-pass
+      // view (e.g. a prior dual-pass aborted mid-restore), reload it so
+      // pass-1 findings are correctly attributable to `initialView`.
+      if (previewView !== initialView) {
+        try { await reloadIframeForView(initialView); } catch { /* fall through; pass 1 may still run */ }
+      }
+      // Pass 1: scan the iframe in its current state (which now matches
+      // initialView).
       try {
-        const design = canvasRef.current?.getDesign?.();
-        const visit = (b) => {
-          if (!b) return;
-          if (b.id) blockMap.set(b.id, b.name || b.type || b.id);
-          (b.children || []).forEach(visit);
-        };
-        (design?.root?.children || []).forEach(visit);
-      } catch { /* best-effort */ }
-      const blockIdForNode = (target) => {
-        const sel = Array.isArray(target) ? target[target.length - 1] : target;
-        if (!sel || typeof sel !== 'string') return null;
-        let el = null;
-        try { el = doc.querySelector(sel); } catch { return null; }
-        while (el && el !== doc.documentElement) {
-          const id = el.getAttribute && el.getAttribute('data-block-id');
-          if (id) return id;
-          el = el.parentElement;
+        const r = await scanIframeWithAxe(initialView);
+        allIssues.push(...r);
+      } catch (e) {
+        console.error('[canvas-axe] pass failed for', initialView, e);
+        errorViews.push(initialView);
+      }
+
+      // Pass 2 (dual-view only): flip the iframe to the other view, scan,
+      // then restore the iframe to the initial view so the editor's
+      // preview surface keeps showing what the author was looking at.
+      if (viewsToAudit.length > 1) {
+        const otherView = viewsToAudit[1];
+        try {
+          await reloadIframeForView(otherView);
+          const r = await scanIframeWithAxe(otherView);
+          allIssues.push(...r);
+        } catch (e) {
+          console.error('[canvas-axe] pass failed for', otherView, e);
+          errorViews.push(otherView);
         }
-        return null;
-      };
-      const mapped = (results.violations || []).flatMap((v) =>
-        v.nodes.map((n, i) => {
-          const blockId = blockIdForNode(n.target);
-          const selector = Array.isArray(n.target) ? n.target : (n.target ? [String(n.target)] : []);
-          return {
-            blockId,
-            blockName: blockId ? (blockMap.get(blockId) || null) : null,
-            rule: `axe:${v.id}`,
-            severity: sevFromImpact(v.impact),
-            // Keep the human help text clean — the selector & html snippet
-            // are surfaced separately in the audit panels so document-level
-            // issues (e.g. contrast) remain identifiable.
-            message: v.help || v.description || v.id,
-            selector,
-            html: n.html || null,
-            helpUrl: v.helpUrl || null,
-            target: n.target || null,
-          };
-        }),
-      );
-      setAxeIssues(mapped);
+        try { await reloadIframeForView(initialView); } catch { /* ignore */ }
+      }
+
+      setAxeIssues(allIssues);
       setAxeStale(false);
       setAxeLastRunAt(Date.now());
       setViewingRunId(null);
       lastAxeDesignRef.current = canvasRef.current?.getDesign?.() || null;
-      // Persist the run so authors can revisit it later. Best-effort:
-      // failures here don't block the in-editor experience.
+
       if (pageId) {
         try {
           const resp = await fetch(`/api/canvas-page-audits/${encodeURIComponent(pageId)}`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ issues: mapped }),
+            body: JSON.stringify({ issues: allIssues }),
           });
           if (resp.ok) {
             queryClient.invalidateQueries({ queryKey: ['canvas-page-audits', pageId] });
           }
         } catch { /* non-fatal */ }
       }
+
       if (!silent) {
-        const summary = mapped.reduce(
-          (acc, m) => ({ ...acc, [m.severity]: (acc[m.severity] || 0) + 1 }),
-          {},
-        );
-        if (mapped.length === 0) {
-          toast.success('Full audit passed — no axe-core violations found.');
+        if (errorViews.length > 0 && errorViews.length === viewsToAudit.length) {
+          toast.error('Audit failed — see browser console for details.');
+        } else if (errorViews.length > 0) {
+          toast.warning(`Audit completed for ${viewsToAudit.length - errorViews.length} of ${viewsToAudit.length} view(s). The ${errorViews.join(' / ')} view failed.`);
         } else {
-          toast.message(
-            `Full audit found ${mapped.length} issue(s): ${summary.error || 0} error · ${summary.warning || 0} warning · ${summary.info || 0} info`,
-            { duration: 6000 },
+          const summary = allIssues.reduce(
+            (acc, m) => ({ ...acc, [m.severity]: (acc[m.severity] || 0) + 1 }),
+            {},
           );
+          const viewSuffix = viewsToAudit.length > 1 ? ` across ${viewsToAudit.length} views` : '';
+          if (allIssues.length === 0) {
+            toast.success(`Full audit passed${viewSuffix} — no axe-core violations found.`);
+          } else {
+            toast.message(
+              `Full audit${viewSuffix} found ${allIssues.length} issue(s): ${summary.error || 0} error · ${summary.warning || 0} warning · ${summary.info || 0} info`,
+              { duration: 6000 },
+            );
+          }
         }
       }
-      return mapped;
+      return allIssues;
     } catch (err) {
       console.error('[canvas-axe] axe.run failed', err);
       if (!silent) toast.error('Audit failed — see browser console for details.');
@@ -469,7 +575,7 @@ export default function CanvasPageEditorPage() {
     } finally {
       setAxeRunning(false);
     }
-  }, [pageId, queryClient]);
+  }, [pageId, queryClient, viewsToAudit, previewView, scanIframeWithAxe, reloadIframeForView]);
 
   // Manual "Run full audit" entry point — opens the preview modal if
   // needed. axe-core needs the iframe document, so the modal must be
@@ -979,7 +1085,7 @@ export default function CanvasPageEditorPage() {
                 ref={previewIframeRef}
                 key={previewNonce}
                 title="Page preview"
-                src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}`}
+                src={`/${page.slug}?_canvasPreview=${previewNonce}&_bp=${breakpoint}${previewView === 'public' ? '&_publicView=1' : ''}`}
                 className="border-0 bg-white h-full"
                 style={{
                   width: breakpoint === 'mobile' ? 375 :
@@ -1043,6 +1149,14 @@ export default function CanvasPageEditorPage() {
                     <li key={idx} className="flex items-start gap-1.5">
                       <span className="text-slate-400 mt-0.5">•</span>
                       <span>
+                        {i.view && isDualView ? (
+                          <Badge
+                            className={`mr-1 ${i.view === 'public' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}
+                            data-testid={`publish-confirm-view-${i.view}-${idx}`}
+                          >
+                            {i.view === 'public' ? 'Public' : 'Member'}
+                          </Badge>
+                        ) : null}
                         {i.blockName ? <span className="font-medium">{i.blockName}: </span> : null}
                         {i.message}
                       </span>
@@ -1203,7 +1317,7 @@ export default function CanvasPageEditorPage() {
               </div>
             )}
           </SheetHeader>
-          <div className="p-4 flex-1 overflow-y-auto space-y-3">
+          <div className="p-4 flex-1 overflow-y-auto space-y-4">
             {axeIssues === null && (
               <div
                 className="text-xs text-slate-600 rounded border border-slate-200 bg-slate-50 px-2 py-2"
@@ -1212,20 +1326,120 @@ export default function CanvasPageEditorPage() {
                 Full audit not run yet — heuristic findings are shown below. Click <span className="font-medium">Run full audit</span> above to also scan the rendered preview with axe-core.
               </div>
             )}
-            <CanvasA11yPanel
-              issues={(axeIssues || [])
-                .concat(auditCanvasDesign(canvasRef.current?.getDesign?.() || page?.canvas_design || {}))}
-              selectedIds={[]}
-              onJumpToBlock={(id) => {
+            {(() => {
+              const heuristicIssues = auditCanvasDesign(
+                canvasRef.current?.getDesign?.() || page?.canvas_design || {},
+              );
+              const axeAll = axeIssues || [];
+              // Backward compat: older persisted runs don't tag issues
+              // with `view`; bucket them into the first applicable view.
+              const fallbackView = viewsToAudit[0];
+              const issuesForView = (v) => axeAll.filter((i) => (i.view || fallbackView) === v);
+              const onJump = (id) => {
                 try { canvasRef.current?.setSelection?.(id); } catch { /* ignore */ }
                 setShowAuditDrawer(false);
-              }}
-              onLocate={(issue) => {
+              };
+              const onLocate = (issue) => {
                 if (!issue?.blockId) return;
                 setShowAuditDrawer(false);
                 handleLocateIssue(issue);
-              }}
-            />
+              };
+              return (
+                <>
+                  <section
+                    className="space-y-2"
+                    data-testid="audit-section-heuristic"
+                    aria-label="Heuristic design findings"
+                  >
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Design checks
+                    </div>
+                    <CanvasA11yPanel
+                      issues={heuristicIssues}
+                      selectedIds={[]}
+                      onJumpToBlock={onJump}
+                      onLocate={onLocate}
+                    />
+                  </section>
+                  {isDualView ? (
+                    <section
+                      className="space-y-2"
+                      data-testid="audit-section-axe-dual"
+                      aria-label="Rendered audit findings by view"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Rendered audit (axe-core)
+                        </div>
+                        <div
+                          className="inline-flex rounded-md border border-slate-200 bg-white"
+                          role="group"
+                          aria-label="Audit view"
+                        >
+                          {viewsToAudit.map((v) => {
+                            const active = auditViewTab === v;
+                            const counts = issuesForView(v).reduce(
+                              (acc, i) => {
+                                acc.total += 1;
+                                acc[i.severity] = (acc[i.severity] || 0) + 1;
+                                return acc;
+                              },
+                              { total: 0, error: 0, warning: 0, info: 0 },
+                            );
+                            const label = v === 'public' ? 'Public view' : 'Member view';
+                            return (
+                              <Button
+                                key={v}
+                                variant="ghost"
+                                size="sm"
+                                className={`rounded-none toggle-elevate ${active ? 'toggle-elevated' : ''}`}
+                                onClick={() => setAuditViewTab(v)}
+                                aria-pressed={active}
+                                data-testid={`button-audit-view-${v}`}
+                              >
+                                <span className="mr-1.5">{label}</span>
+                                {counts.error > 0 && (
+                                  <Badge className="bg-rose-100 text-rose-700">
+                                    {counts.error}
+                                  </Badge>
+                                )}
+                                {counts.error === 0 && counts.total === 0 && axeIssues !== null && (
+                                  <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
+                                )}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div data-testid={`audit-view-pane-${auditViewTab}`}>
+                        <CanvasA11yPanel
+                          issues={issuesForView(auditViewTab)}
+                          selectedIds={[]}
+                          onJumpToBlock={onJump}
+                          onLocate={onLocate}
+                        />
+                      </div>
+                    </section>
+                  ) : (
+                    <section
+                      className="space-y-2"
+                      data-testid="audit-section-axe-single"
+                      aria-label="Rendered audit findings"
+                    >
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                        Rendered audit (axe-core) — {viewsToAudit[0] === 'public' ? 'Public view' : 'Member view'}
+                      </div>
+                      <CanvasA11yPanel
+                        issues={issuesForView(viewsToAudit[0])}
+                        selectedIds={[]}
+                        onJumpToBlock={onJump}
+                        onLocate={onLocate}
+                      />
+                    </section>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </SheetContent>
       </Sheet>

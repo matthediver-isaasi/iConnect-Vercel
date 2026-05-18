@@ -37,6 +37,19 @@ export default function DynamicPage() {
       return false;
     }
   }, [location.search]);
+  // Dual-view accessibility audit (Task #925): when the canvas editor wants
+  // to audit the "anonymous visitor" view of a hybrid page, it reloads the
+  // preview iframe with `_publicView=1` alongside `_canvasPreview`. We honor
+  // that flag by forcing the public layout (no portal header/sidebar) even
+  // when the viewer is logged in. Data fetching auth is unchanged.
+  const forcePublicPreview = useMemo(() => {
+    try {
+      const sp = new URLSearchParams(location.search);
+      return sp.has('_canvasPreview') && sp.get('_publicView') === '1';
+    } catch {
+      return false;
+    }
+  }, [location.search]);
   const { memberInfo, memberRole, isAccessReady, isFeatureExcluded } = useMemberAccess();
   // Preview mode is only honoured when the viewer actually has the
   // Canvas page editor capability. A bare ?_canvasPreview=… param from
@@ -303,13 +316,13 @@ export default function DynamicPage() {
       return;
     }
 
-    const shouldForcePublic = isPublicPage || (isHybridPage && !isLoggedIn);
+    const shouldForcePublic = forcePublicPreview || isPublicPage || (isHybridPage && !isLoggedIn);
     setForcePublicLayout(shouldForcePublic);
     
     return () => {
       setForcePublicLayout(false);
     };
-  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
+  }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, forcePublicPreview, setForcePublicLayout, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found
   const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;
