@@ -344,7 +344,13 @@ export default function CanvasPageEditorPage() {
     setAxeRunning(true);
     try {
       const axe = (await import('axe-core')).default;
-      const results = await axe.run(doc, {
+      // Use an explicit context-spec object so axe-core 4.10's
+      // normalizeRunParams reliably identifies the first arg as context
+      // (not options). Passing the raw iframe `document` trips
+      // "axe.run arguments are invalid" due to cross-realm instanceof
+      // checks — same issue we hit on the server-side runner.
+      const ctx = { include: [doc.documentElement] };
+      const results = await axe.run(ctx, {
         runOnly: ['wcag2a', 'wcag2aa', 'best-practice'],
         resultTypes: ['violations'],
       });
@@ -410,8 +416,8 @@ export default function CanvasPageEditorPage() {
       }
       return mapped;
     } catch (err) {
-      console.error('axe-core run failed', err);
-      if (!silent) toast.error(`Audit failed: ${err.message || err}`);
+      console.error('[canvas-axe] axe.run failed', err);
+      if (!silent) toast.error('Audit failed — see browser console for details.');
       return null;
     } finally {
       setAxeRunning(false);
