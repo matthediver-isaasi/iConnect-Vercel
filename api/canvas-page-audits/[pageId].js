@@ -39,6 +39,58 @@ function summarizeIssues(issues) {
   return { error_count: error, warning_count: warning, info_count: info, total_count: issues.length };
 }
 
+// Dual-view audits (Task #925/#926) tag each issue with the view it was
+// found in. Compute per-view severity totals when the run covered more
+// than one view so the history UI can surface separate scores per view.
+//
+// We seed buckets from `viewsAudited` (passed by the client) so that a
+// view with zero findings still ends up in the output — otherwise a
+// clean Public side would collapse the run back to a single bucket and
+// the history UI would lose the per-view breakdown for that run.
+//
+// Returns null only when the run covered a single view (UI then falls
+// back to the aggregate counts).
+function summarizeIssuesByView(issues, viewsAudited, failedViews) {
+  const failedSet = new Set(
+    Array.isArray(failedViews)
+      ? failedViews.filter((v) => typeof v === 'string' && v)
+      : [],
+  );
+  const auditedList = Array.isArray(viewsAudited)
+    ? viewsAudited.filter((v) => typeof v === 'string' && v)
+    : [];
+  // Whether the run covered multiple views is determined by the
+  // client-supplied audit scope, NOT by how many buckets end up
+  // non-empty after failures. Otherwise a partial-failure dual run
+  // (e.g. Public failed, Member clean) would persist `null` and lose
+  // its dual identity in history.
+  const auditedDual = auditedList.length > 1;
+  const successfulViews = auditedList.filter((v) => !failedSet.has(v));
+  const buckets = new Map();
+  for (const v of successfulViews) {
+    if (!buckets.has(v)) buckets.set(v, { error: 0, warning: 0, info: 0, total: 0 });
+  }
+  for (const i of issues) {
+    const v = typeof i?.view === 'string' && i.view ? i.view : null;
+    if (!v) continue;
+    if (failedSet.has(v)) continue;
+    if (!buckets.has(v)) buckets.set(v, { error: 0, warning: 0, info: 0, total: 0 });
+    const b = buckets.get(v);
+    b.total += 1;
+    if (i.severity === 'error') b.error += 1;
+    else if (i.severity === 'warning') b.warning += 1;
+    else b.info += 1;
+  }
+  // Persist per-view counts whenever the run covered >1 view (even if
+  // only one bucket has data due to failure) OR when the issues
+  // themselves resolved >1 distinct view tag. Single-view runs return
+  // null so the UI falls back to aggregate counts.
+  if (!auditedDual && buckets.size < 2) return null;
+  const out = {};
+  for (const [k, v] of buckets) out[k] = v;
+  return out;
+}
+
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
   const { pageId } = req.query;
@@ -84,7 +136,7 @@ export default async function handler(req, res) {
     );
     const { data, error } = await supabase
       .from('canvas_page_audit_run')
-      .select('id, page_id, run_by_name, run_by_member_id, run_by_tenant_user_id, total_count, error_count, warning_count, info_count, created_at')
+      .select('id, page_id, run_by_name, run_by_member_id, run_by_tenant_user_id, total_count, error_count, warning_count, info_count, view_counts, failed_views, created_at')
       .eq('page_id', pageId)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
@@ -103,7 +155,11 @@ export default async function handler(req, res) {
     if (body.issues.length > 10000) {
       return res.status(413).json({ error: 'Too many issues to persist' });
     }
+    const failedViewsInput = Array.isArray(body.failedViews)
+      ? body.failedViews.filter((v) => typeof v === 'string' && v)
+      : [];
     const counts = summarizeIssues(body.issues);
+    const viewCounts = summarizeIssuesByView(body.issues, body.viewsAudited, failedViewsInput);
     const runByName =
       (typeof body.runByName === 'string' && body.runByName.trim()) ||
       (context.tenantUserId ? 'Admin user' : 'Member');
@@ -117,9 +173,11 @@ export default async function handler(req, res) {
         run_by_tenant_user_id: context.tenantUserId || null,
         run_by_name: runByName,
         ...counts,
+        view_counts: viewCounts,
+        failed_views: failedViewsInput.length > 0 ? failedViewsInput : null,
         issues: body.issues,
       })
-      .select('id, page_id, run_by_name, run_by_member_id, run_by_tenant_user_id, total_count, error_count, warning_count, info_count, created_at')
+      .select('id, page_id, run_by_name, run_by_member_id, run_by_tenant_user_id, total_count, error_count, warning_count, info_count, view_counts, failed_views, created_at')
       .single();
     if (error) return res.status(500).json({ error: 'Failed to save audit run' });
 

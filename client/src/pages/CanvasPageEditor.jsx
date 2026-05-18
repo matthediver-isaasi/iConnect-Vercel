@@ -125,13 +125,11 @@ export default function CanvasPageEditorPage() {
     if (lt === 'public') return ['public'];
     return ['member'];
   }, [page?.layout_type]);
-  const isDualView = viewsToAudit.length > 1;
   // Keep the iframe initial view + drawer tab in sync with the page's
   // layout type. For single-view pages the value never matters but we
   // still set it so the iframe and tab labels match the only view.
   useEffect(() => {
     setPreviewView(viewsToAudit[0]);
-    setAuditViewTab((prev) => (viewsToAudit.includes(prev) ? prev : viewsToAudit[0]));
   }, [viewsToAudit]);
 
   // Wrap dirty-change so any edit after an axe run marks the result stale.
@@ -538,7 +536,11 @@ export default function CanvasPageEditorPage() {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ issues: allIssues }),
+            body: JSON.stringify({
+              issues: allIssues,
+              viewsAudited: viewsToAudit,
+              failedViews: errorViews,
+            }),
           });
           if (resp.ok) {
             queryClient.invalidateQueries({ queryKey: ['canvas-page-audits', pageId] });
@@ -657,6 +659,37 @@ export default function CanvasPageEditorPage() {
     staleTime: 30_000,
   });
   const auditRuns = auditRunsData?.runs || [];
+
+  // Which views the drawer should render in detail. When viewing a past
+  // run we trust the run's persisted `view_counts` keys so the dual /
+  // single split reflects the run that was actually executed, not the
+  // page's current layout (the page may have flipped between hybrid
+  // and public since the run was recorded). Falls back to viewsToAudit
+  // for in-memory runs or legacy rows without view_counts.
+  const effectiveViews = useMemo(() => {
+    if (viewingRunId) {
+      const run = auditRuns.find((r) => r.id === viewingRunId);
+      const vc = run?.view_counts;
+      const fv = Array.isArray(run?.failed_views) ? run.failed_views : [];
+      const keys = vc && typeof vc === 'object' ? Object.keys(vc) : [];
+      // Union of successfully-audited views and failed views so a
+      // partial-failure dual run still surfaces both tabs (the failed
+      // one rendered with a "Failed" badge instead of counts).
+      const union = [...keys];
+      for (const v of fv) if (!union.includes(v)) union.push(v);
+      if (union.length > 0) return union;
+    }
+    return viewsToAudit;
+  }, [viewingRunId, auditRuns, viewsToAudit]);
+  const isDualView = effectiveViews.length > 1;
+
+  // Keep the audit drawer tab in sync with whichever set of views is
+  // currently effective (page-derived for live runs, run-derived for
+  // past runs). Without this, switching to a past run on a single-view
+  // page leaves the tab pointing at a view the run never covered.
+  useEffect(() => {
+    setAuditViewTab((prev) => (effectiveViews.includes(prev) ? prev : effectiveViews[0]));
+  }, [effectiveViews]);
 
   // Load a persisted past run into the drawer. The current in-memory
   // result is recoverable via the "Show latest" affordance.
@@ -1275,6 +1308,76 @@ export default function CanvasPageEditorPage() {
                   {auditRuns.map((run) => {
                     const active = viewingRunId === run.id;
                     const passed = (run.total_count || 0) === 0;
+                    // Per-view severity totals (Task #926). Only present
+                    // for dual-view runs; single-view runs fall back to
+                    // the aggregate badges below.
+                    const vc = run.view_counts && typeof run.view_counts === 'object'
+                      ? run.view_counts
+                      : null;
+                    const failedRunViews = Array.isArray(run.failed_views)
+                      ? run.failed_views
+                      : [];
+                    const vcKeys = vc ? Object.keys(vc) : [];
+                    // Union so partial-failure dual runs still render
+                    // per-view rows (failed view rendered with a
+                    // "Failed" pill).
+                    const viewKeys = [...vcKeys];
+                    for (const fv of failedRunViews) {
+                      if (!viewKeys.includes(fv)) viewKeys.push(fv);
+                    }
+                    const isDualRun = viewKeys.length > 1;
+                    const renderViewRow = (v) => {
+                      const failed = failedRunViews.includes(v);
+                      const c = (vc && vc[v]) || { error: 0, warning: 0, info: 0, total: 0 };
+                      const label = v === 'public' ? 'Public' : v === 'member' ? 'Member' : v;
+                      return (
+                        <div
+                          key={v}
+                          className="flex items-center gap-1"
+                          data-testid={`audit-history-view-${run.id}-${v}`}
+                        >
+                          <span
+                            className={`text-[10px] px-1 rounded ${
+                              v === 'public'
+                                ? 'bg-sky-100 text-sky-700'
+                                : 'bg-violet-100 text-violet-700'
+                            }`}
+                          >
+                            {label}
+                          </span>
+                          {failed ? (
+                            <Badge
+                              className="bg-slate-200 text-slate-700"
+                              data-testid={`badge-audit-history-${run.id}-${v}-failed`}
+                            >
+                              Failed
+                            </Badge>
+                          ) : c.total === 0 ? (
+                            <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
+                          ) : (
+                            <>
+                              {c.error > 0 && (
+                                <Badge className="bg-rose-100 text-rose-700">{c.error}</Badge>
+                              )}
+                              {c.warning > 0 && (
+                                <Badge className="bg-amber-100 text-amber-700">{c.warning}</Badge>
+                              )}
+                              {c.info > 0 && (
+                                <Badge className="bg-sky-100 text-sky-700">{c.info}</Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    };
+                    const titleSuffix = isDualRun
+                      ? '\n' + viewKeys.map((v) => {
+                          const lbl = v === 'public' ? 'Public' : v === 'member' ? 'Member' : v;
+                          if (failedRunViews.includes(v)) return `${lbl}: scan failed`;
+                          const c = (vc && vc[v]) || { error: 0, warning: 0, info: 0 };
+                          return `${lbl}: ${c.error} error · ${c.warning} warning · ${c.info} info`;
+                        }).join('\n')
+                      : '';
                     return (
                       <button
                         key={run.id}
@@ -1285,7 +1388,7 @@ export default function CanvasPageEditorPage() {
                             ? 'border-sky-300 bg-sky-50'
                             : 'border-slate-200 bg-white'
                         }`}
-                        title={`Run by ${run.run_by_name || 'unknown'} on ${new Date(run.created_at).toLocaleString()}`}
+                        title={`Run by ${run.run_by_name || 'unknown'} on ${new Date(run.created_at).toLocaleString()}${titleSuffix}`}
                         data-testid={`button-audit-history-${run.id}`}
                       >
                         <div className="font-medium text-slate-700">
@@ -1293,23 +1396,32 @@ export default function CanvasPageEditorPage() {
                           {' '}
                           {new Date(run.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {passed ? (
-                            <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
-                          ) : (
-                            <>
-                              {run.error_count > 0 && (
-                                <Badge className="bg-rose-100 text-rose-700">{run.error_count}</Badge>
-                              )}
-                              {run.warning_count > 0 && (
-                                <Badge className="bg-amber-100 text-amber-700">{run.warning_count}</Badge>
-                              )}
-                              {run.info_count > 0 && (
-                                <Badge className="bg-sky-100 text-sky-700">{run.info_count}</Badge>
-                              )}
-                            </>
-                          )}
-                        </div>
+                        {isDualRun ? (
+                          <div
+                            className="flex flex-col gap-0.5 mt-0.5"
+                            data-testid={`audit-history-dual-${run.id}`}
+                          >
+                            {viewKeys.map(renderViewRow)}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {passed ? (
+                              <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
+                            ) : (
+                              <>
+                                {run.error_count > 0 && (
+                                  <Badge className="bg-rose-100 text-rose-700">{run.error_count}</Badge>
+                                )}
+                                {run.warning_count > 0 && (
+                                  <Badge className="bg-amber-100 text-amber-700">{run.warning_count}</Badge>
+                                )}
+                                {run.info_count > 0 && (
+                                  <Badge className="bg-sky-100 text-sky-700">{run.info_count}</Badge>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -1332,9 +1444,34 @@ export default function CanvasPageEditorPage() {
               );
               const axeAll = axeIssues || [];
               // Backward compat: older persisted runs don't tag issues
-              // with `view`; bucket them into the first applicable view.
-              const fallbackView = viewsToAudit[0];
+              // with `view`; bucket them into the first effective view.
+              const fallbackView = effectiveViews[0];
               const issuesForView = (v) => axeAll.filter((i) => (i.view || fallbackView) === v);
+              // The metadata of the run currently displayed in the
+              // drawer. For past runs this is the persisted row (so we
+              // can tell which views were actually scanned and which
+              // failed); for in-memory runs we synthesize the same
+              // shape from the live state.
+              const activeRun = viewingRunId
+                ? auditRuns.find((r) => r.id === viewingRunId)
+                : null;
+              const runViewCounts = activeRun?.view_counts && typeof activeRun.view_counts === 'object'
+                ? activeRun.view_counts
+                : null;
+              const runFailedViews = Array.isArray(activeRun?.failed_views)
+                ? activeRun.failed_views
+                : [];
+              const countsFor = (v) => {
+                if (runViewCounts && runViewCounts[v]) return runViewCounts[v];
+                return issuesForView(v).reduce(
+                  (acc, i) => {
+                    acc.total += 1;
+                    acc[i.severity] = (acc[i.severity] || 0) + 1;
+                    return acc;
+                  },
+                  { total: 0, error: 0, warning: 0, info: 0 },
+                );
+              };
               const onJump = (id) => {
                 try { canvasRef.current?.setSelection?.(id); } catch { /* ignore */ }
                 setShowAuditDrawer(false);
@@ -1376,17 +1513,11 @@ export default function CanvasPageEditorPage() {
                           role="group"
                           aria-label="Audit view"
                         >
-                          {viewsToAudit.map((v) => {
+                          {effectiveViews.map((v) => {
                             const active = auditViewTab === v;
-                            const counts = issuesForView(v).reduce(
-                              (acc, i) => {
-                                acc.total += 1;
-                                acc[i.severity] = (acc[i.severity] || 0) + 1;
-                                return acc;
-                              },
-                              { total: 0, error: 0, warning: 0, info: 0 },
-                            );
-                            const label = v === 'public' ? 'Public view' : 'Member view';
+                            const counts = countsFor(v);
+                            const failed = runFailedViews.includes(v);
+                            const label = v === 'public' ? 'Public view' : v === 'member' ? 'Member view' : v;
                             return (
                               <Button
                                 key={v}
@@ -1398,13 +1529,42 @@ export default function CanvasPageEditorPage() {
                                 data-testid={`button-audit-view-${v}`}
                               >
                                 <span className="mr-1.5">{label}</span>
-                                {counts.error > 0 && (
-                                  <Badge className="bg-rose-100 text-rose-700">
-                                    {counts.error}
+                                {failed ? (
+                                  <Badge
+                                    className="bg-slate-200 text-slate-700"
+                                    data-testid={`badge-audit-view-${v}-failed`}
+                                  >
+                                    Failed
                                   </Badge>
-                                )}
-                                {counts.error === 0 && counts.total === 0 && axeIssues !== null && (
+                                ) : counts.total === 0 && axeIssues !== null ? (
                                   <Badge className="bg-emerald-100 text-emerald-700">0</Badge>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1">
+                                    {counts.error > 0 && (
+                                      <Badge
+                                        className="bg-rose-100 text-rose-700"
+                                        data-testid={`badge-audit-view-${v}-error`}
+                                      >
+                                        {counts.error}
+                                      </Badge>
+                                    )}
+                                    {counts.warning > 0 && (
+                                      <Badge
+                                        className="bg-amber-100 text-amber-700"
+                                        data-testid={`badge-audit-view-${v}-warning`}
+                                      >
+                                        {counts.warning}
+                                      </Badge>
+                                    )}
+                                    {counts.info > 0 && (
+                                      <Badge
+                                        className="bg-sky-100 text-sky-700"
+                                        data-testid={`badge-audit-view-${v}-info`}
+                                      >
+                                        {counts.info}
+                                      </Badge>
+                                    )}
+                                  </span>
                                 )}
                               </Button>
                             );
@@ -1427,10 +1587,10 @@ export default function CanvasPageEditorPage() {
                       aria-label="Rendered audit findings"
                     >
                       <div className="text-[11px] uppercase tracking-wide text-slate-500">
-                        Rendered audit (axe-core) — {viewsToAudit[0] === 'public' ? 'Public view' : 'Member view'}
+                        Rendered audit (axe-core) — {effectiveViews[0] === 'public' ? 'Public view' : 'Member view'}
                       </div>
                       <CanvasA11yPanel
-                        issues={issuesForView(viewsToAudit[0])}
+                        issues={issuesForView(effectiveViews[0])}
                         selectedIds={[]}
                         onJumpToBlock={onJump}
                         onLocate={onLocate}
