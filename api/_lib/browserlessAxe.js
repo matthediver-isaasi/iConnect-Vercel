@@ -45,11 +45,20 @@ export default async function ({ page, context }) {
   }
   try {
     const results = await page.evaluate(async () => {
-      return await window.axe.run(document, { resultTypes: ['violations', 'passes', 'incomplete', 'inapplicable'] });
+      // Use an explicit context-spec object so axe-core 4.10's
+      // normalizeRunParams reliably identifies the first argument as the
+      // context (not options). Passing a bare \`document\` reference has
+      // been observed to trip "axe.run arguments are invalid" in some
+      // browserless evaluation contexts.
+      const context = { include: [document.documentElement] };
+      const options = { resultTypes: ['violations', 'passes', 'incomplete', 'inapplicable'] };
+      return await window.axe.run(context, options);
     });
     return { data: results, type: 'application/json' };
   } catch (err) {
-    return { data: { error: 'axe_run_failed', message: String(err && err.message || err) }, type: 'application/json' };
+    const axeVersion = 'axe-core@4.10.2';
+    const message = String(err && err.message || err);
+    return { data: { error: 'axe_run_failed', message: message + ' (' + axeVersion + ')' }, type: 'application/json' };
   }
 }
 `;
