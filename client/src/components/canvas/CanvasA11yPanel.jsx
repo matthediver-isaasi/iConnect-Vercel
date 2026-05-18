@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import {
   ShieldAlert, AlertTriangle, Info, ShieldCheck, CircleAlert,
+  ExternalLink, Crosshair,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   SEVERITY,
   summarizeIssues,
@@ -33,7 +35,13 @@ const SEV_LABEL = {
   [SEVERITY.INFO]: 'Info',
 };
 
-export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock }) {
+function truncate(str, max = 160) {
+  if (!str) return '';
+  const s = String(str);
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, onLocate }) {
   const summary = useMemo(() => summarizeIssues(issues), [issues]);
   const blocking = useMemo(() => getBlockingIssues(issues), [issues]);
   const grouped = useMemo(() => {
@@ -74,8 +82,8 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock }) 
       </div>
 
       {blocking.length > 0 && (
-        <p className="text-[11px] text-destructive" data-testid="a11y-blocking-hint">
-          {blocking.length} must-fix issue{blocking.length === 1 ? '' : 's'} block publish.
+        <p className="text-[11px] text-amber-700" data-testid="a11y-blocking-hint">
+          {blocking.length} must-fix issue{blocking.length === 1 ? '' : 's'} flagged — publish will ask you to confirm.
         </p>
       )}
 
@@ -96,18 +104,32 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock }) 
               {g.items.map((it, idx) => {
                 const Icon = SEV_ICON[it.severity] || Info;
                 const isSelected = it.blockId && selectedIds?.includes(it.blockId);
-                const interactive = !!it.blockId;
+                const canJump = !!it.blockId;
+                const selector = Array.isArray(it.selector)
+                  ? it.selector.join(' ')
+                  : (it.selector || '');
+                const canLocate = !!onLocate && (canJump || !!selector);
+                const handleRowClick = canJump ? () => onJumpToBlock?.(it.blockId) : undefined;
+                const handleRowKey = canJump
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onJumpToBlock?.(it.blockId);
+                      }
+                    }
+                  : undefined;
                 return (
-                  <button
-                    key={`${it.rule}-${it.blockId || 'doc'}-${idx}`}
-                    type="button"
-                    onClick={() => interactive && onJumpToBlock?.(it.blockId)}
-                    disabled={!interactive}
-                    className={`w-full text-left rounded border px-2 py-1.5 text-xs ${SEV_BG[it.severity]} ${
-                      interactive ? 'hover-elevate active-elevate-2 cursor-pointer' : 'cursor-default'
-                    } ${isSelected ? 'ring-1 ring-primary/40' : ''}`}
+                  <div
+                    key={`${it.rule}-${it.blockId || selector || 'doc'}-${idx}`}
+                    className={`rounded border px-2 py-1.5 text-xs ${SEV_BG[it.severity]} ${
+                      isSelected ? 'ring-1 ring-primary/40' : ''
+                    } ${canJump ? 'cursor-pointer hover-elevate' : ''}`}
                     data-testid={`a11y-issue-${it.rule}`}
                     data-block-id={it.blockId || ''}
+                    role={canJump ? 'button' : undefined}
+                    tabIndex={canJump ? 0 : undefined}
+                    onClick={handleRowClick}
+                    onKeyDown={handleRowKey}
                   >
                     <div className="flex items-start gap-1.5">
                       <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${SEV_CLASS[it.severity]}`} />
@@ -118,12 +140,67 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock }) 
                           </div>
                         )}
                         <div className="text-slate-700">{it.message}</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
-                          {it.rule}
+                        {!it.blockId && selector && (
+                          <div
+                            className="text-[10px] text-slate-600 mt-1 font-mono break-all"
+                            data-testid={`a11y-issue-selector-${it.rule}`}
+                          >
+                            {selector}
+                          </div>
+                        )}
+                        {!it.blockId && it.html && (
+                          <div
+                            className="text-[10px] text-slate-500 mt-1 font-mono break-all"
+                            data-testid={`a11y-issue-html-${it.rule}`}
+                          >
+                            {truncate(it.html, 200)}
+                          </div>
+                        )}
+                        <div className="flex items-center flex-wrap gap-2 mt-1">
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {it.rule}
+                          </span>
+                          {it.helpUrl && (
+                            <a
+                              href={it.helpUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-primary inline-flex items-center gap-0.5 hover:underline"
+                              data-testid={`a11y-issue-help-${it.rule}`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Learn more <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 mt-1.5">
+                          {canJump && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[11px]"
+                              onClick={(e) => { e.stopPropagation(); onJumpToBlock?.(it.blockId); }}
+                              data-testid={`a11y-issue-jump-${it.rule}`}
+                            >
+                              Jump to block
+                            </Button>
+                          )}
+                          {canLocate && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[11px]"
+                              onClick={(e) => { e.stopPropagation(); onLocate?.(it); }}
+                              data-testid={`a11y-issue-locate-${it.rule}`}
+                            >
+                              <Crosshair className="w-3 h-3 mr-1" />
+                              Locate
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

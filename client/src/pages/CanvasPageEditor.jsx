@@ -4,15 +4,18 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
 import {
   ArrowLeft, Save, Eye,
   Monitor, Tablet, Smartphone,
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
-  Unlink,
+  Unlink, FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -25,6 +28,7 @@ import {
 } from "@/lib/canvasDesign";
 import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
+import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
 import {
   TemplatesDialog, SymbolsDialog, VersionsDialog, MediaLibraryDialog,
   ThemeDialog, ShortcutsOverlay, CommandPalette, unlinkSelectedSymbol,
@@ -53,6 +57,13 @@ export default function CanvasPageEditorPage() {
   // centred modal sized to the selected breakpoint (or up to the
   // viewport on desktop), and is the single host for `previewIframeRef`.
   const [showAuditModal, setShowAuditModal] = useState(false);
+  // The persistent Audit report drawer — opens from the toolbar summary
+  // badge and lists every issue with enriched element info. Independent
+  // of the Preview modal so authors can review findings any time.
+  const [showAuditDrawer, setShowAuditDrawer] = useState(false);
+  // Publish confirmation state. Non-null while the dialog is visible.
+  //   { blocking: A11yIssue[], missingAudit: bool, staleAudit: bool, newStatus }
+  const [publishConfirm, setPublishConfirm] = useState(null);
   const [previewNonce, setPreviewNonce] = useState(0);
   // Phase 7 dialog visibility flags. The command palette and shortcut
   // overlay are toggled via global keyboard shortcuts (Cmd+K and ?).
@@ -214,64 +225,10 @@ export default function CanvasPageEditorPage() {
     if (ok) toast.success('Page saved');
   };
 
-  const handleTogglePublish = async () => {
-    if (!page) return;
-    const newStatus = page.status === 'published' ? 'draft' : 'published';
-
-    // Block publishing pages that contain blocks with required fields
-    // missing. Surface every failing block in a toast so the author can
-    // fix them before retrying.
-    if (newStatus === 'published') {
-      const designToCheck = canvasRef.current?.getDesign?.() || page.canvas_design;
-      const issues = validateCanvasDesign(designToCheck);
-      if (issues.length > 0) {
-        const summary = issues
-          .slice(0, 5)
-          .map((i) => `• ${i.blockName || i.blockType}: ${i.errors[0]}`)
-          .join('\n');
-        const more = issues.length > 5 ? `\n…and ${issues.length - 5} more` : '';
-        toast.error(`Can't publish — ${issues.length} block(s) need attention:\n${summary}${more}`, {
-          duration: 8000,
-        });
-        return;
-      }
-
-      // Accessibility "must-fix" issues block publishing too. Combine the
-      // in-process heuristic audit with the last axe-core scan against the
-      // rendered preview (if any).
-      const a11yIssues = auditCanvasDesign(designToCheck);
-      // Only consider axe results if they were produced from the current
-      // design. Stale results would unfairly block publishing after fixes.
-      const axeBlocking = (!axeStale && axeIssues)
-        ? axeIssues.filter((i) => i.severity === 'error')
-        : [];
-      const blocking = [...getBlockingIssues(a11yIssues), ...axeBlocking];
-      // If we've never run a full audit, or the last run is stale, force a
-      // fresh axe scan before allowing publish so authors get the most
-      // accurate picture against the rendered preview.
-      if (axeIssues === null || axeStale) {
-        toast.error(
-          axeIssues === null
-            ? 'Run the full accessibility audit before publishing.'
-            : 'Accessibility audit results are stale — run the full audit again before publishing.',
-          { duration: 8000 },
-        );
-        return;
-      }
-      if (blocking.length > 0) {
-        const summary = blocking
-          .slice(0, 5)
-          .map((i) => `• ${i.blockName ? `${i.blockName}: ` : ''}${i.message}`)
-          .join('\n');
-        const more = blocking.length > 5 ? `\n…and ${blocking.length - 5} more` : '';
-        toast.error(
-          `Can't publish — ${blocking.length} accessibility issue(s) must be fixed:\n${summary}${more}`,
-          { duration: 10000 },
-        );
-        return;
-      }
-    }
-
+  // Performs the actual publish flow (save + status update + version
+  // snapshot). Split out from handleTogglePublish so the confirm dialog
+  // can call it directly after the author opts to publish anyway.
+  const performPublish = useCallback(async (newStatus) => {
     if (canvasRef.current?.isDirty?.()) {
       const ok = await canvasRef.current.saveNow();
       if (!ok) return;
@@ -299,7 +256,69 @@ export default function CanvasPageEditorPage() {
         }
       } catch (e) { /* non-fatal */ }
     }
+  }, [pageId, updatePageMetaMutation]);
+
+  const handleTogglePublish = async () => {
+    if (!page) return;
+    const newStatus = page.status === 'published' ? 'draft' : 'published';
+
+    // Block-validation errors (required fields) keep their existing hard
+    // block. Only the accessibility gate has been softened.
+    if (newStatus === 'published') {
+      const designToCheck = canvasRef.current?.getDesign?.() || page.canvas_design;
+      const issues = validateCanvasDesign(designToCheck);
+      if (issues.length > 0) {
+        const summary = issues
+          .slice(0, 5)
+          .map((i) => `• ${i.blockName || i.blockType}: ${i.errors[0]}`)
+          .join('\n');
+        const more = issues.length > 5 ? `\n…and ${issues.length - 5} more` : '';
+        toast.error(`Can't publish — ${issues.length} block(s) need attention:\n${summary}${more}`, {
+          duration: 8000,
+        });
+        return;
+      }
+
+      // Accessibility findings no longer block publish — but if there are
+      // must-fix issues, missing results, or stale results, surface the
+      // summary in a confirm dialog so authors make an informed choice.
+      const a11yIssues = auditCanvasDesign(designToCheck);
+      const axeBlocking = (!axeStale && Array.isArray(axeIssues))
+        ? axeIssues.filter((i) => i.severity === 'error')
+        : [];
+      const blocking = [...getBlockingIssues(a11yIssues), ...axeBlocking];
+      const missingAudit = axeIssues === null;
+      const staleAudit = !!axeIssues && axeStale;
+
+      if (blocking.length > 0 || missingAudit || staleAudit) {
+        setPublishConfirm({ blocking, missingAudit, staleAudit, newStatus });
+        return;
+      }
+    }
+
+    await performPublish(newStatus);
   };
+
+  // Confirm-dialog action handlers.
+  const handleConfirmPublishAnyway = useCallback(async () => {
+    const target = publishConfirm?.newStatus || 'published';
+    setPublishConfirm(null);
+    await performPublish(target);
+  }, [publishConfirm, performPublish]);
+
+  const handleConfirmRunAudit = useCallback(async () => {
+    setPublishConfirm(null);
+    if (!page?.slug) {
+      toast.error('Save a slug for this page before running an audit.');
+      return;
+    }
+    if (!showAuditModal) {
+      setShowAuditModal(true);
+      autoAuditPendingRef.current = true;
+      return;
+    }
+    await runAxeOnPreview();
+  }, [page?.slug, showAuditModal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cmd+K palette + ? shortcut overlay — global shortcuts at the editor
   // shell level so they also fire when no block is selected.
@@ -387,12 +406,20 @@ export default function CanvasPageEditorPage() {
       const mapped = (results.violations || []).flatMap((v) =>
         v.nodes.map((n, i) => {
           const blockId = blockIdForNode(n.target);
+          const selector = Array.isArray(n.target) ? n.target : (n.target ? [String(n.target)] : []);
           return {
             blockId,
             blockName: blockId ? (blockMap.get(blockId) || null) : null,
             rule: `axe:${v.id}`,
             severity: sevFromImpact(v.impact),
-            message: `${v.help}${blockId ? '' : ` (${(n.target || []).join(' ') || `match #${i + 1}`})`}`,
+            // Keep the human help text clean — the selector & html snippet
+            // are surfaced separately in the audit panels so document-level
+            // issues (e.g. contrast) remain identifiable.
+            message: v.help || v.description || v.id,
+            selector,
+            html: n.html || null,
+            helpUrl: v.helpUrl || null,
+            target: n.target || null,
           };
         }),
       );
@@ -441,14 +468,71 @@ export default function CanvasPageEditorPage() {
     await runAxeOnPreview();
   };
 
-  // Fires when the preview iframe finishes loading. If a save (or first
-  // open) flagged an auto-audit, run axe now so results stay in sync.
+  // Highlights the offending element inside the preview iframe so the
+  // author can identify it visually. Defined before handlePreviewIframeLoad
+  // so the load handler can call into it without tripping a TDZ error.
+  const pendingLocateRef = useRef(null);
+  const applyPreviewHighlight = useCallback((issue) => {
+    const iframe = previewIframeRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc || !issue) return false;
+    const target = Array.isArray(issue.target) ? issue.target : issue.selector;
+    const sel = Array.isArray(target) ? target[target.length - 1] : target;
+    if (!sel || typeof sel !== 'string') return false;
+    let el = null;
+    try { el = doc.querySelector(sel); } catch { return false; }
+    if (!el) return false;
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* ignore */ }
+    const prevOutline = el.style.outline;
+    const prevOffset = el.style.outlineOffset;
+    const prevTransition = el.style.transition;
+    el.style.transition = 'outline-color 200ms ease-out';
+    el.style.outline = '3px solid #ef4444';
+    el.style.outlineOffset = '2px';
+    setTimeout(() => {
+      try {
+        el.style.outline = prevOutline;
+        el.style.outlineOffset = prevOffset;
+        el.style.transition = prevTransition;
+      } catch { /* ignore */ }
+    }, 2200);
+    return true;
+  }, []);
+
+  const handleLocateIssue = useCallback((issue) => {
+    if (!issue) return;
+    // For block-scoped issues, also select the block in the canvas so
+    // the inspector follows the user's focus.
+    if (issue.blockId) {
+      try { canvasRef.current?.setSelection?.(issue.blockId); } catch { /* ignore */ }
+    }
+    if (!showAuditModal) {
+      pendingLocateRef.current = issue;
+      setShowAuditModal(true);
+      toast.message('Opening preview to locate the element…');
+      return;
+    }
+    const ok = applyPreviewHighlight(issue);
+    if (!ok) {
+      pendingLocateRef.current = issue;
+      toast.message('Preview is still loading — will highlight once ready.');
+    }
+  }, [showAuditModal, applyPreviewHighlight]);
+
+  // Fires when the preview iframe finishes loading. A pending Locate
+  // action takes priority over an auto-audit so the author lands on the
+  // element they asked to see.
   const handlePreviewIframeLoad = useCallback(() => {
+    if (pendingLocateRef.current) {
+      const issue = pendingLocateRef.current;
+      pendingLocateRef.current = null;
+      setTimeout(() => { applyPreviewHighlight(issue); }, 450);
+    }
     if (!autoAuditPendingRef.current) return;
     autoAuditPendingRef.current = false;
     // Give the SPA inside the iframe a tick to mount its tree before scanning.
     setTimeout(() => { runAxeOnPreview({ silent: true }); }, 400);
-  }, [runAxeOnPreview]);
+  }, [runAxeOnPreview, applyPreviewHighlight]);
 
   // Opening the preview modal for the first time should also trigger an
   // audit so authors don't have to click twice.
@@ -607,24 +691,32 @@ export default function CanvasPageEditorPage() {
           {axeRunning ? 'Auditing…' : 'Run full audit'}
         </Button>
 
-        {axeSummary && (
-          <Button
+        <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowAuditModal(true)}
+            onClick={() => setShowAuditDrawer(true)}
             data-testid="button-audit-summary"
             title={
-              axeSummary.total === 0
-                ? 'Last audit passed — click to review in the preview modal.'
-                : `Last audit: ${axeSummary.error} error · ${axeSummary.warning} warning · ${axeSummary.info} info. Click to open the preview modal.`
+              !axeSummary
+                ? 'Open the audit report.'
+                : axeSummary.total === 0
+                ? 'Last audit passed — click to open the audit report.'
+                : `Last audit: ${axeSummary.error} error · ${axeSummary.warning} warning · ${axeSummary.info} info. Click to open the audit report.`
             }
             aria-label={
-              axeSummary.total === 0
-                ? 'Last audit passed. Open audit modal.'
-                : `Last audit found ${axeSummary.total} issues (${axeSummary.error} error, ${axeSummary.warning} warning, ${axeSummary.info} info). Open audit modal.`
+              !axeSummary
+                ? 'Open audit report.'
+                : axeSummary.total === 0
+                ? 'Last audit passed. Open audit report.'
+                : `Last audit found ${axeSummary.total} issues (${axeSummary.error} error, ${axeSummary.warning} warning, ${axeSummary.info} info). Open audit report.`
             }
           >
-            {axeSummary.total === 0 ? (
+            <FileText className="w-4 h-4 mr-2" />
+            {!axeSummary ? (
+              <span className="text-slate-700" data-testid="badge-axe-summary-empty">
+                Audit report
+              </span>
+            ) : axeSummary.total === 0 ? (
               <Badge
                 className="bg-emerald-100 text-emerald-700"
                 data-testid="badge-axe-summary-pass"
@@ -671,7 +763,6 @@ export default function CanvasPageEditorPage() {
               </Badge>
             )}
           </Button>
-        )}
 
         <Button
           variant="outline"
@@ -741,6 +832,7 @@ export default function CanvasPageEditorPage() {
             isDirty={isDirty}
             onDirtyChange={handleDirtyChange}
             extraIssues={axeStale ? [] : (axeIssues || [])}
+            onLocateInPreview={handleLocateIssue}
           />
         </div>
 
@@ -841,6 +933,170 @@ export default function CanvasPageEditorPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Publish confirmation — a11y findings no longer block publish but
+          we surface them in a confirm dialog so authors make an informed
+          choice. Block-validation errors still hard-block earlier. */}
+      <Dialog
+        open={!!publishConfirm}
+        onOpenChange={(o) => { if (!o) setPublishConfirm(null); }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-publish-confirm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Accessibility className="w-4 h-4 text-amber-600" />
+              Publish with accessibility findings?
+            </DialogTitle>
+            <DialogDescription>
+              {publishConfirm?.missingAudit
+                ? 'No full accessibility audit has been run on this page yet. You can publish anyway, but the audit can surface contrast and other issues that the live design check misses.'
+                : publishConfirm?.staleAudit
+                  ? 'The page has changed since the last accessibility audit, so the results may be out of date. You can publish anyway or re-run the audit first.'
+                  : `This page has ${publishConfirm?.blocking?.length || 0} must-fix accessibility issue${publishConfirm?.blocking?.length === 1 ? '' : 's'}. You can publish anyway and fix them over time, or cancel to address them now.`}
+            </DialogDescription>
+          </DialogHeader>
+          {publishConfirm?.blocking?.length > 0 && (() => {
+            const counts = publishConfirm.blocking.reduce((acc, i) => {
+              acc[i.severity] = (acc[i.severity] || 0) + 1;
+              return acc;
+            }, {});
+            return (
+              <div data-testid="publish-confirm-summary">
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {counts.error > 0 && (
+                    <Badge className="bg-rose-100 text-rose-700" data-testid="publish-confirm-count-error">
+                      {counts.error} error{counts.error === 1 ? '' : 's'}
+                    </Badge>
+                  )}
+                  {counts.warning > 0 && (
+                    <Badge className="bg-amber-100 text-amber-700" data-testid="publish-confirm-count-warning">
+                      {counts.warning} warning{counts.warning === 1 ? '' : 's'}
+                    </Badge>
+                  )}
+                </div>
+                <ul className="text-xs text-slate-700 space-y-1 max-h-40 overflow-auto">
+                  {publishConfirm.blocking.slice(0, 6).map((i, idx) => (
+                    <li key={idx} className="flex items-start gap-1.5">
+                      <span className="text-slate-400 mt-0.5">•</span>
+                      <span>
+                        {i.blockName ? <span className="font-medium">{i.blockName}: </span> : null}
+                        {i.message}
+                      </span>
+                    </li>
+                  ))}
+                  {publishConfirm.blocking.length > 6 && (
+                    <li className="text-slate-500">
+                      …and {publishConfirm.blocking.length - 6} more
+                    </li>
+                  )}
+                </ul>
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-primary hover:underline inline-flex items-center gap-1"
+                  onClick={() => { setPublishConfirm(null); setShowAuditDrawer(true); }}
+                  data-testid="button-publish-confirm-view-report"
+                >
+                  <FileText className="w-3 h-3" /> Open audit report
+                </button>
+              </div>
+            );
+          })()}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPublishConfirm(null)}
+              data-testid="button-publish-confirm-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleConfirmRunAudit}
+              disabled={axeRunning}
+              data-testid="button-publish-confirm-run-audit"
+            >
+              {axeRunning
+                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                : <Accessibility className="w-4 h-4 mr-2" />}
+              Run audit now
+            </Button>
+            <Button
+              onClick={handleConfirmPublishAnyway}
+              data-testid="button-publish-confirm-publish"
+            >
+              Publish anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Persistent Audit report drawer. Independent of the Preview modal
+          so the report stays viewable any time once an audit has run. */}
+      <Sheet open={showAuditDrawer} onOpenChange={setShowAuditDrawer}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md overflow-y-auto p-0 flex flex-col"
+          data-testid="sheet-audit-report"
+        >
+          <SheetHeader className="px-4 py-3 border-b border-slate-200 shrink-0">
+            <SheetTitle className="text-base font-semibold flex items-center gap-2">
+              <FileText className="w-4 h-4 text-slate-500" /> Audit report
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              Every accessibility finding — heuristic checks plus the latest full audit. Click an issue to jump to the block, locate it in the preview, or open the WCAG reference.
+            </SheetDescription>
+            <div className="flex items-center gap-2 pt-2 flex-wrap">
+              <Button
+                size="sm"
+                onClick={handleRunFullAudit}
+                disabled={axeRunning}
+                data-testid="button-drawer-run-audit"
+              >
+                {axeRunning
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <Accessibility className="w-4 h-4 mr-2" />}
+                {axeRunning ? 'Auditing…' : 'Run full audit'}
+              </Button>
+              {axeStale && axeIssues && (
+                <Badge
+                  className="bg-slate-200 text-slate-700"
+                  data-testid="badge-drawer-axe-stale"
+                >
+                  Stale — re-run after edits
+                </Badge>
+              )}
+              {axeLastRunAt && (
+                <span className="text-[11px] text-slate-500">
+                  Last run {new Date(axeLastRunAt).toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+          </SheetHeader>
+          <div className="p-4 flex-1 overflow-y-auto space-y-3">
+            {axeIssues === null && (
+              <div
+                className="text-xs text-slate-600 rounded border border-slate-200 bg-slate-50 px-2 py-2"
+                data-testid="audit-drawer-empty"
+              >
+                Full audit not run yet — heuristic findings are shown below. Click <span className="font-medium">Run full audit</span> above to also scan the rendered preview with axe-core.
+              </div>
+            )}
+            <CanvasA11yPanel
+              issues={(axeIssues || [])
+                .concat(auditCanvasDesign(canvasRef.current?.getDesign?.() || page?.canvas_design || {}))}
+              selectedIds={[]}
+              onJumpToBlock={(id) => {
+                try { canvasRef.current?.setSelection?.(id); } catch { /* ignore */ }
+                setShowAuditDrawer(false);
+              }}
+              onLocate={(issue) => {
+                setShowAuditDrawer(false);
+                handleLocateIssue(issue);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Phase 7 dialogs */}
       <TemplatesDialog open={showTemplates} onOpenChange={setShowTemplates} canvasRef={canvasRef} />
