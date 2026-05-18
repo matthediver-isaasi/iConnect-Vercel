@@ -73,6 +73,7 @@ export default async function handler(req, res) {
         .select('id, first_name, last_name, email, organization_id, last_activity, login_enabled, profile_photo_url')
         .eq('tenant_id', tenantId)
         .not('organization_id', 'is', null)
+        .not('email', 'ilike', 'deleted_%@deleted.local')
         .order('id')
         .range(memberFrom, memberFrom + memberBatchSize - 1);
 
