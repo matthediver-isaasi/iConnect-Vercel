@@ -29,6 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
@@ -2661,6 +2662,8 @@ function FieldCard({
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isUrlType = field.type === 'url';
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState('');
   const uniquenessCheck = uniquenessChecks.find(u => u.field_id === field.id);
   const isUniquenessEnabled = !!uniquenessCheck;
   const targetField = uniquenessCheck?.target_field || '';
@@ -3520,19 +3523,101 @@ function FieldCard({
                       </div>
                     ))}
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs w-full"
-                    onClick={() => {
-                      const newOptions = [...(field.options || []), ''];
-                      updateField(originalIndex, { options: newOptions });
-                    }}
-                  >
-                    <Plus className="w-3 h-3 mr-1" />
-                    Add Option
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => {
+                        const newOptions = [...(field.options || []), ''];
+                        updateField(originalIndex, { options: newOptions });
+                      }}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Option
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => {
+                        setBulkImportText('');
+                        setBulkImportOpen(true);
+                      }}
+                      data-testid={`button-bulk-import-${field.id}`}
+                    >
+                      <Upload className="w-3 h-3 mr-1" />
+                      Bulk import
+                    </Button>
+                  </div>
+                  <Dialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Bulk import options</DialogTitle>
+                        <DialogDescription>
+                          Paste one option per line (commas also accepted). Empty lines and duplicates of existing or repeated values will be skipped.
+                        </DialogDescription>
+                      </DialogHeader>
+                      {(() => {
+                        const existing = field.options || [];
+                        const existingSet = new Set(existing.map(o => (o || '').trim()).filter(Boolean));
+                        const seen = new Set();
+                        const parsed = [];
+                        bulkImportText
+                          .split(/[\n,]/)
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .forEach(v => {
+                            if (existingSet.has(v) || seen.has(v)) return;
+                            seen.add(v);
+                            parsed.push(v);
+                          });
+                        return (
+                          <>
+                            <Textarea
+                              value={bulkImportText}
+                              onChange={(e) => setBulkImportText(e.target.value)}
+                              placeholder={'Option 1\nOption 2\nOption 3'}
+                              rows={10}
+                              className="font-mono text-sm"
+                              data-testid={`textarea-bulk-import-${field.id}`}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {parsed.length} option{parsed.length === 1 ? '' : 's'} will be added.
+                            </p>
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setBulkImportOpen(false);
+                                  setBulkImportText('');
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={parsed.length === 0}
+                                onClick={() => {
+                                  updateField(originalIndex, { options: [...existing, ...parsed] });
+                                  setBulkImportOpen(false);
+                                  setBulkImportText('');
+                                }}
+                                data-testid={`button-bulk-import-confirm-${field.id}`}
+                              >
+                                Add {parsed.length} option{parsed.length === 1 ? '' : 's'}
+                              </Button>
+                            </DialogFooter>
+                          </>
+                        );
+                      })()}
+                    </DialogContent>
+                  </Dialog>
                 </div>
               )}
 
