@@ -1171,7 +1171,7 @@ export default function CommunicationsManagementPage() {
           <Card className="border-amber-200 bg-amber-50">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
+                <AlertTriangle className="w-8 h-8 text-amber-700" />
                 <div>
                   <CardTitle className="text-amber-900">Database Setup Required</CardTitle>
                   <CardDescription className="text-amber-700">
@@ -1411,7 +1411,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     {isZohoConnected ? (
                       <Link2 className="w-5 h-5 text-green-600" />
                     ) : (
-                      <Unlink className="w-5 h-5 text-amber-600" />
+                      <Unlink className="w-5 h-5 text-amber-700" />
                     )}
                   </div>
                   <div>
@@ -1616,7 +1616,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             {isZohoConnected && (
                               <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
                                 <div className="flex items-center gap-2">
-                                  <Link2 className="w-4 h-4 text-orange-500" />
+                                  <Link2 className="w-4 h-4 text-orange-700" />
                                   <span className="text-sm text-slate-600">Zoho List:</span>
                                   <Select
                                     value={category.zoho_list_id || "none"}
@@ -1666,7 +1666,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                             {syncProgress.processed} / {syncProgress.total}
                                           </span>
                                         </div>
-                                        <span className="text-xs text-amber-600" data-testid={`sync-progress-warning-${category.id}`}>
+                                        <span className="text-xs text-amber-700" data-testid={`sync-progress-warning-${category.id}`}>
                                           Please stay on this page until sync completes
                                         </span>
                                       </div>

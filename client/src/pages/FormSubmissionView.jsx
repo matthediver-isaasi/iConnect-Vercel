@@ -367,7 +367,7 @@ export default function FormSubmissionView() {
           <Card className="mb-6 border-amber-200 dark:border-amber-900" data-testid="card-processing-notes">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-700" />
                 Processing Notes
               </CardTitle>
               <CardDescription>
@@ -387,7 +387,7 @@ export default function FormSubmissionView() {
                   const iconClass = level === 'error'
                     ? 'text-red-600 dark:text-red-400'
                     : level === 'warn'
-                      ? 'text-amber-600 dark:text-amber-400'
+                      ? 'text-amber-700 dark:text-amber-700'
                       : 'text-slate-500 dark:text-slate-400';
                   return (
                     <li

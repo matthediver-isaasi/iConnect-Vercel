@@ -366,7 +366,7 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
             {isVisibleOnBack(displaySettings, 'show_awards') && stats.totalAwards > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-amber-600" />
+                  <Trophy className="w-4 h-4 text-amber-700" />
                   Awards & Recognition ({stats.totalAwards})
                 </h3>
                 <div className="grid grid-cols-2 gap-3">

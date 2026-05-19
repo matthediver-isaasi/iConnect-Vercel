@@ -785,7 +785,7 @@ export default function EmailTemplateManagement() {
 
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 text-amber-600 mt-0.5" />
+                    <Info className="w-4 h-4 text-amber-700 mt-0.5" />
                     <div className="text-sm text-amber-800">
                       <p className="font-medium">Dynamic Placeholders</p>
                       <p className="mt-1">

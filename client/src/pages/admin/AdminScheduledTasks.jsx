@@ -119,7 +119,7 @@ export default function AdminScheduledTasks() {
       case 'failed':
         return <Badge variant="outline" className="text-red-600 border-red-300"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
       case 'partial':
-        return <Badge variant="outline" className="text-amber-600 border-amber-300"><AlertTriangle className="w-3 h-3 mr-1" />Partial</Badge>;
+        return <Badge variant="outline" className="text-amber-700 border-amber-300"><AlertTriangle className="w-3 h-3 mr-1" />Partial</Badge>;
       case 'no_action':
         return <Badge variant="outline" className="text-slate-500"><Minus className="w-3 h-3 mr-1" />No Action</Badge>;
       default:
@@ -281,7 +281,7 @@ export default function AdminScheduledTasks() {
                             </TableCell>
                             <TableCell data-testid={`cell-expected-date-${job.contract_id}-${job.type}`}>
                               {job.will_send_on_next_run ? (
-                                <div className="flex items-center gap-1 text-amber-400" data-testid={`text-next-cron-${job.contract_id}-${job.type}`}>
+                                <div className="flex items-center gap-1 text-amber-700" data-testid={`text-next-cron-${job.contract_id}-${job.type}`}>
                                   <Clock className="w-3 h-3" />
                                   <span className="text-sm font-medium">Next CRON run</span>
                                 </div>

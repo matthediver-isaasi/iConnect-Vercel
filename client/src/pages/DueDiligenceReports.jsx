@@ -577,7 +577,7 @@ function SynopsisCardsRow({ demoMode, filters, onCardClick }) {
       icon: Gavel,
       value: decisionsLoading && !demoMode ? '—' : (decisions?.totalDecisions?.toLocaleString() || '0'),
       subValue: decisionsLoading && !demoMode ? 'Loading...' : `${decisions?.approved?.percentage || 0}% approved`,
-      color: 'text-amber-600',
+      color: 'text-amber-700',
       bgColor: 'bg-amber-50 dark:bg-amber-900/20',
       borderColor: 'border-amber-200 dark:border-amber-800',
       loading: decisionsLoading && !demoMode
@@ -846,7 +846,7 @@ function ApplicationFunnelReportCard({ filters, demoMode }) {
               >
                 <div className="flex items-center gap-1 mb-1">
                   <AlertTriangle className="w-3 h-3 text-orange-600" />
-                  <span className="text-xs font-medium text-orange-700 dark:text-orange-400">High Drop-off</span>
+                  <span className="text-xs font-medium text-orange-700 dark:text-orange-700">High Drop-off</span>
                 </div>
                 <p className="text-sm font-medium truncate">{stage.stageLabel}</p>
                 <p className="text-xs text-muted-foreground">{stage.dropOffRate}% don't proceed</p>
@@ -1014,7 +1014,7 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
           <div className="flex items-center gap-2 mb-2">
             <Clock className={`w-5 h-5 ${slaBreached ? 'text-orange-600' : 'text-blue-600'}`} />
-            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-400' : 'text-blue-700 dark:text-blue-400'}`}>
+            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-700' : 'text-blue-700 dark:text-blue-400'}`}>
               Avg. Turnaround
             </span>
             {slaBreached && <Badge variant="outline" className="border-orange-500 text-orange-600 ml-auto" data-testid="badge-verification-sla-breached">SLA breach</Badge>}
@@ -1022,7 +1022,7 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           <p className={`text-3xl font-bold ${slaBreached ? 'text-orange-700 dark:text-orange-300' : 'text-blue-700 dark:text-blue-300'}`} data-testid="text-avg-turnaround">
             {averageTurnaroundDays.toFixed(1)} <span className="text-lg font-normal">days</span>
           </p>
-          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-400/70' : 'text-blue-600/70 dark:text-blue-400/70'}`}>
+          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-700/70' : 'text-blue-600/70 dark:text-blue-400/70'}`}>
             SLA threshold: {slaDays} days
           </p>
         </div>
@@ -1034,11 +1034,11 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         >
           <div className="flex items-center gap-2 mb-2">
             <AlertCircle className="w-5 h-5 text-orange-600" />
-            <span className="text-sm font-medium text-orange-700 dark:text-orange-400">Outstanding</span>
+            <span className="text-sm font-medium text-orange-700 dark:text-orange-700">Outstanding</span>
             <ExternalLink className="w-3 h-3 text-orange-600 ml-auto" />
           </div>
           <p className="text-3xl font-bold text-orange-700 dark:text-orange-300" data-testid="text-outstanding-verifications">{outstandingVerifications.toLocaleString()}</p>
-          <p className="text-xs text-orange-600/70 dark:text-orange-400/70 mt-1">Awaiting verification</p>
+          <p className="text-xs text-orange-600/70 dark:text-orange-700/70 mt-1">Awaiting verification</p>
         </a>
       </div>
 
@@ -1050,13 +1050,13 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         >
           <AlertCircle className="w-5 h-5 text-orange-600" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
               <span className="text-2xl font-bold mr-2" data-testid="text-verification-sla-breach-count">
                 {(effectiveStats.slaBreaches.breachedCount || 0).toLocaleString()}
               </span>
               outstanding longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-400/70">Open in dashboard to review</p>
+            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
           </div>
           <ExternalLink className="w-4 h-4 text-orange-600" />
         </a>
@@ -1151,7 +1151,7 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
             >
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-orange-600" />
-                <span className="text-sm font-medium text-orange-700 dark:text-orange-400">
+                <span className="text-sm font-medium text-orange-700 dark:text-orange-700">
                   {outstandingByAge.find(a => a.range === '11+ days')?.count || 0} verifications pending over 11 days
                 </span>
                 <ExternalLink className="w-3 h-3 text-orange-600 ml-auto" />
@@ -1338,13 +1338,13 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-muted/30'}`}>
           <div className="flex items-center gap-2 mb-2">
             <Clock className={`w-5 h-5 ${slaBreached ? 'text-orange-600' : 'text-muted-foreground'}`} />
-            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-400' : 'text-muted-foreground'}`}>Avg. Scheduling</span>
+            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-700' : 'text-muted-foreground'}`}>Avg. Scheduling</span>
             {slaBreached && <Badge variant="outline" className="border-orange-500 text-orange-600 ml-auto" data-testid="badge-dd-sla-breached">SLA breach</Badge>}
           </div>
           <p className={`text-3xl font-bold ${slaBreached ? 'text-orange-700 dark:text-orange-300' : ''}`} data-testid="text-avg-scheduling">
             {averageSchedulingDays.toFixed(1)} <span className="text-lg font-normal">days</span>
           </p>
-          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-400/70' : 'text-muted-foreground'}`}>
+          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-700/70' : 'text-muted-foreground'}`}>
             SLA threshold: {slaDays} days
           </p>
         </div>
@@ -1379,13 +1379,13 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         >
           <AlertCircle className="w-5 h-5 text-orange-600" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
               <span className="text-2xl font-bold mr-2" data-testid="text-dd-sla-breach-count">
                 {(effectiveStats.slaBreaches.breachedCount || 0).toLocaleString()}
               </span>
               awaiting meeting longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-400/70">Open in dashboard to review</p>
+            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
           </div>
           <ExternalLink className="w-4 h-4 text-orange-600" />
         </a>
@@ -1426,7 +1426,7 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
               <p className="text-xl font-bold text-blue-700 dark:text-blue-300">{meetingMetrics.booked}</p>
             </div>
             <div className="p-2 rounded bg-amber-50 dark:bg-amber-900/20" data-testid="metric-pending">
-              <p className="text-xs text-amber-700 dark:text-amber-400">Pending</p>
+              <p className="text-xs text-amber-700 dark:text-amber-700">Pending</p>
               <p className="text-xl font-bold text-amber-700 dark:text-amber-300">{meetingMetrics.pending}</p>
             </div>
             <div className="p-2 rounded bg-red-50 dark:bg-red-900/20" data-testid="metric-cancelled">
@@ -1434,7 +1434,7 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
               <p className="text-xl font-bold text-red-700 dark:text-red-300">{meetingMetrics.cancelled}</p>
             </div>
             <div className="p-2 rounded bg-orange-50 dark:bg-orange-900/20" data-testid="metric-no-show">
-              <p className="text-xs text-orange-700 dark:text-orange-400">No-show</p>
+              <p className="text-xs text-orange-700 dark:text-orange-700">No-show</p>
               <p className="text-xl font-bold text-orange-700 dark:text-orange-300">{meetingMetrics.noShow}</p>
             </div>
             <div className="p-2 rounded bg-purple-50 dark:bg-purple-900/20" data-testid="metric-rescheduled">
@@ -1753,12 +1753,12 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           data-testid="link-decisions-onhold"
         >
           <div className="flex items-center gap-2 mb-2">
-            <Pause className="w-5 h-5 text-amber-600" />
-            <span className="text-sm font-medium text-amber-700 dark:text-amber-400">On Hold</span>
+            <Pause className="w-5 h-5 text-amber-700" />
+            <span className="text-sm font-medium text-amber-700 dark:text-amber-700">On Hold</span>
           </div>
           <div className="flex items-baseline gap-2">
             <p className="text-3xl font-bold text-amber-700 dark:text-amber-300" data-testid="text-onhold-count">{onHold.count}</p>
-            <span className="text-sm text-amber-600/70 dark:text-amber-400/70">({onHold.percentage}%)</span>
+            <span className="text-sm text-amber-700/70 dark:text-amber-700/70">({onHold.percentage}%)</span>
           </div>
           {hasValidComparison && periodData?.onHold && (
             <div className="mt-1">{renderTrendBadge(periodData.onHold)}</div>
@@ -1820,7 +1820,7 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800" data-testid="row-time-onhold">
                 <div className="flex items-center gap-2">
-                  <Pause className="w-4 h-4 text-amber-600" />
+                  <Pause className="w-4 h-4 text-amber-700" />
                   <span className="font-medium">On Hold</span>
                 </div>
                 <Badge variant="secondary" data-testid="badge-time-onhold">
@@ -1840,13 +1840,13 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
         >
           <AlertCircle className="w-5 h-5 text-orange-600" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
               <span className="text-2xl font-bold mr-2" data-testid="text-decisions-sla-breach-count">
                 {(slaBreachInfo.breachedCount || 0).toLocaleString()}
               </span>
               awaiting a decision longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-400/70">Open in dashboard to review</p>
+            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
           </div>
           <ExternalLink className="w-4 h-4 text-orange-600" />
         </a>

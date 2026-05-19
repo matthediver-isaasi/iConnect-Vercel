@@ -1293,7 +1293,7 @@ export default function EventSettingsPage() {
         <Card className="border-slate-200 shadow-sm mb-8">
           <CardHeader className="border-b border-slate-200">
             <div className="flex items-center gap-2">
-              <Settings className="w-5 h-5 text-amber-600" />
+              <Settings className="w-5 h-5 text-amber-700" />
               <CardTitle>Cancellation Settings</CardTitle>
             </div>
           </CardHeader>

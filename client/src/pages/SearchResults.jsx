@@ -244,7 +244,7 @@ export default function SearchResults() {
                                       {getTypeLabel(result.type)}
                                     </Badge>
                                     {isMemberOnlyResource && !isAuthenticated && (
-                                      <Badge variant="outline" className="gap-1 text-amber-600 border-amber-300 bg-amber-50">
+                                      <Badge variant="outline" className="gap-1 text-amber-700 border-amber-300 bg-amber-50">
                                         <Lock className="w-3 h-3" />
                                         Members only
                                       </Badge>

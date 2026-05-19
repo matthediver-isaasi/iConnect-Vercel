@@ -460,7 +460,7 @@ export default function MembershipFees() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+              <ShieldAlert className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
               <div>
                 <p className="font-medium text-sm mb-1" data-testid="text-approval-pending-title">Fees Pending Approval</p>
                 <p className="text-sm text-muted-foreground" data-testid="text-approval-pending-message">

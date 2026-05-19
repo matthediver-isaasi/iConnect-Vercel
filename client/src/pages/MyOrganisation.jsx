@@ -1153,7 +1153,7 @@ export default function MyOrganisationPage() {
                 >
                   <CardTitle className="text-lg flex items-center justify-between">
                     <span className="flex items-center gap-2">
-                      <Trophy className="w-5 h-5 text-amber-500" />
+                      <Trophy className="w-5 h-5 text-amber-700" />
                       Organisation Awards
                     </span>
                     {collapsedSections.awards ? (
@@ -1192,7 +1192,7 @@ export default function MyOrganisationPage() {
                               />
                             ) : (
                               <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
-                                <Trophy className="w-6 h-6 text-amber-600" />
+                                <Trophy className="w-6 h-6 text-amber-700" />
                               </div>
                             )}
                             <div className="flex-1 min-w-0">

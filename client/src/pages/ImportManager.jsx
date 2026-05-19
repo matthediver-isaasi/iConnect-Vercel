@@ -701,7 +701,7 @@ export default function ImportManager() {
                           <Card className="bg-amber-50 border-amber-200">
                             <CardContent className="p-4 text-center">
                               <p className="text-2xl font-bold text-amber-700">{previewResult.toUpdate}</p>
-                              <p className="text-sm text-amber-600">To Update</p>
+                              <p className="text-sm text-amber-700">To Update</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-slate-50 border-slate-200">
@@ -793,7 +793,7 @@ export default function ImportManager() {
                           <Card className="bg-amber-50 border-amber-200">
                             <CardContent className="p-4 text-center">
                               <p className="text-2xl font-bold text-amber-700">{importResult.updated}</p>
-                              <p className="text-sm text-amber-600">Updated</p>
+                              <p className="text-sm text-amber-700">Updated</p>
                             </CardContent>
                           </Card>
                           <Card className="bg-red-50 border-red-200">
@@ -877,7 +877,7 @@ export default function ImportManager() {
                               </div>
                               <div className="flex items-center gap-3 text-xs text-slate-500">
                                 <span className="text-green-600">+{job.created_rows || 0}</span>
-                                <span className="text-amber-600">~{job.updated_rows || 0}</span>
+                                <span className="text-amber-700">~{job.updated_rows || 0}</span>
                                 {job.error_rows > 0 && (
                                   <span className="text-red-600">!{job.error_rows}</span>
                                 )}
@@ -1075,7 +1075,7 @@ export default function ImportManager() {
                   {dedupePreview && (
                     <div className="space-y-4">
                       <Alert className="border-amber-200 bg-amber-50">
-                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <AlertCircle className="w-4 h-4 text-amber-700" />
                         <AlertDescription className="text-amber-800">
                           Found <strong>{dedupePreview.summary?.totalToDelete || 0}</strong> duplicate members to remove.
                           <strong> {dedupePreview.summary?.totalKeepers || 0}</strong> unique email addresses with duplicates.

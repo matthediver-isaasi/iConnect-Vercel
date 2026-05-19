@@ -649,7 +649,7 @@ export default function FloaterManagementPage() {
                   </SelectContent>
                 </Select>
                 {forms.length === 0 && (
-                  <p className="text-xs text-amber-600">No forms available. Create a form first.</p>
+                  <p className="text-xs text-amber-700">No forms available. Create a form first.</p>
                 )}
                 <p className="text-xs text-slate-500">The form to open when the floater is clicked</p>
               </div>

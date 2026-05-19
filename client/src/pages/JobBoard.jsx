@@ -300,7 +300,7 @@ export default function JobBoardPage() {
                       {/* Closing Soon Banner */}
                       {closingSoon && (
                         <div className="mb-4 -mx-4 md:-mx-6 -mt-4 md:-mt-6 px-4 md:px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <AlertCircle className="w-4 h-4 text-amber-700" />
                           <span className="text-sm font-medium text-amber-900">
                             Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                           </span>
@@ -328,7 +328,7 @@ export default function JobBoardPage() {
                               {job.title}
                             </h3>
                             {job.featured && (
-                              <Star className="w-5 h-5 text-amber-500 fill-amber-500 flex-shrink-0" />
+                              <Star className="w-5 h-5 text-amber-700 fill-amber-500 flex-shrink-0" />
                             )}
                           </div>
                           <p className="text-sm font-medium text-slate-700 mt-1">{job.company_name}</p>

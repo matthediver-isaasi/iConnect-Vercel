@@ -650,11 +650,11 @@ export default function ArticleViewPage() {
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-amber-100 rounded-full">
-                <Eye className="w-5 h-5 text-amber-600" />
+                <Eye className="w-5 h-5 text-amber-700" />
               </div>
               <div>
                 <p className="font-medium text-amber-800">Preview Mode</p>
-                <p className="text-sm text-amber-600">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
+                <p className="text-sm text-amber-700">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
               </div>
             </div>
             <Link to={getArticleEditorUrl(article.id)}>
@@ -843,7 +843,7 @@ export default function ArticleViewPage() {
                       <div className="mt-4">
                         {articleSettings?.showAwardsLabel && (
                           <div className="flex items-center gap-2 mb-2">
-                            <Trophy className="w-4 h-4 text-amber-600" />
+                            <Trophy className="w-4 h-4 text-amber-700" />
                             <span className="text-xs font-semibold text-slate-700">Awards</span>
                           </div>
                         )}
@@ -857,7 +857,7 @@ export default function ArticleViewPage() {
                               {award.image_url ? (
                                 <img src={award.image_url} alt={award.name} className="w-5 h-5 object-contain" />
                               ) : (
-                                <Trophy className="w-4 h-4 text-amber-600" />
+                                <Trophy className="w-4 h-4 text-amber-700" />
                               )}
                               <span className="text-xs font-medium text-slate-900">{award.name}</span>
                             </div>

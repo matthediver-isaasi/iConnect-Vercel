@@ -1323,7 +1323,7 @@ export default function CreateEvent() {
                 />
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Displayed on event cards and listings</span>
-                  <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-600' : ''}>
+                  <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-700' : ''}>
                     {formData.summary.length}/{summaryMaxLength}
                   </span>
                 </div>
@@ -2230,12 +2230,12 @@ export default function CreateEvent() {
                           {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
                             <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                               <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4 text-amber-600" />
+                                <Users className="h-4 w-4 text-amber-700" />
                                 <div>
                                   <Label htmlFor={`role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
                                     Restrict to selected roles / groups
                                   </Label>
-                                  <p className="text-xs text-amber-600">
+                                  <p className="text-xs text-amber-700">
                                     {ticket.role_match_only
                                       ? "Ticket is hidden from users whose role and member groups don't match"
                                       : "Ticket is visible to all users (selection only affects who can register)"}
@@ -2501,7 +2501,7 @@ export default function CreateEvent() {
                             </SelectContent>
                           </Select>
                           {availableVatRates.length === 0 && (
-                            <p className="text-xs text-amber-600">
+                            <p className="text-xs text-amber-700">
                               No VAT rates available. Sync rates from Xero in Admin Setup.
                             </p>
                           )}
@@ -2755,7 +2755,7 @@ export default function CreateEvent() {
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
               <AlertCircle className="w-5 h-5" />
               Please Fix the Following Issues
             </DialogTitle>
@@ -2767,7 +2767,7 @@ export default function CreateEvent() {
           <div className="py-4 space-y-2 max-h-[300px] overflow-y-auto">
             {validationErrors.map((error, index) => (
               <div key={index} className="flex items-start gap-2 text-sm text-slate-700 p-2 bg-amber-50 rounded border border-amber-200">
-                <span className="text-amber-500 font-bold mt-0.5">{index + 1}.</span>
+                <span className="text-amber-700 font-bold mt-0.5">{index + 1}.</span>
                 <span>{error}</span>
               </div>
             ))}

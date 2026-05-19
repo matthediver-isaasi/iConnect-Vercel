@@ -775,7 +775,7 @@ export default function MyTicketsPage({ hasBanner }) {
                         
                         {hasPendingCancel && !isCancelled && (
                           <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                             <p className="text-xs text-amber-800 font-medium">
                               Cancellation request submitted — awaiting admin review
                             </p>
@@ -802,7 +802,7 @@ export default function MyTicketsPage({ hasBanner }) {
 
                     {ticket.status === 'pending' && !isCancelled && (
                       <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-4">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                         <p className="text-xs text-amber-800">
                           This ticket is pending confirmation. Please check your email for the confirmation link.
                         </p>
@@ -857,7 +857,7 @@ export default function MyTicketsPage({ hasBanner }) {
           {deadlinePassed ? (
             <div className="space-y-4">
               <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-800">
                   <p className="font-medium mb-1">Cancellation deadline has passed</p>
                   <p>

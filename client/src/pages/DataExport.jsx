@@ -108,7 +108,7 @@ export default function DataExportPage() {
 
             <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
               <div className="flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div>
                   <h3 className="text-sm font-semibold text-amber-900 mb-1">Important Notes:</h3>
                   <ul className="text-sm text-amber-700 space-y-1">

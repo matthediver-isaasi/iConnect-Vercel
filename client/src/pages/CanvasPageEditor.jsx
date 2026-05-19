@@ -1149,7 +1149,7 @@ export default function CanvasPageEditorPage() {
         <DialogContent className="max-w-lg" data-testid="dialog-publish-confirm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Accessibility className="w-4 h-4 text-amber-600" />
+              <Accessibility className="w-4 h-4 text-amber-700" />
               Publish with accessibility findings?
             </DialogTitle>
             <DialogDescription>

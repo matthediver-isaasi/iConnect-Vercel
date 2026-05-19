@@ -126,7 +126,7 @@ export default function TeamInviteSettingsPage() {
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-amber-900">
                 <p className="font-medium mb-1">Important Notes:</p>
                 <ul className="list-disc list-inside space-y-1 text-amber-800">

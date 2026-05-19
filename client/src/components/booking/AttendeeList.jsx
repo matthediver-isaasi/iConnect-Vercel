@@ -87,7 +87,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return <Info className="w-4 h-4 text-blue-600" />;
       case 'external':
-        return <Info className="w-4 h-4 text-amber-600" />;
+        return <Info className="w-4 h-4 text-amber-700" />;
       case 'wrong_organization':
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-600" />;

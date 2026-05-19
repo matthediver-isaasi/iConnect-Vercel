@@ -392,7 +392,7 @@ export default function OrganizationTransactionsModal({
             <div className="space-y-4">
               <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                   <div className="text-sm">
                     <p className="font-medium text-amber-900 mb-1">Important:</p>
                     <p className="text-amber-800">

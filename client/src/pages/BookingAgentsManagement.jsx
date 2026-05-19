@@ -607,7 +607,7 @@ export default function BookingAgentsManagement() {
                             </Button>
                           </div>
                           {!isLoadingProfiles && !hasProfile && (
-                            <p className="text-xs text-amber-600 mt-2">
+                            <p className="text-xs text-amber-700 mt-2">
                               Availability not configured - booking page won't work
                             </p>
                           )}

@@ -106,7 +106,7 @@ export default function SubmissionStatsBar() {
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
           >
-            <Briefcase className="w-4 h-4 text-amber-600" />
+            <Briefcase className="w-4 h-4 text-amber-700" />
             <span className="text-base font-bold text-amber-700" data-testid="text-pending-jobs-count">{pendingJobs}</span>
           </div>
 

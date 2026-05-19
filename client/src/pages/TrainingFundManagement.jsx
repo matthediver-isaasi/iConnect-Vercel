@@ -1119,7 +1119,7 @@ export default function TrainingFundManagementPage() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span data-testid={`drift-indicator-${org.id}`}>
-                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">

@@ -19,7 +19,7 @@ const SEV_ICON = {
 
 const SEV_CLASS = {
   [SEVERITY.ERROR]: 'text-destructive',
-  [SEVERITY.WARNING]: 'text-amber-600',
+  [SEVERITY.WARNING]: 'text-amber-700',
   [SEVERITY.INFO]: 'text-slate-500',
 };
 
@@ -60,7 +60,7 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
         ) : summary.total === 0 ? (
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
         ) : (
-          <ShieldAlert className="w-4 h-4 text-amber-500" />
+          <ShieldAlert className="w-4 h-4 text-amber-700" />
         )}
         <h2 className="text-sm font-semibold text-slate-900">Accessibility</h2>
       </div>

@@ -917,7 +917,7 @@ export default function ZoomWebinarProvisioning() {
           <Card>
             <CardHeader className="text-center">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
-                <AlertCircle className="h-6 w-6 text-amber-600" />
+                <AlertCircle className="h-6 w-6 text-amber-700" />
               </div>
               <CardTitle data-testid="text-zoom-not-configured">Zoom Not Configured</CardTitle>
               <CardDescription>
@@ -1037,14 +1037,14 @@ export default function ZoomWebinarProvisioning() {
                   >
                     <div className="flex items-center gap-4">
                       <div className={`p-2 rounded-lg ${hasConflict ? 'bg-amber-100' : 'bg-blue-50'}`}>
-                        <Video className={`w-5 h-5 ${hasConflict ? 'text-amber-600' : 'text-blue-600'}`} />
+                        <Video className={`w-5 h-5 ${hasConflict ? 'text-amber-700' : 'text-blue-600'}`} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-slate-900">{webinar.topic}</p>
                           {hasConflict && (
                             <div className="group relative">
-                              <AlertTriangle className="w-4 h-4 text-amber-500" />
+                              <AlertTriangle className="w-4 h-4 text-amber-700" />
                               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50">
                                 <div className="bg-slate-900 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
                                   <p className="font-medium mb-1">Scheduling overlap with:</p>
@@ -1375,7 +1375,7 @@ export default function ZoomWebinarProvisioning() {
             {conflicts.length > 0 && (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg" data-testid="conflict-warning">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-amber-800">Scheduling Conflict Detected</p>
                     <p className="text-sm text-amber-700 mt-1">
@@ -1403,7 +1403,7 @@ export default function ZoomWebinarProvisioning() {
                         );
                       })}
                     </div>
-                    <p className="text-xs text-amber-600 mt-3">
+                    <p className="text-xs text-amber-700 mt-3">
                       You can still create this webinar despite the overlap. Zoom allows multiple webinars at the same time.
                     </p>
                   </div>
@@ -1484,7 +1484,7 @@ export default function ZoomWebinarProvisioning() {
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
             {conflicts.length > 0 && !createWebinarMutation.isPending && (
-              <p className="text-xs text-amber-600 sm:mr-auto flex items-center gap-1">
+              <p className="text-xs text-amber-700 sm:mr-auto flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" />
                 Overlaps with {conflicts.length} existing {conflicts.length === 1 ? 'webinar' : 'webinars'}
               </p>
@@ -2092,7 +2092,7 @@ export default function ZoomWebinarProvisioning() {
             {conflicts.length > 0 && (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg" data-testid="edit-conflict-warning">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-amber-800">Scheduling Conflict Detected</p>
                     <p className="text-sm text-amber-700 mt-1">

@@ -1062,7 +1062,7 @@ export default function DueDiligenceDashboardPage() {
                     <div className="text-xs text-muted-foreground">Fields copied</div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-2xl font-bold text-amber-500">{swapPreview.summary.newEmptyFieldsCount}</div>
+                    <div className="text-2xl font-bold text-amber-700">{swapPreview.summary.newEmptyFieldsCount}</div>
                     <div className="text-xs text-muted-foreground">New empty fields</div>
                   </Card>
                   <Card className="p-3">
@@ -1092,7 +1092,7 @@ export default function DueDiligenceDashboardPage() {
                 {swapPreview.fieldMapping.newEmpty.length > 0 && (
                   <div>
                     <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      <AlertTriangle className="w-4 h-4 text-amber-700" />
                       New Empty Fields ({swapPreview.fieldMapping.newEmpty.length})
                     </h4>
                     <div className="space-y-1 max-h-24 overflow-y-auto">
@@ -1145,7 +1145,7 @@ export default function DueDiligenceDashboardPage() {
                     )}
                     {swapPreview.contractStatus.willArchive.length > 0 && (
                       <div>
-                        <span className="text-xs text-amber-600 font-medium">Will remain with archived submission:</span>
+                        <span className="text-xs text-amber-700 font-medium">Will remain with archived submission:</span>
                         <div className="space-y-1 mt-1">
                           {swapPreview.contractStatus.willArchive.map((contract, idx) => (
                             <div key={idx} className="text-xs bg-amber-500/10 p-2 rounded flex items-center gap-2">

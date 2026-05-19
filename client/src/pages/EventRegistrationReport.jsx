@@ -660,8 +660,8 @@ export default function EventRegistrationReport() {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1">
-              <Clock className="w-4 h-4 text-amber-500" />
-              <span className="text-xs text-amber-500">Partial</span>
+              <Clock className="w-4 h-4 text-amber-700" />
+              <span className="text-xs text-amber-700">Partial</span>
             </div>
           </TooltipTrigger>
           <TooltipContent>
@@ -1152,7 +1152,7 @@ export default function EventRegistrationReport() {
                                   {gp.purchaseOrderNumber ? (
                                     <span className="text-xs">{gp.purchaseOrderNumber}</span>
                                   ) : gp.poToFollow ? (
-                                    <span className="text-xs italic text-amber-600">To follow</span>
+                                    <span className="text-xs italic text-amber-700">To follow</span>
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
@@ -1232,7 +1232,7 @@ export default function EventRegistrationReport() {
                                 {gp.purchaseOrderNumber ? (
                                   <span className="text-xs">{gp.purchaseOrderNumber}</span>
                                 ) : gp.poToFollow ? (
-                                  <span className="text-xs italic text-amber-600">To follow</span>
+                                  <span className="text-xs italic text-amber-700">To follow</span>
                                 ) : '-'}
                               </td>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>

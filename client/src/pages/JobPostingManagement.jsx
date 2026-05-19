@@ -389,7 +389,7 @@ export default function JobPostingManagementPage() {
                         <CardContent className="p-6">
                           {closingSoon && (
                             <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                              <AlertCircle className="w-4 h-4 text-amber-600" />
+                              <AlertCircle className="w-4 h-4 text-amber-700" />
                               <span className="text-sm font-medium text-amber-900">
                                 Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                               </span>

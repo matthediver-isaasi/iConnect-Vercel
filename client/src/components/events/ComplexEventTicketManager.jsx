@@ -724,12 +724,12 @@ export default function ComplexEventTicketManager({
                   {(ticket.role_ids || []).length > 0 && ticket.visibility_mode !== 'public_only' && (
                     <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                       <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-amber-600" />
+                        <Users className="h-4 w-4 text-amber-700" />
                         <div>
                           <Label htmlFor={`ct-role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
                             Match only to user role
                           </Label>
-                          <p className="text-xs text-amber-600">
+                          <p className="text-xs text-amber-700">
                             {ticket.role_match_only
                               ? "Ticket is hidden from users whose role doesn't match"
                               : "Ticket is visible to all users (role only affects who can register)"}
@@ -936,7 +936,7 @@ export default function ComplexEventTicketManager({
                     </SelectContent>
                   </Select>
                   {availableVatRates.length === 0 && (
-                    <p className="text-xs text-amber-600">
+                    <p className="text-xs text-amber-700">
                       No VAT rates available. Sync rates from Xero in Admin Setup.
                     </p>
                   )}

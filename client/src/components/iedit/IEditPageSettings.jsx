@@ -369,7 +369,7 @@ export default function IEditPageSettings({ page, onClose, onSave }) {
                 />
               </div>
               {ogImageDimWarning ? (
-                <p className="text-xs text-amber-600 mt-1" data-testid="text-og-image-warning">{ogImageDimWarning}</p>
+                <p className="text-xs text-amber-700 mt-1" data-testid="text-og-image-warning">{ogImageDimWarning}</p>
               ) : null}
               <p className="text-xs text-slate-500 mt-1">Recommended size: 1200×630 PNG/JPG.</p>
             </div>

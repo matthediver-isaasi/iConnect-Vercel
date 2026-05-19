@@ -2058,7 +2058,7 @@ export default function MemberDetailView({
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-amber-600" />
+                  <Trophy className="w-5 h-5 text-amber-700" />
                   Engagement Opening Balances
                 </CardTitle>
               </CardHeader>

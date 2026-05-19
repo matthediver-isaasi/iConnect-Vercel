@@ -31,7 +31,7 @@ function NumberField({ id, label, value, onChange, min, max, step = 1, testId, o
         <Label htmlFor={id} className="text-xs text-slate-600">{label}</Label>
         {override !== undefined && (
           <span
-            className={`text-[10px] uppercase tracking-wide ${override ? 'text-amber-600' : 'text-slate-400'}`}
+            className={`text-[10px] uppercase tracking-wide ${override ? 'text-amber-700' : 'text-slate-400'}`}
             title={override ? 'Has breakpoint override' : 'Inherited from larger breakpoint'}
           >
             {override ? 'override' : 'inherited'}
@@ -122,7 +122,7 @@ const SEV_ICON = {
 };
 const SEV_CLASS = {
   [SEVERITY.ERROR]: 'text-destructive',
-  [SEVERITY.WARNING]: 'text-amber-600',
+  [SEVERITY.WARNING]: 'text-amber-700',
   [SEVERITY.INFO]: 'text-slate-500',
 };
 

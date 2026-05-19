@@ -603,7 +603,7 @@ export default function PortalMenuManagementPage() {
             <CardHeader className="border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-600" />
+                  <Shield className="w-5 h-5 text-amber-700" />
                   Admin Navigation
                 </CardTitle>
                 <Button

@@ -519,7 +519,7 @@ export default function BalancesPage({ hasBanner }) {
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <Ticket className={`w-4 h-4 ${
-                                      isExpiringSoon ? 'text-amber-600' : 'text-blue-600'
+                                      isExpiringSoon ? 'text-amber-700' : 'text-blue-600'
                                     }`} />
                                     <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
                                   </div>
@@ -534,10 +534,10 @@ export default function BalancesPage({ hasBanner }) {
                               
                               <div className="flex items-center gap-2 text-xs">
                                 <Calendar className={`w-3 h-3 ${
-                                  isExpiringSoon ? 'text-amber-600' : 'text-slate-400'
+                                  isExpiringSoon ? 'text-amber-700' : 'text-slate-400'
                                 }`} />
                                 <span className={
-                                  isExpiringSoon ? 'text-amber-600 font-medium' : 'text-slate-500'
+                                  isExpiringSoon ? 'text-amber-700 font-medium' : 'text-slate-500'
                                 }>
                                   Expires {format(expiryDate, 'MMM d, yyyy')}
                                   {isExpiringSoon && ` (${daysUntilExpiry} days)`}

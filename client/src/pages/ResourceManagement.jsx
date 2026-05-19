@@ -2395,7 +2395,7 @@ export default function ResourceManagementPage() {
                 {!editingResource.is_public && (
                   <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-amber-600" />
+                      <Calendar className="w-4 h-4 text-amber-700" />
                       <Label className="font-medium text-amber-900">Linked Events</Label>
                     </div>
                     <p className="text-xs text-amber-700">
@@ -2436,7 +2436,7 @@ export default function ResourceManagementPage() {
                                     </Select>
                                   </div>
                                 )}
-                                {session && <div className="text-xs text-amber-600 mt-0.5">Session: {session.title}</div>}
+                                {session && <div className="text-xs text-amber-700 mt-0.5">Session: {session.title}</div>}
                               </div>
                               <Button
                                 size="icon"

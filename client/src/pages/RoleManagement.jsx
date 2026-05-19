@@ -677,7 +677,7 @@ export default function RoleManagementPage() {
                             </span>
                           )}
                           {partial > 0 && (
-                            <span className="flex items-center gap-1 text-amber-600">
+                            <span className="flex items-center gap-1 text-amber-700">
                               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                               {partial} partial
                             </span>
@@ -742,7 +742,7 @@ export default function RoleManagementPage() {
                     title={editingRole.is_system ? 'System role names cannot be changed' : ''}
                   />
                   {editingRole.is_system && (
-                    <p className="text-xs text-amber-600">This is a system role and cannot be renamed.</p>
+                    <p className="text-xs text-amber-700">This is a system role and cannot be renamed.</p>
                   )}
                 </div>
 
@@ -993,7 +993,7 @@ export default function RoleManagementPage() {
 
                   <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
                     <div className="flex items-center gap-2 mb-2">
-                      <Users className="w-4 h-4 text-amber-600" />
+                      <Users className="w-4 h-4 text-amber-700" />
                       <Label className="font-medium text-amber-900">Member Limit</Label>
                     </div>
                     <p className="text-xs text-amber-700 mb-3">
@@ -1139,7 +1139,7 @@ export default function RoleManagementPage() {
                                           </Badge>
                                         )}
                                         {pageExclusionState === 'some' && !isPageDisabled && (
-                                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-600 border-amber-200">
+                                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
                                             Partial
                                           </Badge>
                                         )}
@@ -1279,7 +1279,7 @@ export default function RoleManagementPage() {
               {segmentationFieldId && (
                 <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 text-amber-700 mt-0.5" />
                     <div>
                       <p className="text-sm text-amber-900 font-medium">Important</p>
                       <p className="text-xs text-amber-700 mt-1">
@@ -1308,7 +1308,7 @@ export default function RoleManagementPage() {
             </DialogHeader>
             <div className="space-y-4">
               <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm text-amber-900 font-medium">
                     Are you sure you want to delete "{roleToDelete?.name}"?

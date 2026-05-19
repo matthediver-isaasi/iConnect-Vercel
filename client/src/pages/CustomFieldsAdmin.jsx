@@ -676,10 +676,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                     );
                                   })}
                                   {adminCol && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin column</span>
+                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin column</span>
                                   )}
                                   {adminFilter && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin filter</span>
+                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>
@@ -714,10 +714,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                     );
                                   })}
                                   {adminCol && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin column</span>
+                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin column</span>
                                   )}
                                   {adminFilter && (
-                                    <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin filter</span>
+                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>

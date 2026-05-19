@@ -2773,7 +2773,7 @@ function FieldCard({
                 <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
               )}
               {field.due_diligence && (
-                <Badge variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-600 bg-amber-50">
+                <Badge variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-700 bg-amber-50">
                   DD
                 </Badge>
               )}
@@ -4364,7 +4364,7 @@ function FieldCard({
                     </div>
                   )}
                   {contractForms.length === 0 && (
-                    <p className="text-xs text-amber-600">
+                    <p className="text-xs text-amber-700">
                       No contract templates available. Create a form with "Contract Mode" enabled to use this feature.
                     </p>
                   )}
@@ -4467,7 +4467,7 @@ function FieldCard({
                   {['select', 'radio'].includes(field.type) && (
                     <>
                       {(field.options || []).length === 0 ? (
-                        <p className="text-xs text-amber-600">Add options above first to set a default value</p>
+                        <p className="text-xs text-amber-700">Add options above first to set a default value</p>
                       ) : (
                         <Select
                           value={field.default_value || '__none__'}
@@ -4491,7 +4491,7 @@ function FieldCard({
                   {field.type === 'checkbox' && (
                     <>
                       {(field.options || []).length === 0 ? (
-                        <p className="text-xs text-amber-600">Add options above first to set default values</p>
+                        <p className="text-xs text-amber-700">Add options above first to set default values</p>
                       ) : (
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => {
@@ -5863,7 +5863,7 @@ export default function FormBuilderPage() {
                 {/* Timeout Notification Settings - Alternative Signer Feature */}
                 <div className="pt-3 border-t border-slate-100">
                   <div className="flex items-center gap-2 mb-3">
-                    <AlertCircle className="w-4 h-4 text-amber-500" />
+                    <AlertCircle className="w-4 h-4 text-amber-700" />
                     <Label className="text-sm font-medium">Timeout Notification</Label>
                   </div>
                   <p className="text-xs text-slate-500 mb-3">
@@ -5990,7 +5990,7 @@ export default function FormBuilderPage() {
                             )}
                             
                             {formData.contract_settings?.source_dd_form_id && sourceFormFields.length === 0 && (
-                              <p className="text-xs text-amber-600 dark:text-amber-400">
+                              <p className="text-xs text-amber-700 dark:text-amber-700">
                                 Selected form has no fields. Please add fields to the DD form first.
                               </p>
                             )}
@@ -6307,7 +6307,7 @@ export default function FormBuilderPage() {
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="keep">-- Don't change role --</SelectItem>
-                                    <SelectItem value="clear" className="text-amber-600">Clear role (set to none)</SelectItem>
+                                    <SelectItem value="clear" className="text-amber-700">Clear role (set to none)</SelectItem>
                                     {roles.map(role => (
                                       <SelectItem key={role.id} value={role.id}>
                                         {role.name}
@@ -6340,7 +6340,7 @@ export default function FormBuilderPage() {
                                   </SelectContent>
                                 </Select>
                                 {!hasEmailMapping && (
-                                  <span className="text-xs text-amber-600 font-medium">Email mapping required</span>
+                                  <span className="text-xs text-amber-700 font-medium">Email mapping required</span>
                                 )}
                               </div>
                               <Button
@@ -6455,7 +6455,7 @@ export default function FormBuilderPage() {
                                   data-testid={`input-org-label-${orgIdx}`}
                                 />
                                 {!hasNameMapping && (
-                                  <span className="text-xs text-amber-600 font-medium">Name mapping required</span>
+                                  <span className="text-xs text-amber-700 font-medium">Name mapping required</span>
                                 )}
                               </div>
                               <Button

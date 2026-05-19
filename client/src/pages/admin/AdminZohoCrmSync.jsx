@@ -2242,7 +2242,7 @@ export default function AdminZohoCrmSync() {
                     className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex items-start gap-2"
                     data-testid="text-relink-warning"
                   >
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-700" />
                     <div>
                       <div className="font-medium">Re-link partially complete</div>
                       <div className="text-xs mt-0.5 break-words">{relinkWarning}</div>
@@ -2463,7 +2463,7 @@ export default function AdminZohoCrmSync() {
                     const inboundTotal = recent.length;
                     if (inboundTotal === 0) {
                       return (
-                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="text-no-inbound-hint">
+                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-700 flex items-start gap-1.5" data-testid="text-no-inbound-hint">
                           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                           <span>
                             No inbound sync activity recorded yet. If you expect Zoho updates to land here, check the Inbound Webhook section under Field Mapping — the Zoho-side workflow rule (or Zoho Flow) must POST to that URL with the secret header on every Account/Contact/Lead update.
@@ -2473,7 +2473,7 @@ export default function AdminZohoCrmSync() {
                     }
                     if (inboundSkipped > 0) {
                       return (
-                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1.5" data-testid="text-inbound-skipped-summary">
+                        <div className="mt-2 text-xs text-amber-700 dark:text-amber-700 flex items-start gap-1.5" data-testid="text-inbound-skipped-summary">
                           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                           <span>{inboundSkipped} of the last {inboundTotal} inbound webhook calls were skipped — open the row detail to see why and adjust your mapping.</span>
                         </div>
@@ -2573,7 +2573,7 @@ export default function AdminZohoCrmSync() {
                           {Array.isArray(l.response_payload?.translation_warnings) && l.response_payload.translation_warnings.length > 0 && (
                             <Badge
                               variant="outline"
-                              className="mt-1 text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-400"
+                              className="mt-1 text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-700"
                               data-testid={`badge-unmapped-${l.id}`}
                               title="Unmapped picklist values were forwarded as-is — open the log to see which fields"
                             >
@@ -2631,7 +2631,7 @@ export default function AdminZohoCrmSync() {
               {Array.isArray(viewLog.response_payload?.translation_warnings) && viewLog.response_payload.translation_warnings.length > 0 && (
                 <div data-testid="panel-translation-warnings">
                   <div className="font-medium flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertTriangle className="h-4 w-4 text-amber-700" />
                     Unmapped picklist values
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">

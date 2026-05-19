@@ -518,7 +518,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
         {data.approvalPending && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-md border border-amber-200 dark:border-amber-800">
-            <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <Info className="h-4 w-4 text-amber-700 dark:text-amber-700 shrink-0 mt-0.5" />
             <p className="text-sm text-amber-800 dark:text-amber-300">{data.approvalMessage}</p>
           </div>
         )}

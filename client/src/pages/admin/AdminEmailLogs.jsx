@@ -192,7 +192,7 @@ export default function AdminEmailLogs() {
           ) : statsData?.error ? (
             <Card className="bg-slate-800/50 border-slate-700">
               <CardContent className="py-8 text-center">
-                <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto mb-2" />
+                <AlertTriangle className="h-8 w-8 text-amber-700 mx-auto mb-2" />
                 <p className="text-slate-400">{statsData.error}</p>
               </CardContent>
             </Card>
@@ -284,7 +284,7 @@ export default function AdminEmailLogs() {
         ) : eventsData?.error ? (
           <Card className="bg-slate-800/50 border-slate-700">
             <CardContent className="py-8 text-center">
-              <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto mb-2" />
+              <AlertTriangle className="h-8 w-8 text-amber-700 mx-auto mb-2" />
               <p className="text-slate-400">{eventsData.error}</p>
             </CardContent>
           </Card>

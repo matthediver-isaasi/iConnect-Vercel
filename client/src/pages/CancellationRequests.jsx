@@ -982,7 +982,7 @@ export default function CancellationRequests() {
                       </Badge>
                     )}
                     {hasGroupFS && !allTicketsSelected && (
-                      <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
+                      <Badge variant="outline" className="text-amber-700 border-amber-300 text-xs">
                         {selectedCount} of {totalCount} selected (individual processing)
                       </Badge>
                     )}
@@ -990,7 +990,7 @@ export default function CancellationRequests() {
 
                   {hasGroupFS && allTicketsSelected && (groupFS?.hasMultipleStripeIntents || groupFS?.hasMultipleXeroInvoices) && (
                     <div className="p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="warning-multi-financial">
-                      <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-400">
+                      <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-700">
                         <AlertTriangle className="w-3 h-3 shrink-0" />
                         <span>
                           {groupFS.hasMultipleStripeIntents && groupFS.hasMultipleXeroInvoices
@@ -1080,7 +1080,7 @@ export default function CancellationRequests() {
                             <div key={v.voucherId} className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid={`row-voucher-expired-${v.voucherId}`}>
                               <div className="flex items-center gap-2 text-xs">
                                 <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
-                                <span className="text-orange-700 dark:text-orange-400">Voucher {v.code} expired {v.expiresAt ? format(new Date(v.expiresAt), "MMM d, yyyy") : ''} — £{parseFloat(v.amount).toFixed(2)} cannot be reinstated</span>
+                                <span className="text-orange-700 dark:text-orange-700">Voucher {v.code} expired {v.expiresAt ? format(new Date(v.expiresAt), "MMM d, yyyy") : ''} — £{parseFloat(v.amount).toFixed(2)} cannot be reinstated</span>
                               </div>
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
@@ -1124,7 +1124,7 @@ export default function CancellationRequests() {
                           <div className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="row-discount-expired">
                             <div className="flex items-center gap-2 text-xs">
                               <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
-                              <span className="text-orange-700 dark:text-orange-400">Discount code expired {fs.discountCode.expiresAt ? format(new Date(fs.discountCode.expiresAt), "MMM d, yyyy") : ''} — usage cannot be reversed</span>
+                              <span className="text-orange-700 dark:text-orange-700">Discount code expired {fs.discountCode.expiresAt ? format(new Date(fs.discountCode.expiresAt), "MMM d, yyyy") : ''} — usage cannot be reversed</span>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <Button

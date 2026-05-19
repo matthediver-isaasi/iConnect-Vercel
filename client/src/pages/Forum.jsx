@@ -547,7 +547,7 @@ export default function ForumPage() {
                     {threadCountByCategory[cat.id] || 0}
                   </div>
                   <div className="items-center gap-1 hidden sm:flex" data-testid={`text-latest-activity-${cat.id}`}>
-                    <Clock className="w-4 h-4 text-amber-400 dark:text-amber-500" />
+                    <Clock className="w-4 h-4 text-amber-700 dark:text-amber-700" />
                     {formatDate(latestActivityByCategory[cat.id])}
                   </div>
                 </div>

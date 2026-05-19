@@ -970,7 +970,7 @@ export default function TeamPage({ hasBanner }) {
                               ) : guestStatus.kind === 'permanent' ? (
                                 <InfinityIcon className="w-3.5 h-3.5 text-slate-500" />
                               ) : (
-                                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                <Clock className="w-3.5 h-3.5 text-amber-700" />
                               )}
                               <span
                                 className={
@@ -1113,7 +1113,7 @@ export default function TeamPage({ hasBanner }) {
                               return showAwards && stats.totalAwards > 0 ? (
                                 <div key="awards" className="pt-3 border-t border-slate-200">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <Trophy className="w-4 h-4 text-amber-600" />
+                                    <Trophy className="w-4 h-4 text-amber-700" />
                                     <span className="text-xs font-semibold text-slate-700">
                                       Awards ({stats.totalAwards})
                                     </span>

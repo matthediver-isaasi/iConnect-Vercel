@@ -1097,7 +1097,7 @@ export default function BookingsPage() {
                                     <div className="pt-2 border-t border-slate-200">
                                       <div className="flex items-center justify-between mb-2">
                                         <span className="text-slate-600">PO Number:</span>
-                                        <span className="text-amber-600 italic text-sm">To be supplied</span>
+                                        <span className="text-amber-700 italic text-sm">To be supplied</span>
                                       </div>
                                       <div className="flex gap-2">
                                         <Input
@@ -1184,7 +1184,7 @@ export default function BookingsPage() {
                         return (
                         <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950/30 dark:border-orange-800">
                           <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                            <FileText className="w-4 h-4 text-orange-600 dark:text-orange-700" />
                             <span className="text-sm text-orange-800 dark:text-orange-300">
                               Credit Note: <span className="font-mono font-medium">{creditNoteBooking.xero_credit_note_number}</span>
                             </span>
@@ -1231,7 +1231,7 @@ export default function BookingsPage() {
 
                       {groupBookings.some(b => b.status === 'pending') && (
                         <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                           <p className="text-xs text-amber-800">
                             Some bookings are pending confirmation. Confirmation links have been sent to the attendees' email addresses.
                           </p>
@@ -1261,7 +1261,7 @@ export default function BookingsPage() {
           {deadlinePassed ? (
             <div className="space-y-4">
               <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-800">
                   <p className="font-medium mb-1">Cancellation deadline has passed</p>
                   <p>

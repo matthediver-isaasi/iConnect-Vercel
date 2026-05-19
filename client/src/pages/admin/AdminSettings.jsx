@@ -848,7 +848,7 @@ export default function AdminSettings() {
                         Verified
                       </span>
                     ) : tenant.settings.email_domain.status === 'pending' ? (
-                      <span className="flex items-center gap-1 text-xs text-amber-400">
+                      <span className="flex items-center gap-1 text-xs text-amber-700">
                         <AlertTriangle className="w-3 h-3" />
                         Pending Verification
                       </span>
@@ -980,7 +980,7 @@ export default function AdminSettings() {
               </div>
               {!formData.settings.allow_search_indexing && (
                 <div className="flex items-start gap-3 p-3 bg-amber-900/30 border border-amber-800 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <p className="text-sm text-amber-200">
                     Search engines will be blocked from indexing this site. Enable this when your site is ready for production.
                   </p>

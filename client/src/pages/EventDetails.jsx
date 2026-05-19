@@ -1665,7 +1665,7 @@ export default function EventDetailsPage() {
                   <div className="space-y-4">
                     {isGuestFormDisabled ? (
                       <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <Lock className="w-5 h-5 text-amber-600" />
+                        <Lock className="w-5 h-5 text-amber-700" />
                         <p className="text-sm text-amber-800">
                           This ticket is for members only. Please <a href="/Login" className="font-medium underline text-amber-900 hover:text-amber-700">log in</a> to register, or select a public ticket if available.
                         </p>
@@ -1729,7 +1729,7 @@ export default function EventDetailsPage() {
                         data-testid="input-guest-email"
                       />
                       {guestEmailIsMember && (
-                        <p className="text-xs text-amber-600 flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
+                        <p className="text-xs text-amber-700 flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
                           <AlertTriangle className="h-3 w-3" />
                           This email belongs to a member. Please log in to register.
                         </p>
@@ -1969,7 +1969,7 @@ export default function EventDetailsPage() {
                             </Button>
                             
                             {!hasEnoughTickets && event.program_tag && (
-                              <p className="text-xs text-center text-amber-600 mt-2">
+                              <p className="text-xs text-center text-amber-700 mt-2">
                                 Insufficient program tickets. You need {ticketsRequired - availableProgramTickets} more ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''}.
                               </p>
                             )}
@@ -2031,7 +2031,7 @@ export default function EventDetailsPage() {
                       </>
                     ) : (
                       <>
-                        <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                        <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" />
                         <div>
                           <h3 className="font-medium text-amber-800">No Tickets Available</h3>
                           <p className="text-sm text-amber-700 mt-1">
@@ -2169,7 +2169,7 @@ export default function EventDetailsPage() {
                                   if (availCount <= 0) {
                                     return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                   } else if (availCount <= 5) {
-                                    return <div className="text-xs text-amber-600 mt-0.5">Only {availCount} left</div>;
+                                    return <div className="text-xs text-amber-700 mt-0.5">Only {availCount} left</div>;
                                   } else {
                                     return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                   }
@@ -2269,7 +2269,7 @@ export default function EventDetailsPage() {
                                 if (availCount <= 0) {
                                   return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                 } else if (availCount <= 5) {
-                                  return <div className="text-xs text-amber-600 mt-0.5">Only {availCount} left</div>;
+                                  return <div className="text-xs text-amber-700 mt-0.5">Only {availCount} left</div>;
                                 } else {
                                   return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                 }

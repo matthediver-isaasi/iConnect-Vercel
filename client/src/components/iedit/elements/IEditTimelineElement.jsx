@@ -4040,7 +4040,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                     {item.heading || '(no heading)'}
                   </span>
                   {item.highlight?.enabled && (
-                    <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="currentColor" />
+                    <Star className="w-3.5 h-3.5 text-amber-700 shrink-0" fill="currentColor" />
                   )}
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -5301,7 +5301,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                     <div className="border-t border-slate-200 pt-3">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <Star className="w-4 h-4 text-amber-500" />
+                          <Star className="w-4 h-4 text-amber-700" />
                           <Label className="text-xs text-slate-600 font-medium">Highlight</Label>
                         </div>
                         <Switch

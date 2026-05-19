@@ -610,7 +610,7 @@ export default function PortalNavigationManagementPage() {
             <Card>
               <CardHeader className="border-b border-slate-200">
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-600" />
+                  <Shield className="w-5 h-5 text-amber-700" />
                   Admin Navigation
                 </CardTitle>
               </CardHeader>

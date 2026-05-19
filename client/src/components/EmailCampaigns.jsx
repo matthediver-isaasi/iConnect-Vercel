@@ -926,8 +926,8 @@ export default function EmailCampaigns() {
     const statusConfig = {
       draft: { label: 'Draft', variant: 'secondary' },
       scheduled: { label: 'Scheduled', variant: 'outline', className: 'border-blue-500 text-blue-600' },
-      preparing: { label: 'Preparing', variant: 'outline', className: 'border-amber-500 text-amber-600' },
-      sending: { label: 'Sending', variant: 'outline', className: 'border-amber-500 text-amber-600' },
+      preparing: { label: 'Preparing', variant: 'outline', className: 'border-amber-500 text-amber-700' },
+      sending: { label: 'Sending', variant: 'outline', className: 'border-amber-500 text-amber-700' },
       paused: { label: 'Paused', variant: 'outline', className: 'border-slate-400 text-slate-600' },
       sent: { label: 'Sent', variant: 'outline', className: 'border-green-500 text-green-600' },
       failed: { label: 'Failed', variant: 'destructive' },
@@ -1138,7 +1138,7 @@ export default function EmailCampaigns() {
                               )}
                             </div>
                             {campaign.status === 'sending' && campaign.total_recipients > 0 && (
-                              <span className="text-xs text-amber-600" data-testid={`text-sending-progress-${campaign.id}`}>
+                              <span className="text-xs text-amber-700" data-testid={`text-sending-progress-${campaign.id}`}>
                                 {campaign.sent_count || 0} / {campaign.total_recipients} sent
                               </span>
                             )}
@@ -1267,7 +1267,7 @@ export default function EmailCampaigns() {
                                 onClick={() => handleResumeClick(campaign)}
                                 disabled={resuming === campaign.id}
                                 title={`Resume sending (${campaign.pending_count} recipients still pending)`}
-                                className="text-amber-600 hover:text-amber-600"
+                                className="text-amber-700 hover:text-amber-700"
                                 data-testid={`button-resume-stuck-${campaign.id}`}
                               >
                                 {resuming === campaign.id ? (
@@ -1378,7 +1378,7 @@ export default function EmailCampaigns() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
               Resume Sending
             </DialogTitle>
             <DialogDescription asChild>
@@ -1701,7 +1701,7 @@ export default function EmailCampaigns() {
                   { key: 'sent', label: 'Sent', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
                   { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
                   { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
-                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-amber-50 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', accent: 'text-amber-600', ring: 'ring-amber-400' },
+                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-amber-50 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', accent: 'text-amber-700', ring: 'ring-amber-400' },
                 ].map(({ key, label, icon: Icon, value, bg, text, accent, ring }) => (
                   <div
                     key={key}
@@ -1720,7 +1720,7 @@ export default function EmailCampaigns() {
 
               {statsData.sent_only > 0 && statsData.delivered < statsData.sent && (
                 <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="warning-incomplete-stats">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
                     <span className="font-medium text-amber-800 dark:text-amber-200">
                       {statsData.sent_only} recipients still showing as "sent" without delivery confirmation.
@@ -1991,7 +1991,7 @@ export default function EmailCampaigns() {
             <DialogTitle className="text-sm font-semibold flex items-center gap-2" data-testid="text-sent-preview-title">
               {emailPreviewHeatmap ? (
                 <>
-                  <Flame className="w-4 h-4 text-orange-500" />
+                  <Flame className="w-4 h-4 text-orange-700" />
                   Email Preview — Click Heatmap
                 </>
               ) : (

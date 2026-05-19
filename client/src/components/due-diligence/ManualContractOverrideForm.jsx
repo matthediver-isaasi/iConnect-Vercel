@@ -101,13 +101,13 @@ export default function ManualContractOverrideForm({
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex items-center gap-2">
-          <FileEdit className="w-4 h-4 text-amber-500" />
+          <FileEdit className="w-4 h-4 text-amber-700" />
           <h4 className="text-sm font-semibold">Manual Contract Override</h4>
         </div>
       </div>
 
       <Alert className="bg-amber-50 border-amber-200">
-        <AlertCircle className="w-4 h-4 text-amber-600" />
+        <AlertCircle className="w-4 h-4 text-amber-700" />
         <AlertDescription className="text-amber-700 text-xs">
           This will create a signed contract submission for <strong>{signer?.email}</strong> using the data you enter below.
           Use this for migrating contracts from a previous system.

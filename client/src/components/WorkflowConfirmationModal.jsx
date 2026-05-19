@@ -64,8 +64,8 @@ function ActionStepList({ actions, results }) {
               )}
               {action.approval_warning && (
                 <div className="flex items-center gap-1.5 mt-1" data-testid={`action-approval-warning-${i}`}>
-                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500 shrink-0" />
-                  <span className="text-xs font-medium text-yellow-600 dark:text-yellow-500">{action.approval_warning}</span>
+                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-700 dark:text-yellow-700 shrink-0" />
+                  <span className="text-xs font-medium text-yellow-700 dark:text-yellow-700">{action.approval_warning}</span>
                 </div>
               )}
               {action.requires_approval && action.fees_approved && (
@@ -514,7 +514,7 @@ export function DryRunSimulationModal({
                 : step.status === 'info' ? Info
                 : CheckCircle2;
               const statusColor = step.status === 'error' ? 'text-destructive'
-                : step.status === 'warning' ? 'text-yellow-600 dark:text-yellow-500'
+                : step.status === 'warning' ? 'text-yellow-700 dark:text-yellow-700'
                 : step.status === 'info' ? 'text-blue-600 dark:text-blue-400'
                 : 'text-green-600 dark:text-green-500';
 

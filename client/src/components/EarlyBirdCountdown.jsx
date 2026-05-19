@@ -52,7 +52,7 @@ export default function EarlyBirdCountdown({ deadline, onExpired, compact = fals
     return (
       <span
         className={`inline-flex items-center gap-1 text-xs font-medium ${
-          isUrgent ? 'text-red-600' : 'text-amber-600'
+          isUrgent ? 'text-red-600' : 'text-amber-700'
         }`}
         data-testid="text-early-bird-countdown"
       >

@@ -277,9 +277,9 @@ export default function MyJobPostingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-600 mb-1">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-600">{groupedJobs.pending.length}</p>
+                  <p className="text-2xl font-bold text-yellow-700">{groupedJobs.pending.length}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-600" />
+                <Clock className="w-8 h-8 text-yellow-700" />
               </div>
             </CardContent>
           </Card>
@@ -413,7 +413,7 @@ export default function MyJobPostingsPage() {
                   <CardContent className="p-6">
                     {closingSoon && job.status === 'active' && (
                       <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <AlertCircle className="w-4 h-4 text-amber-700" />
                         <span className="text-sm font-medium text-amber-900">
                           Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                         </span>
@@ -434,7 +434,7 @@ export default function MyJobPostingsPage() {
                         <h3 className="text-lg font-bold text-slate-900 line-clamp-2 mb-2">{job.title}</h3>
                         <p className="text-sm font-medium text-slate-700">{job.company_name}</p>
                       </div>
-                      {job.featured && <Star className="w-5 h-5 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                      {job.featured && <Star className="w-5 h-5 text-amber-700 fill-amber-500 flex-shrink-0" />}
                     </div>
 
                     <div className="flex flex-wrap gap-2 mb-4">

@@ -1965,7 +1965,7 @@ export default function PreferencesPage() {
                             </div>
                             <span className={`text-xs font-medium ${
                               getPasswordStrength(newPassword).score <= 2 ? 'text-red-600' :
-                              getPasswordStrength(newPassword).score <= 3 ? 'text-yellow-600' : 'text-green-600'
+                              getPasswordStrength(newPassword).score <= 3 ? 'text-yellow-700' : 'text-green-600'
                             }`}>
                               {getPasswordStrength(newPassword).label}
                             </span>
@@ -2313,7 +2313,7 @@ export default function PreferencesPage() {
           <Card key="awards" className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-600" />
+                <Trophy className="w-5 h-5 text-amber-700" />
                 Awards
                 <Badge variant="secondary">{earnedOnlineAwards.length + earnedOfflineAwards.length}</Badge>
               </CardTitle>
@@ -2702,7 +2702,7 @@ export default function PreferencesPage() {
               >
                 <div className="space-y-1">
                   <h4 className="font-medium text-slate-900 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-amber-600" />
+                    <Shield className="w-4 h-4 text-amber-700" />
                     Opt out of all communications
                   </h4>
                   <p className="text-sm text-slate-500">

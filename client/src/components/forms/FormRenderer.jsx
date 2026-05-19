@@ -587,7 +587,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               data-testid={`input-url-${field.id}`}
             />
             {urlFormatError && (
-              <p className="text-xs text-amber-600" data-testid={`error-url-format-${field.id}`}>
+              <p className="text-xs text-amber-700" data-testid={`error-url-format-${field.id}`}>
                 {urlFormatError}
               </p>
             )}
@@ -616,12 +616,12 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               data-testid={`input-email-${field.id}`}
             />
             {emailFormatError && (
-              <p className="text-xs text-amber-600" data-testid={`error-email-format-${field.id}`}>
+              <p className="text-xs text-amber-700" data-testid={`error-email-format-${field.id}`}>
                 {emailFormatError}
               </p>
             )}
             {domainError && (
-              <p className="text-xs text-amber-600" data-testid={`error-domain-${field.id}`}>
+              <p className="text-xs text-amber-700" data-testid={`error-domain-${field.id}`}>
                 {domainError}
               </p>
             )}

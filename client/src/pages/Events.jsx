@@ -1536,7 +1536,7 @@ export default function EventsPage({
               {featuredEvents.length > 0 && (
                 <div className="mb-6 rounded-lg p-4 -mx-[10px]" style={featuredBgStyle} data-testid="card-featured-events">
                   <div className="flex items-center gap-2 mb-4">
-                    <Star className="h-5 w-5 text-amber-500" />
+                    <Star className="h-5 w-5 text-amber-700" />
                     <h2 className="text-lg font-semibold">Featured Events</h2>
                   </div>
                   <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -2530,7 +2530,7 @@ export default function EventsPage({
                 )}
                 {(complexImportResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-amber-700">Already Registered ({complexImportResults.alreadyRegistered.length})</p>
                       <p className="text-slate-600 text-xs mt-1">{complexImportResults.alreadyRegistered.join(', ')}</p>
@@ -2539,7 +2539,7 @@ export default function EventsPage({
                 )}
                 {(complexImportResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-amber-700">Warnings ({complexImportResults.warnings.length})</p>
                       <p className="text-slate-600 text-xs mt-1">

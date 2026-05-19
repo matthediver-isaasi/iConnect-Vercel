@@ -159,7 +159,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
   if (!organizationId) {
     return (
       <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
-        <div className="flex items-start gap-2 text-sm text-amber-600">
+        <div className="flex items-start gap-2 text-sm text-amber-700">
           <AlertCircle className="w-4 h-4 mt-0.5" />
           <span>Organisation information not available</span>
         </div>
@@ -223,7 +223,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             iconColor = 'text-green-600';
           } else if (isSelected && showRemainingValue) {
-            iconColor = 'text-yellow-600';
+            iconColor = 'text-yellow-700';
           } else if (isSelected) {
             iconColor = 'text-blue-600';
           }
@@ -249,7 +249,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                   
                   <div className="flex items-center gap-1 text-xs">
                     <Calendar className="w-3 h-3 text-slate-400" />
-                    <span className={isExpiringSoon ? 'text-amber-600 font-medium' : 'text-slate-500'}>
+                    <span className={isExpiringSoon ? 'text-amber-700 font-medium' : 'text-slate-500'}>
                       Expires {format(expiryDate, 'MMM d, yyyy')}
                       {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                     </span>

@@ -728,7 +728,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                   >
                     <span className="flex-1">{subItem.title}</span>
                     {showSubPendingPOWarning && (
-                      <Bell className="w-3 h-3 text-amber-500 animate-pulse" />
+                      <Bell className="w-3 h-3 text-amber-700 animate-pulse" />
                     )}
                   </Link>
                 );
@@ -774,7 +774,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                 >
                   <span className="flex-1">{subItem.title}</span>
                   {showSubPendingPOWarning && (
-                    <Bell className="w-4 h-4 text-amber-500 animate-pulse" data-testid="pending-po-warning-bell-sub" />
+                    <Bell className="w-4 h-4 text-amber-700 animate-pulse" data-testid="pending-po-warning-bell-sub" />
                   )}
                 </Link>
               </SidebarMenuSubItem>
@@ -2124,7 +2124,7 @@ useEffect(() => {
                                 <Icon className="w-4 h-4 shrink-0" />
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
-                                  <Bell className="w-4 h-4 text-amber-500 animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
+                                  <Bell className="w-4 h-4 text-amber-700 animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
                                 )}
                               </SidebarNavLink>
                             </SidebarMenuButton>
@@ -2139,7 +2139,7 @@ useEffect(() => {
               {/* Admin Section */}
               {filteredAdminNavigationItems.length > 0 && (
                 <SidebarGroup className="mt-4 group-data-[collapsible=icon]:mt-0">
-                  <SidebarGroupLabel className="text-xs font-medium text-amber-600 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
+                  <SidebarGroupLabel className="text-xs font-medium text-amber-700 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
                     Administration
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
@@ -2354,7 +2354,7 @@ useEffect(() => {
                               <Icon className="w-4 h-4" />
                               <span className="flex-1">{item.title}</span>
                               {showPendingPOWarning && (
-                                <Bell className="w-4 h-4 text-amber-500 animate-pulse" data-testid="pending-po-warning-bell-mobile" />
+                                <Bell className="w-4 h-4 text-amber-700 animate-pulse" data-testid="pending-po-warning-bell-mobile" />
                               )}
                             </Link>
                           );
@@ -2366,7 +2366,7 @@ useEffect(() => {
                   {/* Admin Section */}
                   {filteredAdminNavigationItems.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-xs font-medium text-amber-600 uppercase tracking-wider px-3 py-2">
+                      <div className="text-xs font-medium text-amber-700 uppercase tracking-wider px-3 py-2">
                         Administration
                       </div>
                       <nav className="space-y-1">

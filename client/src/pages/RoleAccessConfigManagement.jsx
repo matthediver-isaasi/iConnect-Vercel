@@ -692,7 +692,7 @@ export default function RoleAccessConfigManagement() {
     return (
       <Card className="m-6">
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-4">
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-700 mb-4">
             <AlertTriangle className="h-5 w-5" />
             <span className="font-medium">{isTableNotFound ? 'Table not found' : 'Database Error'}</span>
           </div>
@@ -1017,7 +1017,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   </SelectContent>
                 </Select>
                 {!editingItem?.parent_id && (
-                  <p className="text-xs text-amber-600">Please select a parent module</p>
+                  <p className="text-xs text-amber-700">Please select a parent module</p>
                 )}
               </div>
             )}
@@ -1043,7 +1043,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   </SelectContent>
                 </Select>
                 {!editingItem?.parent_id && (
-                  <p className="text-xs text-amber-600">Please select a parent page</p>
+                  <p className="text-xs text-amber-700">Please select a parent page</p>
                 )}
               </div>
             )}
@@ -1125,7 +1125,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
       <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
               <AlertTriangle className="h-5 w-5" />
               Reset to Defaults?
             </DialogTitle>

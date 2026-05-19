@@ -1717,13 +1717,13 @@ export default function EditEvent() {
                       <span className="font-medium">Out of sync with Zoom</span>
                     </div>
                     {zoomSyncStatus.differences?.start?.zoom && (
-                      <div className="text-xs text-amber-600 ml-6">
+                      <div className="text-xs text-amber-700 ml-6">
                         Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
                         Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                       </div>
                     )}
                     {zoomSyncStatus.differences?.end?.zoom && (
-                      <div className="text-xs text-amber-600 ml-6">
+                      <div className="text-xs text-amber-700 ml-6">
                         End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
                         Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                       </div>
@@ -2033,7 +2033,7 @@ export default function EditEvent() {
                       formData.summary.length > summaryMaxLength
                         ? 'text-destructive font-medium'
                         : formData.summary.length >= summaryMaxLength - 10
-                          ? 'text-amber-600'
+                          ? 'text-amber-700'
                           : ''
                     }
                     data-testid="text-summary-counter"
@@ -2458,7 +2458,7 @@ export default function EditEvent() {
               {eventTiming !== 'tbc' && (
                 <div className="space-y-2 mt-2">
                   {isOnlineEvent ? (
-                    <div className={`flex items-center gap-2 text-xs ${timezoneFetchFailed ? 'text-amber-600' : 'text-slate-500'}`}>
+                    <div className={`flex items-center gap-2 text-xs ${timezoneFetchFailed ? 'text-amber-700' : 'text-slate-500'}`}>
                       <Clock className="h-3 w-3" />
                       <span>
                         {isTimezoneLoading ? (
@@ -2714,7 +2714,7 @@ export default function EditEvent() {
                                 data-testid={`switch-early-bird-${ticket.id}`}
                               />
                               <Label htmlFor={`ticket-early-bird-${ticket.id}`} className="text-sm font-medium flex items-center gap-1.5">
-                                <Bird className="h-4 w-4 text-amber-500" />
+                                <Bird className="h-4 w-4 text-amber-700" />
                                 Early Bird Pricing
                               </Label>
                             </div>
@@ -2795,7 +2795,7 @@ export default function EditEvent() {
                                 />
                                 <span className="text-sm text-slate-500">tickets</span>
                                 {ticketClassSoldCounts[ticket.id] > 0 && (
-                                  <span className="text-xs text-amber-600">
+                                  <span className="text-xs text-amber-700">
                                     ({ticketClassSoldCounts[ticket.id]} sold)
                                   </span>
                                 )}
@@ -3096,12 +3096,12 @@ export default function EditEvent() {
                           {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
                             <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                               <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4 text-amber-600" />
+                                <Users className="h-4 w-4 text-amber-700" />
                                 <div>
                                   <Label htmlFor={`role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
                                     Restrict to selected roles / groups
                                   </Label>
-                                  <p className="text-xs text-amber-600">
+                                  <p className="text-xs text-amber-700">
                                     {ticket.role_match_only
                                       ? "Ticket is hidden from users whose role and member groups don't match"
                                       : "Ticket is visible to all users (selection only affects who can register)"}
@@ -3364,7 +3364,7 @@ export default function EditEvent() {
                             </SelectContent>
                           </Select>
                           {availableVatRates.length === 0 && (
-                            <p className="text-xs text-amber-600">
+                            <p className="text-xs text-amber-700">
                               No VAT rates available. Sync rates from Xero in Admin Setup.
                             </p>
                           )}

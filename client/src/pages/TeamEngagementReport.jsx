@@ -16,7 +16,7 @@ const ENGAGEMENT_TYPES = {
   articlesPublished: { label: "Articles Published", icon: FileText, color: "text-purple-600", bgColor: "bg-purple-50" },
   jobsPosted: { label: "Jobs Posted", icon: Briefcase, color: "text-blue-600", bgColor: "bg-blue-50" },
   engagementAwards: { label: "Engagement Awards", icon: Trophy, color: "text-rose-600", bgColor: "bg-rose-50" },
-  totalAwards: { label: "Awards", icon: Trophy, color: "text-amber-600", bgColor: "bg-amber-50" },
+  totalAwards: { label: "Awards", icon: Trophy, color: "text-amber-700", bgColor: "bg-amber-50" },
 };
 
 function formatDate(dateStr) {
@@ -350,7 +350,7 @@ export default function TeamEngagementReportPage() {
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Online Awards (threshold met)</div>
               {detail.onlineAwards.map((award, idx) => (
                 <div key={award.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 mb-2">
-                  <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+                  <Trophy className="w-4 h-4 text-amber-700 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award.name || 'Award'}</div>
                     <div className="text-xs text-slate-500">
@@ -370,7 +370,7 @@ export default function TeamEngagementReportPage() {
                 const award = offlineAwardDefs.find(a => a.id === assignment.offline_award_id);
                 return (
                   <div key={assignment.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 mb-2">
-                    <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+                    <Trophy className="w-4 h-4 text-amber-700 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award?.name || 'Offline Award'}</div>
                       {assignment.assigned_date && <div className="text-xs text-slate-500">{formatDate(assignment.assigned_date)}</div>}
@@ -522,7 +522,7 @@ export default function TeamEngagementReportPage() {
                         onClick={() => handleSort('totalAwards')}
                       >
                         <div className="flex items-center justify-center gap-2">
-                          <Trophy className="w-4 h-4 text-amber-600" />
+                          <Trophy className="w-4 h-4 text-amber-700" />
                           Awards
                           <SortIcon field="totalAwards" />
                         </div>

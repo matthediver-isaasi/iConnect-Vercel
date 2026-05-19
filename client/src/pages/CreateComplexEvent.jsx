@@ -518,7 +518,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
       {sessionsWithoutTime.length > 0 && (
         <div data-testid="admin-schedule-unscheduled">
           <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-500" />
+            <Clock className="w-4 h-4 text-amber-700" />
             Unscheduled Sessions
           </h3>
           <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
@@ -2323,7 +2323,7 @@ export default function CreateComplexEvent() {
                   />
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>Displayed on event cards and listings</span>
-                    <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-600' : ''}>
+                    <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-700' : ''}>
                       {formData.summary.length}/{summaryMaxLength}
                     </span>
                   </div>
@@ -3233,7 +3233,7 @@ export default function CreateComplexEvent() {
                               data-testid={`switch-early-bird-${ticket._localId}`}
                             />
                             <Label htmlFor={`ticket-early-bird-${ticket._localId}`} className="text-sm font-medium flex items-center gap-1.5">
-                              <Bird className="h-4 w-4 text-amber-500" />
+                              <Bird className="h-4 w-4 text-amber-700" />
                               Early Bird Pricing
                             </Label>
                           </div>
@@ -3603,12 +3603,12 @@ export default function CreateComplexEvent() {
                         {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
                           <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
                             <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4 text-amber-600" />
+                              <Users className="h-4 w-4 text-amber-700" />
                               <div>
                                 <Label htmlFor={`role-match-only-${ticket._localId}`} className="text-sm font-medium text-amber-800">
                                   Restrict to selected roles / groups
                                 </Label>
-                                <p className="text-xs text-amber-600">
+                                <p className="text-xs text-amber-700">
                                   {ticket.role_match_only
                                     ? "Ticket is hidden from users whose role and member groups don't match"
                                     : "Ticket is visible to all users (selection only affects who can register)"}
@@ -4561,7 +4561,7 @@ export default function CreateComplexEvent() {
 
           {liveSessionClashes.length > 0 && (
             <div className="flex items-start gap-2 p-3 mt-4 mb-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800" data-testid="session-clash-warning">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-700 mt-0.5 shrink-0" />
               <div className="text-sm text-amber-800 dark:text-amber-300">
                 <p className="font-medium mb-1">Time clash detected</p>
                 <ul className="list-disc pl-4 space-y-0.5">

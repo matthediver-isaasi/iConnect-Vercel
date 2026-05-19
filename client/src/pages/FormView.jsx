@@ -2237,7 +2237,7 @@ export default function FormViewPage() {
             {/* Schema change warning */}
             {schemaChanged && schemaChangeMessage && (
               <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-2">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-800">
                   <p className="font-medium">Form has been updated</p>
                   <p className="text-amber-700">{schemaChangeMessage}</p>
@@ -2276,7 +2276,7 @@ export default function FormViewPage() {
             )}
             
             {!canProceed && (
-              <p className="text-sm text-amber-600 text-center">
+              <p className="text-sm text-amber-700 text-center">
                 {!isFormatValid 
                   ? 'Please fix the format error above to continue'
                   : 'Please complete the required field above to continue'}
@@ -2616,7 +2616,7 @@ export default function FormViewPage() {
             {/* Schema change warning */}
             {schemaChanged && schemaChangeMessage && (
               <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-4">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-800">
                   <p className="font-medium">Form has been updated</p>
                   <p className="text-amber-700">{schemaChangeMessage}</p>

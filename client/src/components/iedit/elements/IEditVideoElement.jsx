@@ -174,9 +174,9 @@ export default function IEditVideoElement({ content, variant, settings }) {
     return (
       <div style={getOuterContainerStyles()}>
         <div className="bg-amber-50 border border-amber-200 aspect-video rounded-lg flex flex-col items-center justify-center gap-2 p-4">
-          <AlertCircle className="w-12 h-12 text-amber-500" />
+          <AlertCircle className="w-12 h-12 text-amber-700" />
           <p className="text-amber-700 text-center">Could not extract video URL from embed code</p>
-          <p className="text-amber-600 text-sm text-center">
+          <p className="text-amber-700 text-sm text-center">
             Supported platforms: YouTube, Vimeo, Wistia, Loom, Dailymotion, Streamable, Vidyard
           </p>
         </div>
@@ -342,7 +342,7 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
                 <AlertCircle className="w-4 h-4" />
                 Could not extract video URL
               </p>
-              <p className="text-xs text-amber-600 mt-1">Please check your embed code format</p>
+              <p className="text-xs text-amber-700 mt-1">Please check your embed code format</p>
             </div>
           )}
         </CardContent>

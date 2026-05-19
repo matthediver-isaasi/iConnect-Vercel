@@ -59,7 +59,7 @@ const SECTION_MAP = {
     key: "news_post",
     label: "News",
     icon: Newspaper,
-    color: "text-amber-600 dark:text-amber-400",
+    color: "text-amber-700 dark:text-amber-700",
     headerBg: "bg-amber-50 dark:bg-amber-950/30",
     getUrl: (item) => {
       if (item.entity?.slug) {

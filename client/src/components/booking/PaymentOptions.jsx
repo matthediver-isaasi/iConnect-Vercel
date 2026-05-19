@@ -1386,7 +1386,7 @@ export default function PaymentOptions({
               <span className="text-blue-700 flex items-center gap-1">
                 Ticket Price:
                 {getEffectiveTicketPrice(selectedTicketClass).isEarlyBird && (
-                  <span className="text-amber-600 text-xs font-medium">(Early Bird)</span>
+                  <span className="text-amber-700 text-xs font-medium">(Early Bird)</span>
                 )}
               </span>
               <span className="flex items-center gap-2">
@@ -1598,7 +1598,7 @@ export default function PaymentOptions({
                       {stripeAvailable ? (
                         <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
                       ) : (
-                        <p className="text-xs text-amber-600 mt-1">Card payments not currently available</p>
+                        <p className="text-xs text-amber-700 mt-1">Card payments not currently available</p>
                       )}
                     </div>
                   </div>
@@ -1616,7 +1616,7 @@ export default function PaymentOptions({
                           {stripeAvailable ? (
                             <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
                           ) : (
-                            <p className="text-xs text-amber-600 mt-1">Card payments not currently available</p>
+                            <p className="text-xs text-amber-700 mt-1">Card payments not currently available</p>
                           )}
                         </div>
                       </div>
@@ -1741,7 +1741,7 @@ export default function PaymentOptions({
             {!hasEnoughTickets && (
               <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <AlertCircle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                   <div className="text-xs text-amber-800">
                     <p className="font-medium mb-1">Insufficient tickets</p>
                     <p>You need {ticketsRequired - availableProgramTickets} more {event.program_tag} ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''} to complete this booking.</p>
@@ -1753,7 +1753,7 @@ export default function PaymentOptions({
         ) : (
           <div className="p-4 rounded-lg border-2 border-amber-200 bg-amber-50">
             <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <AlertCircle className="w-5 h-5 text-amber-700 shrink-0" />
               <div className="text-sm text-amber-800">
                 <p className="font-medium mb-1">No Program Required</p>
                 <p>This event is not associated with a program and cannot be booked through this system.</p>
@@ -2183,7 +2183,7 @@ export default function PaymentOptions({
       <Dialog open={showDuplicateWarning} onOpenChange={setShowDuplicateWarning}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
               <AlertCircle className="w-5 h-5" />
               Duplicate Registration Detected
             </DialogTitle>
@@ -2195,7 +2195,7 @@ export default function PaymentOptions({
           <div className="mt-4 space-y-3">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Users className="w-4 h-4 text-amber-600" />
+                <Users className="w-4 h-4 text-amber-700" />
                 <span className="font-medium text-amber-800">Already Registered:</span>
               </div>
               <ul className="space-y-2">
@@ -2203,7 +2203,7 @@ export default function PaymentOptions({
                   <li key={index} className="flex items-center gap-2 text-sm text-amber-700">
                     <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
                     <span className="font-medium">{attendee.name}</span>
-                    <span className="text-amber-500">({attendee.email})</span>
+                    <span className="text-amber-700">({attendee.email})</span>
                   </li>
                 ))}
               </ul>

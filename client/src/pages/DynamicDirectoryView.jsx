@@ -1531,7 +1531,7 @@ export default function DynamicDirectoryView() {
                         {isVisibleOnFront(memberDisplaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
-                              <Trophy className="w-4 h-4 text-amber-600" />
+                              <Trophy className="w-4 h-4 text-amber-700" />
                               <span className="text-xs font-semibold text-slate-700">
                                 Awards ({stats.totalAwards})
                               </span>
@@ -1857,7 +1857,7 @@ export default function DynamicDirectoryView() {
               {isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-600" />
+                    <Trophy className="w-4 h-4 text-amber-700" />
                     Awards & Recognition ({memberStats[viewingMember.id].totalAwards})
                   </h3>
                   <div className="grid grid-cols-2 gap-3">

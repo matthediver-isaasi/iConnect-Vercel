@@ -704,7 +704,7 @@ export default function InstalledFontsPage() {
             <Card className="border-amber-200 bg-amber-50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                  <AlertCircle className="w-5 h-5 text-amber-700" />
                   Font Loading Debug Information
                 </CardTitle>
               </CardHeader>

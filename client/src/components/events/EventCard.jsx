@@ -751,7 +751,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         {/* Purchase Tickets Banner */}
         {needsTickets && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 border-b border-amber-200">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-xs font-medium text-amber-900">Purchase tickets to attend</p>
             </div>
@@ -1523,7 +1523,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 )}
                 {(importResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-amber-700">Already Registered ({importResults.alreadyRegistered.length})</p>
                       <p className="text-slate-600 text-xs mt-1">{importResults.alreadyRegistered.join(', ')}</p>
@@ -1532,7 +1532,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 )}
                 {(importResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-medium text-amber-700">Warnings ({importResults.warnings.length})</p>
                       <p className="text-slate-600 text-xs mt-1">

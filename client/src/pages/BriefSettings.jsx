@@ -407,7 +407,7 @@ export default function BriefSettings() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
                 <CardTitle className="flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-amber-600" />
+                  <Bell className="w-5 h-5 text-amber-700" />
                   Email Notifications
                 </CardTitle>
               </CardHeader>

@@ -717,11 +717,11 @@ export default function EmailCampaignEdit() {
                         </div>
                         <div className="text-xs text-muted-foreground ml-6 space-y-0.5">
                           <div data-testid="text-audience-total">Audience total: {recipientStats.totalAudience}</div>
-                          <div data-testid="text-global-optouts" className={recipientStats.globalOptOuts > 0 ? 'text-orange-600 dark:text-orange-400' : ''}>
+                          <div data-testid="text-global-optouts" className={recipientStats.globalOptOuts > 0 ? 'text-orange-600 dark:text-orange-700' : ''}>
                             Globally opted out: -{recipientStats.globalOptOuts}
                           </div>
                           {formData.communication_category_id && (
-                            <div data-testid="text-category-optouts" className={recipientStats.categoryOptOuts > 0 ? 'text-orange-600 dark:text-orange-400' : ''}>
+                            <div data-testid="text-category-optouts" className={recipientStats.categoryOptOuts > 0 ? 'text-orange-600 dark:text-orange-700' : ''}>
                               Category opted out: -{recipientStats.categoryOptOuts}
                             </div>
                           )}

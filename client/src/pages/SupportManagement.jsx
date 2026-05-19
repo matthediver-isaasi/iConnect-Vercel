@@ -196,7 +196,7 @@ export default function SupportManagementPage() {
           </Card>
           <Card className="border-yellow-200">
             <CardContent className="p-4">
-              <div className="text-2xl font-bold text-yellow-600">{getTicketCounts('in_progress')}</div>
+              <div className="text-2xl font-bold text-yellow-700">{getTicketCounts('in_progress')}</div>
               <div className="text-sm text-slate-600">In Progress</div>
             </CardContent>
           </Card>

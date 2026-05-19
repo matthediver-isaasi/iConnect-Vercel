@@ -206,7 +206,7 @@ export default function AdminDashboard() {
       description: "Subscription and payment settings",
       icon: CreditCard,
       href: "/admin/billing",
-      color: "text-amber-400"
+      color: "text-amber-700"
     },
     {
       title: "Team",
@@ -234,7 +234,7 @@ export default function AdminDashboard() {
       description: "Connect Zoom and other services",
       icon: Plug,
       href: "/admin/integrations",
-      color: "text-orange-400"
+      color: "text-orange-700"
     },
     {
       title: "LMIC Country List",

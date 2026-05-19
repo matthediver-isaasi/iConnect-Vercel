@@ -1089,7 +1089,7 @@ export default function PageBannerManagementPage() {
                     </TabsContent>
                     <TabsContent value="portal">
                       <div className="border border-slate-200 rounded-lg p-4 space-y-2 max-h-60 overflow-y-auto">
-                        <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded mb-2">
+                        <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded mb-2">
                           Portal banners appear at the top of member portal pages
                         </p>
                         {PORTAL_PAGES.map((page) => (

@@ -580,7 +580,7 @@ export default function AdminMemberEdit() {
         <div className="max-w-4xl mx-auto">
           <Card className="border-amber-200 bg-amber-50">
             <CardContent className="py-12 text-center">
-              <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+              <AlertTriangle className="w-12 h-12 text-amber-700 mx-auto mb-4" />
               <h2 className="text-xl font-semibold text-amber-900 mb-2">No Member Selected</h2>
               <p className="text-amber-700 mb-6">
                 Please select a member to edit from the communications management page.
@@ -964,7 +964,7 @@ export default function AdminMemberEdit() {
             {(earnedOnlineAwards.length > 0 || earnedOfflineAwards.length > 0) && (
               <div className="pt-4 border-t border-slate-200">
                 <div className="flex items-center gap-2 mb-4">
-                  <Trophy className="w-5 h-5 text-amber-600" />
+                  <Trophy className="w-5 h-5 text-amber-700" />
                   <h3 className="text-sm font-semibold text-slate-900">Member Awards</h3>
                   <Badge variant="secondary">
                     {earnedOnlineAwards.length + earnedOfflineAwards.length}

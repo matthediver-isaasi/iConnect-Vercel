@@ -228,7 +228,7 @@ export default function EmbedEventPage() {
           )}
 
           {isTBC && (
-            <div className="flex items-center gap-2 text-sm text-amber-600 mt-2">
+            <div className="flex items-center gap-2 text-sm text-amber-700 mt-2">
               <Calendar className="w-4 h-4" />
               <span data-testid="event-tbc">Date to be confirmed</span>
             </div>

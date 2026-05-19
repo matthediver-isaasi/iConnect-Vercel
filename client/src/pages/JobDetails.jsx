@@ -170,7 +170,7 @@ export default function JobDetailsPage() {
               {/* Closing Soon Alert */}
               {isClosingSoon && job.closing_date && (
                 <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="font-semibold text-amber-900">
                       Applications closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
@@ -287,7 +287,7 @@ export default function JobDetailsPage() {
                       <div className={`flex items-start gap-3 -mx-1 -my-0.5 px-1 py-0.5 rounded-lg transition-colors ${
                         isClosingSoon ? 'bg-amber-50 border-2 border-amber-200' : ''
                       }`}>
-                        <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isClosingSoon ? 'text-amber-600' : 'text-slate-500'}`} />
+                        <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isClosingSoon ? 'text-amber-700' : 'text-slate-500'}`} />
                         <div className="flex-1">
                           <div className={`text-xs ${isClosingSoon ? 'text-amber-700 font-medium' : 'text-slate-500'}`}>
                             Application Deadline

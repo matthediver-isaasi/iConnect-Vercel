@@ -2086,7 +2086,7 @@ export default function ComplexEventDetail() {
                   {event.title}
                 </h1>
                 {event.status === 'tbc' && (
-                  <Badge variant="outline" className="border-amber-300 text-amber-600 mb-2">Dates TBC</Badge>
+                  <Badge variant="outline" className="border-amber-300 text-amber-700 mb-2">Dates TBC</Badge>
                 )}
 
                 <div className="space-y-3 pt-4">

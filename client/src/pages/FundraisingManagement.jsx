@@ -211,7 +211,7 @@ function CampaignList({ onSelect }) {
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-md bg-amber-500/10">
-                <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                <TrendingUp className="w-5 h-5 text-amber-700 dark:text-amber-700" />
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg. Donation</p>
@@ -614,10 +614,10 @@ function CampaignDetail({ campaignId, onBack }) {
         <Card>
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-1.5 mb-1">
-              <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <Clock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-700" />
               <p className="text-xs text-muted-foreground">Pending</p>
             </div>
-            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{campaign.pending_count || 0}</p>
+            <p className="text-2xl font-bold text-amber-700 dark:text-amber-700">{campaign.pending_count || 0}</p>
           </CardContent>
         </Card>
       </div>
@@ -664,13 +664,13 @@ function CampaignDetail({ campaignId, onBack }) {
                                     {index + 1}
                                   </span>
                                   <div className={`p-1.5 rounded-md ${isTop ? 'bg-amber-500/10' : 'bg-muted'}`}>
-                                    <Users className={`w-4 h-4 ${isTop ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`} />
+                                    <Users className={`w-4 h-4 ${isTop ? 'text-amber-700 dark:text-amber-700' : 'text-muted-foreground'}`} />
                                   </div>
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium truncate flex items-center gap-1.5">
                                     {team.name}
-                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
                                     {team.members.length} member{team.members.length !== 1 ? 's' : ''}
@@ -700,7 +700,7 @@ function CampaignDetail({ campaignId, onBack }) {
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <Award className="w-4 h-4 text-amber-500" />
+                    <Award className="w-4 h-4 text-amber-700" />
                     <CardTitle className="text-base">Individual Leaderboard</CardTitle>
                   </div>
                 </CardHeader>
@@ -725,7 +725,7 @@ function CampaignDetail({ campaignId, onBack }) {
                                     {index + 1}
                                   </span>
                                   <Avatar className="h-8 w-8">
-                                    <AvatarFallback className={isTop ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : ''}>
+                                    <AvatarFallback className={isTop ? 'bg-amber-500/10 text-amber-700 dark:text-amber-700' : ''}>
                                       {member.first_name?.[0]}{member.last_name?.[0]}
                                     </AvatarFallback>
                                   </Avatar>
@@ -733,7 +733,7 @@ function CampaignDetail({ campaignId, onBack }) {
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium truncate flex items-center gap-1.5">
                                     {member.first_name} {member.last_name}
-                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
                                     {member.team_name && <span className="font-medium">{member.team_name} &middot; </span>}

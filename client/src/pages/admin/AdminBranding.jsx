@@ -1451,7 +1451,7 @@ export default function AdminBranding() {
                   />
                 </div>
                 {socialImageDimWarning ? (
-                  <p className="text-xs text-amber-400" data-testid="text-social-image-warning">{socialImageDimWarning}</p>
+                  <p className="text-xs text-amber-700" data-testid="text-social-image-warning">{socialImageDimWarning}</p>
                 ) : null}
                 <p className="text-xs text-slate-500">Recommended size: 1200×630 PNG/JPG. If empty, your logo is used as the link-preview image.</p>
               </div>

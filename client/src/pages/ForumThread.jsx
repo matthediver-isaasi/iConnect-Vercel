@@ -1118,7 +1118,7 @@ Respond with a JSON object containing exactly two fields:
                 by {memberMap[thread.created_by] || "Unknown"}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-date">
-                <Clock className="w-3.5 h-3.5 text-amber-400 dark:text-amber-500" />
+                <Clock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-700" />
                 {formatDate(thread.created_at)}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-views">
