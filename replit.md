@@ -6,8 +6,31 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Build:** `npm run build`
 -   **Typecheck:** `npm run typecheck`
 -   **Codegen:** `npm run codegen`
--   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`)
--   **Env Vars:** `DATABASE_URL`, `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`, `BROWSERLESS_API_TOKEN` (powers Accessibility Audits via browserless.io; optional `BROWSERLESS_BASE_URL`, `BROWSERLESS_AUDIT_TIMEOUT_MS`)
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — note this only works from environments with IPv6 outbound (see "Database connection" below); it will not run from this Replit workspace.
+-   **Env Vars:** `DATABASE_URL` (the Supabase direct host — IPv6 only, see "Database connection"), `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`, `BROWSERLESS_API_TOKEN` (powers Accessibility Audits via browserless.io; optional `BROWSERLESS_BASE_URL`, `BROWSERLESS_AUDIT_TIMEOUT_MS`)
+
+## Database connection
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+Important: **`psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client cannot reach the DB from this Replit workspace.** The Supabase direct host (`db.<project>.supabase.co`) publishes only IPv6 (AAAA) DNS, and the Replit container has no IPv6 outbound route, so every direct Postgres connection fails with `ENOTFOUND` / `ENETUNREACH`. Those tools still work from Vercel functions, the user's laptop, and CI — just not from here.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. The HTTPS REST endpoint is IPv4-reachable. A working reference is `scripts/debug-tenant.mjs`:
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+const tenantId = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'; // canonical tenant id used by migrations
+```
+
+When writing migration/admin scripts, resolve the URL + key defensively (some older scripts use `DEV_SUPABASE_URL` / `DEV_SUPABASE_SERVICE_KEY` or plain `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — those may still be set, but prefer the `DEST_*` names above for new code).
 
 ## Stack
 -   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS

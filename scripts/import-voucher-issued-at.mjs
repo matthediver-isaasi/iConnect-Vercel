@@ -5,33 +5,57 @@
 //   uuid       - voucher.id (UUID)
 //   Issue date - date string in dd.mm.yy format (e.g. 05.06.25 = 2025-06-05)
 //
-// Each row's issued_at is set to <date>T09:00:00Z. The whole update runs
-// inside one transaction; with --dry-run the transaction is rolled back.
+// Each row's issued_at is set to <date>T09:00:00.000Z.
+//
+// This script uses @supabase/supabase-js (HTTPS REST) instead of the raw
+// pg client, because the Supabase direct Postgres host is IPv6-only and is
+// unreachable from the Replit workspace (see replit.md → "Database
+// connection"). It resolves credentials from DEST_* first, then DEV_*,
+// then plain SUPABASE_*.
 //
 // Usage:
-//   DATABASE_URL=... node scripts/import-voucher-issued-at.mjs --dry-run
-//   DATABASE_URL=... node scripts/import-voucher-issued-at.mjs
+//   node scripts/import-voucher-issued-at.mjs --dry-run
+//   node scripts/import-voucher-issued-at.mjs
 //   Add --allow-missing to commit even if some CSV UUIDs are not in the DB.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import pg from 'pg';
+import { createClient } from '@supabase/supabase-js';
 
 const CSV_PATH = path.resolve(
   'attached_assets/training_vouchers_creation_date_1779181302003.csv'
 );
 const DRY_RUN = process.argv.includes('--dry-run');
 const ALLOW_MISSING = process.argv.includes('--allow-missing');
+const CHUNK_SIZE = 50;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^(\d{2})\.(\d{2})\.(\d{2})$/;
 
+function resolveSupabaseCreds() {
+  const url =
+    process.env.DEST_SUPABASE_URL ||
+    process.env.DEV_SUPABASE_URL ||
+    process.env.SUPABASE_URL;
+  const key =
+    process.env.DEST_SUPABASE_KEY ||
+    process.env.DEST_SUPABASE_SERVICE_KEY ||
+    process.env.DEV_SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) {
+    console.error(
+      'Missing Supabase credentials. Set DEST_SUPABASE_URL + DEST_SUPABASE_KEY (preferred) ' +
+        'or DEV_SUPABASE_URL + DEV_SUPABASE_SERVICE_KEY. See replit.md → "Database connection".'
+    );
+    process.exit(1);
+  }
+  return { url, key };
+}
+
 function parseCsv(text) {
-  // Strip UTF-8 BOM if present.
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const rows = [];
-  // Skip header.
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     const parts = line.split(',');
@@ -64,15 +88,23 @@ function parseCsv(text) {
   return rows;
 }
 
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 async function main() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL is required');
-    process.exit(1);
-  }
+  const { url, key } = resolveSupabaseCreds();
+  const supabase = createClient(url, key, { auth: { persistSession: false } });
+
+  console.log(`Supabase host: ${new URL(url).host}`);
+  console.log(`Mode: ${DRY_RUN ? 'DRY RUN (no writes)' : 'LIVE (writes will be committed)'}`);
+  console.log(`CSV: ${CSV_PATH}`);
+
   const text = fs.readFileSync(CSV_PATH, 'utf8');
   const rows = parseCsv(text);
-  console.log(`Parsed ${rows.length} rows from ${CSV_PATH}`);
-  console.log(`Mode: ${DRY_RUN ? 'DRY RUN (rollback)' : 'LIVE (commit)'}`);
+  console.log(`Parsed ${rows.length} rows`);
 
   // Detect duplicate UUIDs in the CSV.
   const seen = new Map();
@@ -87,106 +119,105 @@ async function main() {
   }
   const dedup = Array.from(seen.entries()).map(([id, issuedAt]) => ({ id, issuedAt }));
 
-  const client = new pg.Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-  });
-  await client.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    const ids = dedup.map((r) => r.id);
-    const existsRes = await client.query(
-      'SELECT id FROM voucher WHERE id = ANY($1::uuid[])',
-      [ids]
-    );
-    const existing = new Set(existsRes.rows.map((r) => r.id));
-    const missing = ids.filter((id) => !existing.has(id));
-
-    console.log(`CSV rows:        ${rows.length}`);
-    console.log(`Unique UUIDs:    ${dedup.length}`);
-    console.log(`Found in DB:     ${existing.size}`);
-    console.log(`Missing from DB: ${missing.length}`);
-    if (missing.length > 0) {
-      console.log('Missing UUIDs:');
-      for (const id of missing) console.log(`  - ${id}`);
-      if (!ALLOW_MISSING) {
-        console.error(
-          '\nAborting because some UUIDs are missing. Re-run with --allow-missing to proceed.'
-        );
-        await client.query('ROLLBACK');
-        process.exit(2);
-      }
-    }
-
-    const toUpdate = dedup.filter((r) => existing.has(r.id));
-    const values = [];
-    const params = [];
-    toUpdate.forEach((r, i) => {
-      values.push(`($${i * 2 + 1}::uuid, $${i * 2 + 2}::timestamptz)`);
-      params.push(r.id, r.issuedAt);
-    });
-
-    let updated = 0;
-    if (values.length > 0) {
-      const sql = `
-        UPDATE voucher v
-        SET issued_at = data.issued_at
-        FROM (VALUES ${values.join(', ')}) AS data(id, issued_at)
-        WHERE v.id = data.id
-      `;
-      const res = await client.query(sql, params);
-      updated = res.rowCount;
-    }
-    console.log(`Updated rows:    ${updated}`);
-
-    if (updated !== toUpdate.length) {
-      console.error(
-        `Mismatch: expected to update ${toUpdate.length} rows but UPDATE affected ${updated}. Rolling back.`
-      );
-      await client.query('ROLLBACK');
-      process.exit(3);
-    }
-
-    // Spot-check a few rows.
-    const sampleIds = toUpdate.slice(0, 5).map((r) => r.id);
-    if (sampleIds.length > 0) {
-      const sample = await client.query(
-        'SELECT id, issued_at FROM voucher WHERE id = ANY($1::uuid[]) ORDER BY id',
-        [sampleIds]
-      );
-      console.log('Spot-check (first 5):');
-      for (const row of sample.rows) {
-        const expected = toUpdate.find((r) => r.id === row.id)?.issuedAt;
-        const got = new Date(row.issued_at).toISOString();
-        const ok = got === new Date(expected).toISOString();
-        console.log(`  ${row.id}  expected=${expected}  got=${got}  ${ok ? 'OK' : 'MISMATCH'}`);
-      }
-    }
-
-    if (DRY_RUN) {
-      await client.query('ROLLBACK');
-      console.log('\nDRY RUN complete - transaction rolled back.');
-    } else {
-      await client.query('COMMIT');
-      console.log('\nCommitted.');
-    }
-
-    console.log('\nSummary:');
-    console.log(`  total CSV rows: ${rows.length}`);
-    console.log(`  unique UUIDs:   ${dedup.length}`);
-    console.log(`  matched:        ${toUpdate.length}`);
-    console.log(`  updated:        ${updated}`);
-    console.log(`  missing:        ${missing.length}`);
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {}
-    throw err;
-  } finally {
-    await client.end();
+  // Precheck: which UUIDs exist in voucher table?
+  const ids = dedup.map((r) => r.id);
+  const existing = new Set();
+  for (const batch of chunk(ids, 200)) {
+    const { data, error } = await supabase
+      .from('voucher')
+      .select('id')
+      .in('id', batch);
+    if (error) throw new Error(`Precheck failed: ${error.message}`);
+    for (const row of data) existing.add(row.id);
   }
+  const missing = ids.filter((id) => !existing.has(id));
+
+  console.log(`CSV rows:        ${rows.length}`);
+  console.log(`Unique UUIDs:    ${dedup.length}`);
+  console.log(`Found in DB:     ${existing.size}`);
+  console.log(`Missing from DB: ${missing.length}`);
+  if (missing.length > 0) {
+    console.log('Missing UUIDs:');
+    for (const id of missing) console.log(`  - ${id}`);
+    if (!ALLOW_MISSING) {
+      console.error(
+        '\nAborting because some UUIDs are missing. Re-run with --allow-missing to proceed.'
+      );
+      process.exit(2);
+    }
+  }
+
+  const toUpdate = dedup.filter((r) => existing.has(r.id));
+
+  let updated = 0;
+  if (DRY_RUN) {
+    updated = toUpdate.length;
+    console.log(`Would update ${updated} rows (dry-run, no writes sent).`);
+  } else {
+    for (const batch of chunk(toUpdate, CHUNK_SIZE)) {
+      for (const r of batch) {
+        const { data, error } = await supabase
+          .from('voucher')
+          .update({ issued_at: r.issuedAt })
+          .eq('id', r.id)
+          .select('id');
+        if (error) throw new Error(`Update failed for ${r.id}: ${error.message}`);
+        if (!data || data.length === 0) {
+          throw new Error(`Update for ${r.id} returned no rows (RLS or vanished row?)`);
+        }
+        updated += data.length;
+      }
+      process.stdout.write(`  updated ${updated}/${toUpdate.length}\r`);
+    }
+    process.stdout.write('\n');
+  }
+
+  if (updated !== toUpdate.length) {
+    console.error(
+      `Mismatch: expected to update ${toUpdate.length} rows but only ${updated} were written.`
+    );
+    process.exit(3);
+  }
+
+  // Spot-check the first 5 rows.
+  const sampleIds = toUpdate.slice(0, 5).map((r) => r.id);
+  if (sampleIds.length > 0) {
+    const { data: sample, error: sampleErr } = await supabase
+      .from('voucher')
+      .select('id, issued_at')
+      .in('id', sampleIds);
+    if (sampleErr) throw new Error(`Spot-check failed: ${sampleErr.message}`);
+    sample.sort((a, b) => a.id.localeCompare(b.id));
+    console.log('Spot-check (first 5):');
+    let mismatches = 0;
+    for (const row of sample) {
+      const expected = toUpdate.find((r) => r.id === row.id)?.issuedAt;
+      const got = row.issued_at ? new Date(row.issued_at).toISOString() : null;
+      const expIso = expected ? new Date(expected).toISOString() : null;
+      const ok = DRY_RUN ? true : got === expIso;
+      if (!ok) mismatches++;
+      console.log(
+        `  ${row.id}  expected=${expected}  got=${got}  ${DRY_RUN ? '(dry-run)' : ok ? 'OK' : 'MISMATCH'}`
+      );
+    }
+    if (!DRY_RUN && mismatches > 0) {
+      console.error(`Spot-check found ${mismatches} mismatch(es).`);
+      process.exit(4);
+    }
+  }
+
+  if (DRY_RUN) {
+    console.log('\nDRY RUN complete - no rows written.');
+  } else {
+    console.log('\nCommitted.');
+  }
+
+  console.log('\nSummary:');
+  console.log(`  total CSV rows: ${rows.length}`);
+  console.log(`  unique UUIDs:   ${dedup.length}`);
+  console.log(`  matched:        ${toUpdate.length}`);
+  console.log(`  updated:        ${updated}`);
+  console.log(`  missing:        ${missing.length}`);
 }
 
 main().catch((err) => {
