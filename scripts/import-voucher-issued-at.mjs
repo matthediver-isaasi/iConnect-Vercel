@@ -172,6 +172,8 @@ async function main() {
     process.stdout.write('\n');
   }
 
+  console.log(`Updated rows: ${updated}${DRY_RUN ? ' (would update — dry-run)' : ''}`);
+
   if (updated !== toUpdate.length) {
     console.error(
       `Mismatch: expected to update ${toUpdate.length} rows but only ${updated} were written.`
