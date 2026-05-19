@@ -321,6 +321,11 @@ export default function PublicLayout({ children, currentPageName }) {
     [banners]
   );
 
+  // Task #939: BNMS tenant uses Urbanist (headings) + extra Poppins weights.
+  // Tenant-gated additive font loader — other tenants are byte-for-byte unaffected.
+  const BNMS_TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  const isBnmsTenant = branding?.id === BNMS_TENANT_ID;
+
   return (
     <>
       <div className="flex flex-col min-h-screen" style={{ fontFamily: 'Poppins, sans-serif' }}>
@@ -328,6 +333,7 @@ export default function PublicLayout({ children, currentPageName }) {
         <style>
           {`
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+            ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
 
             @font-face {
               font-family: 'Degular Medium';

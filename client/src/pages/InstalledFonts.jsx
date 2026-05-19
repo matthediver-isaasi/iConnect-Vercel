@@ -76,6 +76,7 @@ const TEXT_TRANSFORMS = [
 
 const AVAILABLE_FONTS = [
   { value: 'Poppins, sans-serif', label: 'Poppins' },
+  { value: 'Urbanist, sans-serif', label: 'Urbanist' },
   { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
   { value: 'Georgia, serif', label: 'Georgia' },
   { value: 'Arial, sans-serif', label: 'Arial' },

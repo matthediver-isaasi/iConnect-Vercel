@@ -5,6 +5,7 @@ import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
 import { publicClient } from "@/api/publicClient";
 import {
@@ -789,6 +790,9 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
   const { getArticleListUrl, getMyArticlesUrl, articleDisplayName, isCustomSlug, urlSlug, publicSlug, viewSlug, editorSlug, mySlug } = useArticleUrl();
+  // Task #939: BNMS tenant gets Urbanist + extra Poppins weights (admin shell, for InstalledFonts previews).
+  const tenantBranding = useTenantBranding();
+  const isBnmsTenant = tenantBranding?.branding?.id === 'ff2df806-b321-4254-b651-3af11fccf1db';
   
   // Initialize from sessionStorage immediately to prevent flicker
   const [memberInfo, setMemberInfo] = useState(() => {
@@ -1967,6 +1971,7 @@ useEffect(() => {
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+          ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
 
           @font-face {
             font-family: 'Degular Medium';
