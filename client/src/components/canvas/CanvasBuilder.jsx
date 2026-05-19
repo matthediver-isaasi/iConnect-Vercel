@@ -1065,7 +1065,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             style={{ cursor: spaceHeld ? (panStateRef.current ? 'grabbing' : 'grab') : undefined }}
           >
             <div className="mx-auto" style={{ width: 'fit-content' }}>
-              <div className="text-xs text-slate-500 mb-2 flex items-center gap-2">
+              <div className="text-xs text-slate-700 mb-2 flex items-center gap-2">
                 <Square className="w-3 h-3" />
                 {canvasWidth}px × {breakpoint} · {Math.round(zoom * 100)}%
                 {selectedIds.length > 0 && (
