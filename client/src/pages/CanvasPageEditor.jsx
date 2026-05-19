@@ -113,6 +113,80 @@ export default function CanvasPageEditorPage() {
   // Set to true when a save has just bumped the preview iframe; the iframe's
   // onLoad handler will then trigger an automatic axe run.
   const autoAuditPendingRef = useRef(false);
+  // Last `canvas-preview-ready` signal received from the preview iframe.
+  // Replaces the old fixed-`setTimeout(400)` wait after `iframe.onload`,
+  // which scanned a partially-mounted SPA. Holds the matching nonce +
+  // publicView flag so a stale message from a prior load can't resolve a
+  // new wait.
+  const previewReadyRef = useRef(null);
+  // Active waiters for the next ready signal, notified by the global
+  // postMessage listener installed below.
+  const readyWaitersRef = useRef(new Set());
+
+  // Listen for ready signals from the preview iframe and store / fan
+  // them out to any in-flight `waitForPreviewReady` callers.
+  useEffect(() => {
+    const onMessage = (e) => {
+      const iframe = previewIframeRef.current;
+      if (!iframe || e.source !== iframe.contentWindow) return;
+      const data = e.data;
+      if (!data || data.type !== 'canvas-preview-ready') return;
+      const sig = {
+        nonce: data.nonce,
+        publicView: !!data.publicView,
+        at: Date.now(),
+      };
+      previewReadyRef.current = sig;
+      // Snapshot first — waiters may remove themselves during iteration.
+      Array.from(readyWaitersRef.current).forEach((fn) => {
+        try { fn(sig); } catch { /* ignore */ }
+      });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // Invalidate the last-known ready signal whenever the iframe is about
+  // to (re)load with a new src — either because Refresh bumped the
+  // nonce, or the dual-pass audit flipped between member/public views.
+  useEffect(() => {
+    previewReadyRef.current = null;
+  }, [previewNonce, previewView]);
+
+  // Wait until the preview iframe posts a `canvas-preview-ready` signal
+  // that matches the supplied nonce + publicView (or fall back to a
+  // resolved result after `timeoutMs`). Resolves with
+  // `{ ready: true }` when the handshake completes, `{ ready: false,
+  // timedOut: true }` if the fallback fires. Never rejects.
+  const waitForPreviewReady = useCallback((opts = {}) => {
+    const { nonce, publicView, timeoutMs = 8000 } = opts;
+    const matches = (sig) => {
+      if (!sig) return false;
+      if (nonce != null && sig.nonce !== nonce) return false;
+      if (publicView != null && sig.publicView !== !!publicView) return false;
+      return true;
+    };
+    return new Promise((resolve) => {
+      if (matches(previewReadyRef.current)) { resolve({ ready: true }); return; }
+      let done = false;
+      const onSig = (sig) => {
+        if (done || !matches(sig)) return;
+        done = true;
+        readyWaitersRef.current.delete(onSig);
+        clearTimeout(timer);
+        resolve({ ready: true });
+      };
+      readyWaitersRef.current.add(onSig);
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        readyWaitersRef.current.delete(onSig);
+        // eslint-disable-next-line no-console
+        console.warn('[canvas-axe] preview-ready handshake timed out; scanning anyway');
+        resolve({ ready: false, timedOut: true });
+      }, timeoutMs);
+    });
+  }, []);
 
   // Wrap dirty-change so any edit after an axe run marks the result stale.
   const handleDirtyChange = useCallback((nextDirty) => {
@@ -389,29 +463,23 @@ export default function CanvasPageEditorPage() {
   // element itself persists across view changes (its `key` is tied to
   // `previewNonce`, not the view) so we can attach a one-shot load
   // listener before React commits the new src.
-  const reloadIframeForView = useCallback((view) => {
-    return new Promise((resolve, reject) => {
-      const iframe = previewIframeRef.current;
-      if (!iframe) { reject(new Error('iframe missing')); return; }
-      let settled = false;
-      const onLoad = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        iframe.removeEventListener('load', onLoad);
-        // Give the SPA inside the iframe a tick to mount before we scan.
-        setTimeout(resolve, 400);
-      };
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        iframe.removeEventListener('load', onLoad);
-        reject(new Error('iframe load timeout'));
-      }, 15000);
-      iframe.addEventListener('load', onLoad);
-      setPreviewView(view);
+  const reloadIframeForView = useCallback(async (view) => {
+    const iframe = previewIframeRef.current;
+    if (!iframe) throw new Error('iframe missing');
+    // Clear any prior ready signal so a stale ready from the current
+    // view can't satisfy the wait for the new view.
+    previewReadyRef.current = null;
+    setPreviewView(view);
+    const result = await waitForPreviewReady({
+      nonce: previewNonce,
+      publicView: view === 'public',
+      timeoutMs: 8000,
     });
-  }, []);
+    if (result.timedOut) {
+      toast.message('Preview took longer than expected to finish rendering — the audit may not reflect the final page.');
+    }
+    return result;
+  }, [previewNonce, waitForPreviewReady]);
 
   // Scan whatever is currently in the preview iframe with axe-core and
   // return mapped issues, tagged with the supplied `view` label. Helper
@@ -485,7 +553,7 @@ export default function CanvasPageEditorPage() {
   // empty and surface a partial-failure toast.
   const runAxeOnPreview = useCallback(async ({ silent = false } = {}) => {
     const iframe = previewIframeRef.current;
-    if (!iframe?.contentDocument) {
+    if (!iframe) {
       if (!silent) toast.error('Preview is not loaded yet. Try again in a moment.');
       return null;
     }
@@ -499,6 +567,19 @@ export default function CanvasPageEditorPage() {
       // pass-1 findings are correctly attributable to `initialView`.
       if (previewView !== initialView) {
         try { await reloadIframeForView(initialView); } catch { /* fall through; pass 1 may still run */ }
+      } else {
+        // Same view — but the SPA inside the iframe may still be mid-
+        // render (e.g. user just clicked Refresh, or this is the first
+        // auto-audit). Wait for the preview-ready handshake before we
+        // scan so axe-core sees the fully-rendered page.
+        const r = await waitForPreviewReady({
+          nonce: previewNonce,
+          publicView: initialView === 'public',
+          timeoutMs: 8000,
+        });
+        if (r.timedOut) {
+          toast.message('Preview took longer than expected to finish rendering — the audit may not reflect the final page.');
+        }
       }
       // Pass 1: scan the iframe in its current state (which now matches
       // initialView).
@@ -579,7 +660,7 @@ export default function CanvasPageEditorPage() {
     } finally {
       setAxeRunning(false);
     }
-  }, [pageId, queryClient, viewsToAudit, previewView, scanIframeWithAxe, reloadIframeForView]);
+  }, [pageId, queryClient, viewsToAudit, previewView, previewNonce, scanIframeWithAxe, reloadIframeForView, waitForPreviewReady]);
 
   // Manual "Run full audit" entry point — opens the preview modal if
   // needed. axe-core needs the iframe document, so the modal must be
@@ -630,12 +711,16 @@ export default function CanvasPageEditorPage() {
   }, []);
 
   // Fires when the preview iframe finishes loading. Used to kick off an
-  // auto-audit once the SPA inside the iframe has mounted.
+  // auto-audit once the SPA inside the iframe has fully mounted. The
+  // actual wait happens inside `runAxeOnPreview` via
+  // `waitForPreviewReady` — this handler only flips the spinner state on
+  // and triggers the runner, so the user sees "Auditing…" continuously
+  // from the moment the iframe begins loading until the scan completes.
   const handlePreviewIframeLoad = useCallback(() => {
     if (!autoAuditPendingRef.current) return;
     autoAuditPendingRef.current = false;
-    // Give the SPA inside the iframe a tick to mount its tree before scanning.
-    setTimeout(() => { runAxeOnPreview({ silent: true }); }, 400);
+    setAxeRunning(true);
+    runAxeOnPreview({ silent: true });
   }, [runAxeOnPreview]);
 
   // Opening the preview modal for the first time should also trigger an

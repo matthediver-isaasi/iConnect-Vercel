@@ -225,6 +225,73 @@ export default function CanvasPageRenderer({ page }) {
 
   const forcedBreakpoint = useForcedBreakpoint();
 
+  // When this renderer is shown inside the Canvas Page Editor's preview
+  // iframe (`?_canvasPreview=<nonce>`), notify the editor once the page
+  // tree is mounted, images attached to blocks have loaded, and webfonts
+  // are ready. The editor uses this handshake to wait for the SPA to
+  // finish rendering before kicking off an axe-core scan — replacing the
+  // old fixed `setTimeout(400)` wait that scanned a partially-rendered
+  // DOM. We re-fire whenever the resolved `design` changes (e.g. symbols
+  // land asynchronously) so the editor's last-known ready signal always
+  // reflects the latest stable render.
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.parent === window) return;
+    let nonce;
+    let publicView;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const rawNonce = sp.get('_canvasPreview');
+      if (rawNonce == null) return;
+      const parsed = Number(rawNonce);
+      nonce = Number.isFinite(parsed) ? parsed : rawNonce;
+      publicView = sp.get('_publicView') === '1';
+    } catch {
+      return;
+    }
+    let cancelled = false;
+    const rafIds = [];
+    const send = () => {
+      if (cancelled) return;
+      try {
+        window.parent.postMessage(
+          { type: 'canvas-preview-ready', nonce, publicView },
+          '*',
+        );
+      } catch { /* cross-origin parents will just miss the signal */ }
+    };
+    const ready = async () => {
+      try {
+        const imgs = Array.from(document.images || []);
+        await Promise.all(imgs.map((img) => (
+          img.complete
+            ? Promise.resolve()
+            : new Promise((res) => {
+                img.addEventListener('load', res, { once: true });
+                img.addEventListener('error', res, { once: true });
+              })
+        )));
+      } catch { /* best-effort */ }
+      try {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      } catch { /* best-effort */ }
+      if (cancelled) return;
+      await new Promise((res) => {
+        rafIds.push(requestAnimationFrame(() => {
+          rafIds.push(requestAnimationFrame(res));
+        }));
+      });
+      send();
+    };
+    // Defer to the next microtask so the just-committed children are
+    // actually in the DOM when we start counting images.
+    const t = setTimeout(ready, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      rafIds.forEach((id) => cancelAnimationFrame(id));
+    };
+  }, [design, hasBlocks]);
+
   if (!hasBlocks) {
     return (
       <div
