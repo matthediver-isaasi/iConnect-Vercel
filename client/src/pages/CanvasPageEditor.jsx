@@ -824,7 +824,7 @@ export default function CanvasPageEditorPage() {
               {page.status}
             </Badge>
             {isDirty ? (
-              <Badge className="bg-amber-100 text-amber-700" data-testid="badge-unsaved">
+              <Badge className="bg-warning/10 text-warning" data-testid="badge-unsaved">
                 Unsaved
               </Badge>
             ) : (
@@ -935,7 +935,7 @@ export default function CanvasPageEditorPage() {
                 )}
                 {axeSummary.warning > 0 && (
                   <Badge
-                    className="bg-amber-100 text-amber-700"
+                    className="bg-warning/10 text-warning"
                     data-testid="badge-axe-summary-warning"
                   >
                     {axeSummary.warning} warning
@@ -1081,7 +1081,7 @@ export default function CanvasPageEditorPage() {
                   })}
                 </div>
                 {isDirty && (
-                  <Badge className="bg-amber-100 text-amber-700" data-testid="badge-preview-stale">
+                  <Badge className="bg-warning/10 text-warning" data-testid="badge-preview-stale">
                     Save to refresh
                   </Badge>
                 )}
@@ -1149,7 +1149,7 @@ export default function CanvasPageEditorPage() {
         <DialogContent className="max-w-lg" data-testid="dialog-publish-confirm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Accessibility className="w-4 h-4 text-amber-700" />
+              <Accessibility className="w-4 h-4 text-warning" />
               Publish with accessibility findings?
             </DialogTitle>
             <DialogDescription>
@@ -1174,7 +1174,7 @@ export default function CanvasPageEditorPage() {
                     </Badge>
                   )}
                   {counts.warning > 0 && (
-                    <Badge className="bg-amber-100 text-amber-700" data-testid="publish-confirm-count-warning">
+                    <Badge className="bg-warning/10 text-warning" data-testid="publish-confirm-count-warning">
                       {counts.warning} warning{counts.warning === 1 ? '' : 's'}
                     </Badge>
                   )}
@@ -1362,7 +1362,7 @@ export default function CanvasPageEditorPage() {
                                 <Badge className="bg-rose-100 text-rose-700">{c.error}</Badge>
                               )}
                               {c.warning > 0 && (
-                                <Badge className="bg-amber-100 text-amber-700">{c.warning}</Badge>
+                                <Badge className="bg-warning/10 text-warning">{c.warning}</Badge>
                               )}
                               {c.info > 0 && (
                                 <Badge className="bg-sky-100 text-sky-700">{c.info}</Badge>
@@ -1415,7 +1415,7 @@ export default function CanvasPageEditorPage() {
                                   <Badge className="bg-rose-100 text-rose-700">{run.error_count}</Badge>
                                 )}
                                 {run.warning_count > 0 && (
-                                  <Badge className="bg-amber-100 text-amber-700">{run.warning_count}</Badge>
+                                  <Badge className="bg-warning/10 text-warning">{run.warning_count}</Badge>
                                 )}
                                 {run.info_count > 0 && (
                                   <Badge className="bg-sky-100 text-sky-700">{run.info_count}</Badge>
@@ -1552,7 +1552,7 @@ export default function CanvasPageEditorPage() {
                                     )}
                                     {counts.warning > 0 && (
                                       <Badge
-                                        className="bg-amber-100 text-amber-700"
+                                        className="bg-warning/10 text-warning"
                                         data-testid={`badge-audit-view-${v}-warning`}
                                       >
                                         {counts.warning}

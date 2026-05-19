@@ -432,7 +432,7 @@ export default function CancellationRequests() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
       case 'approved':
         return <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
       case 'rejected':
@@ -658,7 +658,7 @@ export default function CancellationRequests() {
                             <span>Transfer to: <span className="font-medium">{group.target_member.first_name} {group.target_member.last_name}</span> ({group.target_member.email})</span>
                             {group.target_member.is_public && (
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs">
                                   Guest / Public
                                 </Badge>
                                 {group.target_member.organisation && (
@@ -695,7 +695,7 @@ export default function CancellationRequests() {
                               </Badge>
                             )}
                             {hasExpired && (
-                              <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">
+                              <Badge variant="outline" className="text-warning border-warning/30 text-xs">
                                 Expired items
                               </Badge>
                             )}
@@ -873,7 +873,7 @@ export default function CancellationRequests() {
                       </span>
                       {reviewDialog.target_member.is_public && (
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs">
                             Guest / Public
                           </Badge>
                           {reviewDialog.target_member.organisation && (
@@ -982,15 +982,15 @@ export default function CancellationRequests() {
                       </Badge>
                     )}
                     {hasGroupFS && !allTicketsSelected && (
-                      <Badge variant="outline" className="text-amber-700 border-amber-300 text-xs">
+                      <Badge variant="outline" className="text-warning border-warning/30 text-xs">
                         {selectedCount} of {totalCount} selected (individual processing)
                       </Badge>
                     )}
                   </div>
 
                   {hasGroupFS && allTicketsSelected && (groupFS?.hasMultipleStripeIntents || groupFS?.hasMultipleXeroInvoices) && (
-                    <div className="p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="warning-multi-financial">
-                      <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-700">
+                    <div className="p-3 border border-warning/30 bg-warning/10 dark:bg-warning/30 dark:border-warning rounded-md" data-testid="warning-multi-financial">
+                      <div className="flex items-center gap-2 text-xs text-warning dark:text-warning">
                         <AlertTriangle className="w-3 h-3 shrink-0" />
                         <span>
                           {groupFS.hasMultipleStripeIntents && groupFS.hasMultipleXeroInvoices
@@ -1077,10 +1077,10 @@ export default function CancellationRequests() {
                             </div>
                           );
                           return (
-                            <div key={v.voucherId} className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid={`row-voucher-expired-${v.voucherId}`}>
+                            <div key={v.voucherId} className="space-y-2 p-3 border border-warning/30 bg-warning/10 dark:bg-warning/30 dark:border-warning rounded-md" data-testid={`row-voucher-expired-${v.voucherId}`}>
                               <div className="flex items-center gap-2 text-xs">
-                                <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
-                                <span className="text-orange-700 dark:text-orange-700">Voucher {v.code} expired {v.expiresAt ? format(new Date(v.expiresAt), "MMM d, yyyy") : ''} — £{parseFloat(v.amount).toFixed(2)} cannot be reinstated</span>
+                                <AlertTriangle className="w-3 h-3 text-warning shrink-0" />
+                                <span className="text-warning dark:text-warning">Voucher {v.code} expired {v.expiresAt ? format(new Date(v.expiresAt), "MMM d, yyyy") : ''} — £{parseFloat(v.amount).toFixed(2)} cannot be reinstated</span>
                               </div>
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
@@ -1121,10 +1121,10 @@ export default function CancellationRequests() {
                           <Badge variant="outline">£{fs.discountCodeAmount.toFixed(2)}</Badge>
                         </div>
                         {fs.discountCode?.expired ? (
-                          <div className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="row-discount-expired">
+                          <div className="space-y-2 p-3 border border-warning/30 bg-warning/10 dark:bg-warning/30 dark:border-warning rounded-md" data-testid="row-discount-expired">
                             <div className="flex items-center gap-2 text-xs">
-                              <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
-                              <span className="text-orange-700 dark:text-orange-700">Discount code expired {fs.discountCode.expiresAt ? format(new Date(fs.discountCode.expiresAt), "MMM d, yyyy") : ''} — usage cannot be reversed</span>
+                              <AlertTriangle className="w-3 h-3 text-warning shrink-0" />
+                              <span className="text-warning dark:text-warning">Discount code expired {fs.discountCode.expiresAt ? format(new Date(fs.discountCode.expiresAt), "MMM d, yyyy") : ''} — usage cannot be reversed</span>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <Button

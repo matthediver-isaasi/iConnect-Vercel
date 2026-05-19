@@ -31,7 +31,7 @@ function NumberField({ id, label, value, onChange, min, max, step = 1, testId, o
         <Label htmlFor={id} className="text-xs text-slate-600">{label}</Label>
         {override !== undefined && (
           <span
-            className={`text-[10px] uppercase tracking-wide ${override ? 'text-amber-700' : 'text-slate-400'}`}
+            className={`text-[10px] uppercase tracking-wide ${override ? 'text-warning' : 'text-slate-400'}`}
             title={override ? 'Has breakpoint override' : 'Inherited from larger breakpoint'}
           >
             {override ? 'override' : 'inherited'}
@@ -122,7 +122,7 @@ const SEV_ICON = {
 };
 const SEV_CLASS = {
   [SEVERITY.ERROR]: 'text-destructive',
-  [SEVERITY.WARNING]: 'text-amber-700',
+  [SEVERITY.WARNING]: 'text-warning',
   [SEVERITY.INFO]: 'text-slate-500',
 };
 
@@ -199,7 +199,7 @@ function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrder
           className={`mt-2 rounded border p-2 text-xs ${
             passes
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-amber-50 border-amber-200 text-amber-800'
+              : 'bg-warning/10 border-warning/30 text-warning'
           }`}
           data-testid="inspector-contrast-readout"
           data-passes={passes ? 'true' : 'false'}
@@ -225,7 +225,7 @@ function ContentSection({ block, onUpdate }) {
   return (
     <Section title={`Content (${def.label})`}>
       {errors.length > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 space-y-1" data-testid="inspector-block-errors">
+        <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning space-y-1" data-testid="inspector-block-errors">
           <div className="flex items-center gap-1 font-medium">
             <AlertTriangle className="w-3.5 h-3.5" /> Required fields missing
           </div>

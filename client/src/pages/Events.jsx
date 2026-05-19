@@ -1536,7 +1536,7 @@ export default function EventsPage({
               {featuredEvents.length > 0 && (
                 <div className="mb-6 rounded-lg p-4 -mx-[10px]" style={featuredBgStyle} data-testid="card-featured-events">
                   <div className="flex items-center gap-2 mb-4">
-                    <Star className="h-5 w-5 text-amber-700" />
+                    <Star className="h-5 w-5 text-warning" />
                     <h2 className="text-lg font-semibold">Featured Events</h2>
                   </div>
                   <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -1587,7 +1587,7 @@ export default function EventsPage({
                               {hasBadges && (
                                 <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
                                   {event.status === 'draft' && (
-                                    <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">Draft</Badge>
+                                    <Badge variant="warning" className="shadow-sm">Draft</Badge>
                                   )}
                                   {event.status === 'tbc' && (
                                     <Badge variant="secondary" className="bg-blue-100/95 text-blue-700 border-blue-200 shadow-sm">TBC</Badge>
@@ -1854,7 +1854,7 @@ export default function EventsPage({
                           {hasBadges && (
                             <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
                               {event.status === 'draft' && (
-                                <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">
+                                <Badge variant="warning" className="shadow-sm">
                                   Draft
                                 </Badge>
                               )}
@@ -2114,7 +2114,7 @@ export default function EventsPage({
                   <p className="text-slate-600">Will also delete {complexDeletePreview.cleanup.complexChildren.tracks} track(s), {complexDeletePreview.cleanup.complexChildren.sessions} session(s), {complexDeletePreview.cleanup.complexChildren.ticketClasses} ticket class(es).</p>
                 )}
                 {complexDeletePreview.requiresManualActionCount > 0 && (
-                  <p className="text-amber-700">⚠ {complexDeletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
+                  <p className="text-warning">⚠ {complexDeletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
                 )}
               </div>
             )}
@@ -2530,18 +2530,18 @@ export default function EventsPage({
                 )}
                 {(complexImportResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-amber-700">Already Registered ({complexImportResults.alreadyRegistered.length})</p>
+                      <p className="font-medium text-warning">Already Registered ({complexImportResults.alreadyRegistered.length})</p>
                       <p className="text-slate-600 text-xs mt-1">{complexImportResults.alreadyRegistered.join(', ')}</p>
                     </div>
                   </div>
                 )}
                 {(complexImportResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-amber-700">Warnings ({complexImportResults.warnings.length})</p>
+                      <p className="font-medium text-warning">Warnings ({complexImportResults.warnings.length})</p>
                       <p className="text-slate-600 text-xs mt-1">
                         {complexImportResults.warnings.map(w => `${w.email}: ${w.reason}`).join('; ')}
                       </p>

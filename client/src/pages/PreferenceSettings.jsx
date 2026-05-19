@@ -502,7 +502,7 @@ export default function PreferenceSettingsPage() {
                                     Position {index + 1}
                                   </span>
                                   {!isVisible && (
-                                    <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                    <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded flex items-center gap-1">
                                       <EyeOff className="w-3 h-3" />
                                       Hidden
                                     </span>
@@ -670,7 +670,7 @@ export default function PreferenceSettingsPage() {
                                           {field.field_type}
                                         </span>
                                         {!isVisible && (
-                                          <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                          <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded flex items-center gap-1">
                                             <EyeOff className="w-3 h-3" />
                                             Hidden
                                           </span>
@@ -797,7 +797,7 @@ export default function PreferenceSettingsPage() {
                                 </span>
                               )}
                               {!isVisible && (
-                                <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded flex items-center gap-1">
                                   <EyeOff className="w-3 h-3" />
                                   Hidden
                                 </span>

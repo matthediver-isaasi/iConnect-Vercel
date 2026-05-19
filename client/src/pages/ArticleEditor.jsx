@@ -750,7 +750,7 @@ export default function ArticleEditorPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          <Card className="border-amber-200 shadow-sm">
+          <Card className="border-warning/30 shadow-sm">
             <CardContent className="p-12 text-center">
               <h2 className="text-2xl font-bold text-slate-900 mb-4">Handle Required</h2>
               <p className="text-slate-600 mb-6">
@@ -1281,8 +1281,8 @@ export default function ArticleEditorPage() {
               </Button>
             </div>
 
-            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-              <p className="text-sm text-amber-800">
+            <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+              <p className="text-sm text-warning">
                 Anyone with this link and password can view the draft {singularDisplayName.toLowerCase()}.
               </p>
             </div>

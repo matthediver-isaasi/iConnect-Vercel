@@ -226,9 +226,9 @@ export default function TransferTicketDialog({ open, onOpenChange, booking, book
                   </div>
                 )}
                 {emailCheckResult?.exists && (
-                  <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
-                    <p className="text-xs text-amber-800">
+                  <div className="flex items-center gap-2 p-2 bg-warning/10 border border-warning/30 rounded-md">
+                    <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+                    <p className="text-xs text-warning">
                       This email belongs to an existing member. Please use the standard member transfer flow instead.
                     </p>
                   </div>

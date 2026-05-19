@@ -1520,7 +1520,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                     </Badge>
                   )}
                   {tcPrice.isEarlyBird && (
-                    <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                    <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30">
                       Early Bird
                     </Badge>
                   )}
@@ -1645,7 +1645,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                             </Badge>
                           )}
                           {tcPrice.isEarlyBird && (
-                            <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                            <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30">
                               Early Bird
                             </Badge>
                           )}
@@ -2086,7 +2086,7 @@ export default function ComplexEventDetail() {
                   {event.title}
                 </h1>
                 {event.status === 'tbc' && (
-                  <Badge variant="outline" className="border-amber-300 text-amber-700 mb-2">Dates TBC</Badge>
+                  <Badge variant="outline" className="border-warning/30 text-warning mb-2">Dates TBC</Badge>
                 )}
 
                 <div className="space-y-3 pt-4">

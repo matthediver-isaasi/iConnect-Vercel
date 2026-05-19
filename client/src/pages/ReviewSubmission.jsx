@@ -223,7 +223,7 @@ function ReviewFieldEditor({
         "col-span-2 p-4 border rounded-lg space-y-3",
         isLocked && "bg-slate-50 border-slate-300",
         !isLocked && isApproved && "bg-green-50 border-green-200",
-        !isLocked && isAmended && "bg-amber-50 border-amber-200",
+        !isLocked && isAmended && "bg-warning/10 border-warning/30",
         !isLocked && isPending && "bg-gray-50 border-gray-200"
       )}
       data-testid={`review-field-${stateKey}`}
@@ -250,7 +250,7 @@ function ReviewFieldEditor({
               onClick={() => onStatusChange(stateKey, isApproved ? 'amended' : 'approved')}
               className={cn(
                 "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                isApproved ? "bg-green-500" : "bg-amber-500"
+                isApproved ? "bg-green-500" : "bg-warning"
               )}
               data-testid={`toggle-status-${stateKey}`}
             >
@@ -261,7 +261,7 @@ function ReviewFieldEditor({
                 )}
               />
             </button>
-            <span className={cn("text-xs font-medium", isAmended ? "text-amber-700" : "text-muted-foreground")}>
+            <span className={cn("text-xs font-medium", isAmended ? "text-warning" : "text-muted-foreground")}>
               Amended
             </span>
           </div>
@@ -456,14 +456,14 @@ function getEventIcon(eventType) {
     submission_received: <ClipboardList className="w-4 h-4 text-blue-500" />,
     submission_updated: <Save className="w-4 h-4 text-green-500" />,
     status_changed: <ArrowLeft className="w-4 h-4 text-purple-500 rotate-180" />,
-    score_calculated: <Calculator className="w-4 h-4 text-orange-700" />,
+    score_calculated: <Calculator className="w-4 h-4 text-warning" />,
     email_sent: <Mail className="w-4 h-4 text-blue-500" />,
     contract_sent: <ClipboardList className="w-4 h-4 text-indigo-500" />,
     contract_signed: <Check className="w-4 h-4 text-green-500" />,
     meeting_request_sent: <Calendar className="w-4 h-4 text-teal-500" />,
     meeting_booked: <Calendar className="w-4 h-4 text-green-500" />,
     member_created: <Check className="w-4 h-4 text-green-500" />,
-    swapped_from_form: <RotateCcw className="w-4 h-4 text-amber-700" />,
+    swapped_from_form: <RotateCcw className="w-4 h-4 text-warning" />,
     archived_due_to_swap: <X className="w-4 h-4 text-gray-500" />
   };
   return icons[eventType] || <History className="w-4 h-4 text-muted-foreground" />;
@@ -533,7 +533,7 @@ function formatEventDetails(entry, stages = []) {
           {details.risk_level && (
             <Badge variant="outline" className={cn(
               details.risk_level === 'low' && 'bg-green-50 text-green-700 border-green-200',
-              details.risk_level === 'medium' && 'bg-amber-50 text-amber-700 border-amber-200',
+              details.risk_level === 'medium' && 'bg-warning/10 text-warning border-warning/30',
               details.risk_level === 'high' && 'bg-red-50 text-red-700 border-red-200'
             )}>
               {details.risk_level} risk
@@ -618,7 +618,7 @@ function formatEventDetails(entry, stages = []) {
 function ScheduleStatusBadge({ status }) {
   const config = {
     scheduled: { label: 'Scheduled', variant: 'outline', icon: Timer, className: 'text-blue-600 border-blue-200 bg-blue-50' },
-    pending: { label: 'Pending', variant: 'outline', icon: Clock, className: 'text-amber-700 border-amber-200 bg-amber-50' },
+    pending: { label: 'Pending', variant: 'outline', icon: Clock, className: 'text-warning border-warning/30 bg-warning/10' },
     sent: { label: 'Sent', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
     completed: { label: 'Completed', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
     cancelled: { label: 'Cancelled', variant: 'outline', icon: XCircle, className: 'text-muted-foreground border-muted bg-muted/50' },
@@ -641,7 +641,7 @@ function ScheduleEventIcon({ type }) {
     case 'contract_reminder':
       return <Bell className="w-3 h-3 text-blue-500" />;
     case 'contract_timeout':
-      return <AlertTriangle className="w-3 h-3 text-amber-700" />;
+      return <AlertTriangle className="w-3 h-3 text-warning" />;
     case 'meeting_request':
       return <Calendar className="w-3 h-3 text-purple-500" />;
     case 'meeting_reminder':
@@ -919,7 +919,7 @@ function ScheduleTab({ formSubmissionId }) {
                 testResult.action === 'would_send' || testResult.action === 'sent' 
                   ? "bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300"
                   : testResult.action === 'skipped' || testResult.action === 'would_skip'
-                  ? "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300"
+                  ? "bg-warning/10 dark:bg-warning/20 text-warning dark:text-warning"
                   : "bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300"
               )}>
                 Action: {testResult.action === 'would_send' ? 'Would Send Email' :
@@ -2056,7 +2056,7 @@ export default function ReviewSubmissionPage() {
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold">{displayReference}</h1>
               {hasUnsavedChanges && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
+                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                   Unsaved Changes
                 </Badge>
               )}
@@ -2539,7 +2539,7 @@ export default function ReviewSubmissionPage() {
       <Dialog open={skipWarningModal.open} onOpenChange={(open) => !open && handleCancelSkipWarning()}>
         <DialogContent className="max-w-lg" data-testid="dialog-skip-warning">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700">
+            <DialogTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="w-5 h-5" />
               Skipping Stages with Actions
             </DialogTitle>
@@ -2549,7 +2549,7 @@ export default function ReviewSubmissionPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             {skipWarningModal.skippedStages.map((skippedStage) => (
-              <div key={skippedStage.stageId} className="border rounded-lg p-3 bg-amber-50 dark:bg-amber-950/30">
+              <div key={skippedStage.stageId} className="border rounded-lg p-3 bg-warning/10 dark:bg-warning/30">
                 <div className="flex items-center gap-2 mb-2">
                   <div 
                     className="w-3 h-3 rounded-full" 
@@ -2584,7 +2584,7 @@ export default function ReviewSubmissionPage() {
       <Dialog open={stageActionResultsModal.open} onOpenChange={(open) => !open && setStageActionResultsModal({ open: false, results: [] })}>
         <DialogContent className="max-w-lg" data-testid="dialog-stage-action-results">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700">
+            <DialogTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="w-5 h-5" />
               Member Creation Warning
             </DialogTitle>
@@ -2594,8 +2594,8 @@ export default function ReviewSubmissionPage() {
           </DialogHeader>
           <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
             {stageActionResultsModal.results.map((result, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/30" data-testid={`row-member-skip-${idx}`}>
-                <UserPlus className="w-5 h-5 text-amber-700 mt-0.5 flex-shrink-0" />
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-warning/10 dark:bg-warning/30" data-testid={`row-member-skip-${idx}`}>
+                <UserPlus className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   {result.email && (
                     <div className="text-sm font-medium text-foreground" data-testid={`text-member-email-${idx}`}>

@@ -700,7 +700,7 @@ export default function EmbedFormPage() {
           </CardContent>
           <div className="p-6 pt-0 flex flex-col gap-2">
             {!canProceed && currentField && (
-              <p className="text-sm text-amber-700 text-center">
+              <p className="text-sm text-warning text-center">
                 {!isFormatValid 
                   ? 'Please fix the format error above to continue'
                   : 'Please complete the required field above to continue'}

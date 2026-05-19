@@ -1153,8 +1153,8 @@ export default function AdminIntegrations() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
-                    <Mail className="h-5 w-5 text-orange-700" />
+                  <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center">
+                    <Mail className="h-5 w-5 text-warning" />
                   </div>
                   <div>
                     <CardTitle className="text-white">Zoho</CardTitle>
@@ -1193,7 +1193,7 @@ export default function AdminIntegrations() {
                     href="https://api-console.zoho.com/" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-orange-700 hover:underline inline-flex items-center gap-1"
+                    className="text-warning hover:underline inline-flex items-center gap-1"
                   >
                     Zoho API Console
                     <ExternalLink className="h-3 w-3" />
@@ -1272,7 +1272,7 @@ export default function AdminIntegrations() {
                 <p className="text-xs text-slate-400 mb-2">
                   Add this redirect URI in your Zoho API Console:
                 </p>
-                <code className="text-xs bg-slate-800 px-2 py-1 rounded text-orange-700 block">
+                <code className="text-xs bg-slate-800 px-2 py-1 rounded text-warning block">
                   {typeof window !== 'undefined' ? `${window.location.origin}/api/zoho-campaigns/oauth?action=callback` : '/api/zoho-campaigns/oauth?action=callback'}
                 </code>
               </div>
@@ -1296,7 +1296,7 @@ export default function AdminIntegrations() {
                   <Button
                     onClick={handleConnectZoho}
                     disabled={zohoConnecting}
-                    className="bg-orange-500"
+                    className="bg-warning text-warning-foreground"
                     data-testid="button-connect-zoho"
                   >
                     {zohoConnecting ? (
@@ -1376,7 +1376,7 @@ export default function AdminIntegrations() {
                           )}
                         </Button>
                       </div>
-                      <p className="text-xs text-amber-700 mt-2">
+                      <p className="text-xs text-warning mt-2">
                         Keep this URL secret. It contains an authentication token.
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
@@ -1391,11 +1391,11 @@ export default function AdminIntegrations() {
               )}
 
               {hasZohoCredentials && !zohoConnected && (
-                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                <div className="rounded-lg bg-warning/10 p-4 border border-warning/30">
                   <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-700" />
+                    <AlertTriangle className="h-5 w-5 text-warning" />
                     <div>
-                      <p className="text-sm font-medium text-amber-700">Not Connected</p>
+                      <p className="text-sm font-medium text-warning">Not Connected</p>
                       <p className="text-xs text-slate-400">
                         Click "Connect Zoho Account" to authorize access to your Zoho Campaigns account.
                       </p>
@@ -1411,7 +1411,7 @@ export default function AdminIntegrations() {
                 </p>
                 <a
                   href="/admin/zoho-crm-sync"
-                  className="inline-flex items-center gap-2 text-sm text-orange-700 hover:underline"
+                  className="inline-flex items-center gap-2 text-sm text-warning hover:underline"
                   data-testid="link-zoho-crm-sync"
                 >
                   Configure Zoho CRM sync
@@ -1588,11 +1588,11 @@ export default function AdminIntegrations() {
               )}
 
               {hasXeroCredentials && !xeroConnected && (
-                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                <div className="rounded-lg bg-warning/10 p-4 border border-warning/30">
                   <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-700" />
+                    <AlertTriangle className="h-5 w-5 text-warning" />
                     <div>
-                      <p className="text-sm font-medium text-amber-700">Not Connected</p>
+                      <p className="text-sm font-medium text-warning">Not Connected</p>
                       <p className="text-xs text-slate-400">
                         Click "Connect Xero Account" to authorize access to your Xero account.
                       </p>
@@ -1767,7 +1767,7 @@ export default function AdminIntegrations() {
                           <Badge
                             variant="outline"
                             className={isTest
-                              ? "border-amber-500/50 text-amber-700 bg-amber-500/10"
+                              ? "border-warning/50 text-warning bg-warning/10"
                               : "border-green-500/50 text-green-400 bg-green-500/10"
                             }
                           >
@@ -1788,10 +1788,10 @@ export default function AdminIntegrations() {
 
                 {(stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test' || stripeModes.stripe_mode_fundraising === 'test') &&
                   (!stripeForm.test_secret_key || !stripeForm.test_publishable_key) && (
-                  <div className="mt-3 rounded-md bg-amber-500/10 p-3 border border-amber-500/30">
+                  <div className="mt-3 rounded-md bg-warning/10 p-3 border border-warning/30">
                     <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
-                      <p className="text-xs text-amber-300">
+                      <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+                      <p className="text-xs text-warning">
                         One or more features are set to test mode but test keys haven't been entered. Those features will fall back to live keys until test keys are saved.
                       </p>
                     </div>
@@ -1844,11 +1844,11 @@ export default function AdminIntegrations() {
               )}
 
               {hasStripeCredentials && !stripeEnabled && (
-                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                <div className="rounded-lg bg-warning/10 p-4 border border-warning/30">
                   <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-700" />
+                    <AlertTriangle className="h-5 w-5 text-warning" />
                     <div>
-                      <p className="text-sm font-medium text-amber-700">Stripe Disabled</p>
+                      <p className="text-sm font-medium text-warning">Stripe Disabled</p>
                       <p className="text-xs text-slate-400">
                         Your credentials are saved but the integration is disabled. Toggle the switch to enable payments.
                       </p>
@@ -2036,8 +2036,8 @@ export default function AdminIntegrations() {
           <Card className="bg-slate-800/50 border-slate-700" data-testid="card-ga4-integration">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
-                  <BarChart3 className="h-5 w-5 text-orange-700" />
+                <div className="w-10 h-10 rounded-lg bg-warning/20 flex items-center justify-center">
+                  <BarChart3 className="h-5 w-5 text-warning" />
                 </div>
                 <div className="flex-1">
                   <CardTitle className="text-white">Google Analytics (GA4)</CardTitle>

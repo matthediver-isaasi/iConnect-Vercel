@@ -848,7 +848,7 @@ export default function AdminSettings() {
                         Verified
                       </span>
                     ) : tenant.settings.email_domain.status === 'pending' ? (
-                      <span className="flex items-center gap-1 text-xs text-amber-700">
+                      <span className="flex items-center gap-1 text-xs text-warning">
                         <AlertTriangle className="w-3 h-3" />
                         Pending Verification
                       </span>
@@ -863,7 +863,7 @@ export default function AdminSettings() {
                     {tenant.settings.email_domain.domain}
                   </p>
                   {tenant.settings.email_domain.status === 'pending' && (
-                    <p className="text-xs text-amber-300">
+                    <p className="text-xs text-warning">
                       DNS records have been created. Verification can take up to 48 hours.
                     </p>
                   )}
@@ -979,9 +979,9 @@ export default function AdminSettings() {
                 />
               </div>
               {!formData.settings.allow_search_indexing && (
-                <div className="flex items-start gap-3 p-3 bg-amber-900/30 border border-amber-800 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                  <p className="text-sm text-amber-200">
+                <div className="flex items-start gap-3 p-3 bg-warning/30 border border-warning rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                  <p className="text-sm text-warning">
                     Search engines will be blocked from indexing this site. Enable this when your site is ready for production.
                   </p>
                 </div>
@@ -1036,8 +1036,8 @@ export default function AdminSettings() {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 bg-amber-900/30 border border-amber-800 rounded-lg">
-                  <p className="text-sm text-amber-200">
+                <div className="p-4 bg-warning/30 border border-warning rounded-lg">
+                  <p className="text-sm text-warning">
                     <strong>Authentication Required</strong> - Connect to Xero to enable automatic invoice creation.
                   </p>
                 </div>
@@ -1320,7 +1320,7 @@ export default function AdminSettings() {
                           <ul className="mt-1 ml-4 list-disc">
                             {Object.entries(info.byTenantId).map(([tid, items]) => (
                               <li key={tid}>
-                                tenant_id={tid === 'null' ? <span className="text-yellow-400">NULL</span> : tid.substring(0, 8) + '...'}: {items.length} items
+                                tenant_id={tid === 'null' ? <span className="text-warning">NULL</span> : tid.substring(0, 8) + '...'}: {items.length} items
                               </li>
                             ))}
                           </ul>

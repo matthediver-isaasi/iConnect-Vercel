@@ -603,7 +603,7 @@ export default function PortalMenuManagementPage() {
             <CardHeader className="border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-700" />
+                  <Shield className="w-5 h-5 text-warning" />
                   Admin Navigation
                 </CardTitle>
                 <Button
@@ -762,7 +762,7 @@ export default function PortalMenuManagementPage() {
                                         <Badge variant="outline" className="text-xs px-1.5 py-0 bg-green-50 text-green-700 border-green-200">Page</Badge>
                                       )}
                                       {item.type === 'feature' && (
-                                        <Badge variant="outline" className="text-xs px-1.5 py-0 bg-amber-50 text-amber-700 border-amber-200">Feature</Badge>
+                                        <Badge variant="outline" className="text-xs px-1.5 py-0 bg-warning/10 text-warning border-warning/30">Feature</Badge>
                                       )}
                                       <span>{item.label}</span>
                                     </div>

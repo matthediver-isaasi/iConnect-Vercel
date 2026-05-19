@@ -1062,7 +1062,7 @@ export default function DueDiligenceDashboardPage() {
                     <div className="text-xs text-muted-foreground">Fields copied</div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-2xl font-bold text-amber-700">{swapPreview.summary.newEmptyFieldsCount}</div>
+                    <div className="text-2xl font-bold text-warning">{swapPreview.summary.newEmptyFieldsCount}</div>
                     <div className="text-xs text-muted-foreground">New empty fields</div>
                   </Card>
                   <Card className="p-3">
@@ -1092,12 +1092,12 @@ export default function DueDiligenceDashboardPage() {
                 {swapPreview.fieldMapping.newEmpty.length > 0 && (
                   <div>
                     <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-700" />
+                      <AlertTriangle className="w-4 h-4 text-warning" />
                       New Empty Fields ({swapPreview.fieldMapping.newEmpty.length})
                     </h4>
                     <div className="space-y-1 max-h-24 overflow-y-auto">
                       {swapPreview.fieldMapping.newEmpty.map((field, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-xs bg-amber-500/10 p-2 rounded">
+                        <div key={idx} className="flex items-center gap-2 text-xs bg-warning/10 p-2 rounded">
                           <span className="truncate">{field.fieldLabel}</span>
                           {field.required && <Badge variant="outline" className="text-[10px] h-4">Required</Badge>}
                         </div>
@@ -1145,10 +1145,10 @@ export default function DueDiligenceDashboardPage() {
                     )}
                     {swapPreview.contractStatus.willArchive.length > 0 && (
                       <div>
-                        <span className="text-xs text-amber-700 font-medium">Will remain with archived submission:</span>
+                        <span className="text-xs text-warning font-medium">Will remain with archived submission:</span>
                         <div className="space-y-1 mt-1">
                           {swapPreview.contractStatus.willArchive.map((contract, idx) => (
-                            <div key={idx} className="text-xs bg-amber-500/10 p-2 rounded flex items-center gap-2">
+                            <div key={idx} className="text-xs bg-warning/10 p-2 rounded flex items-center gap-2">
                               <Badge variant="outline" className="text-[10px]">{contract.status}</Badge>
                               <span>{contract.sourceContactFieldLabel}</span>
                             </div>

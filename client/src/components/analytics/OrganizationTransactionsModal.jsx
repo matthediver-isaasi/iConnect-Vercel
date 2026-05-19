@@ -241,7 +241,7 @@ export default function OrganizationTransactionsModal({
                               <Badge className="bg-red-100 text-red-700">Fully Cancelled</Badge>
                             )}
                             {isPurchase && cancelledQty > 0 && transaction.status !== 'cancelled' && (
-                              <Badge className="bg-amber-100 text-amber-700">Partially Cancelled</Badge>
+                              <Badge className="bg-warning/10 text-warning">Partially Cancelled</Badge>
                             )}
                           </div>
 
@@ -390,12 +390,12 @@ export default function OrganizationTransactionsModal({
             </DialogHeader>
 
             <div className="space-y-4">
-              <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="p-4 bg-warning/10 rounded-lg border border-warning/30">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
                   <div className="text-sm">
-                    <p className="font-medium text-amber-900 mb-1">Important:</p>
-                    <p className="text-amber-800">
+                    <p className="font-medium text-warning mb-1">Important:</p>
+                    <p className="text-warning">
                       This will void the selected tickets from this purchase. The tickets will be removed from the organisation's available balance. You can reinstate them later if needed.
                     </p>
                   </div>

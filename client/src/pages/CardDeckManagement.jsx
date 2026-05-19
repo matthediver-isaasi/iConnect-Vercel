@@ -320,7 +320,7 @@ export default function CardDeckManagementPage() {
                         className="w-full h-full object-cover"
                       />
                       {card.status === 'draft' && (
-                        <Badge className="absolute top-2 right-2 bg-amber-500">Draft</Badge>
+                        <Badge variant="warning" className="absolute top-2 right-2">Draft</Badge>
                       )}
                     </div>
                   )}
@@ -328,7 +328,7 @@ export default function CardDeckManagementPage() {
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <h3 className="font-semibold text-lg text-slate-900 line-clamp-2">{card.title}</h3>
                       {!card.image_url && card.status === 'draft' && (
-                        <Badge className="bg-amber-500 shrink-0">Draft</Badge>
+                        <Badge variant="warning" className="shrink-0">Draft</Badge>
                       )}
                     </div>
                     {card.description && (

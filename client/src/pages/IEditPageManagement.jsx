@@ -283,7 +283,7 @@ export default function IEditPageManagementPage() {
     const variants = {
       draft: "bg-slate-100 text-slate-700",
       published: "bg-green-100 text-green-700",
-      archived: "bg-amber-100 text-amber-700"
+      archived: "bg-warning/10 text-warning"
     };
     return variants[status] || variants.draft;
   };
@@ -472,7 +472,7 @@ export default function IEditPageManagementPage() {
                     disabled={togglePublishMutation.isPending}
                     className={`w-full ${
                       page.status === 'published' 
-                        ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' 
+                        ? 'text-warning hover:text-warning hover:bg-warning/10' 
                         : 'text-green-600 hover:text-green-700 hover:bg-green-50'
                     }`}
                     data-testid={`button-toggle-publish-${page.id}`}

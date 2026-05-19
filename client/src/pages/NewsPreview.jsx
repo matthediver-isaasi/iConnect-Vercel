@@ -182,7 +182,7 @@ export default function NewsPreview() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
             Draft Preview
           </Badge>
         </div>
@@ -255,8 +255,8 @@ export default function NewsPreview() {
           </div>
         </article>
 
-        <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200 text-center">
-          <p className="text-sm text-amber-800">
+        <div className="mt-6 p-4 bg-warning/10 rounded-lg border border-warning/30 text-center">
+          <p className="text-sm text-warning">
             This is a draft preview. The article is not publicly published yet.
           </p>
         </div>

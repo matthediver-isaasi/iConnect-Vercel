@@ -701,10 +701,10 @@ export default function InstalledFontsPage() {
 
           <TabsContent value="fonts" className="space-y-6">
             {/* Debug Information Card */}
-            <Card className="border-amber-200 bg-amber-50">
+            <Card className="border-warning/30 bg-warning/10">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <AlertCircle className="w-5 h-5 text-amber-700" />
+                  <AlertCircle className="w-5 h-5 text-warning" />
                   Font Loading Debug Information
                 </CardTitle>
               </CardHeader>
@@ -742,7 +742,7 @@ export default function InstalledFontsPage() {
                 </div>
 
                 {debugInfo.allFontFamilies && (
-                  <div className="pt-3 border-t border-amber-200">
+                  <div className="pt-3 border-t border-warning/30">
                     <h4 className="font-semibold text-sm mb-2">All Loaded Font Families ({debugInfo.totalFonts}):</h4>
                     <div className="flex flex-wrap gap-1">
                       {debugInfo.allFontFamilies.map((family, i) => (
@@ -754,7 +754,7 @@ export default function InstalledFontsPage() {
                   </div>
                 )}
 
-                <div className="pt-3 border-t border-amber-200">
+                <div className="pt-3 border-t border-warning/30">
                   <h4 className="font-semibold text-sm mb-2">Browser Console Check:</h4>
                   <p className="text-xs text-slate-600">
                     Open your browser's DevTools (F12) → Network tab → Filter by "font" to see if the font file is loading and check for CORS errors.

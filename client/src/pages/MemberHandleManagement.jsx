@@ -172,7 +172,7 @@ export default function MemberHandleManagementPage() {
                       </p>
                       <p className="text-sm text-slate-600">{member.email}</p>
                     </div>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                    <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                       No Handle
                     </Badge>
                   </div>

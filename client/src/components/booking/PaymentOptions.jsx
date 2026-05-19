@@ -1386,7 +1386,7 @@ export default function PaymentOptions({
               <span className="text-blue-700 flex items-center gap-1">
                 Ticket Price:
                 {getEffectiveTicketPrice(selectedTicketClass).isEarlyBird && (
-                  <span className="text-amber-700 text-xs font-medium">(Early Bird)</span>
+                  <span className="text-warning text-xs font-medium">(Early Bird)</span>
                 )}
               </span>
               <span className="flex items-center gap-2">
@@ -1598,7 +1598,7 @@ export default function PaymentOptions({
                       {stripeAvailable ? (
                         <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
                       ) : (
-                        <p className="text-xs text-amber-700 mt-1">Card payments not currently available</p>
+                        <p className="text-xs text-warning mt-1">Card payments not currently available</p>
                       )}
                     </div>
                   </div>
@@ -1616,7 +1616,7 @@ export default function PaymentOptions({
                           {stripeAvailable ? (
                             <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
                           ) : (
-                            <p className="text-xs text-amber-700 mt-1">Card payments not currently available</p>
+                            <p className="text-xs text-warning mt-1">Card payments not currently available</p>
                           )}
                         </div>
                       </div>
@@ -1739,10 +1739,10 @@ export default function PaymentOptions({
             </div>
 
             {!hasEnoughTickets && (
-              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
-                  <div className="text-xs text-amber-800">
+                  <AlertCircle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
+                  <div className="text-xs text-warning">
                     <p className="font-medium mb-1">Insufficient tickets</p>
                     <p>You need {ticketsRequired - availableProgramTickets} more {event.program_tag} ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''} to complete this booking.</p>
                   </div>
@@ -1751,10 +1751,10 @@ export default function PaymentOptions({
             )}
           </div>
         ) : (
-          <div className="p-4 rounded-lg border-2 border-amber-200 bg-amber-50">
+          <div className="p-4 rounded-lg border-2 border-warning/30 bg-warning/10">
             <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-700 shrink-0" />
-              <div className="text-sm text-amber-800">
+              <AlertCircle className="w-5 h-5 text-warning shrink-0" />
+              <div className="text-sm text-warning">
                 <p className="font-medium mb-1">No Program Required</p>
                 <p>This event is not associated with a program and cannot be booked through this system.</p>
               </div>
@@ -2183,7 +2183,7 @@ export default function PaymentOptions({
       <Dialog open={showDuplicateWarning} onOpenChange={setShowDuplicateWarning}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700">
+            <DialogTitle className="flex items-center gap-2 text-warning">
               <AlertCircle className="w-5 h-5" />
               Duplicate Registration Detected
             </DialogTitle>
@@ -2193,17 +2193,17 @@ export default function PaymentOptions({
           </DialogHeader>
           
           <div className="mt-4 space-y-3">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Users className="w-4 h-4 text-amber-700" />
-                <span className="font-medium text-amber-800">Already Registered:</span>
+                <Users className="w-4 h-4 text-warning" />
+                <span className="font-medium text-warning">Already Registered:</span>
               </div>
               <ul className="space-y-2">
                 {duplicateAttendees.map((attendee, index) => (
-                  <li key={index} className="flex items-center gap-2 text-sm text-amber-700">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                  <li key={index} className="flex items-center gap-2 text-sm text-warning">
+                    <span className="w-2 h-2 rounded-full bg-warning shrink-0"></span>
                     <span className="font-medium">{attendee.name}</span>
-                    <span className="text-amber-700">({attendee.email})</span>
+                    <span className="text-warning">({attendee.email})</span>
                   </li>
                 ))}
               </ul>
@@ -2217,7 +2217,7 @@ export default function PaymentOptions({
           <div className="mt-4 flex justify-end">
             <Button
               onClick={() => setShowDuplicateWarning(false)}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-warning hover:bg-warning/90 text-warning-foreground"
               data-testid="button-close-duplicate-warning"
             >
               OK, I'll Update Attendees

@@ -39,7 +39,7 @@ const SEV_ICON = {
 };
 const SEV_CLASS = {
   [SEVERITY.ERROR]: 'text-destructive',
-  [SEVERITY.WARNING]: 'text-amber-700',
+  [SEVERITY.WARNING]: 'text-warning',
   [SEVERITY.INFO]: 'text-slate-400',
 };
 

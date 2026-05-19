@@ -21,7 +21,7 @@ const typeColors = {
   event: 'bg-blue-100 text-blue-700',
   article: 'bg-purple-100 text-purple-700',
   news: 'bg-green-100 text-green-700',
-  resource: 'bg-orange-100 text-orange-700',
+  resource: 'bg-warning/10 text-warning',
   page: 'bg-slate-100 text-slate-700'
 };
 
@@ -244,7 +244,7 @@ export default function SearchResults() {
                                       {getTypeLabel(result.type)}
                                     </Badge>
                                     {isMemberOnlyResource && !isAuthenticated && (
-                                      <Badge variant="outline" className="gap-1 text-amber-700 border-amber-300 bg-amber-50">
+                                      <Badge variant="outline" className="gap-1 text-warning border-warning/30 bg-warning/10">
                                         <Lock className="w-3 h-3" />
                                         Members only
                                       </Badge>

@@ -900,7 +900,7 @@ export default function HistoryPage({ hasBanner }) {
           return { label: 'Credit', color: 'bg-green-100 text-green-600' };
         case 'deduct':
         case 'debit_adjustment':
-          return { label: 'Debit', color: 'bg-amber-100 text-amber-700' };
+          return { label: 'Debit', color: 'bg-warning/10 text-warning' };
         case 'usage':
         case 'booking_usage':
           return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
@@ -976,7 +976,7 @@ export default function HistoryPage({ hasBanner }) {
         case 'credit_adjustment':
           return { label: 'Credit', color: 'bg-green-100 text-green-600' };
         case 'debit_adjustment':
-          return { label: 'Debit', color: 'bg-amber-100 text-amber-700' };
+          return { label: 'Debit', color: 'bg-warning/10 text-warning' };
         case 'booking_usage':
           return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
         default:

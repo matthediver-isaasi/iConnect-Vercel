@@ -223,7 +223,7 @@ export default function DomainSettings() {
       case 'active':
         return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Active</Badge>;
       case 'pending':
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"><Clock className="w-3 h-3 mr-1" /> Pending DNS</Badge>;
+        return <Badge variant="secondary" className="bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning"><Clock className="w-3 h-3 mr-1" /> Pending DNS</Badge>;
       case 'error':
         return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Error</Badge>;
       default:
@@ -472,7 +472,7 @@ export default function DomainSettings() {
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
                       </Badge>
                     ) : (
-                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                      <Badge variant="secondary" className="bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning">
                         <Clock className="w-3 h-3 mr-1" /> Pending Verification
                       </Badge>
                     )}

@@ -31,7 +31,7 @@ const typeLabels = {
 
 const statusColors = {
   open: "bg-blue-100 text-blue-800",
-  in_progress: "bg-yellow-100 text-yellow-800",
+  in_progress: "bg-warning/10 text-warning",
   resolved: "bg-green-100 text-green-800",
   closed: "bg-slate-100 text-slate-800"
 };
@@ -39,14 +39,14 @@ const statusColors = {
 const priorityColors = {
   low: "bg-slate-100 text-slate-700",
   medium: "bg-blue-100 text-blue-700",
-  high: "bg-orange-100 text-orange-700",
+  high: "bg-warning/10 text-warning",
   urgent: "bg-red-100 text-red-700"
 };
 
 const severityColors = {
   minor: "bg-green-100 text-green-700",
-  moderate: "bg-yellow-100 text-yellow-700",
-  major: "bg-orange-100 text-orange-700",
+  moderate: "bg-warning/10 text-warning",
+  major: "bg-warning/10 text-warning",
   critical: "bg-red-100 text-red-700"
 };
 
@@ -194,9 +194,9 @@ export default function SupportManagementPage() {
               <div className="text-sm text-slate-600">Open</div>
             </CardContent>
           </Card>
-          <Card className="border-yellow-200">
+          <Card className="border-warning/30">
             <CardContent className="p-4">
-              <div className="text-2xl font-bold text-yellow-700">{getTicketCounts('in_progress')}</div>
+              <div className="text-2xl font-bold text-warning">{getTicketCounts('in_progress')}</div>
               <div className="text-sm text-slate-600">In Progress</div>
             </CardContent>
           </Card>

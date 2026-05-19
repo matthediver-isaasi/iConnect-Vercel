@@ -241,7 +241,7 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                 </Badge>
               )}
               {autoSyncStatus === 'failed' && (
-                <Badge variant="secondary" className="text-xs font-normal text-amber-700">
+                <Badge variant="secondary" className="text-xs font-normal text-warning">
                   <AlertTriangle className="h-3 w-3 mr-1" />
                   Sync failed
                 </Badge>

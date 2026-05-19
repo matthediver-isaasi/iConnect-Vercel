@@ -725,8 +725,8 @@ export default function NewsEditorPage() {
               </Button>
             </div>
 
-            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-              <p className="text-sm text-amber-800">
+            <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
+              <p className="text-sm text-warning">
                 Anyone with this link and password can view the draft article.
               </p>
             </div>

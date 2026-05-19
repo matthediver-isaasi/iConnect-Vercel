@@ -1712,18 +1712,18 @@ export default function EditEvent() {
                   </div>
                 ) : zoomSyncStatus?.inSync === false ? (
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-amber-700">
+                    <div className="flex items-center gap-2 text-sm text-warning">
                       <Bell className="h-4 w-4" />
                       <span className="font-medium">Out of sync with Zoom</span>
                     </div>
                     {zoomSyncStatus.differences?.start?.zoom && (
-                      <div className="text-xs text-amber-700 ml-6">
+                      <div className="text-xs text-warning ml-6">
                         Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
                         Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                       </div>
                     )}
                     {zoomSyncStatus.differences?.end?.zoom && (
-                      <div className="text-xs text-amber-700 ml-6">
+                      <div className="text-xs text-warning ml-6">
                         End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
                         Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                       </div>
@@ -1840,7 +1840,7 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Visible, accepting registrations</p>
                     </Label>
                   </div>
-                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventState === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventState === 'draft' ? 'border-warning/50 bg-warning/10' : 'border-slate-200 hover:border-slate-300'}`}>
                     <RadioGroupItem value="draft" id="state-draft" data-testid="radio-state-draft" />
                     <Label htmlFor="state-draft" className="cursor-pointer flex-1">
                       <span className="font-medium">Draft</span>
@@ -2033,7 +2033,7 @@ export default function EditEvent() {
                       formData.summary.length > summaryMaxLength
                         ? 'text-destructive font-medium'
                         : formData.summary.length >= summaryMaxLength - 10
-                          ? 'text-amber-700'
+                          ? 'text-warning'
                           : ''
                     }
                     data-testid="text-summary-counter"
@@ -2458,7 +2458,7 @@ export default function EditEvent() {
               {eventTiming !== 'tbc' && (
                 <div className="space-y-2 mt-2">
                   {isOnlineEvent ? (
-                    <div className={`flex items-center gap-2 text-xs ${timezoneFetchFailed ? 'text-amber-700' : 'text-slate-500'}`}>
+                    <div className={`flex items-center gap-2 text-xs ${timezoneFetchFailed ? 'text-warning' : 'text-slate-500'}`}>
                       <Clock className="h-3 w-3" />
                       <span>
                         {isTimezoneLoading ? (
@@ -2613,7 +2613,7 @@ export default function EditEvent() {
                               </Badge>
                             )}
                             {ticket.early_bird_enabled && ticket.early_bird_price && (
-                              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                              <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30">
                                 <Bird className="h-3 w-3 mr-1" />
                                 Early Bird £{ticket.early_bird_price}
                               </Badge>
@@ -2714,12 +2714,12 @@ export default function EditEvent() {
                                 data-testid={`switch-early-bird-${ticket.id}`}
                               />
                               <Label htmlFor={`ticket-early-bird-${ticket.id}`} className="text-sm font-medium flex items-center gap-1.5">
-                                <Bird className="h-4 w-4 text-amber-700" />
+                                <Bird className="h-4 w-4 text-warning" />
                                 Early Bird Pricing
                               </Label>
                             </div>
                             {ticket.early_bird_enabled && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-amber-200 ml-1">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-warning/30 ml-1">
                                 <div className="space-y-1.5">
                                   <Label htmlFor={`ticket-early-bird-price-${ticket.id}`} className="text-sm">
                                     Early Bird Price (£) *
@@ -2795,7 +2795,7 @@ export default function EditEvent() {
                                 />
                                 <span className="text-sm text-slate-500">tickets</span>
                                 {ticketClassSoldCounts[ticket.id] > 0 && (
-                                  <span className="text-xs text-amber-700">
+                                  <span className="text-xs text-warning">
                                     ({ticketClassSoldCounts[ticket.id]} sold)
                                   </span>
                                 )}
@@ -3094,14 +3094,14 @@ export default function EditEvent() {
 
                           {/* Restrict-mode toggle: shown when roles OR groups selected AND visibility includes members */}
                           {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
-                            <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="mt-3 flex items-center justify-between p-3 bg-warning/10 border border-warning/30 rounded-lg">
                               <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4 text-amber-700" />
+                                <Users className="h-4 w-4 text-warning" />
                                 <div>
-                                  <Label htmlFor={`role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
+                                  <Label htmlFor={`role-match-only-${ticket.id}`} className="text-sm font-medium text-warning">
                                     Restrict to selected roles / groups
                                   </Label>
-                                  <p className="text-xs text-amber-700">
+                                  <p className="text-xs text-warning">
                                     {ticket.role_match_only
                                       ? "Ticket is hidden from users whose role and member groups don't match"
                                       : "Ticket is visible to all users (selection only affects who can register)"}
@@ -3364,7 +3364,7 @@ export default function EditEvent() {
                             </SelectContent>
                           </Select>
                           {availableVatRates.length === 0 && (
-                            <p className="text-xs text-amber-700">
+                            <p className="text-xs text-warning">
                               No VAT rates available. Sync rates from Xero in Admin Setup.
                             </p>
                           )}
@@ -3481,7 +3481,7 @@ export default function EditEvent() {
                           )}
                         </>
                       ) : (
-                        <span className="text-amber-700">Join link is hidden - members must register via ticket purchase</span>
+                        <span className="text-warning">Join link is hidden - members must register via ticket purchase</span>
                       )}
                     </p>
                     <p className="text-xs text-slate-500 mt-2">

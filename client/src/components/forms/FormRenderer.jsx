@@ -583,11 +583,11 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               required={field.required}
               disabled={isFieldDisabled}
               autoFocus={autoFocus}
-              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${urlFormatError ? 'border-amber-500' : ''}`}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${urlFormatError ? 'border-warning/50' : ''}`}
               data-testid={`input-url-${field.id}`}
             />
             {urlFormatError && (
-              <p className="text-xs text-amber-700" data-testid={`error-url-format-${field.id}`}>
+              <p className="text-xs text-warning" data-testid={`error-url-format-${field.id}`}>
                 {urlFormatError}
               </p>
             )}
@@ -612,16 +612,16 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               required={field.required}
               disabled={isFieldDisabled}
               autoFocus={autoFocus}
-              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError || emailFormatError ? 'border-amber-500' : ''}`}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError || emailFormatError ? 'border-warning/50' : ''}`}
               data-testid={`input-email-${field.id}`}
             />
             {emailFormatError && (
-              <p className="text-xs text-amber-700" data-testid={`error-email-format-${field.id}`}>
+              <p className="text-xs text-warning" data-testid={`error-email-format-${field.id}`}>
                 {emailFormatError}
               </p>
             )}
             {domainError && (
-              <p className="text-xs text-amber-700" data-testid={`error-domain-${field.id}`}>
+              <p className="text-xs text-warning" data-testid={`error-domain-${field.id}`}>
                 {domainError}
               </p>
             )}

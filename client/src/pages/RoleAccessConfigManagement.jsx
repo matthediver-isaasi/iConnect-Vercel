@@ -692,7 +692,7 @@ export default function RoleAccessConfigManagement() {
     return (
       <Card className="m-6">
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-700 mb-4">
+          <div className="flex items-center gap-2 text-warning dark:text-warning mb-4">
             <AlertTriangle className="h-5 w-5" />
             <span className="font-medium">{isTableNotFound ? 'Table not found' : 'Database Error'}</span>
           </div>
@@ -1005,7 +1005,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   value={editingItem?.parent_id || ''}
                   onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
                 >
-                  <SelectTrigger data-testid="select-parent-module" className={!editingItem?.parent_id ? 'border-amber-500' : ''}>
+                  <SelectTrigger data-testid="select-parent-module" className={!editingItem?.parent_id ? 'border-warning/50' : ''}>
                     <SelectValue placeholder="Select a module...">
                       {editingItem?.parent_id ? getSelectedModuleLabel(editingItem.parent_id) : 'Select a module...'}
                     </SelectValue>
@@ -1017,7 +1017,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   </SelectContent>
                 </Select>
                 {!editingItem?.parent_id && (
-                  <p className="text-xs text-amber-700">Please select a parent module</p>
+                  <p className="text-xs text-warning">Please select a parent module</p>
                 )}
               </div>
             )}
@@ -1031,7 +1031,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   value={editingItem?.parent_id || ''}
                   onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
                 >
-                  <SelectTrigger data-testid="select-parent-page" className={!editingItem?.parent_id ? 'border-amber-500' : ''}>
+                  <SelectTrigger data-testid="select-parent-page" className={!editingItem?.parent_id ? 'border-warning/50' : ''}>
                     <SelectValue placeholder="Select a page...">
                       {editingItem?.parent_id ? getSelectedPageLabel(editingItem.parent_id) : 'Select a page...'}
                     </SelectValue>
@@ -1043,7 +1043,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                   </SelectContent>
                 </Select>
                 {!editingItem?.parent_id && (
-                  <p className="text-xs text-amber-700">Please select a parent page</p>
+                  <p className="text-xs text-warning">Please select a parent page</p>
                 )}
               </div>
             )}
@@ -1125,7 +1125,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
       <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700">
+            <DialogTitle className="flex items-center gap-2 text-warning">
               <AlertTriangle className="h-5 w-5" />
               Reset to Defaults?
             </DialogTitle>

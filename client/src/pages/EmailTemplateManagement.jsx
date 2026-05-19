@@ -783,13 +783,13 @@ export default function EmailTemplateManagement() {
                   </div>
                 )}
 
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <Info className="w-4 h-4 text-amber-700 mt-0.5" />
-                    <div className="text-sm text-amber-800">
+                    <Info className="w-4 h-4 text-warning mt-0.5" />
+                    <div className="text-sm text-warning">
                       <p className="font-medium">Dynamic Placeholders</p>
                       <p className="mt-1">
-                        Use <code className="bg-amber-100 px-1 rounded">{"{{linkedin_url}}"}</code>, <code className="bg-amber-100 px-1 rounded">{"{{twitter_url}}"}</code>, etc. to dynamically insert social media URLs from your configured social icons.
+                        Use <code className="bg-warning/10 px-1 rounded">{"{{linkedin_url}}"}</code>, <code className="bg-warning/10 px-1 rounded">{"{{twitter_url}}"}</code>, etc. to dynamically insert social media URLs from your configured social icons.
                       </p>
                     </div>
                   </div>

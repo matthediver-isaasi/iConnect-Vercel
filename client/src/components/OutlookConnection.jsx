@@ -186,7 +186,7 @@ export default function OutlookConnection() {
             </div>
 
             {connection.syncError && (
-              <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
+              <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">Last sync had errors</span>
               </div>

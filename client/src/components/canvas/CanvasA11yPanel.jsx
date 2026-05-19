@@ -19,13 +19,13 @@ const SEV_ICON = {
 
 const SEV_CLASS = {
   [SEVERITY.ERROR]: 'text-destructive',
-  [SEVERITY.WARNING]: 'text-amber-700',
+  [SEVERITY.WARNING]: 'text-warning',
   [SEVERITY.INFO]: 'text-slate-500',
 };
 
 const SEV_BG = {
   [SEVERITY.ERROR]: 'bg-destructive/10 border-destructive/20',
-  [SEVERITY.WARNING]: 'bg-amber-50 border-amber-200',
+  [SEVERITY.WARNING]: 'bg-warning/10 border-warning/30',
   [SEVERITY.INFO]: 'bg-slate-50 border-slate-200',
 };
 
@@ -60,7 +60,7 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
         ) : summary.total === 0 ? (
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
         ) : (
-          <ShieldAlert className="w-4 h-4 text-amber-700" />
+          <ShieldAlert className="w-4 h-4 text-warning" />
         )}
         <h2 className="text-sm font-semibold text-slate-900">Accessibility</h2>
       </div>
@@ -82,7 +82,7 @@ export default function CanvasA11yPanel({ issues, selectedIds, onJumpToBlock, on
       </div>
 
       {blocking.length > 0 && (
-        <p className="text-[11px] text-amber-700" data-testid="a11y-blocking-hint">
+        <p className="text-[11px] text-warning" data-testid="a11y-blocking-hint">
           {blocking.length} must-fix issue{blocking.length === 1 ? '' : 's'} flagged — publish will ask you to confirm.
         </p>
       )}

@@ -152,8 +152,8 @@ export default function BorderRadiusSettingsPage() {
               </Button>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 p-4 mt-6">
-              <p className="text-sm text-amber-800">
+            <div className="bg-warning/10 border border-warning/30 p-4 mt-6">
+              <p className="text-sm text-warning">
                 <strong>Note:</strong> After saving, you'll need to refresh the page for changes to take effect throughout the application.
               </p>
             </div>

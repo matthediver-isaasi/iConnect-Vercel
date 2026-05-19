@@ -117,7 +117,7 @@ export default function MyJobPostingsPage() {
 
   const getStatusBadge = (status) => {
     const styles = {
-      pending_approval: 'bg-yellow-100 text-yellow-700',
+      pending_approval: 'bg-warning/10 text-warning',
       active: 'bg-green-100 text-green-700',
       expired: 'bg-slate-100 text-slate-700',
       rejected: 'bg-red-100 text-red-700',
@@ -269,7 +269,7 @@ export default function MyJobPostingsPage() {
         <div className="grid md:grid-cols-5 gap-4 mb-8">
           <Card 
             className={`border-slate-200 cursor-pointer transition-all hover:shadow-lg ${
-              activeFilter === 'pending' ? 'ring-2 ring-yellow-500 bg-yellow-50' : ''
+              activeFilter === 'pending' ? 'ring-2 ring-yellow-500 bg-warning/10' : ''
             }`}
             onClick={() => setActiveFilter('pending')}
           >
@@ -277,9 +277,9 @@ export default function MyJobPostingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-600 mb-1">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-700">{groupedJobs.pending.length}</p>
+                  <p className="text-2xl font-bold text-warning">{groupedJobs.pending.length}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-700" />
+                <Clock className="w-8 h-8 text-warning" />
               </div>
             </CardContent>
           </Card>
@@ -412,9 +412,9 @@ export default function MyJobPostingsPage() {
                 >
                   <CardContent className="p-6">
                     {closingSoon && job.status === 'active' && (
-                      <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-700" />
-                        <span className="text-sm font-medium text-amber-900">
+                      <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-warning/30 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-warning" />
+                        <span className="text-sm font-medium text-warning">
                           Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                         </span>
                       </div>
@@ -434,7 +434,7 @@ export default function MyJobPostingsPage() {
                         <h3 className="text-lg font-bold text-slate-900 line-clamp-2 mb-2">{job.title}</h3>
                         <p className="text-sm font-medium text-slate-700">{job.company_name}</p>
                       </div>
-                      {job.featured && <Star className="w-5 h-5 text-amber-700 fill-amber-500 flex-shrink-0" />}
+                      {job.featured && <Star className="w-5 h-5 text-warning fill-amber-500 flex-shrink-0" />}
                     </div>
 
                     <div className="flex flex-wrap gap-2 mb-4">
@@ -461,7 +461,7 @@ export default function MyJobPostingsPage() {
                       {job.closing_date && (
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="w-4 h-4 flex-shrink-0 text-slate-600" />
-                          <span className={closingSoon && job.status === 'active' ? 'font-semibold text-amber-700' : 'text-slate-600'}>
+                          <span className={closingSoon && job.status === 'active' ? 'font-semibold text-warning' : 'text-slate-600'}>
                             Closes {format(closingDateParsed, 'MMM d, yyyy')}
                           </span>
                         </div>

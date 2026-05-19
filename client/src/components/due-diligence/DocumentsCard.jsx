@@ -95,7 +95,7 @@ function DocumentItem({ document, onClick }) {
             <span className="text-xs text-muted-foreground">v{document.version}</span>
           )}
           {!hasUrl && (
-            <span className="text-xs text-amber-700">No file URL available</span>
+            <span className="text-xs text-warning">No file URL available</span>
           )}
         </div>
       </div>

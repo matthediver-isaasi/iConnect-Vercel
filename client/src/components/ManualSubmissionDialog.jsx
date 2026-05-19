@@ -409,7 +409,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+          <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-md text-sm text-warning">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>This creates a submission directly without triggering workflows or notifications.</span>
           </div>

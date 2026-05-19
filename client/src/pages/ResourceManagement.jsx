@@ -1595,7 +1595,7 @@ export default function ResourceManagementPage() {
                             {accessText}
                           </Badge>
                           {resource.status === 'draft' && (
-                            <Badge className="bg-amber-100 text-amber-700">
+                            <Badge className="bg-warning/10 text-warning">
                               Draft
                             </Badge>
                           )}
@@ -2393,12 +2393,12 @@ export default function ResourceManagementPage() {
                 )}
 
                 {!editingResource.is_public && (
-                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
+                  <div className="p-4 bg-warning/10 rounded-lg border border-warning/30 space-y-3">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-amber-700" />
-                      <Label className="font-medium text-amber-900">Linked Events</Label>
+                      <Calendar className="w-4 h-4 text-warning" />
+                      <Label className="font-medium text-warning">Linked Events</Label>
                     </div>
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-warning">
                       Restrict access to members who attended specific events. Members need a confirmed booking for at least one linked event to see this resource.
                     </p>
 
@@ -2410,7 +2410,7 @@ export default function ResourceManagementPage() {
                           const eventSessions = complexEventSessions.filter(s => s.event_id === le.event_id);
                           const session = le.session_id ? eventSessions.find(s => s.id === le.session_id) : null;
                           return (
-                            <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border border-amber-100" data-testid={`linked-event-entry-${idx}`}>
+                            <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border border-warning/30" data-testid={`linked-event-entry-${idx}`}>
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium truncate">{event?.title || le.event_id}</div>
                                 {isComplex && (
@@ -2436,7 +2436,7 @@ export default function ResourceManagementPage() {
                                     </Select>
                                   </div>
                                 )}
-                                {session && <div className="text-xs text-amber-700 mt-0.5">Session: {session.title}</div>}
+                                {session && <div className="text-xs text-warning mt-0.5">Session: {session.title}</div>}
                               </div>
                               <Button
                                 size="icon"
@@ -2481,7 +2481,7 @@ export default function ResourceManagementPage() {
                             .map(event => (
                               <div
                                 key={event.id}
-                                className="p-2 hover:bg-amber-50 cursor-pointer text-sm flex items-center gap-2"
+                                className="p-2 hover:bg-warning/10 cursor-pointer text-sm flex items-center gap-2"
                                 onClick={() => {
                                   const updated = [...(editingResource.linked_events || []), { event_id: event.id }];
                                   setEditingResource({ ...editingResource, linked_events: updated });
@@ -2517,7 +2517,7 @@ export default function ResourceManagementPage() {
                     </div>
                     <p className="text-xs text-slate-600">
                       Use this embed code to display this resource on your website. {!editingResource.is_public && (
-                        <span className="text-orange-600">
+                        <span className="text-warning">
                           Note: Private resources will show a login button.
                         </span>
                       )}

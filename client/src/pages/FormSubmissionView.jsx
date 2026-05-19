@@ -364,10 +364,10 @@ export default function FormSubmissionView() {
         </Card>
 
         {Array.isArray(submission.processing_notes) && submission.processing_notes.length > 0 && (
-          <Card className="mb-6 border-amber-200 dark:border-amber-900" data-testid="card-processing-notes">
+          <Card className="mb-6 border-warning/30 dark:border-warning" data-testid="card-processing-notes">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-700" />
+                <AlertTriangle className="h-5 w-5 text-warning dark:text-warning" />
                 Processing Notes
               </CardTitle>
               <CardDescription>
@@ -381,13 +381,13 @@ export default function FormSubmissionView() {
                   const levelClass = level === 'error'
                     ? 'border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900'
                     : level === 'warn'
-                      ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900'
+                      ? 'border-warning/30 bg-warning/10 dark:bg-warning/30 dark:border-warning'
                       : 'border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700';
                   const Icon = level === 'info' ? Info : AlertTriangle;
                   const iconClass = level === 'error'
                     ? 'text-red-600 dark:text-red-400'
                     : level === 'warn'
-                      ? 'text-amber-700 dark:text-amber-700'
+                      ? 'text-warning dark:text-warning'
                       : 'text-slate-500 dark:text-slate-400';
                   return (
                     <li

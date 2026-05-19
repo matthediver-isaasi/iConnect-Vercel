@@ -578,11 +578,11 @@ export default function AdminMemberEdit() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          <Card className="border-amber-200 bg-amber-50">
+          <Card className="border-warning/30 bg-warning/10">
             <CardContent className="py-12 text-center">
-              <AlertTriangle className="w-12 h-12 text-amber-700 mx-auto mb-4" />
-              <h2 className="text-xl font-semibold text-amber-900 mb-2">No Member Selected</h2>
-              <p className="text-amber-700 mb-6">
+              <AlertTriangle className="w-12 h-12 text-warning mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-warning mb-2">No Member Selected</h2>
+              <p className="text-warning mb-6">
                 Please select a member to edit from the communications management page.
               </p>
               <Button onClick={() => navigate("/CommunicationsManagement")} variant="outline" data-testid="button-go-to-comms">
@@ -964,7 +964,7 @@ export default function AdminMemberEdit() {
             {(earnedOnlineAwards.length > 0 || earnedOfflineAwards.length > 0) && (
               <div className="pt-4 border-t border-slate-200">
                 <div className="flex items-center gap-2 mb-4">
-                  <Trophy className="w-5 h-5 text-amber-700" />
+                  <Trophy className="w-5 h-5 text-warning" />
                   <h3 className="text-sm font-semibold text-slate-900">Member Awards</h3>
                   <Badge variant="secondary">
                     {earnedOnlineAwards.length + earnedOfflineAwards.length}
@@ -978,7 +978,7 @@ export default function AdminMemberEdit() {
                     return (
                       <div
                         key={`online-${award.id}`}
-                        className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 hover:shadow-md transition-shadow relative"
+                        className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30 hover:shadow-md transition-shadow relative"
                       >
                         {classification && (
                           <Badge variant="secondary" className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5">

@@ -407,13 +407,13 @@ export default function BriefSettings() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
                 <CardTitle className="flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-amber-700" />
+                  <Bell className="w-5 h-5 text-warning" />
                   Email Notifications
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
-                <div className="p-4 bg-amber-50 rounded-md border border-amber-200 mb-6">
-                  <p className="text-sm text-amber-900">
+                <div className="p-4 bg-warning/10 rounded-md border border-warning/30 mb-6">
+                  <p className="text-sm text-warning">
                     Enable email notifications to keep writers and reviewers informed about brief events automatically.
                   </p>
                 </div>

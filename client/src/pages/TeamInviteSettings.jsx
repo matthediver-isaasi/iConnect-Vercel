@@ -125,11 +125,11 @@ export default function TeamInviteSettingsPage() {
               </pre>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-900">
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 flex gap-3">
+              <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-warning">
                 <p className="font-medium mb-1">Important Notes:</p>
-                <ul className="list-disc list-inside space-y-1 text-amber-800">
+                <ul className="list-disc list-inside space-y-1 text-warning">
                   <li>The webhook must accept POST requests with JSON body</li>
                   <li>Invitations can only be sent to email addresses matching the organisation's domain</li>
                   <li>The webhook is responsible for sending the actual invitation email</li>

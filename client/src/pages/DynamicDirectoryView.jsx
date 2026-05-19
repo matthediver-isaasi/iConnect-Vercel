@@ -1531,7 +1531,7 @@ export default function DynamicDirectoryView() {
                         {isVisibleOnFront(memberDisplaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
-                              <Trophy className="w-4 h-4 text-amber-700" />
+                              <Trophy className="w-4 h-4 text-warning" />
                               <span className="text-xs font-semibold text-slate-700">
                                 Awards ({stats.totalAwards})
                               </span>
@@ -1540,7 +1540,7 @@ export default function DynamicDirectoryView() {
                               {stats.onlineAwards?.slice(0, 2).map(award => (
                                 <Tooltip key={award.id}>
                                   <TooltipTrigger asChild>
-                                    <div className="px-2 py-1 bg-gradient-to-br from-amber-50 to-amber-100 rounded border border-amber-200 cursor-help">
+                                    <div className="px-2 py-1 bg-gradient-to-br from-amber-50 to-amber-100 rounded border border-warning/30 cursor-help">
                                       {award.image_url ? (
                                         <img src={award.image_url} alt={award.name} className="w-4 h-4 object-contain" />
                                       ) : (
@@ -1857,20 +1857,20 @@ export default function DynamicDirectoryView() {
               {isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-700" />
+                    <Trophy className="w-4 h-4 text-warning" />
                     Awards & Recognition ({memberStats[viewingMember.id].totalAwards})
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     {memberStats[viewingMember.id].onlineAwards.map(award => (
-                      <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-amber-200">
+                      <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
                         <div className="flex items-center gap-2">
                           {award.image_url && (
                             <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-amber-900 line-clamp-1">{award.name}</p>
+                            <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
                             {award.description && (
-                              <p className="text-xs text-amber-700 line-clamp-1">{award.description}</p>
+                              <p className="text-xs text-warning line-clamp-1">{award.description}</p>
                             )}
                           </div>
                         </div>

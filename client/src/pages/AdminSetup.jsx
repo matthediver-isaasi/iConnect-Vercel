@@ -817,8 +817,8 @@ export default function AdminSetupPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800">
+                <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
                     <strong>⚠️ Authentication Required</strong><br />
                     Connect to Xero to enable automatic invoice creation for account charges.
                   </p>
@@ -919,8 +919,8 @@ export default function AdminSetupPage() {
                   }
                 }
                 return (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-sm text-amber-800">
+                  <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
+                    <p className="text-sm text-warning">
                       No VAT rates synced yet. Click the button below to fetch rates from Xero.
                     </p>
                   </div>
@@ -996,8 +996,8 @@ export default function AdminSetupPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-800">
+              <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
+                <p className="text-sm text-warning">
                   <strong>Testing Tool:</strong> This will create a real payment record in Xero against the specified invoice. 
                   Only use for testing with test invoices or invoices you intend to mark as paid.
                 </p>
@@ -1297,9 +1297,9 @@ export default function AdminSetupPage() {
                         <li>Blog slugs updated: {fixBlogHandlesResult.slugsUpdated}</li>
                       </ul>
                       {fixBlogHandlesResult.errors && fixBlogHandlesResult.errors.length > 0 && (
-                        <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-200">
-                          <p className="text-xs text-amber-800 font-medium">Warnings ({fixBlogHandlesResult.errors.length}):</p>
-                          <ul className="text-xs text-amber-700 mt-1 max-h-32 overflow-y-auto">
+                        <div className="mt-2 p-2 bg-warning/10 rounded border border-warning/30">
+                          <p className="text-xs text-warning font-medium">Warnings ({fixBlogHandlesResult.errors.length}):</p>
+                          <ul className="text-xs text-warning mt-1 max-h-32 overflow-y-auto">
                             {fixBlogHandlesResult.errors.slice(0, 5).map((err, i) => (
                               <li key={i}>{err}</li>
                             ))}

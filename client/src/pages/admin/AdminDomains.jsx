@@ -295,7 +295,7 @@ export default function AdminDomains() {
       case 'active':
         return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"><CheckCircle2 className="w-3 h-3 mr-1" /> Active</Badge>;
       case 'pending':
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"><Clock className="w-3 h-3 mr-1" /> Pending DNS</Badge>;
+        return <Badge variant="secondary" className="bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning"><Clock className="w-3 h-3 mr-1" /> Pending DNS</Badge>;
       case 'error':
         return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" /> Error</Badge>;
       default:
@@ -604,7 +604,7 @@ export default function AdminDomains() {
                             <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="bg-yellow-900 text-yellow-200">
+                          <Badge variant="warning">
                             <Clock className="w-3 h-3 mr-1" /> Pending Verification
                           </Badge>
                         )}
@@ -658,7 +658,7 @@ export default function AdminDomains() {
                 
                 {emailStatus !== 'verified' && emailDomain?.is_custom && emailDomain?.required_dns_records && (
                   <Alert className="bg-slate-700/50 border-slate-600" data-testid="alert-dns-records">
-                    <AlertCircle className="h-4 w-4 text-yellow-400" />
+                    <AlertCircle className="h-4 w-4 text-warning" />
                     <AlertTitle className="text-white">DNS Configuration Required</AlertTitle>
                     <AlertDescription className="text-slate-300">
                       <p className="mb-2">Add the following DNS records at your domain registrar:</p>
@@ -675,7 +675,7 @@ export default function AdminDomains() {
                               {record.priority && (
                                 <>
                                   <span className="text-slate-400 ml-2">Priority:</span>
-                                  <span className="text-yellow-400">{record.priority}</span>
+                                  <span className="text-warning">{record.priority}</span>
                                 </>
                               )}
                             </div>
@@ -698,7 +698,7 @@ export default function AdminDomains() {
                 
                 {emailStatus !== 'verified' && !emailDomain?.is_custom && (
                   <Alert className="bg-slate-700/50 border-slate-600">
-                    <AlertCircle className="h-4 w-4 text-yellow-400" />
+                    <AlertCircle className="h-4 w-4 text-warning" />
                     <AlertTitle className="text-white">Verification In Progress</AlertTitle>
                     <AlertDescription className="text-slate-300">
                       DNS records have been created. Verification typically completes within a few minutes to a few hours.
@@ -724,7 +724,7 @@ export default function AdminDomains() {
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert className="bg-slate-700/50 border-slate-600">
-                <AlertCircle className="h-4 w-4 text-yellow-400" />
+                <AlertCircle className="h-4 w-4 text-warning" />
                 <AlertTitle className="text-white">Action Required</AlertTitle>
                 <AlertDescription className="text-slate-300">
                   Add the following DNS records to verify your domain. DNS changes can take up to 48 hours to propagate.

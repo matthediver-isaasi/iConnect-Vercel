@@ -846,7 +846,7 @@ export default function TeamSettingsPage() {
                     )}
                     {settings.show_awards && (
                       <div className="flex items-center gap-2 pt-2 border-t border-slate-200 mt-2">
-                        <Trophy className="w-4 h-4 text-amber-700" />
+                        <Trophy className="w-4 h-4 text-warning" />
                         <span className="text-xs font-semibold">Awards (3)</span>
                       </div>
                     )}

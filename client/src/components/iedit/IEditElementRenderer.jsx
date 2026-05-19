@@ -65,8 +65,8 @@ export default function IEditElementRenderer({ element, memberInfo, organization
 
   if (!Component) {
     return (
-      <div className="bg-amber-50 border border-amber-200 p-4 my-4">
-        <p className="text-sm text-amber-900">
+      <div className="bg-warning/10 border border-warning/30 p-4 my-4">
+        <p className="text-sm text-warning">
           Unknown element type: <code>{element.element_type}</code>
         </p>
       </div>

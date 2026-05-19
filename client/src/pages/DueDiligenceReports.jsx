@@ -577,9 +577,9 @@ function SynopsisCardsRow({ demoMode, filters, onCardClick }) {
       icon: Gavel,
       value: decisionsLoading && !demoMode ? '—' : (decisions?.totalDecisions?.toLocaleString() || '0'),
       subValue: decisionsLoading && !demoMode ? 'Loading...' : `${decisions?.approved?.percentage || 0}% approved`,
-      color: 'text-amber-700',
-      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
-      borderColor: 'border-amber-200 dark:border-amber-800',
+      color: 'text-warning',
+      bgColor: 'bg-warning/10 dark:bg-warning/20',
+      borderColor: 'border-warning/30 dark:border-warning',
       loading: decisionsLoading && !demoMode
     }
   ];
@@ -799,7 +799,7 @@ function ApplicationFunnelReportCard({ filters, demoMode }) {
                   </span>
                   <Badge
                     variant={conv.rate >= 70 ? 'default' : conv.rate >= 40 ? 'secondary' : 'outline'}
-                    className={conv.rate >= 70 ? 'bg-green-600' : conv.rate >= 40 ? '' : 'border-orange-500 text-orange-600'}
+                    className={conv.rate >= 70 ? 'bg-green-600' : conv.rate >= 40 ? '' : 'border-warning/50 text-warning'}
                     data-testid={`badge-conversion-rate-${idx}`}
                   >
                     {conv.rate}%
@@ -841,12 +841,12 @@ function ApplicationFunnelReportCard({ filters, demoMode }) {
               <a
                 key={stage.stageId}
                 href={dashLink(stage.stageId)}
-                className="block p-2 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+                className="block p-2 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
                 data-testid={`card-high-dropoff-${idx}`}
               >
                 <div className="flex items-center gap-1 mb-1">
-                  <AlertTriangle className="w-3 h-3 text-orange-600" />
-                  <span className="text-xs font-medium text-orange-700 dark:text-orange-700">High Drop-off</span>
+                  <AlertTriangle className="w-3 h-3 text-warning" />
+                  <span className="text-xs font-medium text-warning dark:text-warning">High Drop-off</span>
                 </div>
                 <p className="text-sm font-medium truncate">{stage.stageLabel}</p>
                 <p className="text-xs text-muted-foreground">{stage.dropOffRate}% don't proceed</p>
@@ -1011,54 +1011,54 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1">Total verified applications</p>
         </div>
 
-        <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
+        <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-warning/10 dark:bg-warning/20 border-warning/30 dark:border-warning' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
           <div className="flex items-center gap-2 mb-2">
-            <Clock className={`w-5 h-5 ${slaBreached ? 'text-orange-600' : 'text-blue-600'}`} />
-            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-700' : 'text-blue-700 dark:text-blue-400'}`}>
+            <Clock className={`w-5 h-5 ${slaBreached ? 'text-warning' : 'text-blue-600'}`} />
+            <span className={`text-sm font-medium ${slaBreached ? 'text-warning dark:text-warning' : 'text-blue-700 dark:text-blue-400'}`}>
               Avg. Turnaround
             </span>
-            {slaBreached && <Badge variant="outline" className="border-orange-500 text-orange-600 ml-auto" data-testid="badge-verification-sla-breached">SLA breach</Badge>}
+            {slaBreached && <Badge variant="outline" className="border-warning/50 text-warning ml-auto" data-testid="badge-verification-sla-breached">SLA breach</Badge>}
           </div>
-          <p className={`text-3xl font-bold ${slaBreached ? 'text-orange-700 dark:text-orange-300' : 'text-blue-700 dark:text-blue-300'}`} data-testid="text-avg-turnaround">
+          <p className={`text-3xl font-bold ${slaBreached ? 'text-warning dark:text-warning' : 'text-blue-700 dark:text-blue-300'}`} data-testid="text-avg-turnaround">
             {averageTurnaroundDays.toFixed(1)} <span className="text-lg font-normal">days</span>
           </p>
-          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-700/70' : 'text-blue-600/70 dark:text-blue-400/70'}`}>
+          <p className={`text-xs mt-1 ${slaBreached ? 'text-warning/70 dark:text-warning/70' : 'text-blue-600/70 dark:text-blue-400/70'}`}>
             SLA threshold: {slaDays} days
           </p>
         </div>
 
         <a
           href={buildDashboardLink({ formId: filters.formId, status: 'in-review', outstandingDays: slaDays })}
-          className="block p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+          className="block p-4 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
           data-testid="link-outstanding-verifications"
         >
           <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="w-5 h-5 text-orange-600" />
-            <span className="text-sm font-medium text-orange-700 dark:text-orange-700">Outstanding</span>
-            <ExternalLink className="w-3 h-3 text-orange-600 ml-auto" />
+            <AlertCircle className="w-5 h-5 text-warning" />
+            <span className="text-sm font-medium text-warning dark:text-warning">Outstanding</span>
+            <ExternalLink className="w-3 h-3 text-warning ml-auto" />
           </div>
-          <p className="text-3xl font-bold text-orange-700 dark:text-orange-300" data-testid="text-outstanding-verifications">{outstandingVerifications.toLocaleString()}</p>
-          <p className="text-xs text-orange-600/70 dark:text-orange-700/70 mt-1">Awaiting verification</p>
+          <p className="text-3xl font-bold text-warning dark:text-warning" data-testid="text-outstanding-verifications">{outstandingVerifications.toLocaleString()}</p>
+          <p className="text-xs text-warning/70 dark:text-warning/70 mt-1">Awaiting verification</p>
         </a>
       </div>
 
       {effectiveStats?.slaBreaches && slaDaysNum > 0 && (
         <a
           href={buildDashboardLink({ formId: filters.formId, status: 'in-review', outstandingDays: slaDaysNum })}
-          className="flex items-center gap-3 p-4 rounded-md bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+          className="flex items-center gap-3 p-4 rounded-md bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
           data-testid="link-verification-sla-breaches"
         >
-          <AlertCircle className="w-5 h-5 text-orange-600" />
+          <AlertCircle className="w-5 h-5 text-warning" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
+            <p className="text-sm font-medium text-warning dark:text-warning">
               <span className="text-2xl font-bold mr-2" data-testid="text-verification-sla-breach-count">
                 {(effectiveStats.slaBreaches.breachedCount || 0).toLocaleString()}
               </span>
               outstanding longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
+            <p className="text-xs text-warning/70 dark:text-warning/70">Open in dashboard to review</p>
           </div>
-          <ExternalLink className="w-4 h-4 text-orange-600" />
+          <ExternalLink className="w-4 h-4 text-warning" />
         </a>
       )}
 
@@ -1146,15 +1146,15 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           {outstandingByAge.filter(a => a.range === '11+ days' && a.count > 0).length > 0 && (
             <a
               href={buildDashboardLink({ formId: filters.formId, status: 'in-review', outstandingDays: 11 })}
-              className="block p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+              className="block p-3 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
               data-testid="alert-overdue-verifications"
             >
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-orange-600" />
-                <span className="text-sm font-medium text-orange-700 dark:text-orange-700">
+                <AlertTriangle className="w-4 h-4 text-warning" />
+                <span className="text-sm font-medium text-warning dark:text-warning">
                   {outstandingByAge.find(a => a.range === '11+ days')?.count || 0} verifications pending over 11 days
                 </span>
-                <ExternalLink className="w-3 h-3 text-orange-600 ml-auto" />
+                <ExternalLink className="w-3 h-3 text-warning ml-auto" />
               </div>
             </a>
           )}
@@ -1186,7 +1186,7 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
                   <span className="text-sm truncate">{field.field}</span>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 border-green-200">{field.approved}</Badge>
-                    <Badge variant="outline" className="bg-amber-50 dark:bg-amber-900/20 border-amber-200">{field.pending}</Badge>
+                    <Badge variant="outline" className="bg-warning/10 dark:bg-warning/20 border-warning/30">{field.pending}</Badge>
                     <Badge variant="outline" className="bg-red-50 dark:bg-red-900/20 border-red-200">{field.rejected}</Badge>
                   </div>
                 </div>
@@ -1217,7 +1217,7 @@ function VerificationReportCard({ filters, demoMode, slaDays, onSlaChange }) {
                     <Badge variant="secondary">{rev.verifiedCount}</Badge>
                     <Badge
                       variant="outline"
-                      className={breached ? 'border-orange-500 text-orange-600' : ''}
+                      className={breached ? 'border-warning/50 text-warning' : ''}
                       data-testid={`badge-reviewer-turnaround-${rev.reviewer}`}
                     >
                       {rev.averageTurnaroundDays.toFixed(1)}d
@@ -1335,16 +1335,16 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           <p className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-1">Scheduled to attended</p>
         </div>
 
-        <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-muted/30'}`}>
+        <div className={`p-4 rounded-lg border ${slaBreached ? 'bg-warning/10 dark:bg-warning/20 border-warning/30 dark:border-warning' : 'bg-muted/30'}`}>
           <div className="flex items-center gap-2 mb-2">
-            <Clock className={`w-5 h-5 ${slaBreached ? 'text-orange-600' : 'text-muted-foreground'}`} />
-            <span className={`text-sm font-medium ${slaBreached ? 'text-orange-700 dark:text-orange-700' : 'text-muted-foreground'}`}>Avg. Scheduling</span>
-            {slaBreached && <Badge variant="outline" className="border-orange-500 text-orange-600 ml-auto" data-testid="badge-dd-sla-breached">SLA breach</Badge>}
+            <Clock className={`w-5 h-5 ${slaBreached ? 'text-warning' : 'text-muted-foreground'}`} />
+            <span className={`text-sm font-medium ${slaBreached ? 'text-warning dark:text-warning' : 'text-muted-foreground'}`}>Avg. Scheduling</span>
+            {slaBreached && <Badge variant="outline" className="border-warning/50 text-warning ml-auto" data-testid="badge-dd-sla-breached">SLA breach</Badge>}
           </div>
-          <p className={`text-3xl font-bold ${slaBreached ? 'text-orange-700 dark:text-orange-300' : ''}`} data-testid="text-avg-scheduling">
+          <p className={`text-3xl font-bold ${slaBreached ? 'text-warning dark:text-warning' : ''}`} data-testid="text-avg-scheduling">
             {averageSchedulingDays.toFixed(1)} <span className="text-lg font-normal">days</span>
           </p>
-          <p className={`text-xs mt-1 ${slaBreached ? 'text-orange-600/70 dark:text-orange-700/70' : 'text-muted-foreground'}`}>
+          <p className={`text-xs mt-1 ${slaBreached ? 'text-warning/70 dark:text-warning/70' : 'text-muted-foreground'}`}>
             SLA threshold: {slaDays} days
           </p>
         </div>
@@ -1374,20 +1374,20 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
       {effectiveStats?.slaBreaches && slaDaysNum > 0 && (
         <a
           href={buildDashboardLink({ formId: filters.formId, status: 'verified', outstandingDays: slaDaysNum })}
-          className="flex items-center gap-3 p-4 rounded-md bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+          className="flex items-center gap-3 p-4 rounded-md bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
           data-testid="link-dd-sla-breaches"
         >
-          <AlertCircle className="w-5 h-5 text-orange-600" />
+          <AlertCircle className="w-5 h-5 text-warning" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
+            <p className="text-sm font-medium text-warning dark:text-warning">
               <span className="text-2xl font-bold mr-2" data-testid="text-dd-sla-breach-count">
                 {(effectiveStats.slaBreaches.breachedCount || 0).toLocaleString()}
               </span>
               awaiting meeting longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
+            <p className="text-xs text-warning/70 dark:text-warning/70">Open in dashboard to review</p>
           </div>
-          <ExternalLink className="w-4 h-4 text-orange-600" />
+          <ExternalLink className="w-4 h-4 text-warning" />
         </a>
       )}
 
@@ -1425,17 +1425,17 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
               <p className="text-xs text-blue-700 dark:text-blue-400">Booked</p>
               <p className="text-xl font-bold text-blue-700 dark:text-blue-300">{meetingMetrics.booked}</p>
             </div>
-            <div className="p-2 rounded bg-amber-50 dark:bg-amber-900/20" data-testid="metric-pending">
-              <p className="text-xs text-amber-700 dark:text-amber-700">Pending</p>
-              <p className="text-xl font-bold text-amber-700 dark:text-amber-300">{meetingMetrics.pending}</p>
+            <div className="p-2 rounded bg-warning/10 dark:bg-warning/20" data-testid="metric-pending">
+              <p className="text-xs text-warning dark:text-warning">Pending</p>
+              <p className="text-xl font-bold text-warning dark:text-warning">{meetingMetrics.pending}</p>
             </div>
             <div className="p-2 rounded bg-red-50 dark:bg-red-900/20" data-testid="metric-cancelled">
               <p className="text-xs text-red-700 dark:text-red-400">Cancelled</p>
               <p className="text-xl font-bold text-red-700 dark:text-red-300">{meetingMetrics.cancelled}</p>
             </div>
-            <div className="p-2 rounded bg-orange-50 dark:bg-orange-900/20" data-testid="metric-no-show">
-              <p className="text-xs text-orange-700 dark:text-orange-700">No-show</p>
-              <p className="text-xl font-bold text-orange-700 dark:text-orange-300">{meetingMetrics.noShow}</p>
+            <div className="p-2 rounded bg-warning/10 dark:bg-warning/20" data-testid="metric-no-show">
+              <p className="text-xs text-warning dark:text-warning">No-show</p>
+              <p className="text-xl font-bold text-warning dark:text-warning">{meetingMetrics.noShow}</p>
             </div>
             <div className="p-2 rounded bg-purple-50 dark:bg-purple-900/20" data-testid="metric-rescheduled">
               <p className="text-xs text-purple-700 dark:text-purple-400">Rescheduled</p>
@@ -1471,11 +1471,11 @@ function DueDiligenceReportCard({ filters, demoMode, slaDays, onSlaChange }) {
           <div className="space-y-3">
             <a
               href={buildDashboardLink({ formId: filters.formId, status: 'held' })}
-              className="flex items-center justify-between p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 hover-elevate"
+              className="flex items-center justify-between p-3 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
               data-testid="row-outcome-held"
             >
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-amber-500" />
+                <div className="w-3 h-3 rounded-full bg-warning" />
                 <span className="font-medium">Held</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1749,16 +1749,16 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
 
         <a
           href={buildDashboardLink({ formId: filters.formId, status: 'held' })}
-          className="block p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 hover-elevate"
+          className="block p-4 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
           data-testid="link-decisions-onhold"
         >
           <div className="flex items-center gap-2 mb-2">
-            <Pause className="w-5 h-5 text-amber-700" />
-            <span className="text-sm font-medium text-amber-700 dark:text-amber-700">On Hold</span>
+            <Pause className="w-5 h-5 text-warning" />
+            <span className="text-sm font-medium text-warning dark:text-warning">On Hold</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <p className="text-3xl font-bold text-amber-700 dark:text-amber-300" data-testid="text-onhold-count">{onHold.count}</p>
-            <span className="text-sm text-amber-700/70 dark:text-amber-700/70">({onHold.percentage}%)</span>
+            <p className="text-3xl font-bold text-warning dark:text-warning" data-testid="text-onhold-count">{onHold.count}</p>
+            <span className="text-sm text-warning/70 dark:text-warning/70">({onHold.percentage}%)</span>
           </div>
           {hasValidComparison && periodData?.onHold && (
             <div className="mt-1">{renderTrendBadge(periodData.onHold)}</div>
@@ -1803,7 +1803,7 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
                 </div>
                 <Badge
                   variant="secondary"
-                  className={approvedSlaBreached ? 'border border-orange-500 text-orange-600' : ''}
+                  className={approvedSlaBreached ? 'border border-warning/50 text-warning' : ''}
                   data-testid="badge-time-approved"
                 >
                   {(averageTimeToDecision.approved || 0).toFixed(1)} days
@@ -1818,9 +1818,9 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
                   {(averageTimeToDecision.declined || 0).toFixed(1)} days
                 </Badge>
               </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800" data-testid="row-time-onhold">
+              <div className="flex items-center justify-between p-3 rounded-lg bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning" data-testid="row-time-onhold">
                 <div className="flex items-center gap-2">
-                  <Pause className="w-4 h-4 text-amber-700" />
+                  <Pause className="w-4 h-4 text-warning" />
                   <span className="font-medium">On Hold</span>
                 </div>
                 <Badge variant="secondary" data-testid="badge-time-onhold">
@@ -1835,20 +1835,20 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
       {slaBreachInfo && slaDaysNum > 0 && (
         <a
           href={buildDashboardLink({ formId: filters.formId, status: 'dd-meet-attended', outstandingDays: slaDaysNum })}
-          className="flex items-center gap-3 p-4 rounded-md bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover-elevate"
+          className="flex items-center gap-3 p-4 rounded-md bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning hover-elevate"
           data-testid="link-decisions-sla-breaches"
         >
-          <AlertCircle className="w-5 h-5 text-orange-600" />
+          <AlertCircle className="w-5 h-5 text-warning" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-700">
+            <p className="text-sm font-medium text-warning dark:text-warning">
               <span className="text-2xl font-bold mr-2" data-testid="text-decisions-sla-breach-count">
                 {(slaBreachInfo.breachedCount || 0).toLocaleString()}
               </span>
               awaiting a decision longer than {slaDaysNum} days
             </p>
-            <p className="text-xs text-orange-600/70 dark:text-orange-700/70">Open in dashboard to review</p>
+            <p className="text-xs text-warning/70 dark:text-warning/70">Open in dashboard to review</p>
           </div>
-          <ExternalLink className="w-4 h-4 text-orange-600" />
+          <ExternalLink className="w-4 h-4 text-warning" />
         </a>
       )}
 
@@ -1900,7 +1900,7 @@ function DecisionsReportCard({ filters, demoMode, slaDays, onSlaChange }) {
                 <div className="flex items-center gap-1">
                   <Badge variant="outline" className="bg-green-50 dark:bg-green-900/20 border-green-200">{rev.approved}</Badge>
                   <Badge variant="outline" className="bg-red-50 dark:bg-red-900/20 border-red-200">{rev.declined}</Badge>
-                  <Badge variant="outline" className="bg-amber-50 dark:bg-amber-900/20 border-amber-200">{rev.onHold}</Badge>
+                  <Badge variant="outline" className="bg-warning/10 dark:bg-warning/20 border-warning/30">{rev.onHold}</Badge>
                   <Badge variant="secondary">{rev.total}</Badge>
                 </div>
               </a>

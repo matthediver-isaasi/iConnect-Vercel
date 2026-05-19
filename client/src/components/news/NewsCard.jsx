@@ -96,7 +96,7 @@ export default function NewsCard({
               </Badge>
             )}
             {showDraftBadge && article.status === 'draft' && (
-              <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200">
+              <Badge variant="secondary" className="bg-warning/10 text-warning border-warning/30">
                 Draft
               </Badge>
             )}

@@ -196,7 +196,7 @@ export default function ArticleCard({
             </Badge>
           )}
           {isDraft && (
-            <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+            <Badge variant="secondary" className="bg-warning/10 text-warning border-warning/30">
               Draft
             </Badge>
           )}

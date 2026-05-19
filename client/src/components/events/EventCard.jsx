@@ -696,7 +696,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
           {hasBadges && (
             <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
               {event.status === 'draft' && (
-                <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">
+                <Badge variant="warning" className="shadow-sm">
                   Draft
                 </Badge>
               )}
@@ -750,10 +750,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         
         {/* Purchase Tickets Banner */}
         {needsTickets && (
-          <div className="flex items-start gap-2 p-3 bg-amber-50 border-b border-amber-200">
-            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 p-3 bg-warning/10 border-b border-warning/30">
+            <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-xs font-medium text-amber-900">Purchase tickets to attend</p>
+              <p className="text-xs font-medium text-warning">Purchase tickets to attend</p>
             </div>
           </div>
         )}
@@ -1052,7 +1052,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     <p>Training fund: £{Number(deletePreview.totalTrainingFundReinstatement || 0).toFixed(2)} · Vouchers: £{Number(deletePreview.totalVoucherReinstatement || 0).toFixed(2)} reinstated</p>
                   )}
                   {deletePreview.requiresManualActionCount > 0 && (
-                    <p className="text-amber-700">⚠ {deletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
+                    <p className="text-warning">⚠ {deletePreview.requiresManualActionCount} booking(s) will need manual refund/credit-note follow-up.</p>
                   )}
                 </div>
               )}
@@ -1523,18 +1523,18 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 )}
                 {(importResults.alreadyRegistered?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-amber-700">Already Registered ({importResults.alreadyRegistered.length})</p>
+                      <p className="font-medium text-warning">Already Registered ({importResults.alreadyRegistered.length})</p>
                       <p className="text-slate-600 text-xs mt-1">{importResults.alreadyRegistered.join(', ')}</p>
                     </div>
                   </div>
                 )}
                 {(importResults.warnings?.length || 0) > 0 && (
                   <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-medium text-amber-700">Warnings ({importResults.warnings.length})</p>
+                      <p className="font-medium text-warning">Warnings ({importResults.warnings.length})</p>
                       <p className="text-slate-600 text-xs mt-1">
                         {importResults.warnings.map(w => `${w.email}: ${w.reason}`).join('; ')}
                       </p>

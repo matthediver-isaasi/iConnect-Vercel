@@ -1696,7 +1696,7 @@ function LogicRulesSection({
                         } else if (isLegacyVisibilityAction) {
                           cardClass += 'bg-white border-slate-200';
                         } else if (isLegacyDisabilityAction) {
-                          cardClass += 'bg-orange-50 border-orange-200';
+                          cardClass += 'bg-warning/10 border-warning/30';
                         } else {
                           cardClass += 'bg-blue-50 border-blue-200';
                         }
@@ -1713,7 +1713,7 @@ function LogicRulesSection({
                                 {action.action_type === 'show' && <Eye className="w-3 h-3 text-green-600" />}
                                 {action.action_type === 'hide' && <EyeOff className="w-3 h-3 text-slate-600" />}
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
-                                {action.action_type === 'disable' && <Lock className="w-3 h-3 text-orange-600" />}
+                                {action.action_type === 'disable' && <Lock className="w-3 h-3 text-warning" />}
                                 {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
                                 <span className="text-xs font-medium">
                                   {action.action_type === 'visibility' && 'Field Visibility & State'}
@@ -1877,7 +1877,7 @@ function LogicRulesSection({
                                                 <button
                                                   type="button"
                                                   onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', false)}
-                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === false ? 'bg-orange-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === false ? 'bg-warning text-warning-foreground' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
                                                   title="Disable"
                                                   data-testid={`btn-disable-${index}-${actionIndex}-${field.id}`}
                                                 >
@@ -2272,7 +2272,7 @@ function EmailCard({
             )}
             
             {/* Send Condition */}
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+            <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <Label className="text-xs font-medium flex items-center gap-1">
@@ -2373,7 +2373,7 @@ function EmailCard({
                   </div>
                   
                   {email.condition.field_id && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-warning">
                       Email will only send when{' '}
                       <span className="font-medium">
                         {formFields.find(f => f.id === email.condition.field_id)?.label || email.condition.field_id}
@@ -2602,7 +2602,7 @@ function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange,
 
   if (distinctValues.length === 0) {
     return (
-      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+      <div className="p-2 bg-warning/10 border border-warning/30 rounded text-xs text-warning">
         No values found for this field in the database.
       </div>
     );
@@ -2773,7 +2773,7 @@ function FieldCard({
                 <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
               )}
               {field.due_diligence && (
-                <Badge variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-700 bg-amber-50">
+                <Badge variant="outline" className="text-xs flex-shrink-0 border-warning/30 text-warning bg-warning/10">
                   DD
                 </Badge>
               )}
@@ -3024,7 +3024,7 @@ function FieldCard({
               )}
 
               {/* Uniqueness Check */}
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+              <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg space-y-3">
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id={`uniqueness-${field.id}`}
@@ -3098,7 +3098,7 @@ function FieldCard({
                       </div>
                       
                       {targetField && (
-                        <p className="text-xs text-amber-700">
+                        <p className="text-xs text-warning">
                           Will check if submitted value already exists in {targetField.replace('.', ' → ')}
                         </p>
                       )}
@@ -3281,7 +3281,7 @@ function FieldCard({
                       <div className="space-y-2">
                         <Label className="text-xs">Select custom field</Label>
                         {orgCustomFields.length === 0 ? (
-                          <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                          <div className="p-2 bg-warning/10 border border-warning/30 rounded text-xs text-warning">
                             No custom fields found for organisations. Create one in Preference Settings to enable filtering.
                           </div>
                         ) : (
@@ -4364,7 +4364,7 @@ function FieldCard({
                     </div>
                   )}
                   {contractForms.length === 0 && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-warning">
                       No contract templates available. Create a form with "Contract Mode" enabled to use this feature.
                     </p>
                   )}
@@ -4467,7 +4467,7 @@ function FieldCard({
                   {['select', 'radio'].includes(field.type) && (
                     <>
                       {(field.options || []).length === 0 ? (
-                        <p className="text-xs text-amber-700">Add options above first to set a default value</p>
+                        <p className="text-xs text-warning">Add options above first to set a default value</p>
                       ) : (
                         <Select
                           value={field.default_value || '__none__'}
@@ -4491,7 +4491,7 @@ function FieldCard({
                   {field.type === 'checkbox' && (
                     <>
                       {(field.options || []).length === 0 ? (
-                        <p className="text-xs text-amber-700">Add options above first to set default values</p>
+                        <p className="text-xs text-warning">Add options above first to set default values</p>
                       ) : (
                         <div className="space-y-1 max-h-32 overflow-y-auto">
                           {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => {
@@ -5863,7 +5863,7 @@ export default function FormBuilderPage() {
                 {/* Timeout Notification Settings - Alternative Signer Feature */}
                 <div className="pt-3 border-t border-slate-100">
                   <div className="flex items-center gap-2 mb-3">
-                    <AlertCircle className="w-4 h-4 text-amber-700" />
+                    <AlertCircle className="w-4 h-4 text-warning" />
                     <Label className="text-sm font-medium">Timeout Notification</Label>
                   </div>
                   <p className="text-xs text-slate-500 mb-3">
@@ -5990,7 +5990,7 @@ export default function FormBuilderPage() {
                             )}
                             
                             {formData.contract_settings?.source_dd_form_id && sourceFormFields.length === 0 && (
-                              <p className="text-xs text-amber-700 dark:text-amber-700">
+                              <p className="text-xs text-warning dark:text-warning">
                                 Selected form has no fields. Please add fields to the DD form first.
                               </p>
                             )}
@@ -6083,8 +6083,8 @@ export default function FormBuilderPage() {
                           </p>
                         </div>
 
-                        <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded text-xs text-amber-700 dark:text-amber-300">
-                          <strong>Note:</strong> The timeout email should contain a link placeholder that will be replaced with the alternative signer form URL. Use <code className="bg-amber-100 dark:bg-amber-800 px-1 rounded">{'{{alternative_signer_link}}'}</code> in your email template.
+                        <div className="bg-warning/10 dark:bg-warning/20 p-2 rounded text-xs text-warning dark:text-warning">
+                          <strong>Note:</strong> The timeout email should contain a link placeholder that will be replaced with the alternative signer form URL. Use <code className="bg-warning/10 dark:bg-warning/20 px-1 rounded">{'{{alternative_signer_link}}'}</code> in your email template.
                         </div>
                       </>
                     )}
@@ -6268,7 +6268,7 @@ export default function FormBuilderPage() {
                         return (
                           <div 
                             key={memberConfig.id} 
-                            className={`p-4 rounded-lg border ${hasEmailMapping ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
+                            className={`p-4 rounded-lg border ${hasEmailMapping ? 'border-slate-200 bg-slate-50' : 'border-warning/30 bg-warning/10'}`}
                             data-testid={`member-pipeline-${memberIdx}`}
                           >
                             <div className="flex items-center justify-between mb-3">
@@ -6307,7 +6307,7 @@ export default function FormBuilderPage() {
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="keep">-- Don't change role --</SelectItem>
-                                    <SelectItem value="clear" className="text-amber-700">Clear role (set to none)</SelectItem>
+                                    <SelectItem value="clear" className="text-warning">Clear role (set to none)</SelectItem>
                                     {roles.map(role => (
                                       <SelectItem key={role.id} value={role.id}>
                                         {role.name}
@@ -6340,7 +6340,7 @@ export default function FormBuilderPage() {
                                   </SelectContent>
                                 </Select>
                                 {!hasEmailMapping && (
-                                  <span className="text-xs text-amber-700 font-medium">Email mapping required</span>
+                                  <span className="text-xs text-warning font-medium">Email mapping required</span>
                                 )}
                               </div>
                               <Button
@@ -6435,7 +6435,7 @@ export default function FormBuilderPage() {
                         return (
                           <div 
                             key={orgConfig.id} 
-                            className={`p-4 rounded-lg border ${hasNameMapping ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
+                            className={`p-4 rounded-lg border ${hasNameMapping ? 'border-slate-200 bg-slate-50' : 'border-warning/30 bg-warning/10'}`}
                             data-testid={`org-pipeline-${orgIdx}`}
                           >
                             <div className="flex items-center justify-between mb-3">
@@ -6455,7 +6455,7 @@ export default function FormBuilderPage() {
                                   data-testid={`input-org-label-${orgIdx}`}
                                 />
                                 {!hasNameMapping && (
-                                  <span className="text-xs text-amber-700 font-medium">Name mapping required</span>
+                                  <span className="text-xs text-warning font-medium">Name mapping required</span>
                                 )}
                               </div>
                               <Button

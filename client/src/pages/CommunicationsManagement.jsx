@@ -1168,20 +1168,20 @@ export default function CommunicationsManagementPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          <Card className="border-amber-200 bg-amber-50">
+          <Card className="border-warning/30 bg-warning/10">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <AlertTriangle className="w-8 h-8 text-amber-700" />
+                <AlertTriangle className="w-8 h-8 text-warning" />
                 <div>
-                  <CardTitle className="text-amber-900">Database Setup Required</CardTitle>
-                  <CardDescription className="text-amber-700">
+                  <CardTitle className="text-warning">Database Setup Required</CardTitle>
+                  <CardDescription className="text-warning">
                     The communications tables need to be created in Supabase before using this feature.
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-amber-800 mb-4">
+              <p className="text-sm text-warning mb-4">
                 Please run the following SQL in your Supabase SQL Editor to create the required tables:
               </p>
               <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap">
@@ -1239,7 +1239,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
               </pre>
               <Button 
                 onClick={() => window.location.reload()} 
-                className="mt-4 bg-amber-600 hover:bg-amber-700"
+                className="mt-4 bg-warning hover:bg-warning/90 text-warning-foreground"
                 data-testid="button-refresh-after-setup"
               >
                 Refresh After Setup
@@ -1407,11 +1407,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${isZohoConnected ? 'bg-green-100' : 'bg-amber-100'}`}>
+                  <div className={`p-2 rounded-lg ${isZohoConnected ? 'bg-green-100' : 'bg-warning/10'}`}>
                     {isZohoConnected ? (
                       <Link2 className="w-5 h-5 text-green-600" />
                     ) : (
-                      <Unlink className="w-5 h-5 text-amber-700" />
+                      <Unlink className="w-5 h-5 text-warning" />
                     )}
                   </div>
                   <div>
@@ -1616,7 +1616,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             {isZohoConnected && (
                               <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
                                 <div className="flex items-center gap-2">
-                                  <Link2 className="w-4 h-4 text-orange-700" />
+                                  <Link2 className="w-4 h-4 text-warning" />
                                   <span className="text-sm text-slate-600">Zoho List:</span>
                                   <Select
                                     value={category.zoho_list_id || "none"}
@@ -1666,7 +1666,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                             {syncProgress.processed} / {syncProgress.total}
                                           </span>
                                         </div>
-                                        <span className="text-xs text-amber-700" data-testid={`sync-progress-warning-${category.id}`}>
+                                        <span className="text-xs text-warning" data-testid={`sync-progress-warning-${category.id}`}>
                                           Please stay on this page until sync completes
                                         </span>
                                       </div>

@@ -421,12 +421,12 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
         {isEventLocked ? (
           <Button 
             variant="outline"
-            className="w-full border-amber-300 hover:bg-amber-50 rounded-none cursor-default"
+            className="w-full border-warning/30 hover:bg-warning/10 rounded-none cursor-default"
             disabled
             data-testid={`button-event-locked-${resource.id}`}
           >
-            <Lock className="w-4 h-4 mr-2 text-amber-700" />
-            <span className="text-amber-700">Event attendance required</span>
+            <Lock className="w-4 h-4 mr-2 text-warning" />
+            <span className="text-warning">Event attendance required</span>
           </Button>
         ) : isLocked ? (
           <Button 

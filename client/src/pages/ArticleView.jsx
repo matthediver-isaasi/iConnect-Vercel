@@ -647,18 +647,18 @@ export default function ArticleViewPage() {
       <div className="max-w-4xl mx-auto">
         {/* Preview Mode Banner */}
         {isDraft && canViewDraft && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center justify-between">
+          <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 rounded-full">
-                <Eye className="w-5 h-5 text-amber-700" />
+              <div className="p-2 bg-warning/10 rounded-full">
+                <Eye className="w-5 h-5 text-warning" />
               </div>
               <div>
-                <p className="font-medium text-amber-800">Preview Mode</p>
-                <p className="text-sm text-amber-700">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
+                <p className="font-medium text-warning">Preview Mode</p>
+                <p className="text-sm text-warning">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
               </div>
             </div>
             <Link to={getArticleEditorUrl(article.id)}>
-              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-2">
+              <Button size="sm" className="bg-warning hover:bg-warning/90 text-warning-foreground gap-2">
                 <Edit className="w-4 h-4" />
                 Edit
               </Button>
@@ -843,7 +843,7 @@ export default function ArticleViewPage() {
                       <div className="mt-4">
                         {articleSettings?.showAwardsLabel && (
                           <div className="flex items-center gap-2 mb-2">
-                            <Trophy className="w-4 h-4 text-amber-700" />
+                            <Trophy className="w-4 h-4 text-warning" />
                             <span className="text-xs font-semibold text-slate-700">Awards</span>
                           </div>
                         )}
@@ -851,13 +851,13 @@ export default function ArticleViewPage() {
                           {authorEarnedOnlineAwards.slice(0, 4).map(award => (
                             <div 
                               key={award.id} 
-                              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200"
+                              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30"
                               title={award.description}
                             >
                               {award.image_url ? (
                                 <img src={award.image_url} alt={award.name} className="w-5 h-5 object-contain" />
                               ) : (
-                                <Trophy className="w-4 h-4 text-amber-700" />
+                                <Trophy className="w-4 h-4 text-warning" />
                               )}
                               <span className="text-xs font-medium text-slate-900">{award.name}</span>
                             </div>

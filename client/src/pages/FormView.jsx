@@ -2236,11 +2236,11 @@ export default function FormViewPage() {
           <div className="p-6 pt-0 flex flex-col gap-2">
             {/* Schema change warning */}
             {schemaChanged && schemaChangeMessage && (
-              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-2">
-                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-800">
+              <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-md mb-2">
+                <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div className="text-sm text-warning">
                   <p className="font-medium">Form has been updated</p>
-                  <p className="text-amber-700">{schemaChangeMessage}</p>
+                  <p className="text-warning">{schemaChangeMessage}</p>
                 </div>
               </div>
             )}
@@ -2276,7 +2276,7 @@ export default function FormViewPage() {
             )}
             
             {!canProceed && (
-              <p className="text-sm text-amber-700 text-center">
+              <p className="text-sm text-warning text-center">
                 {!isFormatValid 
                   ? 'Please fix the format error above to continue'
                   : 'Please complete the required field above to continue'}
@@ -2615,11 +2615,11 @@ export default function FormViewPage() {
             })()}
             {/* Schema change warning */}
             {schemaChanged && schemaChangeMessage && (
-              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-4">
-                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-800">
+              <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-md mb-4">
+                <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div className="text-sm text-warning">
                   <p className="font-medium">Form has been updated</p>
-                  <p className="text-amber-700">{schemaChangeMessage}</p>
+                  <p className="text-warning">{schemaChangeMessage}</p>
                 </div>
               </div>
             )}

@@ -266,7 +266,7 @@ export default function TeamMemberManagementPage() {
                         <Shield className="w-3 h-3 text-slate-400" />
                         <span className="text-xs text-slate-600">{getRoleName(teamMember.role_id)}</span>
                         {getRoleIsAdmin(teamMember.role_id) && (
-                          <Badge className="bg-amber-100 text-amber-700 text-xs">Admin</Badge>
+                          <Badge className="bg-warning/10 text-warning text-xs">Admin</Badge>
                         )}
                       </div>
                     </div>

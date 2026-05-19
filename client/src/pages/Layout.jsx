@@ -682,7 +682,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   
   // Variant-specific colors
   const colors = variant === 'admin' 
-    ? { hover: 'hover:bg-amber-50 hover:text-amber-700', active: 'bg-amber-50 text-amber-700' }
+    ? { hover: 'hover:bg-warning/10 hover:text-warning', active: 'bg-warning/10 text-warning' }
     : { hover: 'hover:bg-blue-50 hover:text-blue-700', active: 'bg-blue-50 text-blue-700' };
   
   // When collapsed, show popover with submenu
@@ -728,7 +728,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                   >
                     <span className="flex-1">{subItem.title}</span>
                     {showSubPendingPOWarning && (
-                      <Bell className="w-3 h-3 text-amber-700 animate-pulse" />
+                      <Bell className="w-3 h-3 text-warning animate-pulse" />
                     )}
                   </Link>
                 );
@@ -774,7 +774,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                 >
                   <span className="flex-1">{subItem.title}</span>
                   {showSubPendingPOWarning && (
-                    <Bell className="w-4 h-4 text-amber-700 animate-pulse" data-testid="pending-po-warning-bell-sub" />
+                    <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-sub" />
                   )}
                 </Link>
               </SidebarMenuSubItem>
@@ -2124,7 +2124,7 @@ useEffect(() => {
                                 <Icon className="w-4 h-4 shrink-0" />
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
-                                  <Bell className="w-4 h-4 text-amber-700 animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
+                                  <Bell className="w-4 h-4 text-warning animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
                                 )}
                               </SidebarNavLink>
                             </SidebarMenuButton>
@@ -2139,7 +2139,7 @@ useEffect(() => {
               {/* Admin Section */}
               {filteredAdminNavigationItems.length > 0 && (
                 <SidebarGroup className="mt-4 group-data-[collapsible=icon]:mt-0">
-                  <SidebarGroupLabel className="text-xs font-medium text-amber-700 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
+                  <SidebarGroupLabel className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
                     Administration
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
@@ -2166,8 +2166,8 @@ useEffect(() => {
                                   asChild
                                   tooltip={item.title}
                                   isActive={isActive}
-                                  className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 ${
-                                    isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
+                                  className={`hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
+                                    isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
                                   <SidebarNavLink to={item.url}>
@@ -2354,7 +2354,7 @@ useEffect(() => {
                               <Icon className="w-4 h-4" />
                               <span className="flex-1">{item.title}</span>
                               {showPendingPOWarning && (
-                                <Bell className="w-4 h-4 text-amber-700 animate-pulse" data-testid="pending-po-warning-bell-mobile" />
+                                <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-mobile" />
                               )}
                             </Link>
                           );
@@ -2366,7 +2366,7 @@ useEffect(() => {
                   {/* Admin Section */}
                   {filteredAdminNavigationItems.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-xs font-medium text-amber-700 uppercase tracking-wider px-3 py-2">
+                      <div className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2">
                         Administration
                       </div>
                       <nav className="space-y-1">
@@ -2379,7 +2379,7 @@ useEffect(() => {
                             return (
                               <Collapsible key={item.title} defaultOpen={isActive}>
                                 <CollapsibleTrigger className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                  isActive ? 'bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-50 hover:text-amber-700'
+                                  isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}>
                                   <Icon className="w-4 h-4" />
                                   <span className="flex-1 text-left">{item.title}</span>
@@ -2395,7 +2395,7 @@ useEffect(() => {
                                           to={subItem.url}
                                           onClick={() => setMobileMenuOpen(false)}
                                           className={`block px-3 py-2 rounded-lg text-sm ${
-                                            isSubItemActive ? 'bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-50 hover:text-amber-700'
+                                            isSubItemActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                           }`}
                                         >
                                           {subItem.title}
@@ -2413,7 +2413,7 @@ useEffect(() => {
                                 to={item.url}
                                 onClick={() => setMobileMenuOpen(false)}
                                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                  isActive ? 'bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-50 hover:text-amber-700'
+                                  isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}
                               >
                                 <Icon className="w-4 h-4" />
@@ -2485,7 +2485,7 @@ useEffect(() => {
 
             {!isFeatureExcluded('element_NewsTickerBar') && <NewsTickerBar />}
             {memberInfo?.isMasquerading && (
-              <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between gap-4 flex-shrink-0 z-50" data-testid="banner-masquerade">
+              <div className="bg-warning text-warning-foreground px-4 py-2 flex items-center justify-between gap-4 flex-shrink-0 z-50" data-testid="banner-masquerade">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Eye className="w-4 h-4" />
                   <span>You are viewing as <strong>{memberInfo.first_name} {memberInfo.last_name}</strong></span>

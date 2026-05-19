@@ -67,7 +67,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return 'border-blue-200 bg-blue-50';
       case 'external':
-        return 'border-amber-200 bg-amber-50';
+        return 'border-warning/30 bg-warning/10';
       case 'wrong_organization':
       case 'error':
         return 'border-red-200 bg-red-50';
@@ -87,7 +87,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return <Info className="w-4 h-4 text-blue-600" />;
       case 'external':
-        return <Info className="w-4 h-4 text-amber-700" />;
+        return <Info className="w-4 h-4 text-warning" />;
       case 'wrong_organization':
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-600" />;
@@ -103,7 +103,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return 'text-blue-700';
       case 'external':
-        return 'text-amber-700';
+        return 'text-warning';
       case 'wrong_organization':
       case 'error':
         return 'text-red-600';
@@ -209,7 +209,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
               )}
 
               {hasExternalName(attendee) && (
-                <div className="flex items-center gap-2 text-sm text-amber-700">
+                <div className="flex items-center gap-2 text-sm text-warning">
                   <User className="w-4 h-4" />
                   <span>{attendee.first_name} {attendee.last_name}</span>
                 </div>

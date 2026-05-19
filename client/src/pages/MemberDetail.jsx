@@ -1635,7 +1635,7 @@ export default function MemberDetail() {
                     return (
                       <>
                         <div
-                          className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}
+                          className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-warning/10 border-warning/30'}`}
                           data-testid="comm-opt-out-all"
                         >
                           <div className="space-y-0.5">
@@ -2035,7 +2035,7 @@ export default function MemberDetail() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-700" />
+                <Trophy className="w-5 h-5 text-warning" />
                 Engagement Opening Balances
               </CardTitle>
             </CardHeader>

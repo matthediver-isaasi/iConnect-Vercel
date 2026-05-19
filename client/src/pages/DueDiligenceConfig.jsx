@@ -1052,7 +1052,7 @@ export default function DueDiligenceConfigPage() {
                   <Label 
                     className={cn(
                       "flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors",
-                      defaultReviewState === 'amended' && "border-orange-500 bg-orange-50"
+                      defaultReviewState === 'amended' && "border-warning/50 bg-warning/10"
                     )}
                   >
                     <input

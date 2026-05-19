@@ -926,8 +926,8 @@ export default function EmailCampaigns() {
     const statusConfig = {
       draft: { label: 'Draft', variant: 'secondary' },
       scheduled: { label: 'Scheduled', variant: 'outline', className: 'border-blue-500 text-blue-600' },
-      preparing: { label: 'Preparing', variant: 'outline', className: 'border-amber-500 text-amber-700' },
-      sending: { label: 'Sending', variant: 'outline', className: 'border-amber-500 text-amber-700' },
+      preparing: { label: 'Preparing', variant: 'outline', className: 'border-warning/50 text-warning' },
+      sending: { label: 'Sending', variant: 'outline', className: 'border-warning/50 text-warning' },
       paused: { label: 'Paused', variant: 'outline', className: 'border-slate-400 text-slate-600' },
       sent: { label: 'Sent', variant: 'outline', className: 'border-green-500 text-green-600' },
       failed: { label: 'Failed', variant: 'destructive' },
@@ -1119,7 +1119,7 @@ export default function EmailCampaigns() {
                               const ownerName = owner ? `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || owner.email : 'member';
                               const grpName = grp ? grp.name : 'group';
                               return (
-                                <Badge variant="outline" className="mt-1 border-amber-500 text-amber-700" data-testid={`badge-member-owner-${campaign.id}`}>
+                                <Badge variant="outline" className="mt-1 border-warning/50 text-warning" data-testid={`badge-member-owner-${campaign.id}`}>
                                   By {ownerName} · {grpName}
                                 </Badge>
                               );
@@ -1138,7 +1138,7 @@ export default function EmailCampaigns() {
                               )}
                             </div>
                             {campaign.status === 'sending' && campaign.total_recipients > 0 && (
-                              <span className="text-xs text-amber-700" data-testid={`text-sending-progress-${campaign.id}`}>
+                              <span className="text-xs text-warning" data-testid={`text-sending-progress-${campaign.id}`}>
                                 {campaign.sent_count || 0} / {campaign.total_recipients} sent
                               </span>
                             )}
@@ -1267,7 +1267,7 @@ export default function EmailCampaigns() {
                                 onClick={() => handleResumeClick(campaign)}
                                 disabled={resuming === campaign.id}
                                 title={`Resume sending (${campaign.pending_count} recipients still pending)`}
-                                className="text-amber-700 hover:text-amber-700"
+                                className="text-warning hover:text-warning"
                                 data-testid={`button-resume-stuck-${campaign.id}`}
                               >
                                 {resuming === campaign.id ? (
@@ -1378,7 +1378,7 @@ export default function EmailCampaigns() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-700" />
+              <AlertTriangle className="w-5 h-5 text-warning" />
               Resume Sending
             </DialogTitle>
             <DialogDescription asChild>
@@ -1386,7 +1386,7 @@ export default function EmailCampaigns() {
                 <p>
                   "{campaignToResume?.name}" is marked as <span className="font-medium">{campaignToResume?.status}</span>, but {campaignToResume?.pending_count} recipient{campaignToResume?.pending_count === 1 ? '' : 's'} never received the email.
                 </p>
-                <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+                <div className="rounded-md border border-warning/50 bg-warning/10 dark:bg-warning/20 p-3 text-sm">
                   Resuming will send to those remaining recipients only. Anyone who already received the email will not be emailed again.
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -1701,7 +1701,7 @@ export default function EmailCampaigns() {
                   { key: 'sent', label: 'Sent', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
                   { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
                   { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
-                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-amber-50 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', accent: 'text-amber-700', ring: 'ring-amber-400' },
+                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-warning/10 dark:bg-warning/20', text: 'text-warning dark:text-warning', accent: 'text-warning', ring: 'ring-amber-400' },
                 ].map(({ key, label, icon: Icon, value, bg, text, accent, ring }) => (
                   <div
                     key={key}
@@ -1719,13 +1719,13 @@ export default function EmailCampaigns() {
               </div>
 
               {statsData.sent_only > 0 && statsData.delivered < statsData.sent && (
-                <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="warning-incomplete-stats">
-                  <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 flex-shrink-0" />
+                <div className="flex items-start gap-3 p-3 bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning rounded-lg" data-testid="warning-incomplete-stats">
+                  <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
-                    <span className="font-medium text-amber-800 dark:text-amber-200">
+                    <span className="font-medium text-warning dark:text-warning">
                       {statsData.sent_only} recipients still showing as "sent" without delivery confirmation.
                     </span>
-                    <span className="text-amber-700 dark:text-amber-300 ml-1">
+                    <span className="text-warning dark:text-warning ml-1">
                       This may indicate delayed or missing webhook data from Mailgun. Use "Sync with Mailgun" to recover missing events.
                     </span>
                   </div>
@@ -1735,7 +1735,7 @@ export default function EmailCampaigns() {
               <div className="grid grid-cols-3 gap-4">
                 {[
                   { key: 'bounced', label: 'Bounced', value: statsData.bounced, color: 'text-red-600', ring: 'ring-red-400' },
-                  { key: 'unsubscribed', label: 'Unsubscribed', value: statsData.unsubscribed, color: 'text-orange-600', ring: 'ring-orange-400' },
+                  { key: 'unsubscribed', label: 'Unsubscribed', value: statsData.unsubscribed, color: 'text-warning', ring: 'ring-orange-400' },
                   { key: 'complained', label: 'Complaints', value: statsData.complained, color: 'text-rose-600', ring: 'ring-rose-400' },
                 ].map(({ key, label, value, color, ring }) => (
                   <div
@@ -1917,7 +1917,7 @@ export default function EmailCampaigns() {
                                         : recipient.status === 'complained'
                                         ? 'border-rose-500 text-rose-600'
                                         : recipient.status === 'unsubscribed'
-                                        ? 'border-orange-500 text-orange-600'
+                                        ? 'border-warning/50 text-warning'
                                         : ''
                                     }
                                   >
@@ -1991,7 +1991,7 @@ export default function EmailCampaigns() {
             <DialogTitle className="text-sm font-semibold flex items-center gap-2" data-testid="text-sent-preview-title">
               {emailPreviewHeatmap ? (
                 <>
-                  <Flame className="w-4 h-4 text-orange-700" />
+                  <Flame className="w-4 h-4 text-warning" />
                   Email Preview — Click Heatmap
                 </>
               ) : (

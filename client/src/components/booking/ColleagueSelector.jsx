@@ -107,7 +107,7 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
     <div className="relative">
       {/* Load error display */}
       {loadError && (
-        <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-700">
+        <div className="mb-2 p-2 bg-warning/10 border border-warning/30 rounded-md text-xs text-warning">
           {loadError}
         </div>
       )}

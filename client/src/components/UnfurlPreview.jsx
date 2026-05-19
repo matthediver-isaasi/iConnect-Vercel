@@ -228,7 +228,7 @@ export default function UnfurlPreview({
       )}
 
       {error ? (
-        <p className="text-xs text-amber-700" data-testid="text-unfurl-error">{error}</p>
+        <p className="text-xs text-warning" data-testid="text-unfurl-error">{error}</p>
       ) : null}
       {mode === "live" && !error ? (
         <p className="text-[11px] text-slate-500">

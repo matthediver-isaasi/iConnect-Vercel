@@ -113,7 +113,7 @@ export default function MemberLoginStatusBadge({ memberId, fallbackEnabled }) {
           <TooltipTrigger asChild>
             <Badge
               variant="secondary"
-              className="bg-amber-100 text-amber-800 inline-flex items-center gap-1"
+              className="bg-warning/10 text-warning inline-flex items-center gap-1"
               data-testid="badge-login-status-mismatch"
             >
               <AlertTriangle className="w-3 h-3" />
@@ -134,7 +134,7 @@ export default function MemberLoginStatusBadge({ memberId, fallbackEnabled }) {
           <TooltipTrigger asChild>
             <Badge
               variant="secondary"
-              className="bg-amber-100 text-amber-800 inline-flex items-center gap-1"
+              className="bg-warning/10 text-warning inline-flex items-center gap-1"
               data-testid="badge-login-status-no-tenant-membership"
             >
               <AlertTriangle className="w-3 h-3" />
@@ -156,7 +156,7 @@ export default function MemberLoginStatusBadge({ memberId, fallbackEnabled }) {
           <TooltipTrigger asChild>
             <Badge
               variant="secondary"
-              className="bg-amber-100 text-amber-800 inline-flex items-center gap-1"
+              className="bg-warning/10 text-warning inline-flex items-center gap-1"
               data-testid="badge-login-status-duplicates"
             >
               <AlertTriangle className="w-3 h-3" />

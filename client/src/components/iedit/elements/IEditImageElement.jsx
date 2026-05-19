@@ -642,7 +642,7 @@ export function IEditImageElementEditor({ element, onChange }) {
               </p>
               {srOptimisedEditor && !content.decorative && !(content.altText || '').trim() && (
                 <p
-                  className="text-xs text-amber-700 mt-1"
+                  className="text-xs text-warning mt-1"
                   data-testid="text-alt-warning"
                 >
                   Screen-reader-optimised page: please add alt text, or mark this

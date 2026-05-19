@@ -941,7 +941,7 @@ export default function TeamPage({ hasBanner }) {
                                 {guestStatus && (
                                   <Badge
                                     variant="secondary"
-                                    className="bg-amber-100 text-amber-700 inline-flex items-center gap-1"
+                                    className="bg-warning/10 text-warning inline-flex items-center gap-1"
                                     data-testid={`badge-guest-${member.id}`}
                                   >
                                     <UserCheck className="w-3 h-3" />
@@ -970,7 +970,7 @@ export default function TeamPage({ hasBanner }) {
                               ) : guestStatus.kind === 'permanent' ? (
                                 <InfinityIcon className="w-3.5 h-3.5 text-slate-500" />
                               ) : (
-                                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                                <Clock className="w-3.5 h-3.5 text-warning" />
                               )}
                               <span
                                 className={
@@ -1113,7 +1113,7 @@ export default function TeamPage({ hasBanner }) {
                               return showAwards && stats.totalAwards > 0 ? (
                                 <div key="awards" className="pt-3 border-t border-slate-200">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <Trophy className="w-4 h-4 text-amber-700" />
+                                    <Trophy className="w-4 h-4 text-warning" />
                                     <span className="text-xs font-semibold text-slate-700">
                                       Awards ({stats.totalAwards})
                                     </span>
@@ -1124,7 +1124,7 @@ export default function TeamPage({ hasBanner }) {
                                       return (
                                         <Tooltip key={`online-${award.id}`}>
                                           <TooltipTrigger asChild>
-                                            <div className="flex flex-col items-center p-2 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 cursor-help relative">
+                                            <div className="flex flex-col items-center p-2 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30 cursor-help relative">
                                               {classification && (
                                                 <Badge variant="secondary" className="absolute -top-1 -right-1 text-[8px] px-1 py-0 scale-75">
                                                   {classification.name}

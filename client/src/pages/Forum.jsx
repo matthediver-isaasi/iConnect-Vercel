@@ -18,13 +18,13 @@ const AVATAR_COLOURS = [
   { bg: "bg-blue-100 dark:bg-blue-900/60", text: "text-blue-700 dark:text-blue-300" },
   { bg: "bg-emerald-100 dark:bg-emerald-900/60", text: "text-emerald-700 dark:text-emerald-300" },
   { bg: "bg-violet-100 dark:bg-violet-900/60", text: "text-violet-700 dark:text-violet-300" },
-  { bg: "bg-amber-100 dark:bg-amber-900/60", text: "text-amber-700 dark:text-amber-300" },
+  { bg: "bg-warning/10 dark:bg-warning/60", text: "text-warning dark:text-warning" },
   { bg: "bg-rose-100 dark:bg-rose-900/60", text: "text-rose-700 dark:text-rose-300" },
   { bg: "bg-cyan-100 dark:bg-cyan-900/60", text: "text-cyan-700 dark:text-cyan-300" },
   { bg: "bg-fuchsia-100 dark:bg-fuchsia-900/60", text: "text-fuchsia-700 dark:text-fuchsia-300" },
   { bg: "bg-teal-100 dark:bg-teal-900/60", text: "text-teal-700 dark:text-teal-300" },
   { bg: "bg-indigo-100 dark:bg-indigo-900/60", text: "text-indigo-700 dark:text-indigo-300" },
-  { bg: "bg-orange-100 dark:bg-orange-900/60", text: "text-orange-700 dark:text-orange-300" },
+  { bg: "bg-warning/10 dark:bg-warning/60", text: "text-warning dark:text-warning" },
 ];
 
 function getAvatarColour(name) {
@@ -378,7 +378,7 @@ export default function ForumPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {thread.is_pinned && (
-                                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/50 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-pinned-${thread.id}`}>
+                                <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30 dark:bg-warning/40 dark:text-warning dark:border-warning/50 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-pinned-${thread.id}`}>
                                   <Pin className="w-3 h-3 mr-0.5" />
                                   Pinned
                                 </Badge>
@@ -547,7 +547,7 @@ export default function ForumPage() {
                     {threadCountByCategory[cat.id] || 0}
                   </div>
                   <div className="items-center gap-1 hidden sm:flex" data-testid={`text-latest-activity-${cat.id}`}>
-                    <Clock className="w-4 h-4 text-amber-700 dark:text-amber-700" />
+                    <Clock className="w-4 h-4 text-warning dark:text-warning" />
                     {formatDate(latestActivityByCategory[cat.id])}
                   </div>
                 </div>

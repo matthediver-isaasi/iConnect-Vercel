@@ -175,7 +175,7 @@ export default function SEOSettings({
                   />
                 </div>
                 {dimWarning ? (
-                  <p className="text-xs text-amber-700 mt-1" data-testid="text-og-image-warning">{dimWarning}</p>
+                  <p className="text-xs text-warning mt-1" data-testid="text-og-image-warning">{dimWarning}</p>
                 ) : null}
                 <p className="text-xs text-slate-500 mt-1">Recommended size: 1200×630 PNG/JPG.</p>
               </div>

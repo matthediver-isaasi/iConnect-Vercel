@@ -52,7 +52,7 @@ export default function EarlyBirdCountdown({ deadline, onExpired, compact = fals
     return (
       <span
         className={`inline-flex items-center gap-1 text-xs font-medium ${
-          isUrgent ? 'text-red-600' : 'text-amber-700'
+          isUrgent ? 'text-red-600' : 'text-warning'
         }`}
         data-testid="text-early-bird-countdown"
       >
@@ -67,7 +67,7 @@ export default function EarlyBirdCountdown({ deadline, onExpired, compact = fals
       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium ${
         isUrgent
           ? 'bg-red-50 text-red-700 border border-red-200'
-          : 'bg-amber-50 text-amber-700 border border-amber-200'
+          : 'bg-warning/10 text-warning border border-warning/30'
       } ${className}`}
       data-testid="text-early-bird-countdown"
     >

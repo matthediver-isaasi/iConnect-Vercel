@@ -100,14 +100,14 @@ export default function SubmissionStatsBar() {
           {/* Pending Jobs Card */}
           <div 
             onClick={handleJobsClick}
-            className="flex flex-col items-center gap-1 p-2 rounded-md bg-amber-50 hover-elevate active-elevate-2 transition-colors border border-amber-200 cursor-pointer"
+            className="flex flex-col items-center gap-1 p-2 rounded-md bg-warning/10 hover-elevate active-elevate-2 transition-colors border border-warning/30 cursor-pointer"
             data-testid="link-pending-jobs"
             role="button"
             tabIndex={0}
             onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
           >
-            <Briefcase className="w-4 h-4 text-amber-700" />
-            <span className="text-base font-bold text-amber-700" data-testid="text-pending-jobs-count">{pendingJobs}</span>
+            <Briefcase className="w-4 h-4 text-warning" />
+            <span className="text-base font-bold text-warning" data-testid="text-pending-jobs-count">{pendingJobs}</span>
           </div>
 
           {/* Pending Cancellations / Transfers Card */}
@@ -149,7 +149,7 @@ export default function SubmissionStatsBar() {
           <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
             <div 
               onClick={handleJobsClick}
-              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-amber-500 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-warning hover-elevate active-elevate-2 transition-colors cursor-pointer"
               data-testid="link-pending-jobs-collapsed"
               role="button"
               tabIndex={0}

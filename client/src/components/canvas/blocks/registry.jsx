@@ -1209,7 +1209,7 @@ function CustomHtmlInspector({ block, update }) {
   // without it being mangled mid-edit, but the persisted value is always safe.
   return (
     <>
-      <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+      <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning">
         Custom HTML is sanitised on save and on render, but you should still use this
         block carefully. Scripts, styles, iframes and form elements are stripped.
       </div>

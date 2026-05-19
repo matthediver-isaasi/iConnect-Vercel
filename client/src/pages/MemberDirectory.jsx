@@ -734,7 +734,7 @@ export default function MemberDirectoryPage() {
                         {isVisibleOnFront(displaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
-                              <Trophy className="w-4 h-4 text-amber-700" />
+                              <Trophy className="w-4 h-4 text-warning" />
                               <span className="text-xs font-semibold text-slate-700">
                                 Awards ({stats.totalAwards})
                               </span>
@@ -743,7 +743,7 @@ export default function MemberDirectoryPage() {
                               {stats.onlineAwards.slice(0, 2).map(award => (
                                 <Tooltip key={award.id}>
                                   <TooltipTrigger asChild>
-                                    <div className="px-2 py-1 bg-gradient-to-br from-amber-50 to-amber-100 rounded border border-amber-200 cursor-help">
+                                    <div className="px-2 py-1 bg-gradient-to-br from-amber-50 to-amber-100 rounded border border-warning/30 cursor-help">
                                       {award.image_url ? (
                                         <img src={award.image_url} alt={award.name} className="w-4 h-4 object-contain" />
                                       ) : (

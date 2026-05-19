@@ -327,7 +327,7 @@ export default function MyTicketsPage({ hasBanner }) {
       case 'confirmed':
         return 'bg-green-100 text-green-700 border-green-200';
       case 'pending':
-        return 'bg-amber-100 text-amber-700 border-amber-200';
+        return 'bg-warning/10 text-warning border-warning/30';
       case 'cancelled':
         return 'bg-red-100 text-red-700 border-red-200';
       default:
@@ -612,7 +612,7 @@ export default function MyTicketsPage({ hasBanner }) {
                             {isCancelled ? 'cancelled' : ticket.status}
                           </Badge>
                           {hasPendingCancel && !isCancelled && (
-                            <Badge className="bg-amber-100 text-amber-700 border-amber-200" data-testid={`badge-pending-cancel-${ticket.id}`}>
+                            <Badge className="bg-warning/10 text-warning border-warning/30" data-testid={`badge-pending-cancel-${ticket.id}`}>
                               Cancellation Pending
                             </Badge>
                           )}
@@ -774,9 +774,9 @@ export default function MyTicketsPage({ hasBanner }) {
                         )}
                         
                         {hasPendingCancel && !isCancelled && (
-                          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                            <p className="text-xs text-amber-800 font-medium">
+                          <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                            <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                            <p className="text-xs text-warning font-medium">
                               Cancellation request submitted — awaiting admin review
                             </p>
                           </div>
@@ -801,9 +801,9 @@ export default function MyTicketsPage({ hasBanner }) {
                     </div>
 
                     {ticket.status === 'pending' && !isCancelled && (
-                      <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-4">
-                        <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                        <p className="text-xs text-amber-800">
+                      <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg mt-4">
+                        <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                        <p className="text-xs text-warning">
                           This ticket is pending confirmation. Please check your email for the confirmation link.
                         </p>
                       </div>
@@ -856,9 +856,9 @@ export default function MyTicketsPage({ hasBanner }) {
           </DialogHeader>
           {deadlinePassed ? (
             <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
-                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-800">
+              <div className="flex items-start gap-3 p-4 bg-warning/10 border border-warning/30 rounded-md">
+                <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div className="text-sm text-warning">
                   <p className="font-medium mb-1">Cancellation deadline has passed</p>
                   <p>
                     Cancellation requests must be submitted at least {cancellationDeadlineHours} hour{cancellationDeadlineHours !== 1 ? 's' : ''} before the event starts. Please contact an administrator directly if you need to cancel.

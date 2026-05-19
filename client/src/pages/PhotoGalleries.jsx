@@ -362,7 +362,7 @@ function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
                 Public galleries are visible to anonymous visitors. Members-only
                 galleries require login.
                 {visibilityChanged && (
-                  <span className="block mt-1 text-amber-700">
+                  <span className="block mt-1 text-warning">
                     Existing photos will be moved to the{" "}
                     {isPublic ? "public" : "private"} storage bucket on save.
                   </span>

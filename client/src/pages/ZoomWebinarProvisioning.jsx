@@ -916,8 +916,8 @@ export default function ZoomWebinarProvisioning() {
         <div className="max-w-2xl mx-auto mt-16">
           <Card>
             <CardHeader className="text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
-                <AlertCircle className="h-6 w-6 text-amber-700" />
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-warning/10">
+                <AlertCircle className="h-6 w-6 text-warning" />
               </div>
               <CardTitle data-testid="text-zoom-not-configured">Zoom Not Configured</CardTitle>
               <CardDescription>
@@ -978,7 +978,7 @@ export default function ZoomWebinarProvisioning() {
                     resetForm();
                     setShowCreateDialog(true);
                   }}
-                  className="bg-amber-600 hover:bg-amber-700"
+                  className="bg-warning hover:bg-warning/90 text-warning-foreground"
                   data-testid="button-create-webinar"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -1000,7 +1000,7 @@ export default function ZoomWebinarProvisioning() {
                     resetMeetingForm();
                     setShowMeetingCreateDialog(true);
                   }}
-                  className="bg-amber-600 hover:bg-amber-700"
+                  className="bg-warning hover:bg-warning/90 text-warning-foreground"
                   data-testid="button-create-meeting"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -1031,20 +1031,20 @@ export default function ZoomWebinarProvisioning() {
                 return (
                   <div 
                     key={webinar.id}
-                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors ${hasConflict ? 'border-amber-300 bg-amber-50/30' : ''}`}
+                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors ${hasConflict ? 'border-warning/30 bg-warning/30' : ''}`}
                     onClick={() => openDetailsDialog(webinar)}
                     data-testid={`webinar-row-${webinar.id}`}
                   >
                     <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-lg ${hasConflict ? 'bg-amber-100' : 'bg-blue-50'}`}>
-                        <Video className={`w-5 h-5 ${hasConflict ? 'text-amber-700' : 'text-blue-600'}`} />
+                      <div className={`p-2 rounded-lg ${hasConflict ? 'bg-warning/10' : 'bg-blue-50'}`}>
+                        <Video className={`w-5 h-5 ${hasConflict ? 'text-warning' : 'text-blue-600'}`} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-slate-900">{webinar.topic}</p>
                           {hasConflict && (
                             <div className="group relative">
-                              <AlertTriangle className="w-4 h-4 text-amber-700" />
+                              <AlertTriangle className="w-4 h-4 text-warning" />
                               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50">
                                 <div className="bg-slate-900 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
                                   <p className="font-medium mb-1">Scheduling overlap with:</p>
@@ -1063,7 +1063,7 @@ export default function ZoomWebinarProvisioning() {
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-slate-500">{webinar.duration_minutes} min</span>
                       {hasConflict && (
-                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                           Overlap
                         </Badge>
                       )}
@@ -1116,7 +1116,7 @@ export default function ZoomWebinarProvisioning() {
 
       {loadingWebinars && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-warning"></div>
         </div>
       )}
 
@@ -1131,7 +1131,7 @@ export default function ZoomWebinarProvisioning() {
                 resetForm();
                 setShowCreateDialog(true);
               }}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-warning hover:bg-warning/90 text-warning-foreground"
               data-testid="button-create-first-webinar"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -1221,7 +1221,7 @@ export default function ZoomWebinarProvisioning() {
 
           {loadingMeetings && (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-warning"></div>
             </div>
           )}
 
@@ -1236,7 +1236,7 @@ export default function ZoomWebinarProvisioning() {
                     resetMeetingForm();
                     setShowMeetingCreateDialog(true);
                   }}
-                  className="bg-amber-600 hover:bg-amber-700"
+                  className="bg-warning hover:bg-warning/90 text-warning-foreground"
                   data-testid="button-create-first-meeting"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -1373,12 +1373,12 @@ export default function ZoomWebinarProvisioning() {
             </div>
 
             {conflicts.length > 0 && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg" data-testid="conflict-warning">
+              <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg" data-testid="conflict-warning">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-medium text-amber-800">Scheduling Conflict Detected</p>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <p className="font-medium text-warning">Scheduling Conflict Detected</p>
+                    <p className="text-sm text-warning mt-1">
                       The following {conflicts.length === 1 ? 'webinar overlaps' : 'webinars overlap'} with your selected time slot:
                     </p>
                     <div className="mt-3 space-y-2">
@@ -1386,9 +1386,9 @@ export default function ZoomWebinarProvisioning() {
                         const startTime = parseISO(c.start_time);
                         const endTime = new Date(startTime.getTime() + c.duration_minutes * 60 * 1000);
                         return (
-                          <div key={c.id} className="p-3 bg-white/60 border border-amber-200 rounded-md">
-                            <p className="font-medium text-amber-900">{c.topic}</p>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-amber-700">
+                          <div key={c.id} className="p-3 bg-white/60 border border-warning/30 rounded-md">
+                            <p className="font-medium text-warning">{c.topic}</p>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-warning">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3.5 h-3.5" />
                                 {format(startTime, "EEE, d MMM yyyy")}
@@ -1403,7 +1403,7 @@ export default function ZoomWebinarProvisioning() {
                         );
                       })}
                     </div>
-                    <p className="text-xs text-amber-700 mt-3">
+                    <p className="text-xs text-warning mt-3">
                       You can still create this webinar despite the overlap. Zoom allows multiple webinars at the same time.
                     </p>
                   </div>
@@ -1484,7 +1484,7 @@ export default function ZoomWebinarProvisioning() {
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
             {conflicts.length > 0 && !createWebinarMutation.isPending && (
-              <p className="text-xs text-amber-700 sm:mr-auto flex items-center gap-1">
+              <p className="text-xs text-warning sm:mr-auto flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" />
                 Overlaps with {conflicts.length} existing {conflicts.length === 1 ? 'webinar' : 'webinars'}
               </p>
@@ -1499,7 +1499,7 @@ export default function ZoomWebinarProvisioning() {
             <Button
               onClick={handleSubmit}
               disabled={createWebinarMutation.isPending || !formData.topic || !formData.start_date || !formData.start_time}
-              className={conflicts.length > 0 ? "bg-amber-600 hover:bg-amber-700" : "bg-amber-600 hover:bg-amber-700"}
+              className={conflicts.length > 0 ? "bg-warning hover:bg-warning/90 text-warning-foreground" : "bg-warning hover:bg-warning/90 text-warning-foreground"}
               data-testid="button-submit-webinar"
             >
               {createWebinarMutation.isPending ? (
@@ -1916,7 +1916,7 @@ export default function ZoomWebinarProvisioning() {
                                 registrant.status === 'approved' 
                                   ? 'bg-green-50 text-green-700 border-green-200' 
                                   : registrant.status === 'pending'
-                                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                  ? 'bg-warning/10 text-warning border-warning/30'
                                   : 'bg-slate-50 text-slate-700 border-slate-200'
                               }`}
                             >
@@ -2090,12 +2090,12 @@ export default function ZoomWebinarProvisioning() {
             </div>
 
             {conflicts.length > 0 && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg" data-testid="edit-conflict-warning">
+              <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg" data-testid="edit-conflict-warning">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-medium text-amber-800">Scheduling Conflict Detected</p>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <p className="font-medium text-warning">Scheduling Conflict Detected</p>
+                    <p className="text-sm text-warning mt-1">
                       The following {conflicts.length === 1 ? 'webinar overlaps' : 'webinars overlap'} with your selected time slot:
                     </p>
                     <div className="mt-3 space-y-2">
@@ -2103,9 +2103,9 @@ export default function ZoomWebinarProvisioning() {
                         const startTime = parseISO(c.start_time);
                         const endTime = new Date(startTime.getTime() + c.duration_minutes * 60 * 1000);
                         return (
-                          <div key={c.id} className="p-3 bg-white/60 border border-amber-200 rounded-md">
-                            <p className="font-medium text-amber-900">{c.topic}</p>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-amber-700">
+                          <div key={c.id} className="p-3 bg-white/60 border border-warning/30 rounded-md">
+                            <p className="font-medium text-warning">{c.topic}</p>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-warning">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3.5 h-3.5" />
                                 {format(startTime, "EEE, d MMM yyyy")}
@@ -2140,7 +2140,7 @@ export default function ZoomWebinarProvisioning() {
             <Button
               onClick={handleEditSubmit}
               disabled={updateWebinarMutation.isPending || !formData.topic || !formData.start_date || !formData.start_time}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-warning hover:bg-warning/90 text-warning-foreground"
               data-testid="button-save-webinar"
             >
               {updateWebinarMutation.isPending ? (
@@ -2343,7 +2343,7 @@ export default function ZoomWebinarProvisioning() {
             <Button
               onClick={handleMeetingCreate}
               disabled={createMeetingMutation.isPending || !meetingFormData.topic || !meetingFormData.start_date || !meetingFormData.start_time}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-warning hover:bg-warning/90 text-warning-foreground"
               data-testid="button-submit-create-meeting"
             >
               {createMeetingMutation.isPending ? (
@@ -2548,7 +2548,7 @@ export default function ZoomWebinarProvisioning() {
             <Button
               onClick={handleMeetingEditSubmit}
               disabled={updateMeetingMutation.isPending || !meetingFormData.topic || !meetingFormData.start_date || !meetingFormData.start_time}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-warning hover:bg-warning/90 text-warning-foreground"
               data-testid="button-save-meeting"
             >
               {updateMeetingMutation.isPending ? (

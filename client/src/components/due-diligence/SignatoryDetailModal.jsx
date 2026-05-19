@@ -97,7 +97,7 @@ function SignerRow({ signer, onSend, onDownload, onManualOverride, onDemote, isS
             size="icon"
             variant="ghost"
             onClick={() => onManualOverride(signer)}
-            className="text-amber-700 hover:text-amber-700"
+            className="text-warning hover:text-warning"
             title="Manual Override - Enter contract details manually"
             data-testid={`button-manual-override-${signer.email}`}
           >
@@ -192,10 +192,10 @@ function AddAlternativeSignerForm({ onSubmit, isSubmitting, isDisabled, isLegacy
 
   if (isLegacyAmbiguous) {
     return (
-      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
-        <AlertCircle className="w-8 h-8 text-amber-700 mx-auto mb-2" />
-        <p className="text-sm font-medium text-amber-700">Ambiguous contract data</p>
-        <p className="text-xs text-amber-700 mt-1">Cannot add signers due to legacy data. Please contact support.</p>
+      <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg text-center">
+        <AlertCircle className="w-8 h-8 text-warning mx-auto mb-2" />
+        <p className="text-sm font-medium text-warning">Ambiguous contract data</p>
+        <p className="text-xs text-warning mt-1">Cannot add signers due to legacy data. Please contact support.</p>
       </div>
     );
   }

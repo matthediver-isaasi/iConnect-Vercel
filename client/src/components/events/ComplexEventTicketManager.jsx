@@ -221,7 +221,7 @@ export default function ComplexEventTicketManager({
                       </Badge>
                     )}
                     {ticket.early_bird_enabled && !ticket.is_free && (
-                      <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                      <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30">
                         Early Bird
                       </Badge>
                     )}
@@ -336,7 +336,7 @@ export default function ComplexEventTicketManager({
                   {!ticket.all_tracks && (
                     <>
                       {tracks.length === 0 ? (
-                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                        <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-sm text-warning">
                           No tracks defined yet. Add tracks to this event first, then link them to ticket classes.
                         </div>
                       ) : (
@@ -450,7 +450,7 @@ export default function ComplexEventTicketManager({
                       )}
 
                       {(ticket.linked_track_ids || []).length === 0 && tracks.length > 0 && (
-                        <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
+                        <div className="mt-2 p-2 bg-warning/10 border border-warning/30 rounded text-sm text-warning">
                           No tracks selected. Attendees with this ticket won't have access to any sessions.
                         </div>
                       )}
@@ -481,7 +481,7 @@ export default function ComplexEventTicketManager({
                     </Label>
                   </div>
                   {ticket.early_bird_enabled && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-amber-200 ml-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-warning/30 ml-1">
                       <div className="space-y-1.5">
                         <Label htmlFor={`ct-eb-price-${ticket.id}`} className="text-sm">Early Bird Price (£) *</Label>
                         <div className="relative w-28">
@@ -722,14 +722,14 @@ export default function ComplexEventTicketManager({
                   )}
 
                   {(ticket.role_ids || []).length > 0 && ticket.visibility_mode !== 'public_only' && (
-                    <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="mt-3 flex items-center justify-between p-3 bg-warning/10 border border-warning/30 rounded-lg">
                       <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-amber-700" />
+                        <Users className="h-4 w-4 text-warning" />
                         <div>
-                          <Label htmlFor={`ct-role-match-only-${ticket.id}`} className="text-sm font-medium text-amber-800">
+                          <Label htmlFor={`ct-role-match-only-${ticket.id}`} className="text-sm font-medium text-warning">
                             Match only to user role
                           </Label>
-                          <p className="text-xs text-amber-700">
+                          <p className="text-xs text-warning">
                             {ticket.role_match_only
                               ? "Ticket is hidden from users whose role doesn't match"
                               : "Ticket is visible to all users (role only affects who can register)"}
@@ -936,7 +936,7 @@ export default function ComplexEventTicketManager({
                     </SelectContent>
                   </Select>
                   {availableVatRates.length === 0 && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-warning">
                       No VAT rates available. Sync rates from Xero in Admin Setup.
                     </p>
                   )}

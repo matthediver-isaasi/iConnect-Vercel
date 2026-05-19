@@ -59,7 +59,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 const ROLE_CONFIG = {
-  owner: { label: 'Owner', icon: Crown, color: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' },
+  owner: { label: 'Owner', icon: Crown, color: 'bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning' },
   admin: { label: 'Admin', icon: Shield, color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
   billing: { label: 'Billing', icon: CreditCard, color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
   viewer: { label: 'Viewer', icon: Eye, color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' }

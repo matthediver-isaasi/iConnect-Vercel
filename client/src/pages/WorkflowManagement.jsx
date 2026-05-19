@@ -678,7 +678,7 @@ export default function WorkflowManagementPage() {
                                 {workflow.conditions.length} condition(s){workflow.revert_trigger_on_condition_fail ? ' (reverts trigger)' : ''}
                               </span>
                             )}
-                            <span className={workflow.trigger_mode === 'once_per_record' ? 'text-amber-700 dark:text-amber-700 font-medium' : ''}>
+                            <span className={workflow.trigger_mode === 'once_per_record' ? 'text-warning dark:text-warning font-medium' : ''}>
                               {workflow.trigger_mode === 'once_per_record' ? 'Runs once per record' : 'Runs every time'}
                             </span>
                             {workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation && (
@@ -745,7 +745,7 @@ export default function WorkflowManagementPage() {
                           {log.status === 'success' ? (
                             <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5" />
                           ) : log.status === 'partial' ? (
-                            <AlertCircle className="h-5 w-5 text-yellow-700 mt-0.5" />
+                            <AlertCircle className="h-5 w-5 text-warning mt-0.5" />
                           ) : (
                             <XCircle className="h-5 w-5 text-red-500 mt-0.5" />
                           )}
@@ -2058,7 +2058,7 @@ export default function WorkflowManagementPage() {
                                   </SelectContent>
                                 </Select>
                                 {contractForms.length === 0 && (
-                                  <p className="text-xs text-amber-700">No contract templates found. Create a form with Contract Mode enabled first.</p>
+                                  <p className="text-xs text-warning">No contract templates found. Create a form with Contract Mode enabled first.</p>
                                 )}
                               </div>
 
@@ -2316,8 +2316,8 @@ export default function WorkflowManagementPage() {
                                 />
                               </div>
                               {(formData.entity_type !== 'organization' && formData.entity_type !== 'member') && (
-                                <div className="p-2 rounded border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800">
-                                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                                <div className="p-2 rounded border border-warning/30 bg-warning/10 dark:bg-warning/20 dark:border-warning">
+                                  <p className="text-xs text-warning dark:text-warning flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
                                     This action works best with Organisation or Member entity types.
                                   </p>
@@ -2553,8 +2553,8 @@ export default function WorkflowManagementPage() {
             {dryRunResult?.success && (
               <div className="space-y-4 border-t pt-4" data-testid="section-dry-run-result">
                 {dryRunResult.warning && (
-                  <div className="p-3 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800" data-testid="text-dry-run-warning">
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  <div className="p-3 rounded-md bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning" data-testid="text-dry-run-warning">
+                    <p className="text-sm text-warning dark:text-warning">
                       <AlertTriangle className="w-4 h-4 inline mr-1" />
                       {dryRunResult.warning}
                     </p>
@@ -2562,12 +2562,12 @@ export default function WorkflowManagementPage() {
                 )}
 
                 {dryRunResult.unresolved_placeholders?.length > 0 && (
-                  <div className="p-3 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800" data-testid="text-dry-run-unresolved">
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
+                  <div className="p-3 rounded-md bg-warning/10 dark:bg-warning/20 border border-warning/30 dark:border-warning" data-testid="text-dry-run-unresolved">
+                    <p className="text-sm text-warning dark:text-warning font-medium">
                       <AlertTriangle className="w-4 h-4 inline mr-1" />
                       Unresolved placeholders detected:
                     </p>
-                    <ul className="mt-1 ml-5 list-disc text-xs text-yellow-700 dark:text-yellow-400">
+                    <ul className="mt-1 ml-5 list-disc text-xs text-warning dark:text-warning">
                       {dryRunResult.unresolved_placeholders.map((p, i) => (
                         <li key={i}><code>{p}</code></li>
                       ))}

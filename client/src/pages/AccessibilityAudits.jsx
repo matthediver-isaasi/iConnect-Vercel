@@ -42,8 +42,8 @@ const SEVERITY_ORDER = ["critical", "serious", "moderate", "minor"];
 
 const SEVERITY_STYLES = {
   critical: "bg-red-600 text-white",
-  serious: "bg-orange-500 text-white",
-  moderate: "bg-amber-400 text-black",
+  serious: "bg-warning text-warning-foreground",
+  moderate: "bg-warning/40 text-black",
   minor: "bg-slate-300 text-black",
 };
 

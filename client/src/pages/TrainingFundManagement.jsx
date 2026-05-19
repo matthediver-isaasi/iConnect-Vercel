@@ -692,7 +692,7 @@ export default function TrainingFundManagementPage() {
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span data-testid="badge-drift-warning">
-                              <Badge className="bg-amber-100 text-amber-900">
+                              <Badge className="bg-warning/10 text-warning">
                                 <AlertTriangle className="w-3 h-3 mr-1" />
                                 Out of sync by £{Math.abs(reconciliation.drift).toFixed(2)}
                               </Badge>
@@ -792,7 +792,7 @@ export default function TrainingFundManagementPage() {
                               {typeInfo.label}
                             </Badge>
                             {!verified && (
-                              <Badge className="bg-amber-100 text-amber-900" data-testid={`badge-unverified-${transaction.id}`}>
+                              <Badge className="bg-warning/10 text-warning" data-testid={`badge-unverified-${transaction.id}`}>
                                 <AlertTriangle className="w-3 h-3 mr-1" />
                                 Unverified
                               </Badge>
@@ -1119,7 +1119,7 @@ export default function TrainingFundManagementPage() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span data-testid={`drift-indicator-${org.id}`}>
-                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                                      <AlertTriangle className="w-3.5 h-3.5 text-warning" />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="max-w-xs">
@@ -1679,7 +1679,7 @@ export default function TrainingFundManagementPage() {
 
               {exportEmptyMessage && (
                 <div
-                  className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                  className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning dark:border-warning dark:bg-warning/20 dark:text-warning"
                   data-testid="text-export-empty-message"
                 >
                   {exportEmptyMessage}

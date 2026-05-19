@@ -140,9 +140,9 @@ const ACHIEVEMENT_ICONS = {
 };
 
 function RankBadge({ rank }) {
-  if (rank === 1) return <Trophy className="w-5 h-5 text-yellow-700" />;
+  if (rank === 1) return <Trophy className="w-5 h-5 text-warning" />;
   if (rank === 2) return <Medal className="w-5 h-5 text-gray-400" />;
-  if (rank === 3) return <Medal className="w-5 h-5 text-amber-700" />;
+  if (rank === 3) return <Medal className="w-5 h-5 text-warning" />;
   return <span className="text-lg font-bold">#{rank}</span>;
 }
 

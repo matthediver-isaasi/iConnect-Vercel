@@ -173,10 +173,10 @@ export default function IEditVideoElement({ content, variant, settings }) {
   if (!videoSrc) {
     return (
       <div style={getOuterContainerStyles()}>
-        <div className="bg-amber-50 border border-amber-200 aspect-video rounded-lg flex flex-col items-center justify-center gap-2 p-4">
-          <AlertCircle className="w-12 h-12 text-amber-700" />
-          <p className="text-amber-700 text-center">Could not extract video URL from embed code</p>
-          <p className="text-amber-700 text-sm text-center">
+        <div className="bg-warning/10 border border-warning/30 aspect-video rounded-lg flex flex-col items-center justify-center gap-2 p-4">
+          <AlertCircle className="w-12 h-12 text-warning" />
+          <p className="text-warning text-center">Could not extract video URL from embed code</p>
+          <p className="text-warning text-sm text-center">
             Supported platforms: YouTube, Vimeo, Wistia, Loom, Dailymotion, Streamable, Vidyard
           </p>
         </div>
@@ -337,12 +337,12 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
           )}
           
           {embedCode && !videoSrc && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-sm text-amber-700 flex items-center gap-2">
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
+              <p className="text-sm text-warning flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 Could not extract video URL
               </p>
-              <p className="text-xs text-amber-700 mt-1">Please check your embed code format</p>
+              <p className="text-xs text-warning mt-1">Please check your embed code format</p>
             </div>
           )}
         </CardContent>

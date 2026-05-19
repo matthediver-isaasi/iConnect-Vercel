@@ -1664,10 +1664,10 @@ export default function EventDetailsPage() {
                 {isGuestCheckout ? (
                   <div className="space-y-4">
                     {isGuestFormDisabled ? (
-                      <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <Lock className="w-5 h-5 text-amber-700" />
-                        <p className="text-sm text-amber-800">
-                          This ticket is for members only. Please <a href="/Login" className="font-medium underline text-amber-900 hover:text-amber-700">log in</a> to register, or select a public ticket if available.
+                      <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                        <Lock className="w-5 h-5 text-warning" />
+                        <p className="text-sm text-warning">
+                          This ticket is for members only. Please <a href="/Login" className="font-medium underline text-warning hover:text-warning">log in</a> to register, or select a public ticket if available.
                         </p>
                       </div>
                     ) : (
@@ -1725,11 +1725,11 @@ export default function EventDetailsPage() {
                         }}
                         onBlur={handleGuestEmailBlur}
                         disabled={isGuestFormDisabled}
-                        className={`${isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-amber-500 focus-visible:ring-amber-500" : ""}`}
+                        className={`${isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-warning/50 focus-visible:ring-amber-500" : ""}`}
                         data-testid="input-guest-email"
                       />
                       {guestEmailIsMember && (
-                        <p className="text-xs text-amber-700 flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
+                        <p className="text-xs text-warning flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
                           <AlertTriangle className="h-3 w-3" />
                           This email belongs to a member. Please log in to register.
                         </p>
@@ -1969,7 +1969,7 @@ export default function EventDetailsPage() {
                             </Button>
                             
                             {!hasEnoughTickets && event.program_tag && (
-                              <p className="text-xs text-center text-amber-700 mt-2">
+                              <p className="text-xs text-center text-warning mt-2">
                                 Insufficient program tickets. You need {ticketsRequired - availableProgramTickets} more ticket{ticketsRequired - availableProgramTickets > 1 ? 's' : ''}.
                               </p>
                             )}
@@ -2016,7 +2016,7 @@ export default function EventDetailsPage() {
 
             {/* No tickets available for role message */}
             {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && (
-              <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-amber-200 bg-amber-50'}`}>
+              <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-warning/30 bg-warning/10'}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
                     {isGuestCheckout ? (
@@ -2031,10 +2031,10 @@ export default function EventDetailsPage() {
                       </>
                     ) : (
                       <>
-                        <AlertTriangle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" />
+                        <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
                         <div>
-                          <h3 className="font-medium text-amber-800">No Tickets Available</h3>
-                          <p className="text-sm text-amber-700 mt-1">
+                          <h3 className="font-medium text-warning">No Tickets Available</h3>
+                          <p className="text-sm text-warning mt-1">
                             There are no ticket classes available for your role. Please contact the event organizer for assistance.
                           </p>
                         </div>
@@ -2117,7 +2117,7 @@ export default function EventDetailsPage() {
                                     </Badge>
                                   )}
                                   {tcPricing.isEarlyBird && (
-                                    <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200" data-testid={`badge-early-bird-${ticketId}`}>
+                                    <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30" data-testid={`badge-early-bird-${ticketId}`}>
                                       <Bird className="w-3 h-3 mr-1" />
                                       Early Bird
                                     </Badge>
@@ -2169,7 +2169,7 @@ export default function EventDetailsPage() {
                                   if (availCount <= 0) {
                                     return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                   } else if (availCount <= 5) {
-                                    return <div className="text-xs text-amber-700 mt-0.5">Only {availCount} left</div>;
+                                    return <div className="text-xs text-warning mt-0.5">Only {availCount} left</div>;
                                   } else {
                                     return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                   }
@@ -2224,7 +2224,7 @@ export default function EventDetailsPage() {
                             <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
                               {String(selectedTicketClass.name || 'Ticket')}
                               {singlePricing.isEarlyBird && (
-                                <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200" data-testid="badge-early-bird-single">
+                                <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30" data-testid="badge-early-bird-single">
                                   <Bird className="w-3 h-3 mr-1" />
                                   Early Bird
                                 </Badge>
@@ -2269,7 +2269,7 @@ export default function EventDetailsPage() {
                                 if (availCount <= 0) {
                                   return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                 } else if (availCount <= 5) {
-                                  return <div className="text-xs text-amber-700 mt-0.5">Only {availCount} left</div>;
+                                  return <div className="text-xs text-warning mt-0.5">Only {availCount} left</div>;
                                 } else {
                                   return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                 }

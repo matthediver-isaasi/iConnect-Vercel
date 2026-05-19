@@ -680,7 +680,7 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId 
               <span className="flex items-center gap-2 flex-wrap">
                 {detail.value}
                 {detail.isClosingSoon && (
-                  <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-500 text-white">
+                  <span className="px-2 py-0.5 text-xs font-medium rounded bg-warning text-warning-foreground">
                     Closing Soon
                   </span>
                 )}

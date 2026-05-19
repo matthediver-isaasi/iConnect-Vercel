@@ -179,7 +179,7 @@ export default function DiscountCodeManagementPage() {
       }
       case 'member_group': {
         const g = memberGroups.find(g => g.id === code.member_group_id);
-        return { label: g?.name || 'Group', icon: Users, colorClass: 'bg-orange-50 text-orange-700 border-orange-200' };
+        return { label: g?.name || 'Group', icon: Users, colorClass: 'bg-warning/10 text-warning border-warning/30' };
       }
       case 'organization': {
         const o = organizations.find(o => o.id === code.organization_id);
@@ -530,7 +530,7 @@ export default function DiscountCodeManagementPage() {
                   onClick={() => setShowExpired(!showExpired)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
                     showExpired 
-                      ? 'bg-amber-50 border-amber-200 text-amber-700' 
+                      ? 'bg-warning/10 border-warning/30 text-warning' 
                       : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                   }`}
                   data-testid="button-toggle-expired"
@@ -629,7 +629,7 @@ export default function DiscountCodeManagementPage() {
                           </Badge>
                           
                           {code.program_tag && (
-                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                               {code.program_tag}
                             </Badge>
                           )}

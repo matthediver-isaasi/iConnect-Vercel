@@ -1466,8 +1466,8 @@ export default function PreferencesPage() {
     if (/[^a-zA-Z0-9]/.test(password)) score++;
     
     if (score <= 1) return { score, label: 'Weak', color: 'bg-red-500' };
-    if (score <= 2) return { score, label: 'Fair', color: 'bg-orange-500' };
-    if (score <= 3) return { score, label: 'Good', color: 'bg-yellow-500' };
+    if (score <= 2) return { score, label: 'Fair', color: 'bg-warning' };
+    if (score <= 3) return { score, label: 'Good', color: 'bg-warning' };
     if (score <= 4) return { score, label: 'Strong', color: 'bg-green-500' };
     return { score, label: 'Very Strong', color: 'bg-green-600' };
   };
@@ -1965,7 +1965,7 @@ export default function PreferencesPage() {
                             </div>
                             <span className={`text-xs font-medium ${
                               getPasswordStrength(newPassword).score <= 2 ? 'text-red-600' :
-                              getPasswordStrength(newPassword).score <= 3 ? 'text-yellow-700' : 'text-green-600'
+                              getPasswordStrength(newPassword).score <= 3 ? 'text-warning' : 'text-green-600'
                             }`}>
                               {getPasswordStrength(newPassword).label}
                             </span>
@@ -2313,7 +2313,7 @@ export default function PreferencesPage() {
           <Card key="awards" className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-700" />
+                <Trophy className="w-5 h-5 text-warning" />
                 Awards
                 <Badge variant="secondary">{earnedOnlineAwards.length + earnedOfflineAwards.length}</Badge>
               </CardTitle>
@@ -2332,7 +2332,7 @@ export default function PreferencesPage() {
                   return (
                     <div
                       key={`online-${award.id}`}
-                      className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 hover:shadow-md transition-shadow relative"
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-warning/30 hover:shadow-md transition-shadow relative"
                     >
                       {classification && (
                         <Badge
@@ -2697,12 +2697,12 @@ export default function PreferencesPage() {
             <CardContent className="space-y-4">
               {/* Master opt-out toggle */}
               <div 
-                className={`flex items-center justify-between p-4 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}
+                className={`flex items-center justify-between p-4 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-warning/10 border-warning/30'}`}
                 data-testid="comm-opt-out-all"
               >
                 <div className="space-y-1">
                   <h4 className="font-medium text-slate-900 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-amber-700" />
+                    <Shield className="w-4 h-4 text-warning" />
                     Opt out of all communications
                   </h4>
                   <p className="text-sm text-slate-500">

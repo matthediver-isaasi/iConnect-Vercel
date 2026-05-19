@@ -510,7 +510,7 @@ export default function BalancesPage({ hasBanner }) {
                           <Card 
                             key={voucher.id}
                             className={`border-2 ${
-                              isExpiringSoon ? 'border-amber-200 bg-amber-50' : 
+                              isExpiringSoon ? 'border-warning/30 bg-warning/10' : 
                               'border-blue-200 bg-blue-50'
                             }`}
                           >
@@ -519,7 +519,7 @@ export default function BalancesPage({ hasBanner }) {
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <Ticket className={`w-4 h-4 ${
-                                      isExpiringSoon ? 'text-amber-700' : 'text-blue-600'
+                                      isExpiringSoon ? 'text-warning' : 'text-blue-600'
                                     }`} />
                                     <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
                                   </div>
@@ -534,10 +534,10 @@ export default function BalancesPage({ hasBanner }) {
                               
                               <div className="flex items-center gap-2 text-xs">
                                 <Calendar className={`w-3 h-3 ${
-                                  isExpiringSoon ? 'text-amber-700' : 'text-slate-400'
+                                  isExpiringSoon ? 'text-warning' : 'text-slate-400'
                                 }`} />
                                 <span className={
-                                  isExpiringSoon ? 'text-amber-700 font-medium' : 'text-slate-500'
+                                  isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'
                                 }>
                                   Expires {format(expiryDate, 'MMM d, yyyy')}
                                   {isExpiringSoon && ` (${daysUntilExpiry} days)`}
@@ -545,9 +545,9 @@ export default function BalancesPage({ hasBanner }) {
                               </div>
 
                               {isExpiringSoon && (
-                                <div className="flex items-start gap-2 mt-3 p-2 bg-amber-100 rounded-lg">
-                                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                                  <p className="text-xs text-amber-800">
+                                <div className="flex items-start gap-2 mt-3 p-2 bg-warning/10 rounded-lg">
+                                  <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                                  <p className="text-xs text-warning">
                                     This voucher expires soon. Use it before it becomes invalid.
                                   </p>
                                 </div>

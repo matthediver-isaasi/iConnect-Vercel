@@ -339,7 +339,7 @@ export default function ForumManagementPage() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="outline" className="text-amber-700 border-amber-300"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge variant="outline" className="text-warning border-warning/30"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
       case 'reviewed':
         return <Badge variant="outline" className="text-blue-600 border-blue-300"><Eye className="w-3 h-3 mr-1" />Reviewed</Badge>;
       case 'resolved':
@@ -382,7 +382,7 @@ export default function ForumManagementPage() {
             </p>
             {initResult?.sql && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-amber-700">
+                <p className="text-sm font-medium text-warning">
                   Automatic creation is not available. Please run the following SQL in your Supabase SQL editor:
                 </p>
                 <pre className="bg-muted p-4 rounded-md text-xs overflow-auto max-h-64" data-testid="text-init-sql">

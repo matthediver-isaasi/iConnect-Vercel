@@ -157,7 +157,7 @@ export default function MemberGroupAssignmentReportPage() {
       case 'expired':
         return <Badge className="bg-red-100 text-red-700">Expired</Badge>;
       case 'expiring-soon':
-        return <Badge className="bg-amber-100 text-amber-700">Expiring Soon</Badge>;
+        return <Badge className="bg-warning/10 text-warning">Expiring Soon</Badge>;
       case 'active':
         return <Badge className="bg-green-100 text-green-700">Active</Badge>;
       default:
@@ -223,11 +223,11 @@ export default function MemberGroupAssignmentReportPage() {
           <Card className="border-slate-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-100 rounded-lg">
-                  <Clock className="w-5 h-5 text-amber-700" />
+                <div className="p-2 bg-warning/10 rounded-lg">
+                  <Clock className="w-5 h-5 text-warning" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-amber-700">{stats.expiringSoon}</p>
+                  <p className="text-2xl font-bold text-warning">{stats.expiringSoon}</p>
                   <p className="text-xs text-slate-600">Expiring in 30 days</p>
                 </div>
               </div>

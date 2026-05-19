@@ -169,13 +169,13 @@ export default function JobDetailsPage() {
             <div className="lg:col-span-2 lg:overflow-y-auto lg:pr-2 space-y-4 md:space-y-6 order-2 lg:order-1">
               {/* Closing Soon Alert */}
               {isClosingSoon && job.closing_date && (
-                <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
+                <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-warning/30 rounded-lg flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-amber-900">
+                    <p className="font-semibold text-warning">
                       Applications closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
                     </p>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <p className="text-sm text-warning mt-1">
                       Submit your application before {format(closingDate, 'd MMM, yyyy')}
                     </p>
                   </div>
@@ -285,18 +285,18 @@ export default function JobDetailsPage() {
 
                     {job.closing_date && (
                       <div className={`flex items-start gap-3 -mx-1 -my-0.5 px-1 py-0.5 rounded-lg transition-colors ${
-                        isClosingSoon ? 'bg-amber-50 border-2 border-amber-200' : ''
+                        isClosingSoon ? 'bg-warning/10 border-2 border-warning/30' : ''
                       }`}>
-                        <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isClosingSoon ? 'text-amber-700' : 'text-slate-500'}`} />
+                        <Clock className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isClosingSoon ? 'text-warning' : 'text-slate-500'}`} />
                         <div className="flex-1">
-                          <div className={`text-xs ${isClosingSoon ? 'text-amber-700 font-medium' : 'text-slate-500'}`}>
+                          <div className={`text-xs ${isClosingSoon ? 'text-warning font-medium' : 'text-slate-500'}`}>
                             Application Deadline
                           </div>
-                          <div className={`text-sm font-medium ${isClosingSoon ? 'text-amber-900' : 'text-slate-900'}`}>
+                          <div className={`text-sm font-medium ${isClosingSoon ? 'text-warning' : 'text-slate-900'}`}>
                             {format(closingDate, 'd MMM, yyyy')}
                           </div>
                           {isClosingSoon && daysUntilClosing !== null && (
-                            <div className="text-xs text-amber-700 mt-1">
+                            <div className="text-xs text-warning mt-1">
                               {daysUntilClosing === 0 ? 'Closes today!' : `${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'} remaining`}
                             </div>
                           )}
@@ -315,7 +315,7 @@ export default function JobDetailsPage() {
                   </div>
 
                   {job.featured && (
-                    <Badge className="w-full justify-center bg-amber-100 text-amber-700">
+                    <Badge className="w-full justify-center bg-warning/10 text-warning">
                       Featured Position
                     </Badge>
                   )}

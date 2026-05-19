@@ -636,7 +636,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                 {FIELD_TYPES.find(t => t.value === field.field_type)?.label || field.field_type}
                               </span>
                               {field.is_required && (
-                                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Required</span>
+                                <span className="text-xs bg-warning/10 text-warning px-2 py-0.5 rounded">Required</span>
                               )}
                               {field.is_filterable && (
                                 <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded flex items-center gap-1">
@@ -676,10 +676,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                     );
                                   })}
                                   {adminCol && (
-                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin column</span>
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Admin column</span>
                                   )}
                                   {adminFilter && (
-                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin filter</span>
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>
@@ -714,10 +714,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                     );
                                   })}
                                   {adminCol && (
-                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin column</span>
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Admin column</span>
                                   )}
                                   {adminFilter && (
-                                    <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Admin filter</span>
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Admin filter</span>
                                   )}
                                   {!hasAnyVisibility && (
                                     <span className="text-xs text-slate-400 italic">None</span>

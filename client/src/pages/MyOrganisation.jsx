@@ -1153,7 +1153,7 @@ export default function MyOrganisationPage() {
                 >
                   <CardTitle className="text-lg flex items-center justify-between">
                     <span className="flex items-center gap-2">
-                      <Trophy className="w-5 h-5 text-amber-700" />
+                      <Trophy className="w-5 h-5 text-warning" />
                       Organisation Awards
                     </span>
                     {collapsedSections.awards ? (
@@ -1181,7 +1181,7 @@ export default function MyOrganisationPage() {
                         return (
                           <div 
                             key={assignment.id} 
-                            className="flex items-center gap-3 p-3 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg"
+                            className="flex items-center gap-3 p-3 bg-gradient-to-r from-amber-50 to-yellow-50 border border-warning/30 rounded-lg"
                             data-testid={`award-${assignment.id}`}
                           >
                             {(sublevel?.image_url || award.image_url) ? (
@@ -1191,14 +1191,14 @@ export default function MyOrganisationPage() {
                                 className="w-12 h-12 object-contain"
                               />
                             ) : (
-                              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
-                                <Trophy className="w-6 h-6 text-amber-700" />
+                              <div className="w-12 h-12 bg-warning/10 rounded-full flex items-center justify-center">
+                                <Trophy className="w-6 h-6 text-warning" />
                               </div>
                             )}
                             <div className="flex-1 min-w-0">
                               <p className="font-medium text-slate-900 truncate">
                                 {award.name}
-                                {sublevel && <span className="text-amber-700"> - {sublevel.name}</span>}
+                                {sublevel && <span className="text-warning"> - {sublevel.name}</span>}
                               </p>
                               {award.period_text && (
                                 <p className="text-xs text-slate-600">{award.period_text}</p>

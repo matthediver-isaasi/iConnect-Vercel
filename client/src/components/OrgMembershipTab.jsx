@@ -146,18 +146,18 @@ function YearCostSection({
       )}
 
       {hasOverride && (
-        <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+        <div className="mt-2 p-2 rounded-md bg-warning/10 dark:bg-warning/30 border border-warning/30 dark:border-warning">
           <div className="flex items-start gap-2">
-            <ShieldAlert className="w-4 h-4 text-amber-700 dark:text-amber-700 mt-0.5 shrink-0" />
+            <ShieldAlert className="w-4 h-4 text-warning dark:text-warning mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+              <p className="text-xs font-medium text-warning dark:text-warning">
                 {yearData.overrideType === 'price' ? 'Manual Price Override' : yearData.overrideType === 'discount' ? 'Discount Override' : 'Structure Override'}
                 {yearData.overrideConfigName && ` - ${yearData.overrideConfigName}`}
                 {yearData.overrideType === 'discount' && yearData.overrideDiscountType === 'percentage' && ` (${yearData.overrideDiscountValue}%)`}
                 {yearData.overrideType === 'discount' && yearData.overrideDiscountType === 'fixed' && ` (${formatCost(yearData.overrideDiscountValue, currency)})`}
               </p>
               {yearData.overrideNote && (
-                <p className="text-xs text-amber-700 dark:text-amber-700 mt-0.5">{yearData.overrideNote}</p>
+                <p className="text-xs text-warning dark:text-warning mt-0.5">{yearData.overrideNote}</p>
               )}
               {yearData.originalAnnualCost !== undefined && (
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -518,7 +518,7 @@ function YearCostSection({
               )}
             </div>
             {approvalRequired && !feesApproved && (
-              <p className="text-xs text-amber-700 mt-1 flex items-center gap-1">
+              <p className="text-xs text-warning mt-1 flex items-center gap-1">
                 <ShieldAlert className="w-3 h-3" />
                 Fees must be approved before invoicing or payment actions
               </p>
@@ -1762,7 +1762,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                   : step.status === 'info' ? Info
                   : CheckCircle2;
                 const statusColor = step.status === 'error' ? 'text-destructive'
-                  : step.status === 'warning' ? 'text-yellow-700 dark:text-yellow-700'
+                  : step.status === 'warning' ? 'text-warning dark:text-warning'
                   : step.status === 'info' ? 'text-blue-600 dark:text-blue-400'
                   : 'text-green-600 dark:text-green-500';
 
@@ -2016,17 +2016,17 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 const uniqueEmails = [...new Set(allEmails)];
                 return (
                   <div className="space-y-4">
-                    <div className="bg-amber-50 border border-amber-200 rounded-md p-4 text-sm">
-                      <div className="flex items-center gap-2 font-medium text-amber-800 mb-2">
+                    <div className="bg-warning/10 border border-warning/30 rounded-md p-4 text-sm">
+                      <div className="flex items-center gap-2 font-medium text-warning mb-2">
                         <AlertTriangle className="w-4 h-4" />
                         Confirm Send
                       </div>
-                      <p className="text-amber-700 mb-3">
+                      <p className="text-warning mb-3">
                         You are about to send the membership fee notification for <strong>{emailFeesYear}</strong> to {uniqueEmails.length} recipient{uniqueEmails.length !== 1 ? 's' : ''}:
                       </p>
                       <div className="space-y-1">
                         {uniqueEmails.map(email => (
-                          <div key={email} className="flex items-center gap-2 text-amber-900">
+                          <div key={email} className="flex items-center gap-2 text-warning">
                             <Mail className="w-3 h-3 shrink-0" />
                             <span>{email}</span>
                           </div>

@@ -533,7 +533,7 @@ export default function CanvasStage({
                 className={`absolute pointer-events-none rounded-full border ${
                   sev === 'error'
                     ? 'bg-destructive text-white border-destructive'
-                    : 'bg-amber-500 text-white border-amber-500'
+                    : 'bg-warning text-warning-foreground border-warning/50'
                 }`}
                 style={{
                   left: effective.x + effective.w - 18,

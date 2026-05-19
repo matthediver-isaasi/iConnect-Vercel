@@ -497,8 +497,8 @@ export default function OrganisationDirectorySettingsPage() {
             </div>
 
             {(!showLogo || !showTitle) && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-800">
+              <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                <p className="text-sm text-warning">
                   Note: At least one of Logo or Title must be enabled for cards to display content.
                 </p>
               </div>
@@ -631,8 +631,8 @@ export default function OrganisationDirectorySettingsPage() {
               )}
 
               {allowedApplicationStatuses.length === 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800">
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
                     No filter applied - all organisations will be shown regardless of application status
                   </p>
                 </div>
@@ -692,8 +692,8 @@ export default function OrganisationDirectorySettingsPage() {
               )}
 
               {visibleOrgTypes.length === 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800">
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
                     No filter applied - all organisations will be shown regardless of type
                   </p>
                 </div>

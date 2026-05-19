@@ -179,7 +179,7 @@ export default function ResetPasswordPage() {
                                       ? strength <= 2
                                         ? 'bg-red-500'
                                         : strength <= 3
-                                        ? 'bg-yellow-500'
+                                        ? 'bg-warning text-warning-foreground'
                                         : 'bg-green-500'
                                       : 'bg-slate-200'
                                   }`}

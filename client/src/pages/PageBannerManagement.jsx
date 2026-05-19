@@ -495,7 +495,7 @@ export default function PageBannerManagementPage() {
                           {isHero ? 'Hero' : 'Image'}
                         </Badge>
                         {isPortalBanner && (
-                          <Badge className="bg-amber-100 text-amber-700 text-xs">Portal</Badge>
+                          <Badge className="bg-warning/10 text-warning text-xs">Portal</Badge>
                         )}
                         {banner.is_active && (
                           <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge>
@@ -508,7 +508,7 @@ export default function PageBannerManagementPage() {
                       <div className="flex flex-wrap gap-1">
                         {banner.associated_pages && banner.associated_pages.length > 0 ? (
                           banner.associated_pages.slice(0, 3).map((page) => (
-                            <Badge key={page} className={page.startsWith('portal_') ? "bg-amber-50 text-amber-700 text-xs" : "bg-blue-100 text-blue-700 text-xs"}>
+                            <Badge key={page} className={page.startsWith('portal_') ? "bg-warning/10 text-warning text-xs" : "bg-blue-100 text-blue-700 text-xs"}>
                               {allPages.find(p => p.value === page)?.label || page.replace('portal_', '')}
                             </Badge>
                           ))
@@ -1089,7 +1089,7 @@ export default function PageBannerManagementPage() {
                     </TabsContent>
                     <TabsContent value="portal">
                       <div className="border border-slate-200 rounded-lg p-4 space-y-2 max-h-60 overflow-y-auto">
-                        <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded mb-2">
+                        <p className="text-xs text-warning bg-warning/10 p-2 rounded mb-2">
                           Portal banners appear at the top of member portal pages
                         </p>
                         {PORTAL_PAGES.map((page) => (

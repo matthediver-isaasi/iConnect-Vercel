@@ -456,9 +456,9 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
               onClick={() => setFileSelectorFolder(folder.id)}
             >
               {isExpanded ? (
-                <FolderOpen className="w-4 h-4 text-yellow-700" />
+                <FolderOpen className="w-4 h-4 text-warning" />
               ) : (
-                <Folder className="w-4 h-4 text-yellow-700" />
+                <Folder className="w-4 h-4 text-warning" />
               )}
               <span className="truncate flex-1">{folder.name}</span>
               <span className="text-xs text-slate-400">({fileCount})</span>
@@ -1185,7 +1185,7 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
                         className="h-8 text-sm"
                       />
                       {logo.url && !/^https?:\/\//i.test(logo.url) && (
-                        <p className="text-xs text-amber-700 mt-1">URL must start with https:// or http://</p>
+                        <p className="text-xs text-warning mt-1">URL must start with https:// or http://</p>
                       )}
                     </div>
                     <div>

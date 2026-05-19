@@ -665,7 +665,7 @@ export default function BookingsPage() {
       case 'confirmed':
         return 'bg-green-100 text-green-700 border-green-200';
       case 'pending':
-        return 'bg-amber-100 text-amber-700 border-amber-200';
+        return 'bg-warning/10 text-warning border-warning/30';
       case 'cancelled':
         return 'bg-red-100 text-red-700 border-red-200';
       default:
@@ -906,7 +906,7 @@ export default function BookingsPage() {
                                   isCancelled 
                                     ? 'bg-red-50/50 border-red-200' 
                                     : hasPendingRequest
-                                    ? 'bg-amber-50/50 border-amber-200'
+                                    ? 'bg-warning/50 border-warning/30'
                                     : 'bg-slate-50 border-slate-200'
                                 }`}
                               >
@@ -942,7 +942,7 @@ export default function BookingsPage() {
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                                     {hasPendingCancel ? (
-                                      <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
+                                      <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
                                         Cancellation Requested
                                       </Badge>
                                     ) : hasPendingTransfer ? (
@@ -1097,7 +1097,7 @@ export default function BookingsPage() {
                                     <div className="pt-2 border-t border-slate-200">
                                       <div className="flex items-center justify-between mb-2">
                                         <span className="text-slate-600">PO Number:</span>
-                                        <span className="text-amber-700 italic text-sm">To be supplied</span>
+                                        <span className="text-warning italic text-sm">To be supplied</span>
                                       </div>
                                       <div className="flex gap-2">
                                         <Input
@@ -1182,10 +1182,10 @@ export default function BookingsPage() {
                         const creditNoteBooking = canAccessInvoices && showFinancials && groupBookings.find(b => b.xero_credit_note_number);
                         if (!creditNoteBooking) return null;
                         return (
-                        <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950/30 dark:border-orange-800">
+                        <div className="flex items-center justify-between p-3 bg-warning/10 border border-warning/30 rounded-lg dark:bg-warning/30 dark:border-warning">
                           <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-orange-600 dark:text-orange-700" />
-                            <span className="text-sm text-orange-800 dark:text-orange-300">
+                            <FileText className="w-4 h-4 text-warning dark:text-warning" />
+                            <span className="text-sm text-warning dark:text-warning">
                               Credit Note: <span className="font-mono font-medium">{creditNoteBooking.xero_credit_note_number}</span>
                             </span>
                           </div>
@@ -1196,7 +1196,7 @@ export default function BookingsPage() {
                               onClick={() => handleViewCreditNote(bookingRef, displayRef, creditNoteBooking.xero_credit_note_number)}
                               disabled={loadingCreditNoteFor === bookingRef}
                               data-testid={`button-view-credit-note-${bookingRef}`}
-                              className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
+                              className="border-warning/30 text-warning dark:border-warning dark:text-warning"
                             >
                               {loadingCreditNoteFor === bookingRef ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1213,7 +1213,7 @@ export default function BookingsPage() {
                               onClick={() => handleDownloadCreditNote(bookingRef, displayRef, creditNoteBooking.xero_credit_note_number)}
                               disabled={loadingCreditNoteFor === bookingRef}
                               data-testid={`button-download-credit-note-${bookingRef}`}
-                              className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
+                              className="border-warning/30 text-warning dark:border-warning dark:text-warning"
                             >
                               {loadingCreditNoteFor === bookingRef ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1230,9 +1230,9 @@ export default function BookingsPage() {
                       })()}
 
                       {groupBookings.some(b => b.status === 'pending') && (
-                        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-800">
+                        <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                          <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                          <p className="text-xs text-warning">
                             Some bookings are pending confirmation. Confirmation links have been sent to the attendees' email addresses.
                           </p>
                         </div>
@@ -1260,9 +1260,9 @@ export default function BookingsPage() {
           </DialogHeader>
           {deadlinePassed ? (
             <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
-                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-800">
+              <div className="flex items-start gap-3 p-4 bg-warning/10 border border-warning/30 rounded-md">
+                <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div className="text-sm text-warning">
                   <p className="font-medium mb-1">Cancellation deadline has passed</p>
                   <p>
                     Cancellation requests must be submitted at least {cancellationDeadlineHours} hour{cancellationDeadlineHours !== 1 ? 's' : ''} before the event starts. Please contact an administrator directly if you need to cancel.

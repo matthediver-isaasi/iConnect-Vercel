@@ -605,7 +605,7 @@ export default function RoleManagementPage() {
                           <Badge className="bg-green-100 text-green-700">Default Role</Badge>
                         )}
                         {role.show_bookmarks !== false && (
-                          <Badge className="bg-amber-100 text-amber-700">Bookmarks Enabled</Badge>
+                          <Badge className="bg-warning/10 text-warning">Bookmarks Enabled</Badge>
                         )}
                         {role.show_tours && (
                           <Badge className="bg-purple-100 text-purple-700">Tours Enabled</Badge>
@@ -618,7 +618,7 @@ export default function RoleManagementPage() {
                             className={
                               roleMemberCounts[role.id] >= role.max_members 
                                 ? "bg-red-100 text-red-700" 
-                                : "bg-amber-100 text-amber-700"
+                                : "bg-warning/10 text-warning"
                             }
                           >
                             {roleMemberCounts[role.id] || 0} / {role.max_members} members
@@ -677,8 +677,8 @@ export default function RoleManagementPage() {
                             </span>
                           )}
                           {partial > 0 && (
-                            <span className="flex items-center gap-1 text-amber-700">
-                              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                            <span className="flex items-center gap-1 text-warning">
+                              <span className="w-2 h-2 rounded-full bg-warning"></span>
                               {partial} partial
                             </span>
                           )}
@@ -742,7 +742,7 @@ export default function RoleManagementPage() {
                     title={editingRole.is_system ? 'System role names cannot be changed' : ''}
                   />
                   {editingRole.is_system && (
-                    <p className="text-xs text-amber-700">This is a system role and cannot be renamed.</p>
+                    <p className="text-xs text-warning">This is a system role and cannot be renamed.</p>
                   )}
                 </div>
 
@@ -949,15 +949,15 @@ export default function RoleManagementPage() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-center gap-3 p-4 bg-warning/10 rounded-lg border border-warning/30">
                     <Switch
                       id="show-bookmarks"
                       checked={editingRole.show_bookmarks !== false}
                       onCheckedChange={(checked) => setEditingRole({ ...editingRole, show_bookmarks: checked })}
                     />
                     <div className="flex-1">
-                      <Label htmlFor="show-bookmarks" className="cursor-pointer font-medium text-amber-900">Enable Bookmarks</Label>
-                      <p className="text-xs text-amber-700 mt-1">
+                      <Label htmlFor="show-bookmarks" className="cursor-pointer font-medium text-warning">Enable Bookmarks</Label>
+                      <p className="text-xs text-warning mt-1">
                         Allow users with this role to bookmark content and access the bookmarks drawer
                       </p>
                     </div>
@@ -991,12 +991,12 @@ export default function RoleManagementPage() {
                     </div>
                   </div>
 
-                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="p-4 bg-warning/10 rounded-lg border border-warning/30">
                     <div className="flex items-center gap-2 mb-2">
-                      <Users className="w-4 h-4 text-amber-700" />
-                      <Label className="font-medium text-amber-900">Member Limit</Label>
+                      <Users className="w-4 h-4 text-warning" />
+                      <Label className="font-medium text-warning">Member Limit</Label>
                     </div>
-                    <p className="text-xs text-amber-700 mb-3">
+                    <p className="text-xs text-warning mb-3">
                       Set a maximum number of members that can be assigned this role. Leave empty for unlimited.
                     </p>
                     <div className="flex items-center gap-3">
@@ -1013,7 +1013,7 @@ export default function RoleManagementPage() {
                         data-testid="input-max-members"
                       />
                       {editingRole.id && roleMemberCounts[editingRole.id] !== undefined && (
-                        <span className="text-sm text-amber-700">
+                        <span className="text-sm text-warning">
                           Currently: <strong>{roleMemberCounts[editingRole.id]}</strong> active members
                         </span>
                       )}
@@ -1039,7 +1039,7 @@ export default function RoleManagementPage() {
                         Full Access
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+                        <span className="w-3 h-3 rounded-full bg-warning"></span>
                         Partial Access
                       </span>
                       <span className="flex items-center gap-1.5">
@@ -1079,7 +1079,7 @@ export default function RoleManagementPage() {
                                 </Badge>
                               )}
                               {moduleExclusionState === 'some' && (
-                                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30">
                                   Partial
                                 </Badge>
                               )}
@@ -1095,7 +1095,7 @@ export default function RoleManagementPage() {
                                   moduleExclusionState === 'none' 
                                     ? '[&[data-state=checked]]:bg-green-500' 
                                     : moduleExclusionState === 'some'
-                                    ? '[&[data-state=checked]]:bg-amber-500'
+                                    ? '[&[data-state=checked]]:bg-warning'
                                     : ''
                                 }
                                 data-testid={`switch-module-${module.id}`}
@@ -1139,7 +1139,7 @@ export default function RoleManagementPage() {
                                           </Badge>
                                         )}
                                         {pageExclusionState === 'some' && !isPageDisabled && (
-                                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                          <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30">
                                             Partial
                                           </Badge>
                                         )}
@@ -1156,7 +1156,7 @@ export default function RoleManagementPage() {
                                             pageExclusionState === 'none' 
                                               ? '[&[data-state=checked]]:bg-green-500' 
                                               : pageExclusionState === 'some'
-                                              ? '[&[data-state=checked]]:bg-amber-500'
+                                              ? '[&[data-state=checked]]:bg-warning'
                                               : ''
                                           }`}
                                           data-testid={`switch-page-${page.id}`}
@@ -1277,12 +1277,12 @@ export default function RoleManagementPage() {
               )}
 
               {segmentationFieldId && (
-                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="p-3 bg-warning/10 rounded-lg border border-warning/30">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-700 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 text-warning mt-0.5" />
                     <div>
-                      <p className="text-sm text-amber-900 font-medium">Important</p>
-                      <p className="text-xs text-amber-700 mt-1">
+                      <p className="text-sm text-warning font-medium">Important</p>
+                      <p className="text-xs text-warning mt-1">
                         When segmentation is enabled, default roles must have at least one 
                         organisation type selected. Existing roles will need to be updated 
                         with their applicable organisation types.
@@ -1307,13 +1307,13 @@ export default function RoleManagementPage() {
               <DialogTitle>Delete Role</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 bg-warning/10 rounded-lg">
+                <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm text-amber-900 font-medium">
+                  <p className="text-sm text-warning font-medium">
                     Are you sure you want to delete "{roleToDelete?.name}"?
                   </p>
-                  <p className="text-xs text-amber-700 mt-1">
+                  <p className="text-xs text-warning mt-1">
                     Any members currently assigned to this role will be automatically reassigned to the default role.
                   </p>
                 </div>

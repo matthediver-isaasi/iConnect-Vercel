@@ -518,7 +518,7 @@ function AdminScheduleGrid({ sessions, tracks, timezone, speakerMap = {}, onEdit
       {sessionsWithoutTime.length > 0 && (
         <div data-testid="admin-schedule-unscheduled">
           <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-700" />
+            <Clock className="w-4 h-4 text-warning" />
             Unscheduled Sessions
           </h3>
           <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
@@ -2117,7 +2117,7 @@ export default function CreateComplexEvent() {
                         <p className="text-xs text-slate-500">Visible, accepting registrations</p>
                       </Label>
                     </div>
-                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.event_state === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.event_state === 'draft' ? 'border-warning/50 bg-warning/10' : 'border-slate-200 hover:border-slate-300'}`}>
                       <RadioGroupItem value="draft" id="state-draft" data-testid="radio-state-draft" />
                       <Label htmlFor="state-draft" className="cursor-pointer flex-1">
                         <span className="font-medium">Draft</span>
@@ -2323,7 +2323,7 @@ export default function CreateComplexEvent() {
                   />
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>Displayed on event cards and listings</span>
-                    <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-700' : ''}>
+                    <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-warning' : ''}>
                       {formData.summary.length}/{summaryMaxLength}
                     </span>
                   </div>
@@ -3070,7 +3070,7 @@ export default function CreateComplexEvent() {
                             </Badge>
                           )}
                           {ticket.early_bird_enabled && ticket.early_bird_price && (
-                            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                            <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/30">
                               <Bird className="h-3 w-3 mr-1" />
                               Early Bird £{ticket.early_bird_price}
                             </Badge>
@@ -3233,12 +3233,12 @@ export default function CreateComplexEvent() {
                               data-testid={`switch-early-bird-${ticket._localId}`}
                             />
                             <Label htmlFor={`ticket-early-bird-${ticket._localId}`} className="text-sm font-medium flex items-center gap-1.5">
-                              <Bird className="h-4 w-4 text-amber-700" />
+                              <Bird className="h-4 w-4 text-warning" />
                               Early Bird Pricing
                             </Label>
                           </div>
                           {ticket.early_bird_enabled && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-amber-200 ml-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-warning/30 ml-1">
                               <div className="space-y-1.5">
                                 <Label htmlFor={`ticket-early-bird-price-${ticket._localId}`} className="text-sm">
                                   Early Bird Price (£) *
@@ -3601,14 +3601,14 @@ export default function CreateComplexEvent() {
 
                         {/* Restrict-mode toggle: shown when roles OR groups selected AND visibility includes members */}
                         {((ticket.role_ids || []).length > 0 || (ticket.member_group_ids || []).length > 0) && ticket.visibility_mode !== 'public_only' && (
-                          <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <div className="mt-3 flex items-center justify-between p-3 bg-warning/10 border border-warning/30 rounded-lg">
                             <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4 text-amber-700" />
+                              <Users className="h-4 w-4 text-warning" />
                               <div>
-                                <Label htmlFor={`role-match-only-${ticket._localId}`} className="text-sm font-medium text-amber-800">
+                                <Label htmlFor={`role-match-only-${ticket._localId}`} className="text-sm font-medium text-warning">
                                   Restrict to selected roles / groups
                                 </Label>
-                                <p className="text-xs text-amber-700">
+                                <p className="text-xs text-warning">
                                   {ticket.role_match_only
                                     ? "Ticket is hidden from users whose role and member groups don't match"
                                     : "Ticket is visible to all users (selection only affects who can register)"}
@@ -4560,9 +4560,9 @@ export default function CreateComplexEvent() {
           </div>
 
           {liveSessionClashes.length > 0 && (
-            <div className="flex items-start gap-2 p-3 mt-4 mb-4 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800" data-testid="session-clash-warning">
-              <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-700 mt-0.5 shrink-0" />
-              <div className="text-sm text-amber-800 dark:text-amber-300">
+            <div className="flex items-start gap-2 p-3 mt-4 mb-4 rounded-md bg-warning/10 dark:bg-warning/40 border border-warning/30 dark:border-warning" data-testid="session-clash-warning">
+              <AlertTriangle className="w-4 h-4 text-warning dark:text-warning mt-0.5 shrink-0" />
+              <div className="text-sm text-warning dark:text-warning">
                 <p className="font-medium mb-1">Time clash detected</p>
                 <ul className="list-disc pl-4 space-y-0.5">
                   {liveSessionClashes.map((clash, i) => (

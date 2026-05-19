@@ -1894,7 +1894,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 />
               )}
               {!canProceed && !isFormatValid && (
-                <p className="text-sm text-amber-700 text-center mt-4">
+                <p className="text-sm text-warning text-center mt-4">
                   Please fix the format error above to continue
                 </p>
               )}
@@ -2089,11 +2089,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             })()}
             {/* Schema change warning */}
             {schemaChanged && schemaChangeMessage && (
-              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-4">
-                <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-800">
+              <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-md mb-4">
+                <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                <div className="text-sm text-warning">
                   <p className="font-medium">Form has been updated</p>
-                  <p className="text-amber-700">{schemaChangeMessage}</p>
+                  <p className="text-warning">{schemaChangeMessage}</p>
                 </div>
               </div>
             )}

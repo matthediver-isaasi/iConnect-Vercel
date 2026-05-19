@@ -144,7 +144,7 @@ function PollResultsView({ zoomId, type }) {
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 p-4 text-amber-700 bg-amber-50 rounded-lg" data-testid="error-poll-results">
+      <div className="flex items-center gap-2 p-4 text-warning bg-warning/10 rounded-lg" data-testid="error-poll-results">
         <AlertCircle className="h-5 w-5 flex-shrink-0" />
         <span>Unable to load poll results. The meeting may not have ended yet, or polls were not used.</span>
       </div>
@@ -636,7 +636,7 @@ function PollManagementView({ zoomId, type, readOnly = false }) {
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 p-4 text-amber-700 bg-amber-50 rounded-lg" data-testid="error-polls">
+      <div className="flex items-center gap-2 p-4 text-warning bg-warning/10 rounded-lg" data-testid="error-polls">
         <AlertCircle className="h-5 w-5 flex-shrink-0" />
         <span>Unable to load polls. The Zoom account may not support polls, or the {type} may not exist yet.</span>
       </div>

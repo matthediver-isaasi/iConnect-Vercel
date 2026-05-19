@@ -366,20 +366,20 @@ export default function MemberProfileModal({ memberId, open, onOpenChange }) {
             {isVisibleOnBack(displaySettings, 'show_awards') && stats.totalAwards > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-amber-700" />
+                  <Trophy className="w-4 h-4 text-warning" />
                   Awards & Recognition ({stats.totalAwards})
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   {stats.onlineAwards.map(award => (
-                    <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-amber-200">
+                    <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-warning/30">
                       <div className="flex items-center gap-2">
                         {award.image_url && (
                           <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-amber-900 line-clamp-1">{award.name}</p>
+                          <p className="text-sm font-semibold text-warning line-clamp-1">{award.name}</p>
                           {award.description && (
-                            <p className="text-xs text-amber-700 line-clamp-1">{award.description}</p>
+                            <p className="text-xs text-warning line-clamp-1">{award.description}</p>
                           )}
                         </div>
                       </div>

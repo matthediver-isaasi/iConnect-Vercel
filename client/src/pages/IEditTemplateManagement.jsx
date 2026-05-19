@@ -195,7 +195,7 @@ export default function IEditTemplateManagementPage() {
       layout: "bg-purple-100 text-purple-700",
       content: "bg-blue-100 text-blue-700",
       media: "bg-green-100 text-green-700",
-      interactive: "bg-amber-100 text-amber-700"
+      interactive: "bg-warning/10 text-warning"
     };
     return variants[category] || variants.content;
   };
@@ -481,8 +481,8 @@ export default function IEditTemplateManagementPage() {
                   </Label>
                 </div>
 
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-900">
+                <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
                     <strong>Note:</strong> After creating a template, you'll need to implement the corresponding React component 
                     in <code className="bg-white px-1 rounded">components/iedit/elements/</code> to render this element type.
                   </p>
