@@ -456,7 +456,7 @@ export function buildFooter() {
       new Paragraph({
         alignment: AlignmentType.CENTER,
         children: [new TextRun({
-          text: `Generated from iConnect on ${moment().format('D MMMM YYYY')}. This document contains award submission information and should be treated as confidential.`,
+          text: `Generated from iConnect on ${moment().format('D MMMM YYYY')}.`,
           size: 16,
           color: '64748B',
           italics: true,
