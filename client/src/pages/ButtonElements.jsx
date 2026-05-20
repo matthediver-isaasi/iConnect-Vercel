@@ -113,9 +113,24 @@ const migrateGradientConfig = (bgConfig) => {
   };
 };
 
-function ButtonStyleEditor({ style, onChange, title, description }) {
+function ButtonStyleEditor({
+  style,
+  onChange,
+  title,
+  description,
+  // Optional — when set, the title renders as an editable Input
+  // (used for free-form custom styles) and onLabelChange is fired on input.
+  editableLabel = false,
+  onLabelChange,
+  // Optional — when set, a Delete button shows in the card header.
+  // Used to remove custom styles from the saved map.
+  onDelete,
+  // Optional override so custom entries can carry stable data-testid
+  // prefixes derived from their map-key rather than their (renamable) label.
+  testIdPrefix: testIdPrefixProp,
+}) {
   const [isHovered, setIsHovered] = useState(false);
-  const testIdPrefix = title.toLowerCase().replace(/\s+/g, '-');
+  const testIdPrefix = testIdPrefixProp || title.toLowerCase().replace(/\s+/g, '-');
 
   const updateStyle = (path, value) => {
     const newStyle = { ...style };
@@ -175,8 +190,34 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            {editableLabel ? (
+              <Input
+                value={title}
+                onChange={(e) => onLabelChange && onLabelChange(e.target.value)}
+                className="text-lg font-semibold"
+                placeholder="Style name"
+                data-testid={`input-${testIdPrefix}-label`}
+              />
+            ) : (
+              <CardTitle className="text-lg">{title}</CardTitle>
+            )}
+            {description && <CardDescription className="mt-1">{description}</CardDescription>}
+          </div>
+          {onDelete && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              data-testid={`button-${testIdPrefix}-delete`}
+              aria-label="Delete style"
+            >
+              <Trash2 className="w-4 h-4 text-red-500" />
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Live Preview */}
@@ -243,7 +284,7 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name={`${title}-bg-type`}
+                    name={`${testIdPrefix}-bg-type`}
                     checked={style.background.type === 'solid'}
                     onChange={() => updateStyle('background.type', 'solid')}
                     className="w-4 h-4"
@@ -254,7 +295,7 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name={`${title}-bg-type`}
+                    name={`${testIdPrefix}-bg-type`}
                     checked={style.background.type === 'gradient'}
                     onChange={() => updateStyle('background.type', 'gradient')}
                     className="w-4 h-4"
@@ -593,7 +634,7 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name={`${title}-hover-type`}
+                    name={`${testIdPrefix}-hover-type`}
                     checked={style.hover.type === 'solid'}
                     onChange={() => updateStyle('hover.type', 'solid')}
                     className="w-4 h-4"
@@ -604,7 +645,7 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name={`${title}-hover-type`}
+                    name={`${testIdPrefix}-hover-type`}
                     checked={style.hover.type === 'gradient'}
                     onChange={() => updateStyle('hover.type', 'gradient')}
                     className="w-4 h-4"
@@ -794,6 +835,68 @@ export default function ButtonElementsPage() {
   
   const [primaryStyle, setPrimaryStyle] = useState(DEFAULT_PRIMARY_STYLE);
   const [secondaryStyle, setSecondaryStyle] = useState(DEFAULT_SECONDARY_STYLE);
+  // Free-form additional tenant button styles. Stored as an ordered array
+  // so the UI can render them with stable keys; saved as a map keyed by
+  // `key`. `key` is the persisted map-key — immutable once saved so canvas
+  // Button blocks already referencing `tenant:<key>` keep resolving. `label`
+  // is the human-readable name shown in the canvas Variant dropdown.
+  const [customStyles, setCustomStyles] = useState([]);
+
+  // Slugify a label to a kebab-case key, ensuring it doesn't collide with
+  // reserved keys (`primary`, `secondary`) or any other existing key.
+  const slugifyKey = (label, existingKeys) => {
+    const base = (label || 'new-style')
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'new-style';
+    const reserved = new Set(['primary', 'secondary', ...existingKeys]);
+    if (!reserved.has(base)) return base;
+    let n = 2;
+    while (reserved.has(`${base}-${n}`)) n += 1;
+    return `${base}-${n}`;
+  };
+
+  const addCustomStyle = () => {
+    setCustomStyles((prev) => {
+      const key = slugifyKey('New style', prev.map((c) => c.key));
+      // Deep clone of the primary defaults so user starts from a familiar
+      // base; they can rebrand colors/radius/size from there.
+      const clone = JSON.parse(JSON.stringify(DEFAULT_PRIMARY_STYLE));
+      // `isNew` is a UI-only flag (stripped on save) that allows the key
+      // to be re-slugified from the label until the first save lands.
+      return [...prev, { key, label: 'New style', isNew: true, ...clone }];
+    });
+  };
+
+  const updateCustomStyle = (key, nextStyle) => {
+    setCustomStyles((prev) =>
+      prev.map((c) =>
+        c.key === key ? { ...nextStyle, key: c.key, label: c.label, isNew: c.isNew } : c
+      )
+    );
+  };
+
+  const renameCustomStyle = (key, nextLabel) => {
+    setCustomStyles((prev) => {
+      // For brand-new (never-saved) entries we re-slugify the map-key from
+      // the label on every keystroke, so the persisted key reflects the
+      // user's chosen name on first save. Once saved (`isNew` is cleared),
+      // the key is immutable to keep already-placed canvas Button blocks
+      // resolvable.
+      return prev.map((c) => {
+        if (c.key !== key) return c;
+        if (!c.isNew) return { ...c, label: nextLabel };
+        const otherKeys = prev.filter((x) => x.key !== key).map((x) => x.key);
+        const nextKey = slugifyKey(nextLabel, otherKeys);
+        return { ...c, label: nextLabel, key: nextKey };
+      });
+    });
+  };
+
+  const deleteCustomStyle = (key) => {
+    setCustomStyles((prev) => prev.filter((c) => c.key !== key));
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -838,6 +941,24 @@ export default function ButtonElementsPage() {
               };
               setSecondaryStyle(migratedSecondary);
             }
+            // Load any custom (non-primary/secondary) entries — they all
+            // share the same shape and the same per-key migration as the
+            // two reserved keys.
+            const loadedCustom = [];
+            Object.entries(buttonStyles).forEach(([key, entry]) => {
+              if (key === 'primary' || key === 'secondary') return;
+              if (!entry || typeof entry !== 'object') return;
+              loadedCustom.push({
+                key,
+                label: entry.label || key,
+                ...DEFAULT_PRIMARY_STYLE,
+                ...entry,
+                background: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.background, ...(entry.background || {}) }),
+                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...(entry.hover || {}) }),
+                size: { ...DEFAULT_SIZE, ...(entry.size || {}) }
+              });
+            });
+            if (loadedCustom.length > 0) setCustomStyles(loadedCustom);
           }
         }
       } catch (error) {
@@ -867,12 +988,23 @@ export default function ButtonElementsPage() {
       const currentData = await getResponse.json();
       const currentBrandingConfig = currentData.branding?.branding_config || {};
       
-      // Merge button_styles into existing branding_config
+      // Build the full button_styles map: primary, secondary, plus every
+      // custom entry keyed by its stable map-key. The UI array form is
+      // collapsed back to an object so the existing storage contract is
+      // unchanged.
+      const customMap = {};
+      customStyles.forEach(({ key, label, isNew: _isNew, ...rest }) => {
+        if (!key) return;
+        // Strip the UI-only `key` and `isNew` fields; keep `label` so it
+        // round-trips. The key becomes the object map-key on save.
+        customMap[key] = { label: label || key, ...rest };
+      });
       const updatedBrandingConfig = {
         ...currentBrandingConfig,
         button_styles: {
           primary: primaryStyle,
-          secondary: secondaryStyle
+          secondary: secondaryStyle,
+          ...customMap
         }
       };
       
@@ -892,6 +1024,10 @@ export default function ButtonElementsPage() {
         throw new Error('Failed to save button styles');
       }
       
+      // Clear the `isNew` flag from any newly-added custom entries — once
+      // saved, their map-keys are frozen and renames will only update the
+      // human-readable label going forward.
+      setCustomStyles((prev) => prev.map((c) => (c.isNew ? { ...c, isNew: false } : c)));
       toast.success('Button styles saved successfully!');
     } catch (error) {
       console.error('Save error:', error);
@@ -904,6 +1040,7 @@ export default function ButtonElementsPage() {
   const handleReset = () => {
     setPrimaryStyle(DEFAULT_PRIMARY_STYLE);
     setSecondaryStyle(DEFAULT_SECONDARY_STYLE);
+    setCustomStyles([]);
     toast.info('Button styles reset to defaults');
   };
 
@@ -967,6 +1104,50 @@ export default function ButtonElementsPage() {
             title="Secondary Button"
             description="Alternative buttons for less prominent actions, often with outline styling"
           />
+        </div>
+
+        {/* Additional (free-form) button styles — canvas Button block only */}
+        <div className="mt-10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Additional button styles</h2>
+              <p className="text-sm text-slate-600">
+                Extra named styles available in the page builder's Button block. Use these for contrast against specific section backgrounds (e.g. "On dark hero", "On orange banner"). Primary and Secondary above remain the defaults used by navigation, header, and IEdit CTA buttons.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addCustomStyle}
+              data-testid="button-add-custom-style"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add button style
+            </Button>
+          </div>
+          {customStyles.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-slate-500 text-sm">
+                No additional styles yet. Click "Add button style" to create one.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid lg:grid-cols-2 gap-8">
+              {customStyles.map((entry) => (
+                <ButtonStyleEditor
+                  key={entry.key}
+                  style={entry}
+                  onChange={(next) => updateCustomStyle(entry.key, next)}
+                  title={entry.label}
+                  description={`Variant key: tenant:${entry.key}`}
+                  editableLabel
+                  onLabelChange={(v) => renameCustomStyle(entry.key, v)}
+                  onDelete={() => deleteCustomStyle(entry.key)}
+                  testIdPrefix={`custom-${entry.key}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Usage Info */}

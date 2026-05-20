@@ -544,8 +544,17 @@ function bgCssFromConfig(bgConfig) {
 // and returns the corresponding `branding.buttonStyles[primary|secondary]`
 // object — or null when branding isn't loaded / the slot isn't configured.
 function resolveTenantButtonStyle(variant, branding) {
-  if (variant !== 'tenant-primary' && variant !== 'tenant-secondary') return null;
-  const key = variant === 'tenant-primary' ? 'primary' : 'secondary';
+  // Three accepted variant shapes:
+  //   'tenant-primary'   → button_styles.primary    (legacy, kept stable)
+  //   'tenant-secondary' → button_styles.secondary  (legacy, kept stable)
+  //   'tenant:<key>'     → button_styles[<key>]     (free-form custom entries, task #960)
+  let key = null;
+  if (variant === 'tenant-primary') key = 'primary';
+  else if (variant === 'tenant-secondary') key = 'secondary';
+  else if (typeof variant === 'string' && variant.startsWith('tenant:')) {
+    key = variant.slice('tenant:'.length);
+  }
+  if (!key) return null;
   // `buttonStyles` is the flat field exposed by /api/public/tenant-branding;
   // older payloads expose it nested as `brandingConfig.button_styles`.
   const styles =
@@ -554,6 +563,17 @@ function resolveTenantButtonStyle(variant, branding) {
     null;
   if (!styles) return null;
   return styles[key] || null;
+}
+
+// True for any variant that should be rendered via the inline-style
+// tenant button path (legacy `tenant-primary` / `tenant-secondary` plus
+// the free-form `tenant:<key>` form introduced in task #960).
+function isTenantButtonVariant(variant) {
+  return (
+    variant === 'tenant-primary' ||
+    variant === 'tenant-secondary' ||
+    (typeof variant === 'string' && variant.startsWith('tenant:'))
+  );
 }
 
 function aspectFromRatio(r) {
@@ -1044,7 +1064,7 @@ function ButtonRender({ block, asEditor }) {
   // (`primary`/`default`/`outline`/`ghost`) continue through buttonClasses
   // unchanged.
   const branding = useTenantBranding()?.branding || null;
-  const isTenantVariant = c.variant === 'tenant-primary' || c.variant === 'tenant-secondary';
+  const isTenantVariant = isTenantButtonVariant(c.variant);
   const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(c.variant, branding) : null;
   const [tenantHovered, setTenantHovered] = useState(false);
 
@@ -1125,6 +1145,20 @@ function ButtonRender({ block, asEditor }) {
 function ButtonInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  // Pull tenant branding so we can append the tenant's free-form custom
+  // button styles (task #960) to the Variant dropdown. The hook is the
+  // same one ButtonRender uses, so the payload is cached.
+  const branding = useTenantBranding()?.branding || null;
+  const customStyleEntries = (() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  })();
   return (
     <>
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
@@ -1146,6 +1180,10 @@ function ButtonInspector({ block, update }) {
           { value: 'ghost', label: 'Ghost' },
           { value: 'tenant-primary', label: 'Tenant primary (branded)' },
           { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+          ...customStyleEntries.map((e) => ({
+            value: `tenant:${e.key}`,
+            label: `Tenant: ${e.label}`,
+          })),
         ]}
         testId="select-button-variant"
       />
