@@ -579,16 +579,20 @@ function HeroRender({ block, asEditor, priority }) {
         )}
         {Array.isArray(c.ctas) && c.ctas.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2" style={{ justifyContent: justify }}>
-            {c.ctas.map((cta, i) => (
-              <a
-                key={i}
-                href={asEditor ? undefined : (cta.href || '#')}
-                className={buttonClasses(cta.variant || 'primary', 'default')}
-                onClick={(e) => { if (asEditor) e.preventDefault(); }}
-              >
-                {cta.label || 'CTA'}
-              </a>
-            ))}
+            {c.ctas.map((cta, i) => {
+              const ctaLabelStyleObj = resolveTenantStyle(cta.labelTypographyStyleId, tenantStyles);
+              const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
+              return (
+                <a
+                  key={i}
+                  href={asEditor ? undefined : (cta.href || '#')}
+                  className={buttonClasses(cta.variant || 'primary', 'default')}
+                  onClick={(e) => { if (asEditor) e.preventDefault(); }}
+                >
+                  <span style={ctaLabelInline || undefined}>{cta.label || 'CTA'}</span>
+                </a>
+              );
+            })}
           </div>
         )}
       </div>
@@ -683,6 +687,12 @@ function HeroInspector({ block, update }) {
           renderItem={(item, idx, patch) => (
             <>
               <TextField label="Label" value={item.label} onChange={(v) => patch({ label: v })} testId={`hero-cta-${idx}-label`} />
+              <TypographyStyleField
+                label="Label style"
+                value={item.labelTypographyStyleId}
+                onChange={(id) => patch({ labelTypographyStyleId: id })}
+                testId={`select-hero-cta-${idx}-typography`}
+              />
               <TextField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`hero-cta-${idx}-href`} />
               <SelectField
                 label="Variant"
@@ -1636,18 +1646,22 @@ function CardRender({ block, asEditor, priority }) {
         className="prose prose-sm max-w-none mt-1 flex-1 [&_p:last-child]:mb-0"
         dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
       />
-      {c.ctaLabel && (
-        <div className="mt-2">
-          <a
-            href={asEditor ? undefined : (c.ctaHref || '#')}
-            className={buttonClasses(c.ctaVariant || 'outline', 'default')}
-            onClick={(e) => { if (asEditor) e.preventDefault(); }}
-          >
-            {c.ctaLabel}
-            <ArrowRight className="w-4 h-4" />
-          </a>
-        </div>
-      )}
+      {c.ctaLabel && (() => {
+        const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
+        const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
+        return (
+          <div className="mt-2">
+            <a
+              href={asEditor ? undefined : (c.ctaHref || '#')}
+              className={buttonClasses(c.ctaVariant || 'outline', 'default')}
+              onClick={(e) => { if (asEditor) e.preventDefault(); }}
+            >
+              <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
+              <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1691,6 +1705,12 @@ function CardInspector({ block, update }) {
       />
       <RichTextField label="Body" value={c.body} onChange={(v) => set({ body: v })} testId="input-card-body" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
+      <TypographyStyleField
+        label="CTA label style"
+        value={c.ctaLabelTypographyStyleId}
+        onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
+        testId="select-card-cta-typography"
+      />
       <TextField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
       <SelectField
         label="CTA variant"
