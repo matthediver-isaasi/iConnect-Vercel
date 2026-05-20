@@ -4608,6 +4608,7 @@ export default function FormBuilderPage() {
     require_authentication: false,
     is_active: true,
     due_diligence_required: false,
+    allow_submitter_email_copy: false,
     is_application_form: false,
     application_level: "member",
     uniqueness_checks: [],
@@ -5048,6 +5049,7 @@ export default function FormBuilderPage() {
         require_authentication: existingForm.require_authentication || false,
         is_active: existingForm.is_active ?? true,
         due_diligence_required: existingForm.due_diligence_required ?? false,
+        allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
@@ -5649,6 +5651,16 @@ export default function FormBuilderPage() {
                   data-testid="switch-blank-layout"
                 />
                 <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
+              </div>
+
+              <div className="flex items-center gap-2" title="When enabled, the public form shows an email input and a 'Email me a copy' checkbox at the bottom. Submitters who tick it receive a Word (DOCX) copy of their submission by email.">
+                <Switch
+                  id="allow_submitter_email_copy"
+                  checked={formData.allow_submitter_email_copy}
+                  onCheckedChange={(checked) => setFormData({ ...formData, allow_submitter_email_copy: checked })}
+                  data-testid="switch-allow-submitter-email-copy"
+                />
+                <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
               </div>
 
               <div className="text-xs text-slate-500 ml-auto">

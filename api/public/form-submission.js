@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { executeStageActions } from '../due-diligence/_stageActions.js';
+import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -17,7 +18,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, submitterCopyRequested, submitterCopyEmail } = req.body;
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none');
 
   if (!form_id) {
@@ -49,7 +50,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -780,6 +781,37 @@ export default async function handler(req, res) {
       } catch (ddError) {
         console.error('[Public Form Submission] Error creating DD record:', ddError);
         // Don't fail the submission for DD errors
+      }
+    }
+
+    // Task #944: If the form allows it AND the submitter ticked the box on
+    // the public form, email them a Word (DOCX) copy of their submission.
+    // Wrapped in try/catch so any failure here NEVER blocks the submission
+    // success response (the user has already submitted successfully).
+    if (
+      form.allow_submitter_email_copy &&
+      submitterCopyRequested === true &&
+      typeof submitterCopyEmail === 'string' &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submitterCopyEmail.trim())
+    ) {
+      try {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || '';
+        const origin = hostHeader ? `${protocol}://${hostHeader}` : (process.env.VITE_APP_URL || '');
+        console.log('[Public Form Submission] Sending submitter Word copy to:', submitterCopyEmail.trim());
+        const copyResult = await sendSubmitterCopyEmail({
+          form,
+          submission,
+          recipientEmail: submitterCopyEmail.trim(),
+          origin,
+        });
+        if (copyResult?.success) {
+          console.log('[Public Form Submission] Submitter copy email sent:', copyResult.messageId || '(no messageId)');
+        } else {
+          console.warn('[Public Form Submission] Submitter copy email failed (non-fatal):', copyResult?.error);
+        }
+      } catch (copyErr) {
+        console.error('[Public Form Submission] Submitter copy email threw (non-fatal):', copyErr);
       }
     }
 

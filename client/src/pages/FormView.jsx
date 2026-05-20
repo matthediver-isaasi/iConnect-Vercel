@@ -1253,6 +1253,16 @@ export default function FormViewPage() {
   const lastPaymentFieldRef = useRef(null);
   const handleSubmitRef = useRef(null);
 
+  // Task #944: Submitter "email me a copy" feature.
+  // When form.allow_submitter_email_copy is true, the form renders an extra
+  // block at the bottom with an email input + checkbox. If the checkbox is
+  // ticked and the email is valid on submit, the server will email the
+  // submitter a DOCX copy of their submission.
+  const [submitterCopyEmail, setSubmitterCopyEmail] = useState("");
+  const [submitterCopyRequested, setSubmitterCopyRequested] = useState(false);
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+  const submitterCopyEmailInvalid = submitterCopyRequested && submitterCopyEmail.trim() !== '' && !isValidEmail(submitterCopyEmail);
+
   useEffect(() => {
     return () => {
       if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
@@ -2136,6 +2146,20 @@ export default function FormViewPage() {
       ? triggeredRoleIdRef.current 
       : (primaryMemberRoleId || form.default_member_role_id || null);
 
+    // Task #944: Block submit if the submitter ticked "email me a copy" but
+    // entered an invalid email. Empty + unticked is fine and submits as normal.
+    if (form?.allow_submitter_email_copy && submitterCopyRequested) {
+      if (!submitterCopyEmail.trim() || !isValidEmail(submitterCopyEmail)) {
+        toast.error('Please enter a valid email address to receive a copy of your submission');
+        return;
+      }
+    }
+
+    const wantsSubmitterCopy =
+      !!form?.allow_submitter_email_copy &&
+      submitterCopyRequested &&
+      isValidEmail(submitterCopyEmail);
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
@@ -2149,7 +2173,11 @@ export default function FormViewPage() {
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
       ...(effectiveRoleId && { role_id: effectiveRoleId }),
-      ...(briefId && { brief_id: briefId })
+      ...(briefId && { brief_id: briefId }),
+      ...(wantsSubmitterCopy && {
+        submitterCopyRequested: true,
+        submitterCopyEmail: submitterCopyEmail.trim(),
+      })
     };
 
     submitFormMutation.mutate(submissionData);
@@ -2285,6 +2313,36 @@ export default function FormViewPage() {
             {submissionError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
                 <p className="text-sm text-red-700">{submissionError}</p>
+              </div>
+            )}
+            {/* Task #944: Submitter "email me a copy" block (card_swipe layout) */}
+            {form?.allow_submitter_email_copy && isLastStep && (
+              <div className="p-3 border border-slate-200 rounded-md bg-slate-50 space-y-2" data-testid="block-submitter-copy">
+                <label htmlFor="submitter-copy-email" className="block text-sm font-medium text-slate-700">Get a copy of your submission</label>
+                <input
+                  id="submitter-copy-email"
+                  type="email"
+                  value={submitterCopyEmail}
+                  onChange={(e) => setSubmitterCopyEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  className="w-full text-sm border border-slate-300 rounded px-2 py-1.5"
+                  data-testid="input-submitter-copy-email"
+                />
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={submitterCopyRequested}
+                    onChange={(e) => setSubmitterCopyRequested(e.target.checked)}
+                    className="mt-0.5"
+                    data-testid="checkbox-submitter-copy-requested"
+                  />
+                  <span>Email me a Word copy of my submission</span>
+                </label>
+                {submitterCopyEmailInvalid && (
+                  <p className="text-xs text-red-600" data-testid="text-submitter-copy-email-error">
+                    Please enter a valid email address.
+                  </p>
+                )}
               </div>
             )}
             <div className="flex justify-between gap-2">
@@ -2662,7 +2720,38 @@ export default function FormViewPage() {
                 <p className="text-sm text-red-700">{submissionError}</p>
               </div>
             )}
-            
+
+            {/* Task #944: Submitter "email me a copy" block (standard layout, last page only) */}
+            {form?.allow_submitter_email_copy && (!hasPages || isLastPage) && (
+              <div className="mb-4 p-3 border border-slate-200 rounded-md bg-slate-50 space-y-2" data-testid="block-submitter-copy">
+                <label htmlFor="submitter-copy-email" className="block text-sm font-medium text-slate-700">Get a copy of your submission</label>
+                <input
+                  id="submitter-copy-email"
+                  type="email"
+                  value={submitterCopyEmail}
+                  onChange={(e) => setSubmitterCopyEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  className="w-full text-sm border border-slate-300 rounded px-2 py-1.5"
+                  data-testid="input-submitter-copy-email"
+                />
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={submitterCopyRequested}
+                    onChange={(e) => setSubmitterCopyRequested(e.target.checked)}
+                    className="mt-0.5"
+                    data-testid="checkbox-submitter-copy-requested"
+                  />
+                  <span>Email me a Word copy of my submission</span>
+                </label>
+                {submitterCopyEmailInvalid && (
+                  <p className="text-xs text-red-600" data-testid="text-submitter-copy-email-error">
+                    Please enter a valid email address.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between pt-4 gap-2 flex-wrap">
               {/* Previous button (only show if we have pages and not on first page) */}
               {hasPages && !isFirstPage ? (
