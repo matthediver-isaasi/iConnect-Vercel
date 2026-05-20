@@ -30,3 +30,9 @@ id = "qQGKfoAGhoJvr-dmsdNAv"
 uri = "file://reports/seo-board-report.docx"
 type = "word_document"
 title = "GFI — SEO & Link-Preview Capability Board Update"
+
+[[outputs]]
+id = "vRAAVRf2iHTJl2DiEwJEr"
+uri = "file://exports/GFI-Security-and-Support-Board-Paper-v1.0.docx"
+type = "word_document"
+title = "GFI Security & 5-Year Support — Board Paper (v1.0)"
