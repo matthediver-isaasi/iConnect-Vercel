@@ -36,7 +36,13 @@ const DEFAULT_PRIMARY_STYLE = {
     ]
   },
   textColor: '#FFFFFF',
-  hoverTextColor: '#FFFFFF'
+  hoverTextColor: '#FFFFFF',
+  size: {
+    paddingX: 20,
+    paddingY: 8,
+    fontSize: 16,
+    iconSize: 18
+  }
 };
 
 const DEFAULT_SECONDARY_STYLE = {
@@ -65,8 +71,18 @@ const DEFAULT_SECONDARY_STYLE = {
     ]
   },
   textColor: '#000000',
-  hoverTextColor: '#FFFFFF'
+  hoverTextColor: '#FFFFFF',
+  size: {
+    paddingX: 20,
+    paddingY: 8,
+    fontSize: 16,
+    iconSize: 18
+  }
 };
+
+// Default size block shared by both styles — used to backfill the field on
+// payloads saved before the size tab existed (additive migration).
+const DEFAULT_SIZE = { paddingX: 20, paddingY: 8, fontSize: 16, iconSize: 18 };
 
 // Helper to convert old format to new format
 const migrateGradientConfig = (bgConfig) => {
@@ -211,10 +227,11 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
         </div>
 
         <Tabs defaultValue="background" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="background" data-testid={`tab-${testIdPrefix}-background`}>Background</TabsTrigger>
             <TabsTrigger value="border" data-testid={`tab-${testIdPrefix}-border`}>Border</TabsTrigger>
             <TabsTrigger value="radius" data-testid={`tab-${testIdPrefix}-radius`}>Radius</TabsTrigger>
+            <TabsTrigger value="size" data-testid={`tab-${testIdPrefix}-size`}>Size</TabsTrigger>
             <TabsTrigger value="hover" data-testid={`tab-${testIdPrefix}-hover`}>Hover Effect</TabsTrigger>
           </TabsList>
 
@@ -487,6 +504,87 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
             </p>
           </TabsContent>
 
+          {/* Size Tab */}
+          <TabsContent value="size" className="space-y-4 pt-4">
+            <p className="text-xs text-slate-500">
+              These dimensions are applied when the button is used on canvas
+              pages (Tenant primary / Tenant secondary variants). Other
+              frontend consumers continue to use their own sizing.
+            </p>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Horizontal padding:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.paddingX ?? DEFAULT_SIZE.paddingX]}
+                  onValueChange={([val]) => updateStyle('size.paddingX', val)}
+                  min={0}
+                  max={64}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-padding-x`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-padding-x-value`}>
+                  {style.size?.paddingX ?? DEFAULT_SIZE.paddingX}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Vertical padding:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.paddingY ?? DEFAULT_SIZE.paddingY]}
+                  onValueChange={([val]) => updateStyle('size.paddingY', val)}
+                  min={0}
+                  max={40}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-padding-y`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-padding-y-value`}>
+                  {style.size?.paddingY ?? DEFAULT_SIZE.paddingY}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Font size:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.fontSize ?? DEFAULT_SIZE.fontSize]}
+                  onValueChange={([val]) => updateStyle('size.fontSize', val)}
+                  min={10}
+                  max={32}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-font`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-font-value`}>
+                  {style.size?.fontSize ?? DEFAULT_SIZE.fontSize}px
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Label className="min-w-32">Icon size:</Label>
+              <div className="flex items-center gap-4 flex-1">
+                <Slider
+                  value={[style.size?.iconSize ?? DEFAULT_SIZE.iconSize]}
+                  onValueChange={([val]) => updateStyle('size.iconSize', val)}
+                  min={10}
+                  max={32}
+                  step={1}
+                  className="flex-1"
+                  data-testid={`slider-${testIdPrefix}-size-icon`}
+                />
+                <span className="text-sm text-slate-500 w-12" data-testid={`text-${testIdPrefix}-size-icon-value`}>
+                  {style.size?.iconSize ?? DEFAULT_SIZE.iconSize}px
+                </span>
+              </div>
+            </div>
+          </TabsContent>
+
           {/* Hover Tab */}
           <TabsContent value="hover" className="space-y-4 pt-4">
             <div className="flex items-center gap-4">
@@ -725,7 +823,8 @@ export default function ButtonElementsPage() {
                 ...DEFAULT_PRIMARY_STYLE,
                 ...buttonStyles.primary,
                 background: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.background, ...buttonStyles.primary.background }),
-                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...buttonStyles.primary.hover })
+                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...buttonStyles.primary.hover }),
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.primary.size || {}) }
               };
               setPrimaryStyle(migratedPrimary);
             }
@@ -734,7 +833,8 @@ export default function ButtonElementsPage() {
                 ...DEFAULT_SECONDARY_STYLE,
                 ...buttonStyles.secondary,
                 background: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.background, ...buttonStyles.secondary.background }),
-                hover: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.hover, ...buttonStyles.secondary.hover })
+                hover: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.hover, ...buttonStyles.secondary.hover }),
+                size: { ...DEFAULT_SIZE, ...(buttonStyles.secondary.size || {}) }
               };
               setSecondaryStyle(migratedSecondary);
             }

@@ -34,6 +34,7 @@ import { BLOCK_TYPES, buildResponsiveImage } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
+import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
 // that don't use it.
@@ -496,6 +497,63 @@ function buttonClasses(variant, size) {
     lg: 'h-10 px-5 text-base',
   };
   return `inline-flex items-center justify-center gap-1.5 rounded-md font-medium ${v[variant] || v.default} ${s[size] || s.default}`;
+}
+
+// Default size for tenant button variants on the canvas — matches today's
+// `lg` canvas button dimensions (h-10 px-5 text-base) so a tenant whose
+// stored `button_styles.{primary,secondary}` has no `size` block still
+// renders at sensible CTA proportions.
+const TENANT_BUTTON_DEFAULT_SIZE = {
+  paddingX: 20,
+  paddingY: 8,
+  fontSize: 16,
+  iconSize: 18,
+};
+
+// Compute a CSS `background` shorthand from a button_styles bg/hover config
+// (the shape produced by `/ButtonElements`). Mirrors the resolver already
+// used by PublicHeader / PublicLayout. Returns null when the config is
+// missing so callers can fall back to a default.
+function bgCssFromConfig(bgConfig) {
+  if (!bgConfig) return null;
+  if (bgConfig.type === 'solid') {
+    return { backgroundColor: bgConfig.solidColor || 'transparent' };
+  }
+  const stops = bgConfig.gradientStops;
+  if (Array.isArray(stops) && stops.length >= 2) {
+    const angle = bgConfig.gradientAngle ?? 90;
+    const parts = [...stops]
+      .sort((a, b) => a.position - b.position)
+      .map((s) => `${s.color} ${s.position}%`)
+      .join(', ');
+    return { background: `linear-gradient(${angle}deg, ${parts})` };
+  }
+  if (bgConfig.gradientStart && bgConfig.gradientEnd) {
+    return {
+      background: `linear-gradient(90deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)`,
+    };
+  }
+  if (bgConfig.solidColor) {
+    return { backgroundColor: bgConfig.solidColor };
+  }
+  return null;
+}
+
+// Resolve a stored tenant button-style key against the branding payload.
+// Accepts the canvas variant string ('tenant-primary' / 'tenant-secondary')
+// and returns the corresponding `branding.buttonStyles[primary|secondary]`
+// object — or null when branding isn't loaded / the slot isn't configured.
+function resolveTenantButtonStyle(variant, branding) {
+  if (variant !== 'tenant-primary' && variant !== 'tenant-secondary') return null;
+  const key = variant === 'tenant-primary' ? 'primary' : 'secondary';
+  // `buttonStyles` is the flat field exposed by /api/public/tenant-branding;
+  // older payloads expose it nested as `brandingConfig.button_styles`.
+  const styles =
+    branding?.buttonStyles ||
+    branding?.brandingConfig?.button_styles ||
+    null;
+  if (!styles) return null;
+  return styles[key] || null;
 }
 
 function aspectFromRatio(r) {
@@ -977,6 +1035,71 @@ function ButtonRender({ block, asEditor }) {
   const tenantStyles = useTenantTypographyStyles();
   const labelStyleObj = resolveTenantStyle(c.typographyStyleId, tenantStyles);
   const labelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj) : null;
+  // Tenant button variants — when `variant` is `tenant-primary` or
+  // `tenant-secondary` we render with inline styles derived from the
+  // tenant's saved `branding.buttonStyles[primary|secondary]` instead of
+  // the hardcoded buttonClasses() output. Hover swap mirrors the
+  // useState approach already used by PublicHeader's StyledNavButton so
+  // we don't invent a third hover mechanism. The four legacy variants
+  // (`primary`/`default`/`outline`/`ghost`) continue through buttonClasses
+  // unchanged.
+  const branding = useTenantBranding()?.branding || null;
+  const isTenantVariant = c.variant === 'tenant-primary' || c.variant === 'tenant-secondary';
+  const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(c.variant, branding) : null;
+  const [tenantHovered, setTenantHovered] = useState(false);
+
+  if (isTenantVariant && tenantStyle) {
+    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+    const bg = bgCssFromConfig(tenantHovered ? tenantStyle.hover : tenantStyle.background) || {};
+    const border = tenantStyle.border || {};
+    const inlineStyle = {
+      ...bg,
+      color: tenantHovered
+        ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+        : tenantStyle.textColor || '#ffffff',
+      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      border:
+        border.width > 0
+          ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
+          : 'none',
+      paddingTop: `${size.paddingY}px`,
+      paddingBottom: `${size.paddingY}px`,
+      paddingLeft: `${size.paddingX}px`,
+      paddingRight: `${size.paddingX}px`,
+      fontSize: `${size.fontSize}px`,
+      transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
+    };
+    const iconPx = `${size.iconSize}px`;
+    const tenantInner = (
+      <>
+        {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
+        <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+      </>
+    );
+    return (
+      <div className="w-full h-full flex items-center justify-start">
+        <a
+          href={asEditor ? undefined : (c.href || '#')}
+          target={c.newTab ? '_blank' : undefined}
+          rel={c.newTab ? 'noopener noreferrer' : undefined}
+          aria-label={c.ariaLabel || undefined}
+          className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+          style={inlineStyle}
+          onMouseEnter={() => setTenantHovered(true)}
+          onMouseLeave={() => setTenantHovered(false)}
+          onClick={(e) => { if (asEditor) e.preventDefault(); }}
+        >
+          {tenantInner}
+        </a>
+      </div>
+    );
+  }
+
+  // Fallback path: tenant variant selected but tenant has no button styles
+  // configured (or branding hasn't loaded yet) — render with the `lg`
+  // legacy classes so the button still has sensible CTA proportions.
+  const fallbackSize = isTenantVariant ? 'lg' : c.size;
+  const fallbackVariant = isTenantVariant ? 'primary' : c.variant;
   const inner = (
     <>
       {Icon && <Icon className="w-4 h-4" />}
@@ -990,7 +1113,7 @@ function ButtonRender({ block, asEditor }) {
         target={c.newTab ? '_blank' : undefined}
         rel={c.newTab ? 'noopener noreferrer' : undefined}
         aria-label={c.ariaLabel || undefined}
-        className={buttonClasses(c.variant, c.size)}
+        className={buttonClasses(fallbackVariant, fallbackSize)}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
         {inner}
@@ -1021,6 +1144,8 @@ function ButtonInspector({ block, update }) {
           { value: 'default', label: 'Default' },
           { value: 'outline', label: 'Outline' },
           { value: 'ghost', label: 'Ghost' },
+          { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+          { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
         ]}
         testId="select-button-variant"
       />
