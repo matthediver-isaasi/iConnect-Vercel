@@ -339,11 +339,17 @@ function tagForTypographyStyleType(styleType) {
   return 'div';
 }
 
-function buildTypographyInlineStyle(style) {
+function buildTypographyInlineStyle(style, options) {
   if (!style) return null;
+  const opts = options || {};
   const out = {};
   if (style.font_family) out.fontFamily = style.font_family;
-  if (style.font_size != null) out.fontSize = `${style.font_size}px`;
+  // When the style declares a mobile-specific size and the caller has
+  // opted into responsive rendering (`omitFontSize`), font-size is
+  // emitted via a per-block <style> block with a media query instead
+  // of an inline style — inline styles win against any selector, so we
+  // can't reliably override them in a `@media (max-width: …)` rule.
+  if (style.font_size != null && !opts.omitFontSize) out.fontSize = `${style.font_size}px`;
   if (style.font_weight != null) out.fontWeight = style.font_weight;
   if (style.line_height != null) out.lineHeight = style.line_height;
   if (style.letter_spacing != null) out.letterSpacing = `${style.letter_spacing}px`;
@@ -353,6 +359,33 @@ function buildTypographyInlineStyle(style) {
   if (style.color) out.color = style.color;
   if (style.margin_bottom != null) out.marginBottom = `${style.margin_bottom}px`;
   return out;
+}
+
+// Matches BREAKPOINT_MAX_PX.mobile in `@/lib/canvasDesign` — kept inline
+// here to avoid adding an import for a single constant. If the canonical
+// mobile breakpoint ever changes, update both call sites.
+const MOBILE_BREAKPOINT_MAX_PX = 639.98;
+
+// Builds a <style> rule that overrides the Text block's font-size at the
+// mobile breakpoint when the chosen tenant typography style declares a
+// distinct `font_size_mobile`. The selector matches the renderer's
+// outer wrapper (`[data-cb="<id>"]`) emitted by `CanvasBlockRender`.
+// Returns null when no responsive override is needed.
+function buildTextMobileFontSizeCss(blockId, tenantStyle) {
+  if (!tenantStyle || !blockId) return null;
+  const mobile = tenantStyle.font_size_mobile;
+  const desktop = tenantStyle.font_size;
+  if (mobile == null || mobile === desktop) return null;
+  // CSS attribute selectors with quoted values don't need escaping for
+  // typical generated block ids, but defensively strip the quote/backslash
+  // characters that would break the selector.
+  const safeId = String(blockId).replace(/["\\]/g, '');
+  const sel = `[data-cb="${safeId}"]`;
+  const desktopRule = desktop != null
+    ? `${sel}{font-size:${desktop}px;}`
+    : '';
+  const mobileRule = `@media (max-width:${MOBILE_BREAKPOINT_MAX_PX}px){${sel}{font-size:${mobile}px;}}`;
+  return `${desktopRule}${mobileRule}`;
 }
 
 function buttonClasses(variant, size) {
@@ -561,7 +594,7 @@ function HeroInspector({ block, update }) {
 }
 
 // TEXT -----------------------------------------------------------------------
-function TextRender({ block }) {
+function TextRender({ block, breakpoint }) {
   const c = block.content || {};
   const safeHtml = sanitizeRichText(stripTrailingEmptyParagraphs(c.html || ''));
   // Tenant typography style takes precedence when set and resolvable — the
@@ -573,12 +606,36 @@ function TextRender({ block }) {
     ? tenantStyles.find((s) => s.id === c.typographyStyleId) || null
     : null;
 
+  // Responsive font-size handling: if the chosen tenant style has a
+  // distinct `font_size_mobile`, we omit fontSize from inline styles
+  // and instead emit a per-block <style> tag with a `@media` rule so
+  // the mobile size kicks in below the mobile breakpoint. When the
+  // editor previews a forced breakpoint (`?_bp=mobile`), the iframe
+  // viewport may not actually match the media query, so we additionally
+  // pin the matching size inline for the forced breakpoint preview.
+  const hasMobileFontSize = !!tenantStyle
+    && tenantStyle.font_size_mobile != null
+    && tenantStyle.font_size_mobile !== tenantStyle.font_size;
+  const mobileFontSizeCss = hasMobileFontSize
+    ? buildTextMobileFontSizeCss(block.id, tenantStyle)
+    : null;
+
   let Tag;
   let headingSizeClass = '';
   let inlineTypography = null;
   if (tenantStyle) {
     Tag = tagForTypographyStyleType(tenantStyle.style_type);
-    inlineTypography = buildTypographyInlineStyle(tenantStyle);
+    inlineTypography = buildTypographyInlineStyle(tenantStyle, {
+      omitFontSize: hasMobileFontSize,
+    });
+    if (hasMobileFontSize) {
+      const forcedSize = breakpoint === 'mobile'
+        ? tenantStyle.font_size_mobile
+        : (breakpoint === 'desktop' || breakpoint === 'tablet')
+          ? tenantStyle.font_size
+          : null;
+      if (forcedSize != null) inlineTypography.fontSize = `${forcedSize}px`;
+    }
   } else {
     // Fallback: legacy "Render as H1–H6" path. Unchanged behaviour for any
     // existing block that has `headingAs` set but no `typographyStyleId`.
@@ -601,11 +658,16 @@ function TextRender({ block }) {
     ...(inlineTypography || {}),
   };
   return (
-    <Tag
-      className={`prose prose-sm max-w-none w-full h-full overflow-auto [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
-      style={outerStyle}
-      dangerouslySetInnerHTML={{ __html: safeHtml }}
-    />
+    <>
+      {mobileFontSizeCss && (
+        <style dangerouslySetInnerHTML={{ __html: mobileFontSizeCss }} />
+      )}
+      <Tag
+        className={`prose prose-sm max-w-none w-full h-full overflow-auto [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
+        style={outerStyle}
+        dangerouslySetInnerHTML={{ __html: safeHtml }}
+      />
+    </>
   );
 }
 
