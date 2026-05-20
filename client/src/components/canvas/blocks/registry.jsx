@@ -292,6 +292,27 @@ function textColorForRole(role) {
 // ---------------------------------------------------------------------------
 
 async function fetchTenantTypographyStyles() {
+  // Prefer the authenticated entity endpoint — it resolves the tenant
+  // from the logged-in session and therefore works in every editor
+  // context (Replit dev URLs, *.replit.dev preview hosts, the admin
+  // subdomain, custom domains, etc.). This is the same source
+  // /InstalledFonts and the legacy IEdit typography picker use, so the
+  // canvas dropdown now stays in sync with the admin font config no
+  // matter which host the editor is loaded on.
+  try {
+    const { base44 } = await import('@/api/base44Client');
+    const styles = await base44.entities.TypographyStyle.list();
+    if (Array.isArray(styles)) {
+      return styles.filter((s) => s && s.is_active !== false);
+    }
+  } catch {
+    // Not authenticated (e.g. public visitor viewing a published page).
+    // Fall through to the host-based public endpoint below.
+  }
+  // Public renderer path: host-based tenant resolution. Returns [] on
+  // hosts the resolver can't map to a tenant (localhost, *.replit.dev,
+  // *.repl.co), in which case the block falls back to the legacy
+  // Paragraph/H1–H6 path with hardcoded Tailwind sizes.
   try {
     const res = await fetch('/api/public/typography-styles', { credentials: 'include' });
     if (!res.ok) return [];

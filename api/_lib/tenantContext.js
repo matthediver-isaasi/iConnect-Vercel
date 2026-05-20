@@ -46,7 +46,7 @@ export const TENANT_SCOPE = {
  * Entity to tenant scope mapping
  * 
  * GLOBAL entities are platform-level data accessible to all tenants:
- * - TypographyStyle (defaults), IEditElementTemplate (template library)
+ * - IEditElementTemplate (template library)
  * - RoleAccessItem (capability catalog), ButtonStyle (styling defaults)
  * 
  * TENANT entities are per-tenant (filtered by tenant_id) - THIS IS THE DEFAULT:
@@ -68,7 +68,11 @@ export const entityTenantScope = {
   'PreferenceField': TENANT_SCOPE.TENANT, // Custom field definitions are per-tenant
   'Gallery': TENANT_SCOPE.TENANT, // Photo gallery folders (task #681)
   'GalleryPhoto': TENANT_SCOPE.TENANT, // Gallery photos (task #681)
-  'TypographyStyle': TENANT_SCOPE.GLOBAL,
+  // TypographyStyle has a tenant_id column and rows are per-tenant (see
+  // /InstalledFonts and supabase/migrations/20260519_typography_style_default_per_tenant.sql).
+  // It was previously misclassified as GLOBAL which caused the entity API
+  // to skip auth + tenant filtering, returning rows across every tenant.
+  'TypographyStyle': TENANT_SCOPE.TENANT,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
   'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
