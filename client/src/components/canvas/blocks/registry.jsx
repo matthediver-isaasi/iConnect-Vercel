@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, lazy, Suspense } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Square,
   LayoutPanelTop,
@@ -283,6 +284,77 @@ function textColorForRole(role) {
   return '#0f172a';
 }
 
+// ---------------------------------------------------------------------------
+// Tenant typography styles (used by the Text block's "Render as" picker).
+// Fetched from the public, host-resolved endpoint so the editor preview and
+// the public renderer see the same data. Cached by TanStack Query so all
+// Text inspectors/renderers on the page share a single network call.
+// ---------------------------------------------------------------------------
+
+async function fetchTenantTypographyStyles() {
+  try {
+    const res = await fetch('/api/public/typography-styles', { credentials: 'include' });
+    if (!res.ok) return [];
+    const body = await res.json();
+    return Array.isArray(body) ? body : [];
+  } catch {
+    return [];
+  }
+}
+
+function useTenantTypographyStyles() {
+  const { data } = useQuery({
+    queryKey: ['/api/public/typography-styles'],
+    queryFn: fetchTenantTypographyStyles,
+    staleTime: 60_000,
+    retry: false,
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+// When the chosen tenant style maps to a real heading level, derive the
+// matching `headingAs` so that if the style is later deleted or made
+// inactive the block still degrades to the correct legacy H1–H6 render
+// instead of silently falling back to a plain <div>.
+function fallbackHeadingAsForStyleType(styleType) {
+  const m = String(styleType || '').toLowerCase().match(/^h([1-6])$/);
+  return m ? m[1] : '';
+}
+
+const TYPOGRAPHY_TYPE_ORDER = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6, paragraph: 7 };
+
+function sortTypographyStyles(styles) {
+  return [...styles].sort((a, b) => {
+    const oa = TYPOGRAPHY_TYPE_ORDER[a.style_type] ?? 99;
+    const ob = TYPOGRAPHY_TYPE_ORDER[b.style_type] ?? 99;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+}
+
+function tagForTypographyStyleType(styleType) {
+  const t = String(styleType || '').toLowerCase();
+  if (/^h[1-6]$/.test(t)) return t;
+  if (t === 'paragraph') return 'p';
+  return 'div';
+}
+
+function buildTypographyInlineStyle(style) {
+  if (!style) return null;
+  const out = {};
+  if (style.font_family) out.fontFamily = style.font_family;
+  if (style.font_size != null) out.fontSize = `${style.font_size}px`;
+  if (style.font_weight != null) out.fontWeight = style.font_weight;
+  if (style.line_height != null) out.lineHeight = style.line_height;
+  if (style.letter_spacing != null) out.letterSpacing = `${style.letter_spacing}px`;
+  if (style.text_transform && style.text_transform !== 'none') {
+    out.textTransform = style.text_transform;
+  }
+  if (style.color) out.color = style.color;
+  if (style.margin_bottom != null) out.marginBottom = `${style.margin_bottom}px`;
+  return out;
+}
+
 function buttonClasses(variant, size) {
   const v = {
     primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
@@ -492,23 +564,46 @@ function HeroInspector({ block, update }) {
 function TextRender({ block }) {
   const c = block.content || {};
   const safeHtml = sanitizeRichText(stripTrailingEmptyParagraphs(c.html || ''));
-  // Optional "as" wrapper lets authors render the whole block as a specific
-  // heading level (H1–H6) without relying on inline rich-text markup. This
-  // is the canonical "H1–H6 selectable" control for the text block.
-  const level = Number(c.headingAs);
-  const Tag = level >= 1 && level <= 6 ? `h${level}` : 'div';
-  const headingSizeClass = {
-    1: 'text-3xl font-bold',
-    2: 'text-2xl font-bold',
-    3: 'text-xl font-semibold',
-    4: 'text-lg font-semibold',
-    5: 'text-base font-semibold',
-    6: 'text-sm font-semibold uppercase tracking-wide',
-  }[level] || '';
+  // Tenant typography style takes precedence when set and resolvable — the
+  // outer tag follows the style's `style_type` (h1–h6/paragraph) and an
+  // inline style object carries font-family/size/weight/etc so the public
+  // renderer matches what the author sees in the editor.
+  const tenantStyles = useTenantTypographyStyles();
+  const tenantStyle = c.typographyStyleId
+    ? tenantStyles.find((s) => s.id === c.typographyStyleId) || null
+    : null;
+
+  let Tag;
+  let headingSizeClass = '';
+  let inlineTypography = null;
+  if (tenantStyle) {
+    Tag = tagForTypographyStyleType(tenantStyle.style_type);
+    inlineTypography = buildTypographyInlineStyle(tenantStyle);
+  } else {
+    // Fallback: legacy "Render as H1–H6" path. Unchanged behaviour for any
+    // existing block that has `headingAs` set but no `typographyStyleId`.
+    const level = Number(c.headingAs);
+    Tag = level >= 1 && level <= 6 ? `h${level}` : 'div';
+    headingSizeClass = {
+      1: 'text-3xl font-bold',
+      2: 'text-2xl font-bold',
+      3: 'text-xl font-semibold',
+      4: 'text-lg font-semibold',
+      5: 'text-base font-semibold',
+      6: 'text-sm font-semibold uppercase tracking-wide',
+    }[level] || '';
+  }
+  const outerStyle = {
+    // Tenant style colour wins; otherwise honour the block's colour role.
+    color: tenantStyle && tenantStyle.color
+      ? tenantStyle.color
+      : textColorForRole(c.colorRole),
+    ...(inlineTypography || {}),
+  };
   return (
     <Tag
       className={`prose prose-sm max-w-none w-full h-full overflow-auto [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
-      style={{ color: textColorForRole(c.colorRole) }}
+      style={outerStyle}
       dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );
@@ -517,21 +612,57 @@ function TextRender({ block }) {
 function TextInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const tenantStyles = useTenantTypographyStyles();
+  const sortedTenantStyles = useMemo(
+    () => sortTypographyStyles(tenantStyles),
+    [tenantStyles],
+  );
+  // Build the options list: tenant styles first (so authors see their
+  // brand styles up top), then the generic Paragraph + H1–H6 fallbacks
+  // which are always available.
+  const renderAsOptions = useMemo(() => {
+    const tenantOptions = sortedTenantStyles.map((s) => ({
+      value: `style:${s.id}`,
+      label: `${s.name || 'Untitled style'} (${String(s.style_type || '').toUpperCase() || '—'})`,
+    }));
+    const genericOptions = [
+      { value: 'p', label: 'Paragraph / rich text' },
+      { value: '1', label: 'Heading 1 (H1)' },
+      { value: '2', label: 'Heading 2 (H2)' },
+      { value: '3', label: 'Heading 3 (H3)' },
+      { value: '4', label: 'Heading 4 (H4)' },
+      { value: '5', label: 'Heading 5 (H5)' },
+      { value: '6', label: 'Heading 6 (H6)' },
+    ];
+    return [...tenantOptions, ...genericOptions];
+  }, [sortedTenantStyles]);
+  // Compute the current selected value. Tenant style id wins; otherwise
+  // we fall back to the legacy `headingAs` level.
+  const currentValue = c.typographyStyleId
+    ? `style:${c.typographyStyleId}`
+    : String(c.headingAs || 'p');
+  const handleRenderAsChange = (v) => {
+    if (typeof v === 'string' && v.startsWith('style:')) {
+      // Picking a tenant style also stores a fallback `headingAs`
+      // derived from its `style_type` (h1–h6). If the style is later
+      // deleted or deactivated, the block still renders as the right
+      // heading level via the legacy path instead of collapsing to a
+      // plain <div>.
+      const id = v.slice('style:'.length);
+      const picked = sortedTenantStyles.find((s) => s.id === id);
+      const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
+      set({ typographyStyleId: id, headingAs: fallback });
+    } else {
+      set({ typographyStyleId: '', headingAs: v === 'p' ? '' : v });
+    }
+  };
   return (
     <>
       <SelectField
         label="Render as"
-        value={String(c.headingAs || 'p')}
-        onChange={(v) => set({ headingAs: v === 'p' ? '' : v })}
-        options={[
-          { value: 'p', label: 'Paragraph / rich text' },
-          { value: '1', label: 'Heading 1 (H1)' },
-          { value: '2', label: 'Heading 2 (H2)' },
-          { value: '3', label: 'Heading 3 (H3)' },
-          { value: '4', label: 'Heading 4 (H4)' },
-          { value: '5', label: 'Heading 5 (H5)' },
-          { value: '6', label: 'Heading 6 (H6)' },
-        ]}
+        value={currentValue}
+        onChange={handleRenderAsChange}
+        options={renderAsOptions}
         testId="select-text-heading-as"
       />
       <RichTextField label="Content" value={c.html} onChange={(v) => set({ html: v })} testId="input-text-content" />
