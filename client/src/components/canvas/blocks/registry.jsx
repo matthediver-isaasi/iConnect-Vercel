@@ -1890,8 +1890,66 @@ function MapInspector({ block, update }) {
 // own appearance (background, border, padding) comes from block.style; the
 // inner content offers a max-width centering rail and an optional editor
 // label so authors can tell sections apart from regular boxes.
-function SectionRender({ block, asEditor }) {
+// Helpers for the new Section background-image + overlay layers.
+// hexToRgba accepts any author-entered colour string. For 3/6-digit hex we
+// parse to rgba(); otherwise we hand the raw value to CSS wrapped via
+// `color-mix` is overkill — instead we fall back to letting the browser
+// resolve the colour and apply opacity via a second value. To keep the
+// gradient string valid CSS in every case, we always emit rgba() for hex
+// inputs and an opacity-multiplied raw value otherwise.
+function hexToRgba(input, opacity) {
+  const o = Math.max(0, Math.min(1, Number(opacity) || 0));
+  if (typeof input !== 'string') return `rgba(0,0,0,${o})`;
+  const s = input.trim();
+  const m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+  if (m3) {
+    const r = parseInt(m3[1] + m3[1], 16);
+    const g = parseInt(m3[2] + m3[2], 16);
+    const b = parseInt(m3[3] + m3[3], 16);
+    return `rgba(${r},${g},${b},${o})`;
+  }
+  const m6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(s);
+  if (m6) {
+    const r = parseInt(m6[1], 16);
+    const g = parseInt(m6[2], 16);
+    const b = parseInt(m6[3], 16);
+    return `rgba(${r},${g},${b},${o})`;
+  }
+  // Fallback: assume the caller passed an rgb()/rgba()/named colour and
+  // approximate opacity by wrapping in color-mix. Browsers without
+  // color-mix support fall back to the raw value (opacity ignored), which
+  // is acceptable for v1 since the inspector picker emits hex.
+  return `color-mix(in srgb, ${s} ${Math.round(o * 100)}%, transparent)`;
+}
+
+function buildSectionOverlayBackground(c) {
+  const t = c.overlayType || 'none';
+  if (t === 'solid') {
+    return hexToRgba(c.overlayColor || '#000000', c.overlayOpacity ?? 0.4);
+  }
+  if (t === 'linear') {
+    const angle = Number.isFinite(c.overlayAngle) ? c.overlayAngle : 180;
+    const from = hexToRgba(c.overlayFromColor || '#000000', c.overlayFromOpacity ?? 0.6);
+    const to = hexToRgba(c.overlayToColor || '#000000', c.overlayToOpacity ?? 0);
+    return `linear-gradient(${angle}deg, ${from}, ${to})`;
+  }
+  if (t === 'radial') {
+    const centre = hexToRgba(c.overlayCenterColor || '#000000', c.overlayCenterOpacity ?? 0);
+    const edge = hexToRgba(c.overlayEdgeColor || '#000000', c.overlayEdgeOpacity ?? 0.6);
+    return `radial-gradient(ellipse at center, ${centre}, ${edge})`;
+  }
+  return null;
+}
+
+const SECTION_BLEND_MODES = [
+  'normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
+  'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion',
+  'hue', 'saturation', 'color', 'luminosity',
+];
+
+function SectionRender({ block, asEditor, priority }) {
   const c = block.content || {};
+  const s = block.style || {};
   // Full-bleed: stretch the section across the full viewport width even
   // when the surrounding canvas has a constrained max-width. We use the
   // classic centered 100vw trick so the section escapes its container in
@@ -1908,26 +1966,97 @@ function SectionRender({ block, asEditor }) {
       }
     : null;
 
+  // Background image + overlay layers are rendered with negative insets
+  // matching the outer Tag's padding so they cover the full section
+  // (behind the padding too). `isolation: isolate` on this wrapper keeps
+  // the overlay's mix-blend-mode confined to the image+overlay stack so
+  // child blocks never compositionally blend with anything outside.
+  //
+  // All image-mode side effects are gated behind `isImageBg` so legacy
+  // colour sections (no bgType, or `bgType === 'color'`) emit exactly
+  // the same DOM/style as before this change.
+  const isImageBg = c.bgType === 'image' && !!c.bgImageUrl;
+  const overlayBg = isImageBg ? buildSectionOverlayBackground(c) : null;
+  const hasOverlay = isImageBg && overlayBg && (c.overlayType || 'none') !== 'none';
+  const pt = s.paddingTop || 0;
+  const pr = s.paddingRight || 0;
+  const pb = s.paddingBottom || 0;
+  const pl = s.paddingLeft || 0;
+  const layerInset = isImageBg ? {
+    position: 'absolute',
+    top: -pt,
+    right: -pr,
+    bottom: -pb,
+    left: -pl,
+    pointerEvents: 'none',
+  } : null;
+
   // Inner rail keeps content centered at the configured max-width even
-  // when the outer section is full-bleed.
+  // when the outer section is full-bleed. In image mode we also lift it
+  // above the image/overlay layers via position/z-index; in colour mode
+  // the rail style stays exactly as before this change.
   const railStyle = c.maxWidth
     ? { maxWidth: c.maxWidth, marginInline: 'auto', width: '100%', height: '100%' }
     : { width: '100%', height: '100%' };
+  if (isImageBg) {
+    railStyle.position = 'relative';
+    railStyle.zIndex = 2;
+  }
+
+  const wrapperStyle = isImageBg
+    ? { ...(fullBleedStyle || {}), isolation: 'isolate' }
+    : fullBleedStyle;
 
   return (
     <div
       className="w-full h-full relative"
-      style={fullBleedStyle || undefined}
+      style={wrapperStyle || undefined}
       data-section-id={block.id}
       data-full-bleed={c.fullBleed ? 'true' : 'false'}
+      {...(isImageBg ? { 'data-bg-type': 'image' } : null)}
     >
+      {isImageBg && (() => {
+        const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
+        return (
+          <img
+            src={r.src}
+            srcSet={r.srcSet}
+            sizes={r.sizes}
+            alt=""
+            aria-hidden="true"
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchpriority={priority ? 'high' : undefined}
+            style={{
+              ...layerInset,
+              width: `calc(100% + ${pl + pr}px)`,
+              height: `calc(100% + ${pt + pb}px)`,
+              objectFit: 'cover',
+              objectPosition: 'center',
+              zIndex: 0,
+            }}
+          />
+        );
+      })()}
+      {hasOverlay && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...layerInset,
+            background: overlayBg,
+            mixBlendMode: c.overlayBlendMode || 'normal',
+            zIndex: 1,
+          }}
+        />
+      )}
       <div style={railStyle} />
       {asEditor && (
         <span
           className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wide rounded bg-slate-900/70 text-white pointer-events-none"
           aria-hidden="true"
+          style={isImageBg ? { zIndex: 3 } : undefined}
         >
-          Section{c.fullBleed ? ' · full-bleed' : ''}
+          Section{c.fullBleed ? ' · full-bleed' : ''}{isImageBg ? ' · image' : ''}
         </span>
       )}
     </div>
@@ -1937,6 +2066,9 @@ function SectionRender({ block, asEditor }) {
 function SectionInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const bgType = c.bgType || 'color';
+  const overlayType = c.overlayType || 'solid';
+  const isImageBg = bgType === 'image';
   return (
     <>
       <NumberField
@@ -1947,8 +2079,137 @@ function SectionInspector({ block, update }) {
         testId="input-section-max-width"
       />
       <ToggleField label="Full-bleed" value={!!c.fullBleed} onChange={(v) => set({ fullBleed: v })} testId="toggle-section-full-bleed" />
+      <SelectField
+        label="Background"
+        value={bgType}
+        onChange={(v) => set({ bgType: v })}
+        options={[
+          { value: 'color', label: 'Colour' },
+          { value: 'image', label: 'Image' },
+        ]}
+        testId="select-section-bg-type"
+      />
+      {isImageBg && (
+        <>
+          <ImageField
+            label="Background image"
+            value={c.bgImageUrl}
+            onChangeSrc={(v) => set({ bgImageUrl: v })}
+            testId="input-section-bg-image"
+          />
+          <SelectField
+            label="Overlay"
+            value={overlayType}
+            onChange={(v) => set({ overlayType: v })}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'solid', label: 'Solid colour' },
+              { value: 'linear', label: 'Linear gradient' },
+              { value: 'radial', label: 'Radial gradient' },
+            ]}
+            testId="select-section-overlay-type"
+          />
+          {overlayType === 'solid' && (
+            <>
+              <ColorField
+                label="Overlay colour"
+                value={c.overlayColor || '#000000'}
+                onChange={(v) => set({ overlayColor: v })}
+                testId="input-section-overlay-color"
+              />
+              <NumberField
+                label="Overlay opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayOpacity ?? 0.4}
+                onChange={(v) => set({ overlayOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-overlay-opacity"
+              />
+            </>
+          )}
+          {overlayType === 'linear' && (
+            <>
+              <ColorField
+                label="From colour"
+                value={c.overlayFromColor || '#000000'}
+                onChange={(v) => set({ overlayFromColor: v })}
+                testId="input-section-overlay-from-color"
+              />
+              <NumberField
+                label="From opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayFromOpacity ?? 0.6}
+                onChange={(v) => set({ overlayFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-overlay-from-opacity"
+              />
+              <ColorField
+                label="To colour"
+                value={c.overlayToColor || '#000000'}
+                onChange={(v) => set({ overlayToColor: v })}
+                testId="input-section-overlay-to-color"
+              />
+              <NumberField
+                label="To opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayToOpacity ?? 0}
+                onChange={(v) => set({ overlayToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-overlay-to-opacity"
+              />
+              <NumberField
+                label="Angle (0–360°)"
+                min={0} max={360} step={1}
+                value={Number.isFinite(c.overlayAngle) ? c.overlayAngle : 180}
+                onChange={(v) => {
+                  const n = Number(v);
+                  set({ overlayAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
+                }}
+                testId="input-section-overlay-angle"
+              />
+            </>
+          )}
+          {overlayType === 'radial' && (
+            <>
+              <ColorField
+                label="Centre colour"
+                value={c.overlayCenterColor || '#000000'}
+                onChange={(v) => set({ overlayCenterColor: v })}
+                testId="input-section-overlay-center-color"
+              />
+              <NumberField
+                label="Centre opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayCenterOpacity ?? 0}
+                onChange={(v) => set({ overlayCenterOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-overlay-center-opacity"
+              />
+              <ColorField
+                label="Edge colour"
+                value={c.overlayEdgeColor || '#000000'}
+                onChange={(v) => set({ overlayEdgeColor: v })}
+                testId="input-section-overlay-edge-color"
+              />
+              <NumberField
+                label="Edge opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.overlayEdgeOpacity ?? 0.6}
+                onChange={(v) => set({ overlayEdgeOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-overlay-edge-opacity"
+              />
+            </>
+          )}
+          {overlayType !== 'none' && (
+            <SelectField
+              label="Blend mode"
+              value={c.overlayBlendMode || 'normal'}
+              onChange={(v) => set({ overlayBlendMode: v })}
+              options={SECTION_BLEND_MODES.map((m) => ({ value: m, label: m }))}
+              testId="select-section-overlay-blend"
+            />
+          )}
+        </>
+      )}
       <p className="text-xs text-slate-500">
-        Use the Appearance and Spacing panels above for background, border and padding.
+        Use the Appearance and Spacing panels above for background colour, border and padding.
+        {isImageBg ? ' The Appearance colour shows through any transparent areas of the image overlay.' : ''}
       </p>
     </>
   );

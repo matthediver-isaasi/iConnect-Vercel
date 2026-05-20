@@ -203,7 +203,28 @@ export const BLOCK_DEFAULTS = {
     name: 'Section',
     geom: { w: 600, h: 240 },
     style: { background: '#f8fafc', borderWidth: 0, paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24 },
-    content: { maxWidth: 0, fullBleed: false },
+    // bgType defaults to 'color' so existing sections (which won't have
+    // any of the new fields) are byte-identical to today. The overlay
+    // fields are only consulted when bgType === 'image'.
+    content: {
+      maxWidth: 0,
+      fullBleed: false,
+      bgType: 'color',
+      bgImageUrl: '',
+      overlayType: 'solid',
+      overlayBlendMode: 'normal',
+      overlayColor: '#000000',
+      overlayOpacity: 0.4,
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayAngle: 180,
+      overlayCenterColor: '#000000',
+      overlayCenterOpacity: 0,
+      overlayEdgeColor: '#000000',
+      overlayEdgeOpacity: 0.6,
+    },
   },
   [BLOCK_TYPES.HERO]: {
     name: 'Hero',
