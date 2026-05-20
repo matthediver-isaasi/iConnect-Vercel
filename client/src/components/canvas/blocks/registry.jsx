@@ -516,6 +516,11 @@ const TENANT_BUTTON_DEFAULT_SIZE = {
 // missing so callers can fall back to a default.
 function bgCssFromConfig(bgConfig) {
   if (!bgConfig) return null;
+  // Task #961: explicit transparent type — no fill, regardless of any
+  // stale `solidColor` / `gradientStops` left on the object.
+  if (bgConfig.type === 'transparent') {
+    return { backgroundColor: 'transparent' };
+  }
   if (bgConfig.type === 'solid') {
     return { backgroundColor: bgConfig.solidColor || 'transparent' };
   }

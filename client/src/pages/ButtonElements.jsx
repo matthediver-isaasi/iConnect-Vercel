@@ -145,6 +145,9 @@ function ButtonStyleEditor({
   };
 
   const getBackgroundStyle = (bgConfig) => {
+    if (bgConfig.type === 'transparent') {
+      return { backgroundColor: 'transparent' };
+    }
     if (bgConfig.type === 'solid') {
       return { backgroundColor: bgConfig.solidColor };
     }
@@ -303,10 +306,40 @@ function ButtonStyleEditor({
                   />
                   <span className="text-sm">Gradient</span>
                 </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-bg-type`}
+                    checked={style.background.type === 'transparent'}
+                    onChange={() => updateStyle('background.type', 'transparent')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-bg-transparent`}
+                  />
+                  <span className="text-sm">Transparent</span>
+                </label>
               </div>
             </div>
 
-            {style.background.type === 'solid' ? (
+            {style.background.type === 'transparent' ? (
+              <div
+                className="flex items-center gap-4 p-4 rounded border border-dashed border-slate-300"
+                data-testid={`explainer-${testIdPrefix}-bg-transparent`}
+              >
+                <div
+                  className="w-16 h-10 rounded border border-slate-300 shrink-0"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(45deg, #cbd5e1 25%, transparent 25%), linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cbd5e1 75%), linear-gradient(-45deg, transparent 75%, #cbd5e1 75%)',
+                    backgroundSize: '12px 12px',
+                    backgroundPosition: '0 0, 0 6px, 6px -6px, -6px 0px'
+                  }}
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-slate-600">
+                  No fill — the button background is fully transparent. Use the Border tab to outline the button if needed.
+                </p>
+              </div>
+            ) : style.background.type === 'solid' ? (
               <div className="flex items-center gap-4">
                 <Label className="min-w-24">Color:</Label>
                 <div className="flex items-center gap-2">
@@ -653,10 +686,40 @@ function ButtonStyleEditor({
                   />
                   <span className="text-sm">Gradient</span>
                 </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`${testIdPrefix}-hover-type`}
+                    checked={style.hover.type === 'transparent'}
+                    onChange={() => updateStyle('hover.type', 'transparent')}
+                    className="w-4 h-4"
+                    data-testid={`radio-${testIdPrefix}-hover-transparent`}
+                  />
+                  <span className="text-sm">Transparent</span>
+                </label>
               </div>
             </div>
 
-            {style.hover.type === 'solid' ? (
+            {style.hover.type === 'transparent' ? (
+              <div
+                className="flex items-center gap-4 p-4 rounded border border-dashed border-slate-300"
+                data-testid={`explainer-${testIdPrefix}-hover-transparent`}
+              >
+                <div
+                  className="w-16 h-10 rounded border border-slate-300 shrink-0"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(45deg, #cbd5e1 25%, transparent 25%), linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cbd5e1 75%), linear-gradient(-45deg, transparent 75%, #cbd5e1 75%)',
+                    backgroundSize: '12px 12px',
+                    backgroundPosition: '0 0, 0 6px, 6px -6px, -6px 0px'
+                  }}
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-slate-600">
+                  No fill on hover — the button background becomes fully transparent. Pair with a hover border / text colour to keep the hover state visible.
+                </p>
+              </div>
+            ) : style.hover.type === 'solid' ? (
               <div className="flex items-center gap-4">
                 <Label className="min-w-24">Color:</Label>
                 <div className="flex items-center gap-2">
@@ -921,12 +984,22 @@ export default function ButtonElementsPage() {
           const buttonStyles = data.branding?.branding_config?.button_styles;
           
           if (buttonStyles) {
+            // Task #961: for transparent blocks, skip the default-merge so
+            // we don't inject default `solidColor` / `gradientStops` into
+            // an intentionally fill-less config. Solid/gradient blocks
+            // still get the same gradient + defaults migration as before.
+            const mergeBgBlock = (defaultBlock, incoming) => {
+              if (incoming && incoming.type === 'transparent') {
+                return { ...incoming };
+              }
+              return migrateGradientConfig({ ...defaultBlock, ...(incoming || {}) });
+            };
             if (buttonStyles.primary) {
               const migratedPrimary = {
                 ...DEFAULT_PRIMARY_STYLE,
                 ...buttonStyles.primary,
-                background: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.background, ...buttonStyles.primary.background }),
-                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...buttonStyles.primary.hover }),
+                background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, buttonStyles.primary.background),
+                hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, buttonStyles.primary.hover),
                 size: { ...DEFAULT_SIZE, ...(buttonStyles.primary.size || {}) }
               };
               setPrimaryStyle(migratedPrimary);
@@ -935,8 +1008,8 @@ export default function ButtonElementsPage() {
               const migratedSecondary = {
                 ...DEFAULT_SECONDARY_STYLE,
                 ...buttonStyles.secondary,
-                background: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.background, ...buttonStyles.secondary.background }),
-                hover: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.hover, ...buttonStyles.secondary.hover }),
+                background: mergeBgBlock(DEFAULT_SECONDARY_STYLE.background, buttonStyles.secondary.background),
+                hover: mergeBgBlock(DEFAULT_SECONDARY_STYLE.hover, buttonStyles.secondary.hover),
                 size: { ...DEFAULT_SIZE, ...(buttonStyles.secondary.size || {}) }
               };
               setSecondaryStyle(migratedSecondary);
@@ -953,8 +1026,8 @@ export default function ButtonElementsPage() {
                 label: entry.label || key,
                 ...DEFAULT_PRIMARY_STYLE,
                 ...entry,
-                background: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.background, ...(entry.background || {}) }),
-                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...(entry.hover || {}) }),
+                background: mergeBgBlock(DEFAULT_PRIMARY_STYLE.background, entry.background),
+                hover: mergeBgBlock(DEFAULT_PRIMARY_STYLE.hover, entry.hover),
                 size: { ...DEFAULT_SIZE, ...(entry.size || {}) }
               });
             });
