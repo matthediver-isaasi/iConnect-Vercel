@@ -417,6 +417,51 @@ function buildTextMobileTypographyCss(blockId, tenantStyle) {
   return `${desktopRule}${mobileRule}`;
 }
 
+// Shared inspector control: lets authors pick a tenant typography style for
+// blocks that don't have the Text block's full "Render as" picker (Hero
+// headline/subheadline, Card heading, Button label). Hidden entirely when the
+// tenant has no styles configured so those tenants see no UI change.
+// `onChange(id, picked)` — `id` is the chosen style id (or '' for default) and
+// `picked` is the resolved style object (or null) so callers can also persist
+// a graceful-degradation fallback (e.g. mirror `headingLevel`).
+function TypographyStyleField({ label, value, onChange, testId }) {
+  const tenantStyles = useTenantTypographyStyles();
+  const sorted = useMemo(() => sortTypographyStyles(tenantStyles), [tenantStyles]);
+  if (sorted.length === 0) return null;
+  const options = [
+    { value: '__none__', label: 'Default (no tenant style)' },
+    ...sorted.map((s) => ({
+      value: s.id,
+      label: `${s.name || 'Untitled style'} (${String(s.style_type || '').toUpperCase() || '—'})`,
+    })),
+  ];
+  const handleChange = (v) => {
+    if (v === '__none__') {
+      onChange('', null);
+    } else {
+      const picked = sorted.find((s) => s.id === v) || null;
+      onChange(v, picked);
+    }
+  };
+  return (
+    <SelectField
+      label={label}
+      value={value || '__none__'}
+      onChange={handleChange}
+      options={options}
+      testId={testId}
+    />
+  );
+}
+
+// Resolve a stored tenant typography style id against the cached tenant
+// styles list. Returns null if the id is empty, unknown, or the list isn't
+// loaded yet — callers should fall back to their pre-typography defaults.
+function resolveTenantStyle(styleId, styles) {
+  if (!styleId) return null;
+  return (styles || []).find((s) => s.id === styleId) || null;
+}
+
 function buttonClasses(variant, size) {
   const v = {
     primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
@@ -458,7 +503,25 @@ function vimeoId(url) {
 // HERO -----------------------------------------------------------------------
 function HeroRender({ block, asEditor, priority }) {
   const c = block.content || {};
-  const Heading = `h${Math.max(1, Math.min(6, c.headingLevel || 1))}`;
+  // Tenant typography styles take precedence for both the headline and the
+  // optional sub-headline when set and resolvable. The tag is derived from
+  // the style's `style_type` (h1–h6/paragraph) and inline styles carry
+  // font-family/size/weight/etc so editor preview and public renderer match.
+  const tenantStyles = useTenantTypographyStyles();
+  const headlineStyleObj = resolveTenantStyle(c.headlineTypographyStyleId, tenantStyles);
+  const subheadlineStyleObj = resolveTenantStyle(c.subheadlineTypographyStyleId, tenantStyles);
+  const Heading = headlineStyleObj
+    ? tagForTypographyStyleType(headlineStyleObj.style_type)
+    : `h${Math.max(1, Math.min(6, c.headingLevel || 1))}`;
+  const Sub = subheadlineStyleObj
+    ? tagForTypographyStyleType(subheadlineStyleObj.style_type)
+    : 'p';
+  const headlineInline = headlineStyleObj
+    ? { color: 'inherit', margin: 0, ...buildTypographyInlineStyle(headlineStyleObj) }
+    : { color: 'inherit', margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 };
+  const subheadlineInline = subheadlineStyleObj
+    ? { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720, ...buildTypographyInlineStyle(subheadlineStyleObj) }
+    : { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720 };
   const align = c.alignment || 'center';
   const justify = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
   const textAlign = align;
@@ -506,15 +569,13 @@ function HeroRender({ block, asEditor, priority }) {
         className="relative h-full w-full flex flex-col p-6"
         style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff' }}
       >
-        <Heading
-          style={{ color: 'inherit', margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 }}
-        >
+        <Heading style={headlineInline}>
           {c.headline || ''}
         </Heading>
         {c.subheadline && (
-          <p style={{ color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720 }}>
+          <Sub style={subheadlineInline}>
             {c.subheadline}
-          </p>
+          </Sub>
         )}
         {Array.isArray(c.ctas) && c.ctas.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2" style={{ justifyContent: justify }}>
@@ -548,7 +609,28 @@ function HeroInspector({ block, update }) {
         options={[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
         testId="select-hero-heading-level"
       />
+      <TypographyStyleField
+        label="Headline style"
+        value={c.headlineTypographyStyleId}
+        onChange={(id, picked) => {
+          // Mirror the chosen style's heading level so that if the tenant
+          // style is later deleted the block still renders as the right
+          // heading (graceful degradation, matches the Text block).
+          const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
+          set({
+            headlineTypographyStyleId: id,
+            ...(fallback ? { headingLevel: Number(fallback) } : {}),
+          });
+        }}
+        testId="select-hero-headline-typography"
+      />
       <TextField label="Sub-headline" multiline value={c.subheadline} onChange={(v) => set({ subheadline: v })} testId="input-hero-subheadline" />
+      <TypographyStyleField
+        label="Sub-headline style"
+        value={c.subheadlineTypographyStyleId}
+        onChange={(id) => set({ subheadlineTypographyStyleId: id })}
+        testId="select-hero-subheadline-typography"
+      />
       <SelectField
         label="Background type"
         value={c.bgType || 'color'}
@@ -857,10 +939,17 @@ function ImageInspector({ block, update }) {
 function ButtonRender({ block, asEditor }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon);
+  // Tenant typography style — when set, the label span carries inline
+  // font-family/size/weight/etc so the button label honours brand type. The
+  // outer anchor still uses the variant/size button classes (background,
+  // radius, hover/active states) so this only changes typography.
+  const tenantStyles = useTenantTypographyStyles();
+  const labelStyleObj = resolveTenantStyle(c.typographyStyleId, tenantStyles);
+  const labelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj) : null;
   const inner = (
     <>
       {Icon && <Icon className="w-4 h-4" />}
-      <span>{c.label || 'Button'}</span>
+      <span style={labelInline || undefined}>{c.label || 'Button'}</span>
     </>
   );
   return (
@@ -885,6 +974,12 @@ function ButtonInspector({ block, update }) {
   return (
     <>
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
+      <TypographyStyleField
+        label="Label style"
+        value={c.typographyStyleId}
+        onChange={(id) => set({ typographyStyleId: id })}
+        testId="select-button-typography"
+      />
       <TextField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
       <SelectField
         label="Variant"
@@ -1504,7 +1599,18 @@ function IconInspector({ block, update }) {
 // CARD -----------------------------------------------------------------------
 function CardRender({ block, asEditor, priority }) {
   const c = block.content || {};
-  const Heading = `h${Math.max(1, Math.min(6, c.headingLevel || 3))}`;
+  // Tenant typography style takes precedence for the card title — the
+  // outer tag follows the style's `style_type` and inline styles carry
+  // font-family/size/weight/etc. Falls back to the legacy `headingLevel`
+  // when no style is set or the chosen style id can't be resolved.
+  const tenantStyles = useTenantTypographyStyles();
+  const headingStyleObj = resolveTenantStyle(c.headingTypographyStyleId, tenantStyles);
+  const Heading = headingStyleObj
+    ? tagForTypographyStyleType(headingStyleObj.style_type)
+    : `h${Math.max(1, Math.min(6, c.headingLevel || 3))}`;
+  const headingInline = headingStyleObj
+    ? { margin: 0, marginTop: c.imageUrl ? 12 : 0, ...buildTypographyInlineStyle(headingStyleObj) }
+    : { margin: 0, marginTop: c.imageUrl ? 12 : 0, fontSize: '1.125rem', fontWeight: 600 };
   return (
     <div className="w-full h-full flex flex-col">
       {c.imageUrl && (() => {
@@ -1523,7 +1629,7 @@ function CardRender({ block, asEditor, priority }) {
           />
         );
       })()}
-      <Heading style={{ margin: 0, marginTop: c.imageUrl ? 12 : 0, fontSize: '1.125rem', fontWeight: 600 }}>
+      <Heading style={headingInline}>
         {c.heading}
       </Heading>
       <div
@@ -1566,6 +1672,22 @@ function CardInspector({ block, update }) {
         onChange={(v) => set({ headingLevel: Number(v) })}
         options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
         testId="select-card-heading-level"
+      />
+      <TypographyStyleField
+        label="Heading style"
+        value={c.headingTypographyStyleId}
+        onChange={(id, picked) => {
+          // Mirror the chosen style's heading level so the card still
+          // renders as the right heading if the tenant style is later
+          // deleted (graceful degradation, matches the Text/Hero blocks).
+          const fallback = fallbackHeadingAsForStyleType(picked && picked.style_type);
+          const fallbackNum = fallback ? Math.max(2, Math.min(6, Number(fallback))) : null;
+          set({
+            headingTypographyStyleId: id,
+            ...(fallbackNum ? { headingLevel: fallbackNum } : {}),
+          });
+        }}
+        testId="select-card-heading-typography"
       />
       <RichTextField label="Body" value={c.body} onChange={(v) => set({ body: v })} testId="input-card-body" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
