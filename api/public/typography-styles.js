@@ -34,10 +34,13 @@ export default async function handler(req, res) {
         font_size_mobile,
         font_weight,
         line_height,
+        line_height_mobile,
         letter_spacing,
+        letter_spacing_mobile,
         text_transform,
         color,
         margin_bottom,
+        margin_bottom_mobile,
         is_default,
         is_active
       `)

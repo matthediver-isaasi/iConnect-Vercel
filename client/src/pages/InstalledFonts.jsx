@@ -91,10 +91,13 @@ const defaultStyle = {
   font_size_mobile: null,
   font_weight: 600,
   line_height: 1.2,
+  line_height_mobile: null,
   letter_spacing: 0,
+  letter_spacing_mobile: null,
   text_transform: 'none',
   color: '',
   margin_bottom: 24,
+  margin_bottom_mobile: null,
   is_default: false,
   is_active: true
 };
@@ -135,10 +138,18 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
         <div style={previewStyle}>
           The quick brown fox jumps over the lazy dog
         </div>
-        {formData.font_size_mobile && (
+        {(formData.font_size_mobile || formData.line_height_mobile || formData.letter_spacing_mobile || formData.margin_bottom_mobile != null) && (
           <div className="mt-4 pt-4 border-t border-slate-200">
-            <span className="text-xs text-slate-500 block mb-2">Mobile Preview ({formData.font_size_mobile}px)</span>
-            <div style={{ ...previewStyle, fontSize: `${formData.font_size_mobile}px` }}>
+            <span className="text-xs text-slate-500 block mb-2">Mobile Preview</span>
+            <div
+              style={{
+                ...previewStyle,
+                ...(formData.font_size_mobile ? { fontSize: `${formData.font_size_mobile}px` } : {}),
+                ...(formData.line_height_mobile ? { lineHeight: formData.line_height_mobile } : {}),
+                ...(formData.letter_spacing_mobile != null && formData.letter_spacing_mobile !== '' ? { letterSpacing: `${formData.letter_spacing_mobile}px` } : {}),
+                ...(formData.margin_bottom_mobile != null && formData.margin_bottom_mobile !== '' ? { marginBottom: `${formData.margin_bottom_mobile}px` } : {}),
+              }}
+            >
               The quick brown fox jumps over the lazy dog
             </div>
           </div>
@@ -257,6 +268,21 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
         </div>
 
         <div>
+          <Label htmlFor="line_height_mobile">Mobile Line Height</Label>
+          <Input
+            id="line_height_mobile"
+            type="number"
+            step="0.05"
+            value={formData.line_height_mobile ?? ''}
+            onChange={(e) => handleChange('line_height_mobile', e.target.value ? parseFloat(e.target.value) : null)}
+            min="0.5"
+            max="3"
+            placeholder="Optional"
+            data-testid="input-line-height-mobile"
+          />
+        </div>
+
+        <div>
           <Label htmlFor="letter_spacing">Letter Spacing (px)</Label>
           <Input
             id="letter_spacing"
@@ -267,6 +293,21 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
             min="-5"
             max="20"
             data-testid="input-letter-spacing"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="letter_spacing_mobile">Mobile Letter Spacing (px)</Label>
+          <Input
+            id="letter_spacing_mobile"
+            type="number"
+            step="0.5"
+            value={formData.letter_spacing_mobile ?? ''}
+            onChange={(e) => handleChange('letter_spacing_mobile', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+            min="-5"
+            max="20"
+            placeholder="Optional"
+            data-testid="input-letter-spacing-mobile"
           />
         </div>
 
@@ -321,6 +362,20 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
             min="0"
             max="100"
             data-testid="input-margin-bottom"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="margin_bottom_mobile">Mobile Margin Bottom (px)</Label>
+          <Input
+            id="margin_bottom_mobile"
+            type="number"
+            value={formData.margin_bottom_mobile ?? ''}
+            onChange={(e) => handleChange('margin_bottom_mobile', e.target.value !== '' ? parseInt(e.target.value) : null)}
+            min="0"
+            max="100"
+            placeholder="Optional"
+            data-testid="input-margin-bottom-mobile"
           />
         </div>
 
@@ -443,10 +498,10 @@ function TypographyStyleCard({ style, onEdit, onDelete, onSetDefault }) {
         <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
           <div>Size: {style.font_size}px {style.font_size_mobile && `(${style.font_size_mobile}px mobile)`}</div>
           <div>Weight: {style.font_weight}</div>
-          <div>Line Height: {style.line_height}</div>
-          <div>Letter Spacing: {style.letter_spacing}px</div>
+          <div>Line Height: {style.line_height}{style.line_height_mobile != null && ` (${style.line_height_mobile} mobile)`}</div>
+          <div>Letter Spacing: {style.letter_spacing}px{style.letter_spacing_mobile != null && ` (${style.letter_spacing_mobile}px mobile)`}</div>
           {style.color && <div>Color: {style.color}</div>}
-          <div>Margin: {style.margin_bottom}px</div>
+          <div>Margin: {style.margin_bottom}px{style.margin_bottom_mobile != null && ` (${style.margin_bottom_mobile}px mobile)`}</div>
         </div>
       </CardContent>
     </Card>
