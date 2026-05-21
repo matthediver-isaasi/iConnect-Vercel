@@ -23,6 +23,7 @@ import {
   Users, Building2, Briefcase, BookOpen, GraduationCap, Lightbulb,
   Shield, Zap, ChevronDown,
   Component as ComponentIcon,
+  RotateCcw,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -1304,12 +1305,14 @@ function ButtonSizeOverridesField({ block, update, baseline, baselineLabel }) {
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="icon"
                 disabled={!hasValue}
                 onClick={() => writeOverride(f.key, null)}
+                aria-label={`Use ${baselineLabel}`}
+                title={`Use ${baselineLabel}`}
                 data-testid={`button-button-size-${f.key}-reset`}
               >
-                Use {baselineLabel}
+                <RotateCcw className="w-4 h-4" />
               </Button>
             </div>
           );
