@@ -142,6 +142,11 @@ const FONT_SIZES = [
   { value: '36px', label: '36' },
   { value: '48px', label: '48' },
   { value: '64px', label: '64' },
+  { value: '72px', label: '72' },
+  { value: '96px', label: '96' },
+  { value: '128px', label: '128' },
+  { value: '160px', label: '160' },
+  { value: '192px', label: '192' },
 ];
 
 function MenuBar({ editor }) {
