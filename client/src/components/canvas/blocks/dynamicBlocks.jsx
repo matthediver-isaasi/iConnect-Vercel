@@ -644,11 +644,11 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   // threshold, regardless of viewport size. ~640px matches Tailwind's
   // `md` breakpoint so the desktop look-and-feel is preserved.
   const STACKED_BREAKPOINT_PX = 640;
-  const [isStacked, setIsStacked] = useState(false);
+  const [measuredStacked, setMeasuredStacked] = useState(false);
   useEffect(() => {
     const el = rootRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const update = (w) => setIsStacked(w > 0 && w < STACKED_BREAKPOINT_PX);
+    const update = (w) => setMeasuredStacked(w > 0 && w < STACKED_BREAKPOINT_PX);
     update(el.getBoundingClientRect().width);
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -659,6 +659,15 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // When the editor (or public renderer) explicitly forces a tablet or
+  // mobile breakpoint, stack regardless of the measured container width
+  // — in the canvas the stage width changes but the block's geometry
+  // width may still be desktop-sized. When no breakpoint is forced
+  // (e.g. on the live public site without `?_bp=`), fall back to the
+  // ResizeObserver-measured width.
+  const isStacked = breakpoint === 'mobile' || breakpoint === 'tablet'
+    ? true
+    : measuredStacked;
   useEffect(() => {
     if (index > Math.max(0, items.length - 1)) setIndex(0);
   }, [items.length, index]);
