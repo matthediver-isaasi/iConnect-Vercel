@@ -162,6 +162,7 @@ function CanvasBlockView({
       onPointerDown={(e) => onPointerDownBlock(e, block.id)}
       data-testid={`canvas-block-${block.id}`}
       data-block-id={block.id}
+      data-cb={block.id}
       data-block-type={block.type}
       data-anchor={isAnchor ? 'true' : undefined}
     >
