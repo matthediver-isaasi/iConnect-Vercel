@@ -1073,8 +1073,18 @@ function ButtonRender({ block, asEditor }) {
   const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(c.variant, branding) : null;
   const [tenantHovered, setTenantHovered] = useState(false);
 
+  // Task #962: per-block size overrides. `content.sizeOverrides` is a
+  // partial { paddingX?, paddingY?, fontSize?, iconSize? } that wins over
+  // the resolved tenant size and the tenant default. For legacy variants
+  // (no tenant style), any override switches the block to the same
+  // inline-styled <a> path used by tenant variants so the per-block size
+  // actually takes effect (legacy size classes like `lg`/`sm` are
+  // dropped when overrides are present).
+  const sizeOverrides = c.sizeOverrides && typeof c.sizeOverrides === 'object' ? c.sizeOverrides : null;
+  const hasSizeOverrides = !!sizeOverrides && Object.keys(sizeOverrides).length > 0;
+
   if (isTenantVariant && tenantStyle) {
-    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}), ...(sizeOverrides || {}) };
     const bg = bgCssFromConfig(tenantHovered ? tenantStyle.hover : tenantStyle.background) || {};
     const border = tenantStyle.border || {};
     const inlineStyle = {
@@ -1120,6 +1130,46 @@ function ButtonRender({ block, asEditor }) {
     );
   }
 
+  // Task #962: legacy variant + per-block size overrides → render with
+  // inline padding/font/icon (mirroring the tenant inline-styled path)
+  // so the overrides actually apply. Variant colours still come from
+  // `buttonClasses` (sans size class) so existing colour behaviour is
+  // preserved; only the size class is replaced by inline styles.
+  if (!isTenantVariant && hasSizeOverrides) {
+    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...sizeOverrides };
+    const variantClass = {
+      primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
+      default: 'bg-slate-900 text-white hover-elevate active-elevate-2',
+      outline: 'border border-slate-300 bg-white text-slate-900 hover-elevate active-elevate-2',
+      ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
+    };
+    const baseCls = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
+    const inlineStyle = {
+      paddingTop: `${size.paddingY}px`,
+      paddingBottom: `${size.paddingY}px`,
+      paddingLeft: `${size.paddingX}px`,
+      paddingRight: `${size.paddingX}px`,
+      fontSize: `${size.fontSize}px`,
+    };
+    const iconPx = `${size.iconSize}px`;
+    return (
+      <div className="w-full h-full flex items-center justify-start">
+        <a
+          href={asEditor ? undefined : (c.href || '#')}
+          target={c.newTab ? '_blank' : undefined}
+          rel={c.newTab ? 'noopener noreferrer' : undefined}
+          aria-label={c.ariaLabel || undefined}
+          className={baseCls}
+          style={inlineStyle}
+          onClick={(e) => { if (asEditor) e.preventDefault(); }}
+        >
+          {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
+          <span style={labelInline || undefined}>{c.label || 'Button'}</span>
+        </a>
+      </div>
+    );
+  }
+
   // Fallback path: tenant variant selected but tenant has no button styles
   // configured (or branding hasn't loaded yet) — render with the `lg`
   // legacy classes so the button still has sensible CTA proportions.
@@ -1144,6 +1194,82 @@ function ButtonRender({ block, asEditor }) {
         {inner}
       </a>
     </div>
+  );
+}
+
+// Task #962: Inspector control for per-block size overrides on a Button.
+// Renders four numeric inputs (px) for paddingX, paddingY, fontSize,
+// iconSize. Each input writes only its own key onto
+// `content.sizeOverrides`; clearing an input deletes that key. When the
+// resulting object is empty, the `sizeOverrides` key is removed entirely
+// so a no-overrides block round-trips with no `sizeOverrides` at all.
+const BUTTON_SIZE_OVERRIDE_FIELDS = [
+  { key: 'paddingX', label: 'Padding X', placeholder: TENANT_BUTTON_DEFAULT_SIZE.paddingX },
+  { key: 'paddingY', label: 'Padding Y', placeholder: TENANT_BUTTON_DEFAULT_SIZE.paddingY },
+  { key: 'fontSize', label: 'Font size', placeholder: TENANT_BUTTON_DEFAULT_SIZE.fontSize },
+  { key: 'iconSize', label: 'Icon size', placeholder: TENANT_BUTTON_DEFAULT_SIZE.iconSize },
+];
+
+function ButtonSizeOverridesField({ block, update }) {
+  const c = block.content || {};
+  const overrides = (c.sizeOverrides && typeof c.sizeOverrides === 'object') ? c.sizeOverrides : {};
+  const writeOverride = (key, nextVal) => {
+    update((b) => {
+      const content = { ...(b.content || {}) };
+      const current = (content.sizeOverrides && typeof content.sizeOverrides === 'object') ? { ...content.sizeOverrides } : {};
+      if (nextVal === null || nextVal === undefined || nextVal === '' || !Number.isFinite(nextVal)) {
+        delete current[key];
+      } else {
+        current[key] = nextVal;
+      }
+      if (Object.keys(current).length === 0) {
+        delete content.sizeOverrides;
+      } else {
+        content.sizeOverrides = current;
+      }
+      return { ...b, content };
+    });
+  };
+  return (
+    <Field label="Size overrides (px)">
+      <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          Leave blank to use the tenant default for this variant. Set any value to override just this button.
+        </p>
+        {BUTTON_SIZE_OVERRIDE_FIELDS.map((f) => {
+          const v = overrides[f.key];
+          const hasValue = Number.isFinite(v);
+          return (
+            <div key={f.key} className="flex items-center gap-2">
+              <Label className="text-xs w-20 shrink-0">{f.label}</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={hasValue ? v : ''}
+                placeholder={String(f.placeholder)}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  writeOverride(f.key, raw === '' ? null : Number(raw));
+                }}
+                className="h-8"
+                data-testid={`input-button-size-${f.key}`}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!hasValue}
+                onClick={() => writeOverride(f.key, null)}
+                data-testid={`button-button-size-${f.key}-reset`}
+              >
+                Reset
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </Field>
   );
 }
 
@@ -1210,6 +1336,7 @@ function ButtonInspector({ block, update }) {
         options={[{ value: '__none__', label: 'None' }, ...Object.keys(LUCIDE_ICONS).map((n) => ({ value: n, label: n }))]}
         testId="select-button-icon"
       />
+      <ButtonSizeOverridesField block={block} update={update} />
       <ToggleField label="Open in new tab" value={c.newTab} onChange={(v) => set({ newTab: v })} testId="toggle-button-newtab" />
       <TextField label="ARIA label (optional)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-button-aria" />
     </>
