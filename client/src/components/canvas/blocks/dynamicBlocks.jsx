@@ -53,7 +53,7 @@ function TextField({ label, value, onChange, placeholder, testId, multiline, hin
     </Field>
   );
 }
-function NumberField({ label, value, onChange, min, max, testId }) {
+function NumberField({ label, value, onChange, min, max, step, testId }) {
   return (
     <Field label={label}>
       <Input
@@ -61,6 +61,7 @@ function NumberField({ label, value, onChange, min, max, testId }) {
         value={Number.isFinite(value) ? value : ''}
         min={min}
         max={max}
+        step={step}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
         className="h-8"
         data-testid={testId}
@@ -691,6 +692,39 @@ function EventCarouselRender({ block, asEditor }) {
   const dotInactiveColor = c.dotInactiveColor || '';
   const dotActiveColor = c.dotActiveColor || '';
 
+  // Task #968: line spacing (title + summary) and calendar icon sizing.
+  // Unitless line-height is applied inline only when a positive finite
+  // number is set, so the existing Tailwind defaults remain when blank.
+  if (Number.isFinite(c.titleLineHeight) && c.titleLineHeight > 0) {
+    titleStyle.lineHeight = c.titleLineHeight;
+  }
+  if (Number.isFinite(c.summaryLineHeight) && c.summaryLineHeight > 0) {
+    summaryStyle.lineHeight = c.summaryLineHeight;
+  }
+  // Per-icon overrides — when unset we keep the original Tailwind w-3 h-3
+  // (date row) and w-10 h-10 (no-image placeholder).
+  const dateIconSize = Number.isFinite(c.dateIconSize) && c.dateIconSize > 0 ? c.dateIconSize : null;
+  const placeholderIconSize = Number.isFinite(c.placeholderIconSize) && c.placeholderIconSize > 0
+    ? c.placeholderIconSize : null;
+  const dateIconCls = dateIconSize ? '' : 'w-3 h-3';
+  const dateIconStyle = dateIconSize ? { width: `${dateIconSize}px`, height: `${dateIconSize}px` } : undefined;
+  const placeholderIconCls = placeholderIconSize ? '' : 'w-10 h-10';
+  const placeholderIconStyle = placeholderIconSize
+    ? { width: `${placeholderIconSize}px`, height: `${placeholderIconSize}px` }
+    : undefined;
+
+  // Task #968: container drop-shadow preset. `none` (or unset) keeps the
+  // block byte-identical to today. Tailwind's `shadow-*` paints the
+  // box-shadow OUTSIDE the element, so the existing `overflow-hidden`
+  // on the root does not clip it.
+  const DROP_SHADOW_CLS = {
+    sm: 'shadow-sm',
+    md: 'shadow',
+    lg: 'shadow-lg',
+    xl: 'shadow-xl',
+  };
+  const dropShadowCls = DROP_SHADOW_CLS[c.dropShadow] || '';
+
   // Featured badge sits on the image in the corner opposite the content
   // side, so the eye reads badge → image → content. Image-left ⇒ badge
   // top-right; image-right ⇒ badge top-left.
@@ -704,7 +738,7 @@ function EventCarouselRender({ block, asEditor }) {
 
   return (
     <div
-      className="relative w-full h-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      className={`relative w-full h-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500${dropShadowCls ? ` ${dropShadowCls}` : ''}`}
       aria-label={block.a11y?.ariaLabel || event.title || 'Event carousel'}
       data-testid="event-carousel"
       role="region"
@@ -729,7 +763,7 @@ function EventCarouselRender({ block, asEditor }) {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-slate-400">
-              <Calendar className="w-10 h-10" aria-hidden="true" />
+              <Calendar className={placeholderIconCls} style={placeholderIconStyle} aria-hidden="true" />
             </div>
           )}
           {showFeaturedBadge ? (
@@ -745,7 +779,7 @@ function EventCarouselRender({ block, asEditor }) {
         <div className={`w-full md:w-1/2 p-4 md:p-6 flex flex-col gap-2 justify-center min-w-0 order-2 ${contentOrderCls}`}>
           {c.showDate !== false && event.start_date ? (
             <div className="text-xs text-slate-600 flex items-center gap-1" style={dateStyle}>
-              <Calendar className="w-3 h-3" aria-hidden="true" />
+              <Calendar className={dateIconCls} style={dateIconStyle} aria-hidden="true" />
               {formatDate(event.start_date)}
             </div>
           ) : null}
@@ -1009,6 +1043,15 @@ function EventCarouselInspector({ block, update }) {
         onChange={(v) => set({ titleColor: v })}
         testId="color-event-carousel-title"
       />
+      <NumberField
+        label="Title line spacing"
+        min={0.5}
+        max={3}
+        step={0.05}
+        value={c.titleLineHeight}
+        onChange={(v) => set({ titleLineHeight: v })}
+        testId="input-event-carousel-title-line-height"
+      />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Summary</Label>
@@ -1025,6 +1068,50 @@ function EventCarouselInspector({ block, update }) {
         value={c.summaryColor}
         onChange={(v) => set({ summaryColor: v })}
         testId="color-event-carousel-summary"
+      />
+      <NumberField
+        label="Summary line spacing"
+        min={0.5}
+        max={3}
+        step={0.05}
+        value={c.summaryLineHeight}
+        onChange={(v) => set({ summaryLineHeight: v })}
+        testId="input-event-carousel-summary-line-height"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Calendar icon</Label>
+      </div>
+      <NumberField
+        label="Date row icon size (px)"
+        min={1}
+        value={c.dateIconSize}
+        onChange={(v) => set({ dateIconSize: v })}
+        testId="input-event-carousel-date-icon-size"
+      />
+      <NumberField
+        label="No-image placeholder icon size (px)"
+        min={1}
+        value={c.placeholderIconSize}
+        onChange={(v) => set({ placeholderIconSize: v })}
+        testId="input-event-carousel-placeholder-icon-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Container</Label>
+      </div>
+      <SelectField
+        label="Drop shadow"
+        value={c.dropShadow || 'none'}
+        onChange={(v) => set({ dropShadow: v === 'none' ? null : v })}
+        options={[
+          { value: 'none', label: 'None' },
+          { value: 'sm', label: 'Small' },
+          { value: 'md', label: 'Medium' },
+          { value: 'lg', label: 'Large' },
+          { value: 'xl', label: 'Extra large' },
+        ]}
+        testId="select-event-carousel-drop-shadow"
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
