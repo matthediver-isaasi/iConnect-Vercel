@@ -659,15 +659,35 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Real mobile viewports often render the carousel inside a block whose
+  // CSS width still cascades from desktop (e.g. 900px) — the stage clips
+  // it but `getBoundingClientRect` still measures 900px, so the
+  // container-width check above wouldn't trigger. Also force-stack when
+  // the actual viewport is below the stacked breakpoint via `matchMedia`,
+  // so phones reliably get the stacked layout regardless of the block's
+  // stored mobile geometry.
+  const [viewportNarrow, setViewportNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(`(max-width: ${STACKED_BREAKPOINT_PX - 0.02}px)`);
+    const update = () => setViewportNarrow(!!mql.matches);
+    update();
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', update);
+      return () => mql.removeEventListener('change', update);
+    }
+    mql.addListener(update);
+    return () => mql.removeListener(update);
+  }, []);
   // When the editor (or public renderer) explicitly forces a tablet or
   // mobile breakpoint, stack regardless of the measured container width
   // — in the canvas the stage width changes but the block's geometry
   // width may still be desktop-sized. When no breakpoint is forced
-  // (e.g. on the live public site without `?_bp=`), fall back to the
-  // ResizeObserver-measured width.
+  // (e.g. on the live public site without `?_bp=`), stack when either
+  // the actual viewport OR the measured container width is narrow.
   const isStacked = breakpoint === 'mobile' || breakpoint === 'tablet'
     ? true
-    : measuredStacked;
+    : (viewportNarrow || measuredStacked);
   useEffect(() => {
     if (index > Math.max(0, items.length - 1)) setIndex(0);
   }, [items.length, index]);
