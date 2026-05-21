@@ -639,6 +639,26 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   const [index, setIndex] = useState(0);
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
   const touchStartRef = useRef(null);
+  const rootRef = useRef(null);
+  // Stacked layout when the block's own rendered width is below this
+  // threshold, regardless of viewport size. ~640px matches Tailwind's
+  // `md` breakpoint so the desktop look-and-feel is preserved.
+  const STACKED_BREAKPOINT_PX = 640;
+  const [isStacked, setIsStacked] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = (w) => setIsStacked(w > 0 && w < STACKED_BREAKPOINT_PX);
+    update(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect ? entry.contentRect.width : entry.target.getBoundingClientRect().width;
+        update(w);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => {
     if (index > Math.max(0, items.length - 1)) setIndex(0);
   }, [items.length, index]);
@@ -706,8 +726,10 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   const showArrows = hasMany && c.showArrows !== false;
   const showIndicators = hasMany && c.showIndicators !== false;
 
-  const imageOrderCls = imageSide === 'right' ? 'md:order-2' : 'md:order-1';
-  const contentOrderCls = imageSide === 'right' ? 'md:order-1' : 'md:order-2';
+  // In stacked mode the image is always first (order-1) and the content
+  // follows; in side-by-side mode imageSide controls the column order.
+  const imageOrderCls = isStacked ? 'order-1' : (imageSide === 'right' ? 'order-2' : 'order-1');
+  const contentOrderCls = isStacked ? 'order-2' : (imageSide === 'right' ? 'order-1' : 'order-2');
 
   // Task #966: per-block style overrides. Each branch reads the field as
   // either a finite number (size) or a non-empty string (colour); when
@@ -788,10 +810,16 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
     backgroundColor: c.featuredBadgeBg || '#0f172a',
     color: c.featuredBadgeColor || '#ffffff',
   };
-  const featuredBadgePosCls = imageSide === 'right' ? 'top-2 left-2' : 'top-2 right-2';
+  // In stacked mode the image spans the full width, so the badge sits in
+  // the top-right corner of the image. In side-by-side mode the badge
+  // hugs the corner opposite the content column.
+  const featuredBadgePosCls = isStacked
+    ? 'top-2 right-2'
+    : (imageSide === 'right' ? 'top-2 left-2' : 'top-2 right-2');
 
   return (
     <div
+      ref={rootRef}
       className={`relative w-full h-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500${dropShadowCls ? ` ${dropShadowCls}` : ''}`}
       aria-label={block.a11y?.ariaLabel || event.title || 'Event carousel'}
       data-testid="event-carousel"
@@ -803,11 +831,11 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
       onKeyDown={hasMany ? handleKeyDown : undefined}
       style={hasMany ? { touchAction: 'pan-y' } : undefined}
     >
-      <div className="flex flex-col md:flex-row w-full h-full">
+      <div className={`flex ${isStacked ? 'flex-col' : 'flex-row'} w-full h-full`}>
         {/* Image is always first in source order so it stacks above the
-            content on narrow screens; desktop ordering is controlled by
-            imageSide via md:order-* utilities. */}
-        <div className={`relative w-full md:w-1/2 bg-slate-100 ${aspectCls} md:aspect-auto md:h-full overflow-hidden order-1 ${imageOrderCls}`}>
+            content on narrow rendering containers; in side-by-side mode
+            ordering is controlled by imageSide via order-* utilities. */}
+        <div className={`relative bg-slate-100 overflow-hidden ${imageOrderCls} ${isStacked ? `w-full ${aspectCls}` : 'w-1/2 h-full'}`}>
           {event.image_url ? (
             <img
               src={event.image_url}
@@ -830,7 +858,7 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
             </span>
           ) : null}
         </div>
-        <div className={`w-full md:w-1/2 p-4 md:p-6 flex flex-col gap-2 justify-center min-w-0 order-2 ${contentOrderCls}`}>
+        <div className={`flex flex-col gap-2 justify-center min-w-0 ${contentOrderCls} ${isStacked ? 'w-full p-4' : 'w-1/2 p-6'}`}>
           {c.showDate !== false && event.start_date ? (
             <div className="text-xs text-slate-600 flex items-center gap-1" style={dateStyle}>
               <Calendar className={dateIconCls} style={dateIconStyle} aria-hidden="true" />
