@@ -27,6 +27,7 @@ import {
   BLOCK_TYPES,
   resolveResponsiveValue,
   hasResponsiveOverride,
+  hasAnyResponsiveValue,
   writeResponsiveValue,
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
@@ -767,6 +768,14 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   // Task #970: raw-px text/icon fields are now per-device. `resolveResponsiveValue`
   // accepts either a legacy scalar (byte-identical to pre-#970 blocks) or the
   // new `{ desktop?, tablet?, mobile? }` object and cascades mobile→tablet→desktop.
+  // Task #972: in real public renders (no forced-breakpoint preview),
+  // per-device sizes are driven by per-page CSS custom properties +
+  // `@media` rules emitted by `buildCanvasCss`, so the browser handles
+  // breakpoint switching with zero JS. We only inline the resolved px
+  // value when the editor / `?_bp=` preview path passes an explicit
+  // breakpoint — inline style then wins over the @media rules so the
+  // preview chip continues to show the right size.
+  const isForcedPreview = !!breakpoint;
   const dateFontSize = resolveResponsiveValue(c.dateFontSize, breakpoint);
   const titleFontSize = resolveResponsiveValue(c.titleFontSize, breakpoint);
   const summaryFontSize = resolveResponsiveValue(c.summaryFontSize, breakpoint);
@@ -775,14 +784,37 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   const dateIconSizeV = resolveResponsiveValue(c.dateIconSize, breakpoint);
   const placeholderIconSizeV = resolveResponsiveValue(c.placeholderIconSize, breakpoint);
 
+  // For each per-device field, pick between an inline px literal (forced
+  // preview) and a CSS var reference (public mode). When public mode and
+  // the field has no value at any breakpoint we skip it entirely so
+  // Tailwind defaults stay byte-identical to pre-#970.
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+
   const dateStyle = {};
-  if (Number.isFinite(dateFontSize)) dateStyle.fontSize = `${dateFontSize}px`;
+  if (isForcedPreview) {
+    if (Number.isFinite(dateFontSize)) dateStyle.fontSize = `${dateFontSize}px`;
+  } else {
+    const v = cssVar(c.dateFontSize, '--cb-ev-date-fs');
+    if (v) dateStyle.fontSize = v;
+  }
   if (c.dateColor) dateStyle.color = c.dateColor;
+
   const titleStyle = {};
-  if (Number.isFinite(titleFontSize)) titleStyle.fontSize = `${titleFontSize}px`;
+  if (isForcedPreview) {
+    if (Number.isFinite(titleFontSize)) titleStyle.fontSize = `${titleFontSize}px`;
+  } else {
+    const v = cssVar(c.titleFontSize, '--cb-ev-title-fs');
+    if (v) titleStyle.fontSize = v;
+  }
   if (c.titleColor) titleStyle.color = c.titleColor;
+
   const summaryStyle = {};
-  if (Number.isFinite(summaryFontSize)) summaryStyle.fontSize = `${summaryFontSize}px`;
+  if (isForcedPreview) {
+    if (Number.isFinite(summaryFontSize)) summaryStyle.fontSize = `${summaryFontSize}px`;
+  } else {
+    const v = cssVar(c.summaryFontSize, '--cb-ev-summary-fs');
+    if (v) summaryStyle.fontSize = v;
+  }
   if (c.summaryColor) summaryStyle.color = c.summaryColor;
 
   const arrowStyle = Number.isFinite(c.arrowRadius)
@@ -800,23 +832,46 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
   // Task #968: line spacing (title + summary) and calendar icon sizing.
   // Unitless line-height is applied inline only when a positive finite
   // number is set, so the existing Tailwind defaults remain when blank.
-  if (Number.isFinite(titleLineHeightV) && titleLineHeightV > 0) {
-    titleStyle.lineHeight = titleLineHeightV;
-  }
-  if (Number.isFinite(summaryLineHeightV) && summaryLineHeightV > 0) {
-    summaryStyle.lineHeight = summaryLineHeightV;
+  // Task #972: in public mode the line-height is supplied by a CSS var
+  // so per-device values respond to viewport via @media rules.
+  const positiveResponsive = (raw) => {
+    if (!hasAnyResponsiveValue(raw)) return false;
+    if (typeof raw === 'number') return raw > 0;
+    return ['desktop', 'tablet', 'mobile'].some(
+      (k) => Number.isFinite(raw[k]) && raw[k] > 0,
+    );
+  };
+  if (isForcedPreview) {
+    if (Number.isFinite(titleLineHeightV) && titleLineHeightV > 0) {
+      titleStyle.lineHeight = titleLineHeightV;
+    }
+    if (Number.isFinite(summaryLineHeightV) && summaryLineHeightV > 0) {
+      summaryStyle.lineHeight = summaryLineHeightV;
+    }
+  } else {
+    if (positiveResponsive(c.titleLineHeight)) titleStyle.lineHeight = 'var(--cb-ev-title-lh)';
+    if (positiveResponsive(c.summaryLineHeight)) summaryStyle.lineHeight = 'var(--cb-ev-summary-lh)';
   }
   // Per-icon overrides — when unset we keep the original Tailwind w-3 h-3
-  // (date row) and w-10 h-10 (no-image placeholder).
-  const dateIconSize = Number.isFinite(dateIconSizeV) && dateIconSizeV > 0 ? dateIconSizeV : null;
-  const placeholderIconSize = Number.isFinite(placeholderIconSizeV) && placeholderIconSizeV > 0
-    ? placeholderIconSizeV : null;
-  const dateIconCls = dateIconSize ? '' : 'w-3 h-3';
-  const dateIconStyle = dateIconSize ? { width: `${dateIconSize}px`, height: `${dateIconSize}px` } : undefined;
-  const placeholderIconCls = placeholderIconSize ? '' : 'w-10 h-10';
-  const placeholderIconStyle = placeholderIconSize
-    ? { width: `${placeholderIconSize}px`, height: `${placeholderIconSize}px` }
-    : undefined;
+  // (date row) and w-10 h-10 (no-image placeholder). In public mode the
+  // px value is fed via the var; in forced-preview mode the resolved px
+  // is inlined directly (wins over the var).
+  const useDateIconVar = !isForcedPreview && hasAnyResponsiveValue(c.dateIconSize);
+  const useDateIconInline = isForcedPreview && Number.isFinite(dateIconSizeV) && dateIconSizeV > 0;
+  const dateIconCls = useDateIconVar || useDateIconInline ? '' : 'w-3 h-3';
+  const dateIconStyle = useDateIconInline
+    ? { width: `${dateIconSizeV}px`, height: `${dateIconSizeV}px` }
+    : useDateIconVar
+      ? { width: 'var(--cb-ev-date-icon)', height: 'var(--cb-ev-date-icon)' }
+      : undefined;
+  const usePhIconVar = !isForcedPreview && hasAnyResponsiveValue(c.placeholderIconSize);
+  const usePhIconInline = isForcedPreview && Number.isFinite(placeholderIconSizeV) && placeholderIconSizeV > 0;
+  const placeholderIconCls = usePhIconVar || usePhIconInline ? '' : 'w-10 h-10';
+  const placeholderIconStyle = usePhIconInline
+    ? { width: `${placeholderIconSizeV}px`, height: `${placeholderIconSizeV}px` }
+    : usePhIconVar
+      ? { width: 'var(--cb-ev-ph-icon)', height: 'var(--cb-ev-ph-icon)' }
+      : undefined;
 
   // Task #968: container drop-shadow preset. `none` (or unset) keeps the
   // block byte-identical to today. Tailwind's `shadow-*` paints the

@@ -844,6 +844,20 @@ export function resolveResponsiveValue(value, breakpoint) {
   return d;
 }
 
+// True when the given responsive value has at least one finite numeric
+// entry at ANY breakpoint (scalar number, or object with desktop/tablet/
+// mobile keys). Public renderers use this to decide whether to switch a
+// block onto the inline / CSS-var styled path even when the current
+// resolved value happens to be undefined (e.g. only a mobile override
+// is set, but we're rendering at desktop). Blocks where this returns
+// false stay byte-identical to today.
+export function hasAnyResponsiveValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  return ['desktop', 'tablet', 'mobile'].some((k) => Number.isFinite(value[k]));
+}
+
 // True when the given responsive value has its own entry for `breakpoint`.
 // Scalar values count as a desktop entry; object values check for a finite
 // numeric value at that key. Anything else returns false.
@@ -1085,6 +1099,65 @@ function geomRule(geom, { fullBleed, fullWidth } = {}) {
   ].join('');
 }
 
+// Task #972: per-block CSS variable definitions for per-device text /
+// icon sizes added in task #970. The renderers (EventCarouselRender,
+// ButtonRender, IconRender) read these via `var(--name, fallback)` so
+// the per-page stylesheet drives layout on real public pages — no JS
+// needed for breakpoint resolution. The fallback in the renderer kicks
+// in whenever a block has no override at any breakpoint (the var is
+// simply never declared), keeping pre-#970 byte-identity intact.
+const RESPONSIVE_VAR_FIELDS = {
+  [BLOCK_TYPES.EVENT_CAROUSEL]: [
+    { contentKey: 'dateFontSize',        varName: '--cb-ev-date-fs',    unit: 'px' },
+    { contentKey: 'titleFontSize',       varName: '--cb-ev-title-fs',   unit: 'px' },
+    { contentKey: 'summaryFontSize',     varName: '--cb-ev-summary-fs', unit: 'px' },
+    { contentKey: 'titleLineHeight',     varName: '--cb-ev-title-lh',   unit: '' },
+    { contentKey: 'summaryLineHeight',   varName: '--cb-ev-summary-lh', unit: '' },
+    { contentKey: 'dateIconSize',        varName: '--cb-ev-date-icon',  unit: 'px' },
+    { contentKey: 'placeholderIconSize', varName: '--cb-ev-ph-icon',    unit: 'px' },
+  ],
+  [BLOCK_TYPES.ICON]: [
+    { contentKey: 'size', varName: '--cb-icon-size', unit: 'px' },
+  ],
+};
+
+// Button is a special case: the four per-device sub-fields live inside
+// `content.size` (object), not as top-level content keys.
+const BUTTON_RESPONSIVE_SIZE_FIELDS = [
+  { sizeKey: 'paddingX', varName: '--cb-btn-px',   unit: 'px' },
+  { sizeKey: 'paddingY', varName: '--cb-btn-py',   unit: 'px' },
+  { sizeKey: 'fontSize', varName: '--cb-btn-fs',   unit: 'px' },
+  { sizeKey: 'iconSize', varName: '--cb-btn-icon', unit: 'px' },
+];
+
+function collectBlockResponsiveVars(block, breakpoint) {
+  const out = {};
+  const c = block.content || {};
+  const fields = RESPONSIVE_VAR_FIELDS[block.type];
+  if (fields) {
+    for (const { contentKey, varName, unit } of fields) {
+      const v = resolveResponsiveValue(c[contentKey], breakpoint);
+      if (Number.isFinite(v)) out[varName] = unit ? `${v}${unit}` : String(v);
+    }
+  }
+  if (block.type === BLOCK_TYPES.BUTTON) {
+    const sz = c.size;
+    if (sz && typeof sz === 'object' && !Array.isArray(sz)) {
+      for (const { sizeKey, varName, unit } of BUTTON_RESPONSIVE_SIZE_FIELDS) {
+        const v = resolveResponsiveValue(sz[sizeKey], breakpoint);
+        if (Number.isFinite(v)) out[varName] = unit ? `${v}${unit}` : String(v);
+      }
+    }
+  }
+  return out;
+}
+
+function varsRuleBody(vars) {
+  const entries = Object.entries(vars);
+  if (!entries.length) return '';
+  return entries.map(([k, v]) => `${k}:${v};`).join('');
+}
+
 export function stageHeightForBreakpoint(blocks, breakpoint) {
   let h = 240;
   for (const b of blocks) {
@@ -1121,6 +1194,20 @@ export function buildCanvasCss(blocks, scope) {
     lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth })}}`);
   }
 
+  // Task #972: per-block CSS variables for per-device text/icon sizes
+  // (Event Carousel, Button, Icon — see RESPONSIVE_VAR_FIELDS above).
+  // Desktop values are emitted unconditionally so the var resolves on
+  // wide viewports; tablet/mobile diffs are added to the @media blocks
+  // below. Blocks with no per-device overrides at any breakpoint emit
+  // nothing here, keeping their stylesheet output byte-identical to
+  // pre-#972.
+  for (const b of blocks) {
+    const dv = collectBlockResponsiveVars(b, 'desktop');
+    if (Object.keys(dv).length === 0) continue;
+    const id = escapeCssIdent(b.id);
+    lines.push(`${sc} [data-cb="${id}"]{${varsRuleBody(dv)}}`);
+  }
+
   // Tablet overrides.
   const tabletRules = [];
   for (const b of blocks) {
@@ -1136,6 +1223,20 @@ export function buildCanvasCss(blocks, scope) {
       !!tG.hidden !== !!dG.hidden
     ) {
       tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth })}}`);
+    }
+  }
+  // Task #972: tablet var diffs — only emit keys that differ from the
+  // unconditional desktop rule so identical values don't double up.
+  for (const b of blocks) {
+    const dv = collectBlockResponsiveVars(b, 'desktop');
+    const tv = collectBlockResponsiveVars(b, 'tablet');
+    const diff = {};
+    for (const k of new Set([...Object.keys(dv), ...Object.keys(tv)])) {
+      if (tv[k] !== undefined && tv[k] !== dv[k]) diff[k] = tv[k];
+    }
+    if (Object.keys(diff).length) {
+      const id = escapeCssIdent(b.id);
+      tabletRules.push(`${sc} [data-cb="${id}"]{${varsRuleBody(diff)}}`);
     }
   }
   if (tabletRules.length) {
@@ -1162,6 +1263,21 @@ export function buildCanvasCss(blocks, scope) {
       !!mG.hidden !== !!tG.hidden
     ) {
       mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth })}}`);
+    }
+  }
+  // Task #972: mobile var diffs — compare against tablet (which already
+  // cascades from desktop), so the mobile @media block only re-declares
+  // vars that change between tablet and mobile.
+  for (const b of blocks) {
+    const tv = collectBlockResponsiveVars(b, 'tablet');
+    const mv = collectBlockResponsiveVars(b, 'mobile');
+    const diff = {};
+    for (const k of new Set([...Object.keys(tv), ...Object.keys(mv)])) {
+      if (mv[k] !== undefined && mv[k] !== tv[k]) diff[k] = mv[k];
+    }
+    if (Object.keys(diff).length) {
+      const id = escapeCssIdent(b.id);
+      mobileRules.push(`${sc} [data-cb="${id}"]{${varsRuleBody(diff)}}`);
     }
   }
   if (mobileRules.length) {

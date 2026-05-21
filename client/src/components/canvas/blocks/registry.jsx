@@ -36,6 +36,7 @@ import {
   buildResponsiveImage,
   resolveResponsiveValue,
   hasResponsiveOverride,
+  hasAnyResponsiveValue,
   writeResponsiveValue,
   BREAKPOINT_MAX_PX,
 } from '@/lib/canvasDesign';
@@ -1255,6 +1256,13 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // object that cascades mobile→tablet→desktop. Resolve each sub-field at
   // the current breakpoint; sub-fields that resolve to undefined drop off
   // so the resolved size still falls back to tenant/legacy baselines.
+  // Task #972: path-selection must be STATIC (not breakpoint-resolved) so
+  // a block whose only override sits on `mobile` still switches to the
+  // inline-styled path on real public pages (where `breakpoint` is
+  // undefined and would otherwise resolve to the empty desktop value).
+  // The inline path then feeds each sub-field via a CSS var that the
+  // per-page stylesheet declares per breakpoint.
+  const isForcedPreview = !!breakpoint;
   const rawSizeOverrides = readSizeOverrides(c);
   const sizeOverrides = (() => {
     if (!rawSizeOverrides) return null;
@@ -1265,13 +1273,39 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     }
     return out;
   })();
-  const hasSizeOverrides = !!sizeOverrides && Object.keys(sizeOverrides).length > 0;
+  const hasAnyBpSizeOverride =
+    !!rawSizeOverrides &&
+    ['paddingX', 'paddingY', 'fontSize', 'iconSize'].some(
+      (k) => hasAnyResponsiveValue(rawSizeOverrides[k]),
+    );
+  const hasSizeOverrides = hasAnyBpSizeOverride;
   const legacySizeClass = readLegacySizeClass(c);
+  // Helper to pick between a forced-preview inline px literal and a CSS
+  // var (public mode). Both fall back to the baseline pixel value when
+  // the sub-field isn't overridden — so e.g. a Button whose only override
+  // is `paddingX` still uses the baseline `fontSize`/`paddingY`/`iconSize`.
+  const subFieldValue = (subKey, varName, baselinePx) => {
+    if (isForcedPreview) {
+      const v = sizeOverrides && Number.isFinite(sizeOverrides[subKey]) ? sizeOverrides[subKey] : baselinePx;
+      return `${v}px`;
+    }
+    if (rawSizeOverrides && hasAnyResponsiveValue(rawSizeOverrides[subKey])) {
+      return `var(${varName}, ${baselinePx}px)`;
+    }
+    return `${baselinePx}px`;
+  };
 
   if (isTenantVariant && tenantStyle) {
-    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}), ...(sizeOverrides || {}) };
+    // Baseline = tenant defaults merged with the tenant style's saved size
+    // (the values that would apply if NO per-block override existed). The
+    // per-block override (if any) feeds in via subFieldValue's var fallback.
+    const tenantBaseline = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
     const bg = bgCssFromConfig(tenantHovered ? tenantStyle.hover : tenantStyle.background) || {};
     const border = tenantStyle.border || {};
+    const padY = subFieldValue('paddingY', '--cb-btn-py',   tenantBaseline.paddingY);
+    const padX = subFieldValue('paddingX', '--cb-btn-px',   tenantBaseline.paddingX);
+    const fs   = subFieldValue('fontSize', '--cb-btn-fs',   tenantBaseline.fontSize);
+    const iconPx = subFieldValue('iconSize', '--cb-btn-icon', tenantBaseline.iconSize);
     const inlineStyle = {
       ...bg,
       color: tenantHovered
@@ -1282,14 +1316,13 @@ function ButtonRender({ block, asEditor, breakpoint }) {
         border.width > 0
           ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
           : 'none',
-      paddingTop: `${size.paddingY}px`,
-      paddingBottom: `${size.paddingY}px`,
-      paddingLeft: `${size.paddingX}px`,
-      paddingRight: `${size.paddingX}px`,
-      fontSize: `${size.fontSize}px`,
+      paddingTop: padY,
+      paddingBottom: padY,
+      paddingLeft: padX,
+      paddingRight: padX,
+      fontSize: fs,
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
     };
-    const iconPx = `${size.iconSize}px`;
     const tenantInner = (
       <>
         {Icon && <Icon style={{ width: iconPx, height: iconPx }} />}
@@ -1322,7 +1355,6 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // preserved; only the size class is replaced by inline styles.
   if (!isTenantVariant && hasSizeOverrides) {
     const baseline = LEGACY_BUTTON_SIZE_BASELINES[legacySizeClass] || LEGACY_BUTTON_SIZE_BASELINES.default;
-    const size = { ...baseline, ...sizeOverrides };
     const variantClass = {
       primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
       default: 'bg-slate-900 text-white hover-elevate active-elevate-2',
@@ -1330,14 +1362,17 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
     };
     const baseCls = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
+    const padY = subFieldValue('paddingY', '--cb-btn-py',   baseline.paddingY);
+    const padX = subFieldValue('paddingX', '--cb-btn-px',   baseline.paddingX);
+    const fs   = subFieldValue('fontSize', '--cb-btn-fs',   baseline.fontSize);
+    const iconPx = subFieldValue('iconSize', '--cb-btn-icon', baseline.iconSize);
     const inlineStyle = {
-      paddingTop: `${size.paddingY}px`,
-      paddingBottom: `${size.paddingY}px`,
-      paddingLeft: `${size.paddingX}px`,
-      paddingRight: `${size.paddingX}px`,
-      fontSize: `${size.fontSize}px`,
+      paddingTop: padY,
+      paddingBottom: padY,
+      paddingLeft: padX,
+      paddingRight: padX,
+      fontSize: fs,
     };
-    const iconPx = `${size.iconSize}px`;
     return (
       <div className="w-full h-full flex items-center justify-start">
         <a
@@ -2135,12 +2170,30 @@ function IconRender({ block, breakpoint }) {
   const Icon = getLucideIcon(c.icon) || Star;
   // Task #970: `c.size` is now per-device. Falls back to 48 (legacy default)
   // when nothing resolves at this breakpoint, matching prior behaviour.
+  // Task #972: in real public renders (no forced breakpoint) the per-device
+  // value is delivered through the `--cb-icon-size` CSS var emitted by
+  // `buildCanvasCss`, so @media rules drive the size with zero JS. In
+  // forced-preview / editor mode we still resolve in JS and inline the px
+  // so the preview chip wins over the @media rules.
+  const isForcedPreview = !!breakpoint;
   const resolvedSize = resolveResponsiveValue(c.size, breakpoint);
-  const size = Number.isFinite(resolvedSize) ? resolvedSize : 48;
+  let widthVal;
+  let heightVal;
+  if (isForcedPreview) {
+    const size = Number.isFinite(resolvedSize) ? resolvedSize : 48;
+    widthVal = size;
+    heightVal = size;
+  } else if (hasAnyResponsiveValue(c.size)) {
+    widthVal = 'var(--cb-icon-size, 48px)';
+    heightVal = 'var(--cb-icon-size, 48px)';
+  } else {
+    widthVal = 48;
+    heightVal = 48;
+  }
   return (
     <div className="w-full h-full flex items-center justify-center">
       <Icon
-        style={{ color: c.color || '#0f172a', width: size, height: size }}
+        style={{ color: c.color || '#0f172a', width: widthVal, height: heightVal }}
         aria-label={c.ariaLabel || undefined}
         aria-hidden={c.ariaLabel ? undefined : true}
       />
