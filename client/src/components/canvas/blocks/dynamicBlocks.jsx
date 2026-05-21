@@ -93,6 +93,31 @@ function ToggleField({ label, value, onChange, testId }) {
   );
 }
 
+// Local colour input — mirrors the one in registry.jsx (this file keeps its
+// own copies of inspector primitives to stay self-contained). Empty string
+// means "unset" so renderers can fall back to defaults.
+function ColorField({ label, value, onChange, testId }) {
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value || '#000000'}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-10 rounded border border-slate-200 cursor-pointer"
+          data-testid={testId}
+        />
+        <Input
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="(unset)"
+          className="h-8 flex-1 font-mono text-xs"
+        />
+      </div>
+    </Field>
+  );
+}
+
 function PerBreakpointColumns({ value = {}, onChange }) {
   const v = { desktop: 3, tablet: 2, mobile: 1, ...value };
   const set = (bp, n) => onChange({ ...v, [bp]: Math.max(1, Math.min(6, Number(n) || 1)) });
@@ -640,6 +665,43 @@ function EventCarouselRender({ block, asEditor }) {
   const imageOrderCls = imageSide === 'right' ? 'md:order-2' : 'md:order-1';
   const contentOrderCls = imageSide === 'right' ? 'md:order-1' : 'md:order-2';
 
+  // Task #966: per-block style overrides. Each branch reads the field as
+  // either a finite number (size) or a non-empty string (colour); when
+  // unset the renderer falls through to the previous Tailwind classes,
+  // so old saved blocks render byte-identical to today.
+  const dateStyle = {};
+  if (Number.isFinite(c.dateFontSize)) dateStyle.fontSize = `${c.dateFontSize}px`;
+  if (c.dateColor) dateStyle.color = c.dateColor;
+  const titleStyle = {};
+  if (Number.isFinite(c.titleFontSize)) titleStyle.fontSize = `${c.titleFontSize}px`;
+  if (c.titleColor) titleStyle.color = c.titleColor;
+  const summaryStyle = {};
+  if (Number.isFinite(c.summaryFontSize)) summaryStyle.fontSize = `${c.summaryFontSize}px`;
+  if (c.summaryColor) summaryStyle.color = c.summaryColor;
+
+  const arrowStyle = Number.isFinite(c.arrowRadius)
+    ? { borderRadius: `${c.arrowRadius}px` }
+    : null;
+  // When borderRadius is set inline we strip `rounded-full` so the
+  // override actually wins (Tailwind's `rounded-full` is `border-radius:
+  // 9999px` which inline rules don't reliably beat in every browser).
+  const arrowRadiusCls = arrowStyle ? '' : 'rounded-full';
+
+  const dotSize = Number.isFinite(c.dotSize) && c.dotSize > 0 ? c.dotSize : null;
+  const dotInactiveColor = c.dotInactiveColor || '';
+  const dotActiveColor = c.dotActiveColor || '';
+
+  // Featured badge sits on the image in the corner opposite the content
+  // side, so the eye reads badge → image → content. Image-left ⇒ badge
+  // top-right; image-right ⇒ badge top-left.
+  const showFeaturedBadge = !!c.showFeaturedBadge && !!event.is_featured;
+  const featuredBadgeLabel = c.featuredBadgeLabel || 'Featured event';
+  const featuredBadgeStyle = {
+    backgroundColor: c.featuredBadgeBg || '#0f172a',
+    color: c.featuredBadgeColor || '#ffffff',
+  };
+  const featuredBadgePosCls = imageSide === 'right' ? 'top-2 left-2' : 'top-2 right-2';
+
   return (
     <div
       className="relative w-full h-full overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
@@ -670,17 +732,26 @@ function EventCarouselRender({ block, asEditor }) {
               <Calendar className="w-10 h-10" aria-hidden="true" />
             </div>
           )}
+          {showFeaturedBadge ? (
+            <span
+              className={`absolute ${featuredBadgePosCls} inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium shadow-sm`}
+              style={featuredBadgeStyle}
+              data-testid="badge-event-carousel-featured"
+            >
+              {featuredBadgeLabel}
+            </span>
+          ) : null}
         </div>
         <div className={`w-full md:w-1/2 p-4 md:p-6 flex flex-col gap-2 justify-center min-w-0 order-2 ${contentOrderCls}`}>
           {c.showDate !== false && event.start_date ? (
-            <div className="text-xs text-slate-600 flex items-center gap-1">
+            <div className="text-xs text-slate-600 flex items-center gap-1" style={dateStyle}>
               <Calendar className="w-3 h-3" aria-hidden="true" />
               {formatDate(event.start_date)}
             </div>
           ) : null}
-          <h3 className="text-lg font-semibold text-slate-900 m-0 line-clamp-2">{event.title}</h3>
+          <h3 className="text-lg font-semibold text-slate-900 m-0 line-clamp-2" style={titleStyle}>{event.title}</h3>
           {c.showSummary !== false && (event.summary || event.description) ? (
-            <p className="text-sm text-slate-600 line-clamp-3 m-0">
+            <p className="text-sm text-slate-600 line-clamp-3 m-0" style={summaryStyle}>
               {event.summary || String(event.description || '').replace(/<[^>]+>/g, '').slice(0, 240)}
             </p>
           ) : null}
@@ -702,7 +773,8 @@ function EventCarouselRender({ block, asEditor }) {
           <button
             type="button"
             onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+            className={`absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 ${arrowRadiusCls} bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm`}
+            style={arrowStyle || undefined}
             aria-label="Previous event"
             data-testid="button-event-carousel-prev"
           >
@@ -711,7 +783,8 @@ function EventCarouselRender({ block, asEditor }) {
           <button
             type="button"
             onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+            className={`absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 ${arrowRadiusCls} bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm`}
+            style={arrowStyle || undefined}
             aria-label="Next event"
             data-testid="button-event-carousel-next"
           >
@@ -721,17 +794,31 @@ function EventCarouselRender({ block, asEditor }) {
       ) : null}
       {showIndicators ? (
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
-          {items.map((it, i) => (
-            <button
-              key={it.id || i}
-              type="button"
-              onClick={() => setIndex(i)}
-              aria-label={`Show event ${i + 1} of ${items.length}`}
-              aria-current={i === index ? 'true' : undefined}
-              className={`w-2 h-2 rounded-full border border-white/80 ${i === index ? 'bg-slate-900' : 'bg-slate-400/70'}`}
-              data-testid={`button-event-carousel-indicator-${i}`}
-            />
-          ))}
+          {items.map((it, i) => {
+            const active = i === index;
+            // Build size + colour overrides only when set, so unset dots
+            // keep the original Tailwind `w-2 h-2 bg-slate-900 / bg-slate-400/70`.
+            const dotStyle = {};
+            if (dotSize) { dotStyle.width = `${dotSize}px`; dotStyle.height = `${dotSize}px`; }
+            if (active && dotActiveColor) dotStyle.backgroundColor = dotActiveColor;
+            if (!active && dotInactiveColor) dotStyle.backgroundColor = dotInactiveColor;
+            const sizeCls = dotSize ? '' : 'w-2 h-2';
+            const colorCls = active
+              ? (dotActiveColor ? '' : 'bg-slate-900')
+              : (dotInactiveColor ? '' : 'bg-slate-400/70');
+            return (
+              <button
+                key={it.id || i}
+                type="button"
+                onClick={() => setIndex(i)}
+                aria-label={`Show event ${i + 1} of ${items.length}`}
+                aria-current={active ? 'true' : undefined}
+                className={`${sizeCls} ${colorCls} rounded-full border border-white/80`}
+                style={Object.keys(dotStyle).length ? dotStyle : undefined}
+                data-testid={`button-event-carousel-indicator-${i}`}
+              />
+            );
+          })}
         </div>
       ) : null}
     </div>
@@ -885,6 +972,124 @@ function EventCarouselInspector({ block, update }) {
         onChange={(v) => set({ showIndicators: v })}
         testId="toggle-event-carousel-indicators"
       />
+
+      {/* --- Task #966: per-block text styling. Leaving any field blank
+          keeps today's Tailwind defaults so existing blocks are
+          byte-identical on save/reload. --- */}
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Date</Label>
+      </div>
+      <NumberField
+        label="Date font size (px)"
+        min={1}
+        value={c.dateFontSize}
+        onChange={(v) => set({ dateFontSize: v })}
+        testId="input-event-carousel-date-font-size"
+      />
+      <ColorField
+        label="Date colour"
+        value={c.dateColor}
+        onChange={(v) => set({ dateColor: v })}
+        testId="color-event-carousel-date"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Title</Label>
+      </div>
+      <NumberField
+        label="Title font size (px)"
+        min={1}
+        value={c.titleFontSize}
+        onChange={(v) => set({ titleFontSize: v })}
+        testId="input-event-carousel-title-font-size"
+      />
+      <ColorField
+        label="Title colour"
+        value={c.titleColor}
+        onChange={(v) => set({ titleColor: v })}
+        testId="color-event-carousel-title"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Summary</Label>
+      </div>
+      <NumberField
+        label="Summary font size (px)"
+        min={1}
+        value={c.summaryFontSize}
+        onChange={(v) => set({ summaryFontSize: v })}
+        testId="input-event-carousel-summary-font-size"
+      />
+      <ColorField
+        label="Summary colour"
+        value={c.summaryColor}
+        onChange={(v) => set({ summaryColor: v })}
+        testId="color-event-carousel-summary"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Featured badge</Label>
+      </div>
+      <ToggleField
+        label='Show "Featured event" badge'
+        value={!!c.showFeaturedBadge}
+        onChange={(v) => set({ showFeaturedBadge: v })}
+        testId="toggle-event-carousel-featured-badge"
+      />
+      <TextField
+        label="Badge label"
+        value={c.featuredBadgeLabel}
+        onChange={(v) => set({ featuredBadgeLabel: v })}
+        placeholder="Featured event"
+        testId="input-event-carousel-featured-label"
+      />
+      <ColorField
+        label="Badge background colour"
+        value={c.featuredBadgeBg}
+        onChange={(v) => set({ featuredBadgeBg: v })}
+        testId="color-event-carousel-featured-bg"
+      />
+      <ColorField
+        label="Badge text colour"
+        value={c.featuredBadgeColor}
+        onChange={(v) => set({ featuredBadgeColor: v })}
+        testId="color-event-carousel-featured-text"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Arrows</Label>
+      </div>
+      <NumberField
+        label="Arrow corner radius (px)"
+        min={0}
+        value={c.arrowRadius}
+        onChange={(v) => set({ arrowRadius: v })}
+        testId="input-event-carousel-arrow-radius"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Dots</Label>
+      </div>
+      <NumberField
+        label="Dot size (px)"
+        min={1}
+        value={c.dotSize}
+        onChange={(v) => set({ dotSize: v })}
+        testId="input-event-carousel-dot-size"
+      />
+      <ColorField
+        label="Active dot colour"
+        value={c.dotActiveColor}
+        onChange={(v) => set({ dotActiveColor: v })}
+        testId="color-event-carousel-dot-active"
+      />
+      <ColorField
+        label="Inactive dot colour"
+        value={c.dotInactiveColor}
+        onChange={(v) => set({ dotInactiveColor: v })}
+        testId="color-event-carousel-dot-inactive"
+      />
+
       <TextField
         label="Empty state text"
         value={c.emptyText}
