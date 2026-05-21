@@ -37,6 +37,7 @@ import {
   resolveResponsiveValue,
   hasResponsiveOverride,
   writeResponsiveValue,
+  BREAKPOINT_MAX_PX,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
@@ -246,7 +247,7 @@ function ImageField({ label, value, alt, onChangeSrc, onChangeAlt, testId }) {
   );
 }
 
-function RichTextField({ label, value, onChange, testId }) {
+function RichTextField({ label, value, onChange, testId, breakpoint }) {
   // Sanitize on write so the stored design is always safe even if the
   // editor is bypassed or pasted content contains XSS payloads.
   const handleChange = (next) => onChange(sanitizeRichText(next || ''));
@@ -255,7 +256,7 @@ function RichTextField({ label, value, onChange, testId }) {
       <Label className="text-xs text-slate-600">{label}</Label>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <Suspense fallback={<div className="p-3 text-xs text-slate-500">Loading editor…</div>}>
-          <RichTextEditor content={value || ''} onChange={handleChange} />
+          <RichTextEditor content={value || ''} onChange={handleChange} breakpoint={breakpoint} />
         </Suspense>
       </div>
     </div>
@@ -404,82 +405,160 @@ function tagForTypographyStyleType(styleType) {
   return 'div';
 }
 
+// Task #974: cascade mobile -> tablet -> desktop for the four
+// per-device tenant typography properties (font-size, line-height,
+// letter-spacing, margin-bottom). When the caller doesn't specify a
+// breakpoint we fall back to the desktop value so callers that
+// pre-date the responsive contract behave byte-identically.
+function pickResponsiveTypoValue(style, baseKey, breakpoint) {
+  if (!style) return null;
+  const desk = style[baseKey];
+  if (breakpoint === 'mobile') {
+    return style[`${baseKey}_mobile`] ?? style[`${baseKey}_tablet`] ?? desk;
+  }
+  if (breakpoint === 'tablet') {
+    return style[`${baseKey}_tablet`] ?? desk;
+  }
+  return desk;
+}
+
 function buildTypographyInlineStyle(style, options) {
   if (!style) return null;
   const opts = options || {};
+  const bp = opts.breakpoint;
   const out = {};
   if (style.font_family) out.fontFamily = style.font_family;
-  // When the style declares a mobile-specific value and the caller has
-  // opted into responsive rendering, the corresponding property is
-  // emitted via a per-block <style> block with a media query instead
-  // of an inline style — inline styles win against any selector, so we
-  // can't reliably override them in a `@media (max-width: …)` rule.
-  if (style.font_size != null && !opts.omitFontSize) out.fontSize = `${style.font_size}px`;
+  // When the style declares a tablet/mobile-specific value and the
+  // caller has opted into responsive rendering, the corresponding
+  // property is emitted via a per-block <style> block with @media
+  // queries instead of an inline style — inline styles win against
+  // any selector, so we can't reliably override them in a `@media`
+  // rule without !important. The renderer either passes a breakpoint
+  // (editor preview, inline value pinned for forced bp) or omits the
+  // option (public visitor, @media rule drives the cascade).
+  const fs = pickResponsiveTypoValue(style, 'font_size', bp);
+  if (fs != null && !opts.omitFontSize) out.fontSize = `${fs}px`;
   if (style.font_weight != null) out.fontWeight = style.font_weight;
-  if (style.line_height != null && !opts.omitLineHeight) out.lineHeight = style.line_height;
-  if (style.letter_spacing != null && !opts.omitLetterSpacing) out.letterSpacing = `${style.letter_spacing}px`;
+  const lh = pickResponsiveTypoValue(style, 'line_height', bp);
+  if (lh != null && !opts.omitLineHeight) out.lineHeight = lh;
+  const ls = pickResponsiveTypoValue(style, 'letter_spacing', bp);
+  if (ls != null && !opts.omitLetterSpacing) out.letterSpacing = `${ls}px`;
   if (style.text_transform && style.text_transform !== 'none') {
     out.textTransform = style.text_transform;
   }
   if (style.color) out.color = style.color;
-  if (style.margin_bottom != null && !opts.omitMarginBottom) out.marginBottom = `${style.margin_bottom}px`;
+  const mb = pickResponsiveTypoValue(style, 'margin_bottom', bp);
+  if (mb != null && !opts.omitMarginBottom) out.marginBottom = `${mb}px`;
   return out;
 }
 
-// Matches BREAKPOINT_MAX_PX.mobile in `@/lib/canvasDesign` — kept inline
-// here to avoid adding an import for a single constant. If the canonical
-// mobile breakpoint ever changes, update both call sites.
-const MOBILE_BREAKPOINT_MAX_PX = 639.98;
-
-// Returns true when the tenant style declares a mobile-specific override
-// for the given property (mobile value present and different to desktop).
-function hasMobileOverride(tenantStyle, desktopKey, mobileKey) {
+// True when the tenant style declares any tablet- or mobile-specific
+// override that differs from the desktop value (for the four per-device
+// properties font-size / line-height / letter-spacing / margin-bottom).
+function hasResponsiveTypographyOverride(tenantStyle) {
   if (!tenantStyle) return false;
-  const m = tenantStyle[mobileKey];
-  if (m == null) return false;
-  return m !== tenantStyle[desktopKey];
+  for (const k of ['font_size', 'line_height', 'letter_spacing', 'margin_bottom']) {
+    const d = tenantStyle[k];
+    const t = tenantStyle[`${k}_tablet`];
+    const m = tenantStyle[`${k}_mobile`];
+    if (t != null && t !== d) return true;
+    if (m != null && m !== d) return true;
+  }
+  return false;
 }
 
-// Builds a <style> rule that overrides the Text block's typography
-// properties at the mobile breakpoint when the chosen tenant typography
-// style declares distinct mobile equivalents (font-size, line-height,
-// letter-spacing, margin-bottom). The selector matches the renderer's
-// outer wrapper (`[data-cb="<id>"]`) emitted by `CanvasBlockRender`.
-// Returns null when no responsive override is needed.
-function buildTextMobileTypographyCss(blockId, tenantStyle) {
+// Build the @media (max-width: …) blocks that override the chosen
+// typography properties at the tablet and mobile breakpoints. The
+// `selector` argument is the CSS selector the rules should target —
+// typically `[data-cb="<id>"]` (Text block wrapper) or a more specific
+// child selector (Hero headline, Card heading). Uses !important so the
+// declarations beat any inline-style desktop value emitted by the
+// renderer. Mobile rules are only emitted when the mobile value
+// differs from whatever applies at tablet (desktop or tablet override)
+// to keep the stylesheet small. Returns null when no override applies.
+function buildTenantTypographyResponsiveCss(selector, style) {
+  if (!style || !selector) return null;
+  const PROPS = [
+    { css: 'font-size', key: 'font_size', unit: 'px' },
+    { css: 'line-height', key: 'line_height', unit: '' },
+    { css: 'letter-spacing', key: 'letter_spacing', unit: 'px' },
+    { css: 'margin-bottom', key: 'margin_bottom', unit: 'px' },
+  ];
+  const tabletDecls = [];
+  const mobileDecls = [];
+  for (const p of PROPS) {
+    const d = style[p.key];
+    const t = style[`${p.key}_tablet`];
+    const m = style[`${p.key}_mobile`];
+    const tabletWins = t != null && t !== d;
+    if (tabletWins) {
+      tabletDecls.push(`${p.css}:${t}${p.unit} !important;`);
+    }
+    const effective = tabletWins ? t : d;
+    if (m != null && m !== effective) {
+      mobileDecls.push(`${p.css}:${m}${p.unit} !important;`);
+    }
+  }
+  const parts = [];
+  if (tabletDecls.length) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${selector}{${tabletDecls.join('')}}}`);
+  }
+  if (mobileDecls.length) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${selector}{${mobileDecls.join('')}}}`);
+  }
+  return parts.length ? parts.join('') : null;
+}
+
+function buildTextResponsiveTypographyCss(blockId, tenantStyle) {
   if (!tenantStyle || !blockId) return null;
-  const overrides = {
-    fontSize: hasMobileOverride(tenantStyle, 'font_size', 'font_size_mobile')
-      ? { desktop: `${tenantStyle.font_size}px`, mobile: `${tenantStyle.font_size_mobile}px` }
-      : null,
-    lineHeight: hasMobileOverride(tenantStyle, 'line_height', 'line_height_mobile')
-      ? { desktop: String(tenantStyle.line_height), mobile: String(tenantStyle.line_height_mobile) }
-      : null,
-    letterSpacing: hasMobileOverride(tenantStyle, 'letter_spacing', 'letter_spacing_mobile')
-      ? { desktop: `${tenantStyle.letter_spacing}px`, mobile: `${tenantStyle.letter_spacing_mobile}px` }
-      : null,
-    marginBottom: hasMobileOverride(tenantStyle, 'margin_bottom', 'margin_bottom_mobile')
-      ? { desktop: `${tenantStyle.margin_bottom}px`, mobile: `${tenantStyle.margin_bottom_mobile}px` }
-      : null,
-  };
-  const cssKey = {
-    fontSize: 'font-size',
-    lineHeight: 'line-height',
-    letterSpacing: 'letter-spacing',
-    marginBottom: 'margin-bottom',
-  };
-  const active = Object.entries(overrides).filter(([, v]) => v != null);
-  if (active.length === 0) return null;
-  // CSS attribute selectors with quoted values don't need escaping for
-  // typical generated block ids, but defensively strip the quote/backslash
-  // characters that would break the selector.
   const safeId = String(blockId).replace(/["\\]/g, '');
-  const sel = `[data-cb="${safeId}"]`;
-  const desktopDecls = active.map(([k, v]) => `${cssKey[k]}:${v.desktop};`).join('');
-  const mobileDecls = active.map(([k, v]) => `${cssKey[k]}:${v.mobile};`).join('');
-  const desktopRule = `${sel}{${desktopDecls}}`;
-  const mobileRule = `@media (max-width:${MOBILE_BREAKPOINT_MAX_PX}px){${sel}{${mobileDecls}}}`;
-  return `${desktopRule}${mobileRule}`;
+  return buildTenantTypographyResponsiveCss(`[data-cb="${safeId}"]`, tenantStyle);
+}
+
+// Task #974: extract distinct `data-fs-tablet="..."` / `data-fs-mobile="..."`
+// values from sanitized Tiptap HTML and emit per-value CSS rules so
+// real visitor browsers apply the right font-size at each viewport
+// without any runtime JS. Editor preview iframes that force a
+// breakpoint via `?_bp=` typically render at a desktop viewport width,
+// so when the renderer is pinned to tablet/mobile we emit the matching
+// declarations unconditionally instead of inside `@media` blocks.
+// Uses !important to beat the inline `style="font-size:…"` emitted by
+// Tiptap's FontSize extension for the desktop value.
+function buildTiptapFontSizeResponsiveCss(blockId, html, breakpoint) {
+  if (!blockId || !html) return null;
+  const tabletVals = new Set();
+  const mobileVals = new Set();
+  const re = /data-fs-(tablet|mobile)\s*=\s*"([^"]+)"/g;
+  let m;
+  while ((m = re.exec(html))) {
+    if (m[1] === 'tablet') tabletVals.add(m[2]);
+    else mobileVals.add(m[2]);
+  }
+  if (!tabletVals.size && !mobileVals.size) return null;
+  const safeId = String(blockId).replace(/["\\]/g, '');
+  const escVal = (v) => String(v).replace(/["\\]/g, '');
+  const parts = [];
+  if (tabletVals.size) {
+    const inner = [...tabletVals]
+      .map((v) => `[data-cb="${safeId}"] [data-fs-tablet="${escVal(v)}"]{font-size:${v} !important;}`)
+      .join('');
+    if (breakpoint === 'tablet' || breakpoint === 'mobile') {
+      parts.push(inner);
+    } else {
+      parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${inner}}`);
+    }
+  }
+  if (mobileVals.size) {
+    const inner = [...mobileVals]
+      .map((v) => `[data-cb="${safeId}"] [data-fs-mobile="${escVal(v)}"]{font-size:${v} !important;}`)
+      .join('');
+    if (breakpoint === 'mobile') {
+      parts.push(inner);
+    } else {
+      parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${inner}}`);
+    }
+  }
+  return parts.length ? parts.join('') : null;
 }
 
 // Shared inspector control: lets authors pick a tenant typography style for
@@ -679,7 +758,7 @@ function vimeoId(url) {
 // ---------------------------------------------------------------------------
 
 // HERO -----------------------------------------------------------------------
-function HeroRender({ block, asEditor, priority }) {
+function HeroRender({ block, asEditor, priority, breakpoint }) {
   const c = block.content || {};
   // Tenant typography styles take precedence for both the headline and the
   // optional sub-headline when set and resolvable. The tag is derived from
@@ -694,12 +773,28 @@ function HeroRender({ block, asEditor, priority }) {
   const Sub = subheadlineStyleObj
     ? tagForTypographyStyleType(subheadlineStyleObj.style_type)
     : 'p';
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
   const headlineInline = headlineStyleObj
-    ? { color: 'inherit', margin: 0, ...buildTypographyInlineStyle(headlineStyleObj) }
+    ? { color: 'inherit', margin: 0, ...buildTypographyInlineStyle(headlineStyleObj, { breakpoint: bpForInline }) }
     : { color: 'inherit', margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 };
   const subheadlineInline = subheadlineStyleObj
-    ? { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720, ...buildTypographyInlineStyle(subheadlineStyleObj) }
+    ? { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720, ...buildTypographyInlineStyle(subheadlineStyleObj, { breakpoint: bpForInline }) }
     : { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720 };
+  // Public visitor: emit per-block @media CSS so tablet/mobile values
+  // kick in below their breakpoints. Editor preview pins the matching
+  // values inline above (the iframe viewport may not match @media).
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const heroResponsiveCss = !isPreview && (headlineStyleObj || subheadlineStyleObj)
+    ? [
+        headlineStyleObj && hasResponsiveTypographyOverride(headlineStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="headline"]`, headlineStyleObj)
+          : null,
+        subheadlineStyleObj && hasResponsiveTypographyOverride(subheadlineStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="subheadline"]`, subheadlineStyleObj)
+          : null,
+      ].filter(Boolean).join('') || null
+    : null;
   const align = c.alignment || 'center';
   const justify = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
   const textAlign = align;
@@ -714,6 +809,9 @@ function HeroRender({ block, asEditor, priority }) {
       className="absolute inset-0 overflow-hidden"
       style={{ ...(bg || {}), borderRadius: block.style.borderRadius || 0 }}
     >
+      {heroResponsiveCss && (
+        <style dangerouslySetInnerHTML={{ __html: heroResponsiveCss }} />
+      )}
       {isImageBg && (() => {
         const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
         return (
@@ -747,11 +845,11 @@ function HeroRender({ block, asEditor, priority }) {
         className="relative h-full w-full flex flex-col p-6"
         style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff' }}
       >
-        <Heading style={headlineInline}>
+        <Heading style={headlineInline} data-tg-r="headline">
           {c.headline || ''}
         </Heading>
         {c.subheadline && (
-          <Sub style={subheadlineInline}>
+          <Sub style={subheadlineInline} data-tg-r="subheadline">
             {c.subheadline}
           </Sub>
         )}
@@ -905,21 +1003,23 @@ function TextRender({ block, breakpoint }) {
     ? tenantStyles.find((s) => s.id === c.typographyStyleId) || null
     : null;
 
-  // Responsive typography handling: if the chosen tenant style has any
-  // distinct mobile equivalents (font-size, line-height, letter-spacing,
-  // margin-bottom), we omit those properties from inline styles and
-  // instead emit a per-block <style> tag with a `@media` rule so the
-  // mobile values kick in below the mobile breakpoint. When the editor
-  // previews a forced breakpoint (`?_bp=mobile`), the iframe viewport
-  // may not actually match the media query, so we additionally pin the
-  // matching values inline for the forced breakpoint preview.
-  const hasMobileFontSize = hasMobileOverride(tenantStyle, 'font_size', 'font_size_mobile');
-  const hasMobileLineHeight = hasMobileOverride(tenantStyle, 'line_height', 'line_height_mobile');
-  const hasMobileLetterSpacing = hasMobileOverride(tenantStyle, 'letter_spacing', 'letter_spacing_mobile');
-  const hasMobileMarginBottom = hasMobileOverride(tenantStyle, 'margin_bottom', 'margin_bottom_mobile');
-  const mobileTypographyCss = tenantStyle
-    ? buildTextMobileTypographyCss(block.id, tenantStyle)
+  // Responsive typography handling: when the chosen tenant style declares
+  // any tablet/mobile-specific override, the editor preview pins the
+  // matching values inline (because the iframe viewport may not match
+  // the @media rules) while the public visitor renders inline desktop
+  // values plus a per-block <style> with `@media` rules.
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const hasResponsiveOverrideForBlock = tenantStyle
+    ? hasResponsiveTypographyOverride(tenantStyle)
+    : false;
+  const responsiveTenantCss = !isPreview && hasResponsiveOverrideForBlock
+    ? buildTextResponsiveTypographyCss(block.id, tenantStyle)
     : null;
+  const tiptapResponsiveCss = buildTiptapFontSizeResponsiveCss(
+    block.id,
+    safeHtml,
+    isPreview ? breakpoint : null,
+  );
 
   let Tag;
   let headingSizeClass = '';
@@ -927,32 +1027,8 @@ function TextRender({ block, breakpoint }) {
   if (tenantStyle) {
     Tag = tagForTypographyStyleType(tenantStyle.style_type);
     inlineTypography = buildTypographyInlineStyle(tenantStyle, {
-      omitFontSize: hasMobileFontSize,
-      omitLineHeight: hasMobileLineHeight,
-      omitLetterSpacing: hasMobileLetterSpacing,
-      omitMarginBottom: hasMobileMarginBottom,
+      breakpoint: isPreview ? breakpoint : 'desktop',
     });
-    // For forced breakpoint previews in the editor (where the iframe
-    // viewport may not match the @media rule), pin the matching values
-    // inline so the preview reflects the responsive override.
-    const isMobile = breakpoint === 'mobile';
-    const isWide = breakpoint === 'desktop' || breakpoint === 'tablet';
-    if (hasMobileFontSize) {
-      const v = isMobile ? tenantStyle.font_size_mobile : isWide ? tenantStyle.font_size : null;
-      if (v != null) inlineTypography.fontSize = `${v}px`;
-    }
-    if (hasMobileLineHeight) {
-      const v = isMobile ? tenantStyle.line_height_mobile : isWide ? tenantStyle.line_height : null;
-      if (v != null) inlineTypography.lineHeight = v;
-    }
-    if (hasMobileLetterSpacing) {
-      const v = isMobile ? tenantStyle.letter_spacing_mobile : isWide ? tenantStyle.letter_spacing : null;
-      if (v != null) inlineTypography.letterSpacing = `${v}px`;
-    }
-    if (hasMobileMarginBottom) {
-      const v = isMobile ? tenantStyle.margin_bottom_mobile : isWide ? tenantStyle.margin_bottom : null;
-      if (v != null) inlineTypography.marginBottom = `${v}px`;
-    }
   } else {
     // Fallback: legacy "Render as H1–H6" path. Unchanged behaviour for any
     // existing block that has `headingAs` set but no `typographyStyleId`.
@@ -983,8 +1059,11 @@ function TextRender({ block, breakpoint }) {
   }
   return (
     <>
-      {mobileTypographyCss && (
-        <style dangerouslySetInnerHTML={{ __html: mobileTypographyCss }} />
+      {responsiveTenantCss && (
+        <style dangerouslySetInnerHTML={{ __html: responsiveTenantCss }} />
+      )}
+      {tiptapResponsiveCss && (
+        <style dangerouslySetInnerHTML={{ __html: tiptapResponsiveCss }} />
       )}
       <Tag
         className={`prose prose-sm max-w-none w-full h-full overflow-auto [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-semibold [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:text-base [&_h5]:font-semibold [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:uppercase [&_p:last-child]:mb-0 [&_a]:text-blue-600 [&_a]:underline ${headingSizeClass}`}
@@ -995,7 +1074,7 @@ function TextRender({ block, breakpoint }) {
   );
 }
 
-function TextInspector({ block, update }) {
+function TextInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const tenantStyles = useTenantTypographyStyles();
@@ -1051,7 +1130,7 @@ function TextInspector({ block, update }) {
         options={renderAsOptions}
         testId="select-text-heading-as"
       />
-      <RichTextField label="Content" value={c.html} onChange={(v) => set({ html: v })} testId="input-text-content" />
+      <RichTextField label="Content" value={c.html} onChange={(v) => set({ html: v })} testId="input-text-content" breakpoint={breakpoint} />
       <SelectField
         label="Text colour role"
         value={c.colorRole || 'default'}
@@ -2098,7 +2177,7 @@ function IconInspector({ block, update, breakpoint }) {
 }
 
 // CARD -----------------------------------------------------------------------
-function CardRender({ block, asEditor, priority }) {
+function CardRender({ block, asEditor, priority, breakpoint }) {
   const c = block.content || {};
   // Tenant typography style takes precedence for the card title — the
   // outer tag follows the style's `style_type` and inline styles carry
@@ -2109,11 +2188,20 @@ function CardRender({ block, asEditor, priority }) {
   const Heading = headingStyleObj
     ? tagForTypographyStyleType(headingStyleObj.style_type)
     : `h${Math.max(1, Math.min(6, c.headingLevel || 3))}`;
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
   const headingInline = headingStyleObj
-    ? { margin: 0, marginTop: c.imageUrl ? 12 : 0, ...buildTypographyInlineStyle(headingStyleObj) }
+    ? { margin: 0, marginTop: c.imageUrl ? 12 : 0, ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
     : { margin: 0, marginTop: c.imageUrl ? 12 : 0, fontSize: '1.125rem', fontWeight: 600 };
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const cardResponsiveCss = !isPreview && headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
+    ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-heading"]`, headingStyleObj)
+    : null;
   return (
     <div className="w-full h-full flex flex-col">
+      {cardResponsiveCss && (
+        <style dangerouslySetInnerHTML={{ __html: cardResponsiveCss }} />
+      )}
       {c.imageUrl && (() => {
         const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
         return (
@@ -2130,7 +2218,7 @@ function CardRender({ block, asEditor, priority }) {
           />
         );
       })()}
-      <Heading style={headingInline}>
+      <Heading style={headingInline} data-tg-r="card-heading">
         {c.heading}
       </Heading>
       <div

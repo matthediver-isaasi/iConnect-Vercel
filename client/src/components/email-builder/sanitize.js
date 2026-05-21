@@ -10,6 +10,14 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTR = [
   'href', 'target', 'rel', 'style', 'class',
+  // Task #974: responsive per-device font-size on Tiptap textStyle spans.
+  // The desktop value lives in inline `style="font-size:…"`; the tablet
+  // and mobile values are stored as data attributes so the Canvas
+  // renderer can extract them and emit per-block @media CSS. They are
+  // explicitly allow-listed here (rather than turning on
+  // ALLOW_DATA_ATTR globally) so we don't accidentally let other
+  // unknown data-* attributes through.
+  'data-fs-tablet', 'data-fs-mobile',
 ];
 
 export function sanitizeHtml(html) {

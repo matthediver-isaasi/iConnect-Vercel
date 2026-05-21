@@ -88,15 +88,19 @@ const defaultStyle = {
   style_type: 'h1',
   font_family: 'Poppins, sans-serif',
   font_size: 48,
+  font_size_tablet: null,
   font_size_mobile: null,
   font_weight: 600,
   line_height: 1.2,
+  line_height_tablet: null,
   line_height_mobile: null,
   letter_spacing: 0,
+  letter_spacing_tablet: null,
   letter_spacing_mobile: null,
   text_transform: 'none',
   color: '',
   margin_bottom: 24,
+  margin_bottom_tablet: null,
   margin_bottom_mobile: null,
   is_default: false,
   is_active: true
@@ -138,7 +142,23 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
         <div style={previewStyle}>
           The quick brown fox jumps over the lazy dog
         </div>
-        {(formData.font_size_mobile || formData.line_height_mobile || formData.letter_spacing_mobile || formData.margin_bottom_mobile != null) && (
+        {(formData.font_size_tablet || formData.line_height_tablet || formData.letter_spacing_tablet != null || formData.margin_bottom_tablet != null) && (
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <span className="text-xs text-slate-500 block mb-2">Tablet Preview</span>
+            <div
+              style={{
+                ...previewStyle,
+                ...(formData.font_size_tablet ? { fontSize: `${formData.font_size_tablet}px` } : {}),
+                ...(formData.line_height_tablet ? { lineHeight: formData.line_height_tablet } : {}),
+                ...(formData.letter_spacing_tablet != null && formData.letter_spacing_tablet !== '' ? { letterSpacing: `${formData.letter_spacing_tablet}px` } : {}),
+                ...(formData.margin_bottom_tablet != null && formData.margin_bottom_tablet !== '' ? { marginBottom: `${formData.margin_bottom_tablet}px` } : {}),
+              }}
+            >
+              The quick brown fox jumps over the lazy dog
+            </div>
+          </div>
+        )}
+        {(formData.font_size_mobile || formData.line_height_mobile || formData.letter_spacing_mobile != null || formData.margin_bottom_mobile != null) && (
           <div className="mt-4 pt-4 border-t border-slate-200">
             <span className="text-xs text-slate-500 block mb-2">Mobile Preview</span>
             <div
@@ -221,6 +241,20 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
         </div>
 
         <div>
+          <Label htmlFor="font_size_tablet">Tablet Font Size (px)</Label>
+          <Input
+            id="font_size_tablet"
+            type="number"
+            value={formData.font_size_tablet || ''}
+            onChange={(e) => handleChange('font_size_tablet', e.target.value ? parseInt(e.target.value) : null)}
+            min="8"
+            max="200"
+            placeholder="Optional"
+            data-testid="input-font-size-tablet"
+          />
+        </div>
+
+        <div>
           <Label htmlFor="font_size_mobile">Mobile Font Size (px)</Label>
           <Input
             id="font_size_mobile"
@@ -268,6 +302,21 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
         </div>
 
         <div>
+          <Label htmlFor="line_height_tablet">Tablet Line Height</Label>
+          <Input
+            id="line_height_tablet"
+            type="number"
+            step="0.05"
+            value={formData.line_height_tablet ?? ''}
+            onChange={(e) => handleChange('line_height_tablet', e.target.value ? parseFloat(e.target.value) : null)}
+            min="0.5"
+            max="3"
+            placeholder="Optional"
+            data-testid="input-line-height-tablet"
+          />
+        </div>
+
+        <div>
           <Label htmlFor="line_height_mobile">Mobile Line Height</Label>
           <Input
             id="line_height_mobile"
@@ -293,6 +342,21 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
             min="-5"
             max="20"
             data-testid="input-letter-spacing"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="letter_spacing_tablet">Tablet Letter Spacing (px)</Label>
+          <Input
+            id="letter_spacing_tablet"
+            type="number"
+            step="0.5"
+            value={formData.letter_spacing_tablet ?? ''}
+            onChange={(e) => handleChange('letter_spacing_tablet', e.target.value !== '' ? parseFloat(e.target.value) : null)}
+            min="-5"
+            max="20"
+            placeholder="Optional"
+            data-testid="input-letter-spacing-tablet"
           />
         </div>
 
@@ -362,6 +426,20 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
             min="0"
             max="100"
             data-testid="input-margin-bottom"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="margin_bottom_tablet">Tablet Margin Bottom (px)</Label>
+          <Input
+            id="margin_bottom_tablet"
+            type="number"
+            value={formData.margin_bottom_tablet ?? ''}
+            onChange={(e) => handleChange('margin_bottom_tablet', e.target.value !== '' ? parseInt(e.target.value) : null)}
+            min="0"
+            max="100"
+            placeholder="Optional"
+            data-testid="input-margin-bottom-tablet"
           />
         </div>
 

@@ -34,6 +34,64 @@ import {
   Highlighter,
 } from 'lucide-react';
 
+// Task #974: the FontSize textStyle attribute now supports per-device
+// values. Legacy desktop-only marks remain a plain string (e.g. "16px")
+// so any saved HTML that only ever set a desktop size round-trips
+// byte-identically. Once an author sets a tablet- or mobile-specific
+// size the attribute becomes an object `{ desktop, tablet, mobile }`
+// (any subset present) — rendered HTML stores desktop inline
+// (`style="font-size:…"`) and tablet/mobile via `data-fs-tablet="…"` /
+// `data-fs-mobile="…"` attributes. The canvas renderer extracts those
+// data attributes and emits per-block @media CSS that targets them
+// (see `buildTiptapFontSizeResponsiveCss` in
+// `client/src/components/canvas/blocks/registry.jsx`).
+function normalizeFontSizeAttr(v) {
+  if (v == null) return null;
+  if (typeof v === 'string') return v || null;
+  if (typeof v === 'object') {
+    const o = {};
+    if (v.desktop) o.desktop = v.desktop;
+    if (v.tablet) o.tablet = v.tablet;
+    if (v.mobile) o.mobile = v.mobile;
+    const keys = Object.keys(o);
+    if (keys.length === 0) return null;
+    if (keys.length === 1 && o.desktop) return o.desktop; // collapse to scalar
+    return o;
+  }
+  return null;
+}
+
+function resolveFontSizeAtBp(v, bp) {
+  if (!v) return '';
+  const breakpoint = bp || 'desktop';
+  if (typeof v === 'string') return breakpoint === 'desktop' ? v : '';
+  if (typeof v === 'object') return v[breakpoint] || '';
+  return '';
+}
+
+function writeFontSizeAtBp(current, bp, next) {
+  const breakpoint = bp || 'desktop';
+  const cleanNext = next == null || next === '' ? null : next;
+  let obj;
+  if (current == null) {
+    obj = {};
+  } else if (typeof current === 'string') {
+    // Legacy scalar = desktop. Lift to object only when we're about to
+    // set a non-desktop value; otherwise stay scalar for byte-identity.
+    if (breakpoint === 'desktop') {
+      return cleanNext; // string or null
+    }
+    obj = { desktop: current };
+  } else if (typeof current === 'object') {
+    obj = { ...current };
+  } else {
+    obj = {};
+  }
+  if (cleanNext == null) delete obj[breakpoint];
+  else obj[breakpoint] = cleanNext;
+  return normalizeFontSizeAttr(obj);
+}
+
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
@@ -45,10 +103,34 @@ const FontSize = Extension.create({
       attributes: {
         fontSize: {
           default: null,
-          parseHTML: element => element.style.fontSize?.replace(/['"]+/g, '') || null,
+          parseHTML: element => {
+            const inline = element.style.fontSize
+              ? element.style.fontSize.replace(/['"]+/g, '')
+              : null;
+            const tablet = element.getAttribute('data-fs-tablet') || null;
+            const mobile = element.getAttribute('data-fs-mobile') || null;
+            if (!inline && !tablet && !mobile) return null;
+            if (!tablet && !mobile) return inline; // legacy scalar
+            const obj = {};
+            if (inline) obj.desktop = inline;
+            if (tablet) obj.tablet = tablet;
+            if (mobile) obj.mobile = mobile;
+            return normalizeFontSizeAttr(obj);
+          },
           renderHTML: attributes => {
-            if (!attributes.fontSize) return {};
-            return { style: `font-size: ${attributes.fontSize}` };
+            const v = attributes.fontSize;
+            if (!v) return {};
+            if (typeof v === 'string') {
+              return { style: `font-size: ${v}` };
+            }
+            if (typeof v === 'object') {
+              const out = {};
+              if (v.desktop) out.style = `font-size: ${v.desktop}`;
+              if (v.tablet) out['data-fs-tablet'] = v.tablet;
+              if (v.mobile) out['data-fs-mobile'] = v.mobile;
+              return out;
+            }
+            return {};
           },
         },
       },
@@ -56,15 +138,26 @@ const FontSize = Extension.create({
   },
   addCommands() {
     return {
-      setFontSize: (fontSize) => ({ chain }) => {
-        return chain().setMark('textStyle', { fontSize }).run();
+      setFontSize: (fontSize, opts) => ({ chain, editor }) => {
+        const bp = (opts && opts.breakpoint) || 'desktop';
+        const current = editor.getAttributes('textStyle').fontSize;
+        const next = writeFontSizeAtBp(current, bp, fontSize);
+        return chain().setMark('textStyle', { fontSize: next }).run();
       },
-      unsetFontSize: () => ({ chain }) => {
-        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
+      unsetFontSize: (opts) => ({ chain, editor }) => {
+        const bp = (opts && opts.breakpoint) || 'desktop';
+        const current = editor.getAttributes('textStyle').fontSize;
+        const next = writeFontSizeAtBp(current, bp, null);
+        if (next == null) {
+          return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
+        }
+        return chain().setMark('textStyle', { fontSize: next }).run();
       },
     };
   },
 });
+
+const BP_LABEL = { desktop: 'Desktop', tablet: 'Tablet', mobile: 'Mobile' };
 
 const BackgroundColor = Extension.create({
   name: 'backgroundColor',
@@ -149,7 +242,7 @@ const FONT_SIZES = [
   { value: '192px', label: '192' },
 ];
 
-function MenuBar({ editor }) {
+function MenuBar({ editor, breakpoint }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const colorInputRef = useRef(null);
@@ -167,7 +260,17 @@ function MenuBar({ editor }) {
 
   const currentColor = editor.getAttributes('textStyle').color || '';
   const currentFont = editor.getAttributes('textStyle').fontFamily || '';
-  const currentFontSize = editor.getAttributes('textStyle').fontSize || '';
+  // Per-breakpoint font-size editing: when a breakpoint prop is passed
+  // by the host (Canvas Text inspector forwards the active chip), the
+  // Size dropdown reads/writes the value for that breakpoint only.
+  // Hosts that don't pass a breakpoint (legacy email builder) keep
+  // editing the desktop scalar value, matching pre-#974 behaviour.
+  const activeBp = breakpoint === 'mobile' || breakpoint === 'tablet' || breakpoint === 'desktop'
+    ? breakpoint
+    : 'desktop';
+  const fontSizeAttr = editor.getAttributes('textStyle').fontSize;
+  const currentFontSize = resolveFontSizeAtBp(fontSizeAttr, activeBp);
+  const showBpChip = !!breakpoint;
   const currentBgColor = editor.getAttributes('textStyle').backgroundColor || '';
 
   return (
@@ -408,9 +511,9 @@ function MenuBar({ editor }) {
           value={currentFontSize || '__default__'}
           onValueChange={(v) => {
             if (v === '__default__') {
-              editor.chain().focus().unsetFontSize().run();
+              editor.chain().focus().unsetFontSize({ breakpoint: activeBp }).run();
             } else {
-              editor.chain().focus().setFontSize(v).run();
+              editor.chain().focus().setFontSize(v, { breakpoint: activeBp }).run();
             }
           }}
         >
@@ -428,6 +531,15 @@ function MenuBar({ editor }) {
             ))}
           </SelectContent>
         </Select>
+        {showBpChip && (
+          <span
+            className="text-[11px] px-1.5 py-0.5 rounded-md border border-border bg-muted text-muted-foreground"
+            title="Font sizes apply only to the active breakpoint"
+            data-testid="rte-bp-chip"
+          >
+            Size editing: {BP_LABEL[activeBp]}
+          </span>
+        )}
       </div>
 
       {showLinkInput && (
@@ -461,7 +573,7 @@ function MenuBar({ editor }) {
   );
 }
 
-export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight }) {
+export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint }) {
   const buildStyle = (ff, c, lh) => [
     ff ? `font-family: ${ff}` : '',
     c ? `color: ${c}` : '',
@@ -523,7 +635,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
 
   return (
     <div className="border rounded-md overflow-hidden bg-background" data-testid="rich-text-editor">
-      <MenuBar editor={editor} />
+      <MenuBar editor={editor} breakpoint={breakpoint} />
       <EditorContent editor={editor} />
     </div>
   );
