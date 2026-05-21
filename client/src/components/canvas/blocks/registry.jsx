@@ -932,6 +932,13 @@ function TextRender({ block, breakpoint }) {
       : textColorForRole(c.colorRole),
     ...(inlineTypography || {}),
   };
+  // Per-block line-spacing override (`content.lineHeight`, unitless).
+  // Applied last so it wins over any tenant-style line-height (including
+  // the responsive mobile pin) and over the default browser line-height
+  // on the legacy heading path.
+  if (Number.isFinite(c.lineHeight)) {
+    outerStyle.lineHeight = c.lineHeight;
+  }
   return (
     <>
       {mobileTypographyCss && (
@@ -1013,6 +1020,15 @@ function TextInspector({ block, update }) {
           { value: 'tertiary', label: 'Tertiary' },
         ]}
         testId="select-text-color-role"
+      />
+      <NumberField
+        label="Line spacing (leave blank for default)"
+        value={Number.isFinite(c.lineHeight) ? c.lineHeight : null}
+        onChange={(v) => set({ lineHeight: Number.isFinite(v) ? v : undefined })}
+        min={0.5}
+        max={4}
+        step={0.1}
+        testId="input-text-line-height"
       />
     </>
   );
