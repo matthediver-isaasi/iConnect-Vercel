@@ -2327,6 +2327,23 @@ function buildSectionOverlayBackground(c) {
   return null;
 }
 
+// Builds the CSS gradient string for sections whose `bgType === 'gradient'`.
+// Mirrors buildSectionOverlayBackground but uses dedicated `gradient*` keys
+// so the value is preserved separately from any image-overlay configuration
+// the same section may also have stored.
+function buildSectionGradientBackground(c) {
+  const t = c.gradientType || 'linear';
+  if (t === 'radial') {
+    const centre = hexToRgba(c.gradientCenterColor || '#3b82f6', c.gradientCenterOpacity ?? 1);
+    const edge = hexToRgba(c.gradientEdgeColor || '#1e3a8a', c.gradientEdgeOpacity ?? 1);
+    return `radial-gradient(ellipse at center, ${centre}, ${edge})`;
+  }
+  const angle = Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180;
+  const from = hexToRgba(c.gradientFromColor || '#3b82f6', c.gradientFromOpacity ?? 1);
+  const to = hexToRgba(c.gradientToColor || '#1e3a8a', c.gradientToOpacity ?? 1);
+  return `linear-gradient(${angle}deg, ${from}, ${to})`;
+}
+
 const SECTION_BLEND_MODES = [
   'normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light',
   'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion',
@@ -2362,6 +2379,8 @@ function SectionRender({ block, asEditor, priority }) {
   // colour sections (no bgType, or `bgType === 'color'`) emit exactly
   // the same DOM/style as before this change.
   const isImageBg = c.bgType === 'image' && !!c.bgImageUrl;
+  const isGradientBg = c.bgType === 'gradient';
+  const gradientBg = isGradientBg ? buildSectionGradientBackground(c) : null;
   const overlayBg = isImageBg ? buildSectionOverlayBackground(c) : null;
   const hasOverlay = isImageBg && overlayBg && (c.overlayType || 'none') !== 'none';
   const pt = s.paddingTop || 0;
@@ -2389,9 +2408,12 @@ function SectionRender({ block, asEditor, priority }) {
     railStyle.zIndex = 2;
   }
 
-  const wrapperStyle = isImageBg
+  let wrapperStyle = isImageBg
     ? { ...(fullBleedStyle || {}), isolation: 'isolate' }
     : fullBleedStyle;
+  if (isGradientBg && gradientBg) {
+    wrapperStyle = { ...(wrapperStyle || {}), background: gradientBg };
+  }
 
   return (
     <div
@@ -2399,7 +2421,7 @@ function SectionRender({ block, asEditor, priority }) {
       style={wrapperStyle || undefined}
       data-section-id={block.id}
       data-full-bleed={c.fullBleed ? 'true' : 'false'}
-      {...(isImageBg ? { 'data-bg-type': 'image' } : null)}
+      {...(isImageBg ? { 'data-bg-type': 'image' } : isGradientBg ? { 'data-bg-type': 'gradient' } : null)}
     >
       {isImageBg && (() => {
         const r = buildResponsiveImage(c.bgImageUrl, { sizes: '100vw' });
@@ -2442,7 +2464,7 @@ function SectionRender({ block, asEditor, priority }) {
           aria-hidden="true"
           style={isImageBg ? { zIndex: 3 } : undefined}
         >
-          Section{c.fullBleed ? ' · full-bleed' : ''}{isImageBg ? ' · image' : ''}
+          Section{c.fullBleed ? ' · full-bleed' : ''}{isImageBg ? ' · image' : isGradientBg ? ' · gradient' : ''}
         </span>
       )}
     </div>
@@ -2455,6 +2477,8 @@ function SectionInspector({ block, update }) {
   const bgType = c.bgType || 'color';
   const overlayType = c.overlayType || 'solid';
   const isImageBg = bgType === 'image';
+  const isGradientBg = bgType === 'gradient';
+  const gradientType = c.gradientType || 'linear';
   return (
     <>
       <NumberField
@@ -2471,10 +2495,95 @@ function SectionInspector({ block, update }) {
         onChange={(v) => set({ bgType: v })}
         options={[
           { value: 'color', label: 'Colour' },
+          { value: 'gradient', label: 'Gradient' },
           { value: 'image', label: 'Image' },
         ]}
         testId="select-section-bg-type"
       />
+      {isGradientBg && (
+        <>
+          <SelectField
+            label="Gradient type"
+            value={gradientType}
+            onChange={(v) => set({ gradientType: v })}
+            options={[
+              { value: 'linear', label: 'Linear' },
+              { value: 'radial', label: 'Radial' },
+            ]}
+            testId="select-section-gradient-type"
+          />
+          {gradientType === 'linear' && (
+            <>
+              <NumberField
+                label="Angle (0–360°)"
+                min={0} max={360} step={1}
+                value={Number.isFinite(c.gradientAngle) ? c.gradientAngle : 180}
+                onChange={(v) => {
+                  const n = Number(v);
+                  set({ gradientAngle: Number.isFinite(n) ? Math.max(0, Math.min(360, n)) : 180 });
+                }}
+                testId="input-section-gradient-angle"
+              />
+              <ColorField
+                label="From colour"
+                value={c.gradientFromColor || '#3b82f6'}
+                onChange={(v) => set({ gradientFromColor: v })}
+                testId="input-section-gradient-from-color"
+              />
+              <NumberField
+                label="From opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.gradientFromOpacity ?? 1}
+                onChange={(v) => set({ gradientFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-gradient-from-opacity"
+              />
+              <ColorField
+                label="To colour"
+                value={c.gradientToColor || '#1e3a8a'}
+                onChange={(v) => set({ gradientToColor: v })}
+                testId="input-section-gradient-to-color"
+              />
+              <NumberField
+                label="To opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.gradientToOpacity ?? 1}
+                onChange={(v) => set({ gradientToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-gradient-to-opacity"
+              />
+            </>
+          )}
+          {gradientType === 'radial' && (
+            <>
+              <ColorField
+                label="Centre colour"
+                value={c.gradientCenterColor || '#3b82f6'}
+                onChange={(v) => set({ gradientCenterColor: v })}
+                testId="input-section-gradient-center-color"
+              />
+              <NumberField
+                label="Centre opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.gradientCenterOpacity ?? 1}
+                onChange={(v) => set({ gradientCenterOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-gradient-center-opacity"
+              />
+              <ColorField
+                label="Edge colour"
+                value={c.gradientEdgeColor || '#1e3a8a'}
+                onChange={(v) => set({ gradientEdgeColor: v })}
+                testId="input-section-gradient-edge-color"
+              />
+              <NumberField
+                label="Edge opacity (0–1)"
+                min={0} max={1} step={0.05}
+                value={c.gradientEdgeOpacity ?? 1}
+                onChange={(v) => set({ gradientEdgeOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                testId="input-section-gradient-edge-opacity"
+              />
+            </>
+          )}
+        </>
+      )}
       {isImageBg && (
         <>
           <ImageField
@@ -2596,6 +2705,7 @@ function SectionInspector({ block, update }) {
       <p className="text-xs text-slate-500">
         Use the Appearance and Spacing panels above for background colour, border and padding.
         {isImageBg ? ' The Appearance colour shows through any transparent areas of the image overlay.' : ''}
+        {isGradientBg ? ' The gradient renders behind section content; the Appearance background colour is hidden when a gradient is set.' : ''}
       </p>
     </>
   );
