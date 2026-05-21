@@ -394,11 +394,31 @@ export const BLOCK_DEFAULTS = {
   [BLOCK_TYPES.STAT]: {
     name: 'Stat',
     geom: { w: 240, h: 140 },
-    style: { background: 'transparent', borderWidth: 0 },
+    style: {
+      background: '#ffffff',
+      borderColor: '#f3f4f6',
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderRadius: 12,
+      paddingTop: 16,
+      paddingRight: 16,
+      paddingBottom: 16,
+      paddingLeft: 16,
+    },
     content: {
-      value: '1,200+',
-      label: 'Happy members',
-      color: '',
+      value: '2,500+',
+      label: 'Members',
+      color: '#ea7f21',
+      labelColor: '',
+      valueFontSize: 30,
+      labelFontSize: 14,
+      // Counter animation: when `animate` is true the value's numeric
+      // portion counts up from zero to the target on first scroll into
+      // view. Non-numeric prefix/suffix (e.g. "$", "+", "K") are
+      // preserved and the thousands-separator pattern from the saved
+      // value is re-applied to each intermediate frame.
+      animate: false,
+      animationDurationMs: 1500,
     },
   },
   [BLOCK_TYPES.LOGO_STRIP]: {

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Square,
@@ -2308,16 +2308,167 @@ function CardInspector({ block, update }) {
 }
 
 // STAT -----------------------------------------------------------------------
-function StatRender({ block }) {
+// Split a display string like "2,500+" or "$5.2K" into the numeric core
+// (used as the count-up target) and the non-numeric prefix/suffix that
+// are preserved at every animation frame. Returns `null` for the
+// numeric part when no number is present, in which case the renderer
+// shows the raw value with no animation.
+function parseStatValue(raw) {
+  const str = String(raw == null ? '' : raw);
+  const m = str.match(/^(\D*?)([\d][\d.,\s]*)(.*)$/);
+  if (!m) return { prefix: '', target: null, suffix: '', decimals: 0, separator: '' };
+  const [, prefix, numStr, suffix] = m;
+  const trimmed = numStr.trim();
+  // Detect thousands separator (comma or space) by looking for groups of
+  // three trailing digits. We preserve whichever appears in the saved
+  // value so a UK author writing "2,500" doesn't become "2500" mid-frame.
+  const hasCommaThousands = /\d{1,3}(,\d{3})+/.test(trimmed);
+  const hasSpaceThousands = /\d{1,3}(\s\d{3})+/.test(trimmed);
+  const separator = hasCommaThousands ? ',' : hasSpaceThousands ? ' ' : '';
+  // Strip thousands separators (commas or spaces) but keep the decimal
+  // point. After stripping, parseFloat gives us the numeric target.
+  const numeric = trimmed.replace(/,/g, '').replace(/\s+/g, '');
+  const dot = numeric.indexOf('.');
+  const decimals = dot >= 0 ? numeric.length - dot - 1 : 0;
+  const target = Number(numeric);
+  if (!Number.isFinite(target)) {
+    return { prefix: '', target: null, suffix: '', decimals: 0, separator: '' };
+  }
+  return { prefix, target, suffix, decimals, separator };
+}
+
+function formatStatNumber(value, { decimals, separator }) {
+  const fixed = value.toFixed(decimals || 0);
+  if (!separator) return fixed;
+  // Re-apply thousands separator to the integer part only.
+  const [intPart, fracPart] = fixed.split('.');
+  const withSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, separator);
+  return fracPart != null ? `${withSep}.${fracPart}` : withSep;
+}
+
+function StatRender({ block, asEditor }) {
   const c = block.content || {};
+  const parsed = useMemo(() => parseStatValue(c.value), [c.value]);
+  const animate = !!c.animate && parsed.target != null && parsed.target !== 0;
+  const duration = Math.max(200, Math.min(10000, Number(c.animationDurationMs) || 1500));
+
+  // Held value shown to the user. `null` means "render the saved
+  // c.value verbatim" — that's the steady state for the editor
+  // preview, for blocks where animate=false, and for blocks where the
+  // animation has finished. We only seed a real "0" frame when the
+  // public renderer is about to animate up to the target.
+  const [display, setDisplay] = useState(() => {
+    if (asEditor || !animate) return null;
+    return formatStatNumber(0, parsed);
+  });
+  const containerRef = useRef(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    // Editor preview never animates — authors see the saved value as-is
+    // so they can read/edit it. Same when there is no numeric target.
+    if (asEditor || !animate) {
+      setDisplay(null);
+      startedRef.current = false;
+      return undefined;
+    }
+    // Honour reduced-motion users: skip the animation entirely and show
+    // the final number immediately.
+    if (
+      typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setDisplay(null);
+      startedRef.current = false;
+      return undefined;
+    }
+    setDisplay(formatStatNumber(0, parsed));
+    startedRef.current = false;
+
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    let rafId = 0;
+    const runAnimation = () => {
+      if (startedRef.current) return;
+      startedRef.current = true;
+      const startTs = performance.now();
+      const tick = (now) => {
+        const t = Math.min(1, (now - startTs) / duration);
+        // ease-out cubic — fast start, soft landing.
+        const eased = 1 - Math.pow(1 - t, 3);
+        const current = parsed.target * eased;
+        setDisplay(formatStatNumber(current, parsed));
+        if (t < 1) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          setDisplay(null); // null = show final c.value string as-is
+        }
+      };
+      rafId = requestAnimationFrame(tick);
+    };
+
+    if (typeof IntersectionObserver === 'undefined') {
+      runAnimation();
+      return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }
+    const io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          runAnimation();
+          io.disconnect();
+          break;
+        }
+      }
+    }, { threshold: 0.25 });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [asEditor, animate, duration, parsed]);
+
+  const valueFontSize = Number.isFinite(c.valueFontSize) && c.valueFontSize > 0
+    ? `${c.valueFontSize}px`
+    : 'clamp(1.5rem, 4vw, 2.5rem)';
+  const labelFontSize = Number.isFinite(c.labelFontSize) && c.labelFontSize > 0
+    ? `${c.labelFontSize}px`
+    : undefined;
+
+  // While animating we show `display`; otherwise we render the saved
+  // string verbatim so prefixes/suffixes like "+" or "K" survive.
+  const valueText = display != null
+    ? `${parsed.prefix}${display}${parsed.suffix}`
+    : c.value;
+
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center text-center">
+    <div
+      ref={containerRef}
+      className="w-full h-full flex flex-col items-center justify-center text-center"
+    >
       <div
-        style={{ color: c.color || '#0f172a', fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700, lineHeight: 1 }}
+        data-testid="text-stat-value"
+        style={{
+          color: c.color || '#0f172a',
+          fontSize: valueFontSize,
+          fontWeight: 700,
+          lineHeight: 1,
+          marginBottom: 4,
+        }}
       >
-        {c.value}
+        {valueText}
       </div>
-      <div className="text-sm text-slate-600 mt-1">{c.label}</div>
+      <div
+        data-testid="text-stat-label"
+        className={c.labelColor ? '' : 'text-slate-600'}
+        style={{
+          color: c.labelColor || undefined,
+          fontSize: labelFontSize,
+        }}
+      >
+        {c.label}
+      </div>
     </div>
   );
 }
@@ -2330,6 +2481,40 @@ function StatInspector({ block, update }) {
       <TextField label="Value" value={c.value} onChange={(v) => set({ value: v })} testId="input-stat-value" />
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-stat-label" />
       <ColorField label="Value colour" value={c.color} onChange={(v) => set({ color: v })} testId="input-stat-color" />
+      <ColorField label="Label colour" value={c.labelColor} onChange={(v) => set({ labelColor: v })} testId="input-stat-label-color" />
+      <NumberField
+        label="Value size (px)"
+        min={8}
+        max={200}
+        value={Number.isFinite(c.valueFontSize) ? c.valueFontSize : ''}
+        onChange={(v) => set({ valueFontSize: v === '' || v == null ? null : Math.max(8, Math.min(200, Number(v) || 0)) })}
+        testId="input-stat-value-size"
+      />
+      <NumberField
+        label="Label size (px)"
+        min={8}
+        max={80}
+        value={Number.isFinite(c.labelFontSize) ? c.labelFontSize : ''}
+        onChange={(v) => set({ labelFontSize: v === '' || v == null ? null : Math.max(8, Math.min(80, Number(v) || 0)) })}
+        testId="input-stat-label-size"
+      />
+      <ToggleField
+        label="Animate as counter"
+        value={!!c.animate}
+        onChange={(v) => set({ animate: v })}
+        testId="toggle-stat-animate"
+      />
+      {c.animate && (
+        <NumberField
+          label="Animation duration (ms)"
+          min={200}
+          max={10000}
+          step={100}
+          value={Number.isFinite(c.animationDurationMs) ? c.animationDurationMs : 1500}
+          onChange={(v) => set({ animationDurationMs: Math.max(200, Math.min(10000, Number(v) || 1500)) })}
+          testId="input-stat-animation-duration"
+        />
+      )}
     </>
   );
 }
