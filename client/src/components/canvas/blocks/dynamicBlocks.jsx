@@ -23,7 +23,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command';
-import { BLOCK_TYPES } from '@/lib/canvasDesign';
+import {
+  BLOCK_TYPES,
+  resolveResponsiveValue,
+  hasResponsiveOverride,
+  writeResponsiveValue,
+} from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 
@@ -63,6 +68,44 @@ function NumberField({ label, value, onChange, min, max, step, testId }) {
         max={max}
         step={step}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        className="h-8"
+        data-testid={testId}
+      />
+    </Field>
+  );
+}
+
+// Task #970: per-device numeric field. Renders a single input bound to the
+// current toolbar breakpoint. Scalar values display on desktop; tablet/mobile
+// show the inherited (cascaded) value as the placeholder so authors can see
+// what they would get by leaving the slot blank. The writer collapses to a
+// scalar number whenever only the desktop slot is set, so blocks that never
+// adopt responsive overrides round-trip byte-identical to today.
+function ResponsiveNumberField({ label, value, onChange, breakpoint, min, max, step, testId, hint }) {
+  const bp = breakpoint || 'desktop';
+  const ownVal = hasResponsiveOverride(value, bp)
+    ? (typeof value === 'number' ? value : value[bp])
+    : null;
+  const inherited = bp === 'desktop'
+    ? null
+    : resolveResponsiveValue(value, bp === 'mobile' ? 'tablet' : 'desktop');
+  const placeholder = bp !== 'desktop' && Number.isFinite(inherited)
+    ? `${inherited} (inherit)`
+    : (bp !== 'desktop' ? 'inherit' : '');
+  return (
+    <Field label={`${label}${bp !== 'desktop' ? ` (${bp})` : ''}`} hint={hint}>
+      <Input
+        type="number"
+        value={Number.isFinite(ownVal) ? ownVal : ''}
+        min={min}
+        max={max}
+        step={step}
+        placeholder={placeholder}
+        onChange={(e) => {
+          const raw = e.target.value;
+          const next = raw === '' ? null : Number(raw);
+          onChange(writeResponsiveValue(value, bp, Number.isFinite(next) ? next : null));
+        }}
         className="h-8"
         data-testid={testId}
       />
@@ -573,7 +616,7 @@ function aspectClassForRatio(ratio) {
   }
 }
 
-function EventCarouselRender({ block, asEditor }) {
+function EventCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const eventIds = Array.isArray(c.eventIds) ? c.eventIds.filter(Boolean) : [];
   const { data: allEvents, isLoading, isError } = useQuery({
@@ -670,14 +713,25 @@ function EventCarouselRender({ block, asEditor }) {
   // either a finite number (size) or a non-empty string (colour); when
   // unset the renderer falls through to the previous Tailwind classes,
   // so old saved blocks render byte-identical to today.
+  // Task #970: raw-px text/icon fields are now per-device. `resolveResponsiveValue`
+  // accepts either a legacy scalar (byte-identical to pre-#970 blocks) or the
+  // new `{ desktop?, tablet?, mobile? }` object and cascades mobile→tablet→desktop.
+  const dateFontSize = resolveResponsiveValue(c.dateFontSize, breakpoint);
+  const titleFontSize = resolveResponsiveValue(c.titleFontSize, breakpoint);
+  const summaryFontSize = resolveResponsiveValue(c.summaryFontSize, breakpoint);
+  const titleLineHeightV = resolveResponsiveValue(c.titleLineHeight, breakpoint);
+  const summaryLineHeightV = resolveResponsiveValue(c.summaryLineHeight, breakpoint);
+  const dateIconSizeV = resolveResponsiveValue(c.dateIconSize, breakpoint);
+  const placeholderIconSizeV = resolveResponsiveValue(c.placeholderIconSize, breakpoint);
+
   const dateStyle = {};
-  if (Number.isFinite(c.dateFontSize)) dateStyle.fontSize = `${c.dateFontSize}px`;
+  if (Number.isFinite(dateFontSize)) dateStyle.fontSize = `${dateFontSize}px`;
   if (c.dateColor) dateStyle.color = c.dateColor;
   const titleStyle = {};
-  if (Number.isFinite(c.titleFontSize)) titleStyle.fontSize = `${c.titleFontSize}px`;
+  if (Number.isFinite(titleFontSize)) titleStyle.fontSize = `${titleFontSize}px`;
   if (c.titleColor) titleStyle.color = c.titleColor;
   const summaryStyle = {};
-  if (Number.isFinite(c.summaryFontSize)) summaryStyle.fontSize = `${c.summaryFontSize}px`;
+  if (Number.isFinite(summaryFontSize)) summaryStyle.fontSize = `${summaryFontSize}px`;
   if (c.summaryColor) summaryStyle.color = c.summaryColor;
 
   const arrowStyle = Number.isFinite(c.arrowRadius)
@@ -695,17 +749,17 @@ function EventCarouselRender({ block, asEditor }) {
   // Task #968: line spacing (title + summary) and calendar icon sizing.
   // Unitless line-height is applied inline only when a positive finite
   // number is set, so the existing Tailwind defaults remain when blank.
-  if (Number.isFinite(c.titleLineHeight) && c.titleLineHeight > 0) {
-    titleStyle.lineHeight = c.titleLineHeight;
+  if (Number.isFinite(titleLineHeightV) && titleLineHeightV > 0) {
+    titleStyle.lineHeight = titleLineHeightV;
   }
-  if (Number.isFinite(c.summaryLineHeight) && c.summaryLineHeight > 0) {
-    summaryStyle.lineHeight = c.summaryLineHeight;
+  if (Number.isFinite(summaryLineHeightV) && summaryLineHeightV > 0) {
+    summaryStyle.lineHeight = summaryLineHeightV;
   }
   // Per-icon overrides — when unset we keep the original Tailwind w-3 h-3
   // (date row) and w-10 h-10 (no-image placeholder).
-  const dateIconSize = Number.isFinite(c.dateIconSize) && c.dateIconSize > 0 ? c.dateIconSize : null;
-  const placeholderIconSize = Number.isFinite(c.placeholderIconSize) && c.placeholderIconSize > 0
-    ? c.placeholderIconSize : null;
+  const dateIconSize = Number.isFinite(dateIconSizeV) && dateIconSizeV > 0 ? dateIconSizeV : null;
+  const placeholderIconSize = Number.isFinite(placeholderIconSizeV) && placeholderIconSizeV > 0
+    ? placeholderIconSizeV : null;
   const dateIconCls = dateIconSize ? '' : 'w-3 h-3';
   const dateIconStyle = dateIconSize ? { width: `${dateIconSize}px`, height: `${dateIconSize}px` } : undefined;
   const placeholderIconCls = placeholderIconSize ? '' : 'w-10 h-10';
@@ -917,7 +971,7 @@ function EventCarouselPickerRow({ value, onChange, testId, disabledValues = [] }
   );
 }
 
-function EventCarouselInspector({ block, update }) {
+function EventCarouselInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const ids = Array.isArray(c.eventIds) ? c.eventIds : [];
@@ -1013,10 +1067,11 @@ function EventCarouselInspector({ block, update }) {
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Date</Label>
       </div>
-      <NumberField
+      <ResponsiveNumberField
         label="Date font size (px)"
         min={1}
         value={c.dateFontSize}
+        breakpoint={breakpoint}
         onChange={(v) => set({ dateFontSize: v })}
         testId="input-event-carousel-date-font-size"
       />
@@ -1030,10 +1085,11 @@ function EventCarouselInspector({ block, update }) {
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Title</Label>
       </div>
-      <NumberField
+      <ResponsiveNumberField
         label="Title font size (px)"
         min={1}
         value={c.titleFontSize}
+        breakpoint={breakpoint}
         onChange={(v) => set({ titleFontSize: v })}
         testId="input-event-carousel-title-font-size"
       />
@@ -1043,12 +1099,13 @@ function EventCarouselInspector({ block, update }) {
         onChange={(v) => set({ titleColor: v })}
         testId="color-event-carousel-title"
       />
-      <NumberField
+      <ResponsiveNumberField
         label="Title line spacing"
         min={0.5}
         max={3}
         step={0.05}
         value={c.titleLineHeight}
+        breakpoint={breakpoint}
         onChange={(v) => set({ titleLineHeight: v })}
         testId="input-event-carousel-title-line-height"
       />
@@ -1056,10 +1113,11 @@ function EventCarouselInspector({ block, update }) {
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Summary</Label>
       </div>
-      <NumberField
+      <ResponsiveNumberField
         label="Summary font size (px)"
         min={1}
         value={c.summaryFontSize}
+        breakpoint={breakpoint}
         onChange={(v) => set({ summaryFontSize: v })}
         testId="input-event-carousel-summary-font-size"
       />
@@ -1069,12 +1127,13 @@ function EventCarouselInspector({ block, update }) {
         onChange={(v) => set({ summaryColor: v })}
         testId="color-event-carousel-summary"
       />
-      <NumberField
+      <ResponsiveNumberField
         label="Summary line spacing"
         min={0.5}
         max={3}
         step={0.05}
         value={c.summaryLineHeight}
+        breakpoint={breakpoint}
         onChange={(v) => set({ summaryLineHeight: v })}
         testId="input-event-carousel-summary-line-height"
       />
@@ -1082,17 +1141,19 @@ function EventCarouselInspector({ block, update }) {
       <div className="pt-2 mt-2 border-t border-slate-200">
         <Label className="text-xs font-semibold text-slate-700">Calendar icon</Label>
       </div>
-      <NumberField
+      <ResponsiveNumberField
         label="Date row icon size (px)"
         min={1}
         value={c.dateIconSize}
+        breakpoint={breakpoint}
         onChange={(v) => set({ dateIconSize: v })}
         testId="input-event-carousel-date-icon-size"
       />
-      <NumberField
+      <ResponsiveNumberField
         label="No-image placeholder icon size (px)"
         min={1}
         value={c.placeholderIconSize}
+        breakpoint={breakpoint}
         onChange={(v) => set({ placeholderIconSize: v })}
         testId="input-event-carousel-placeholder-icon-size"
       />

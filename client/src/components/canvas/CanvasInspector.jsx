@@ -217,7 +217,7 @@ function A11ySection({ block, issues, onReorder, readingOrderIndex, readingOrder
   );
 }
 
-function ContentSection({ block, onUpdate }) {
+function ContentSection({ block, breakpoint, onUpdate }) {
   const def = getBlockDefinition(block.type);
   const InspectorComponent = def.Inspector;
   if (!InspectorComponent) return null;
@@ -235,7 +235,7 @@ function ContentSection({ block, onUpdate }) {
         </div>
       )}
       <div className="space-y-2">
-        <InspectorComponent block={block} update={onUpdate} />
+        <InspectorComponent block={block} update={onUpdate} breakpoint={breakpoint} />
       </div>
     </Section>
   );
@@ -319,7 +319,7 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         />
       </div>
 
-      <ContentSection block={block} onUpdate={onUpdate} />
+      <ContentSection block={block} breakpoint={breakpoint} onUpdate={onUpdate} />
 
       <A11ySection
         block={block}

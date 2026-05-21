@@ -31,7 +31,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BLOCK_TYPES, buildResponsiveImage } from '@/lib/canvasDesign';
+import {
+  BLOCK_TYPES,
+  buildResponsiveImage,
+  resolveResponsiveValue,
+  hasResponsiveOverride,
+  writeResponsiveValue,
+} from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
@@ -105,6 +111,42 @@ function NumberField({ label, value, onChange, min, max, step = 1, testId }) {
         onChange={(e) => {
           const raw = e.target.value;
           onChange(raw === '' ? null : Number(raw));
+        }}
+        className="h-8"
+        data-testid={testId}
+      />
+    </Field>
+  );
+}
+
+// Task #970: per-device numeric field. Mirrors the helper in dynamicBlocks.jsx
+// (kept duplicated so each file stays self-contained, matching the existing
+// pattern for primitives). See `resolveResponsiveValue` / `writeResponsiveValue`
+// in canvasDesign.js for the storage contract.
+function ResponsiveNumberField({ label, value, onChange, breakpoint, min, max, step = 1, testId, placeholder }) {
+  const bp = breakpoint || 'desktop';
+  const ownVal = hasResponsiveOverride(value, bp)
+    ? (typeof value === 'number' ? value : value[bp])
+    : null;
+  const inherited = bp === 'desktop'
+    ? null
+    : resolveResponsiveValue(value, bp === 'mobile' ? 'tablet' : 'desktop');
+  const ph = bp !== 'desktop' && Number.isFinite(inherited)
+    ? `${inherited} (inherit)`
+    : (bp !== 'desktop' ? 'inherit' : (placeholder || ''));
+  return (
+    <Field label={`${label}${bp !== 'desktop' ? ` (${bp})` : ''}`}>
+      <Input
+        type="number"
+        value={Number.isFinite(ownVal) ? ownVal : ''}
+        min={min}
+        max={max}
+        step={step}
+        placeholder={ph}
+        onChange={(e) => {
+          const raw = e.target.value;
+          const next = raw === '' ? null : Number(raw);
+          onChange(writeResponsiveValue(value, bp, Number.isFinite(next) ? next : null));
         }}
         className="h-8"
         data-testid={testId}
@@ -1098,7 +1140,7 @@ function ImageInspector({ block, update }) {
 }
 
 // BUTTON ---------------------------------------------------------------------
-function ButtonRender({ block, asEditor }) {
+function ButtonRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon);
   // Tenant typography style — when set, the label span carries inline
@@ -1129,7 +1171,21 @@ function ButtonRender({ block, asEditor }) {
   // non-overridden keys fall back to the legacy size-class baseline
   // (sm/default/lg) so partial overrides keep the visual size of the
   // keys the user didn't touch.
-  const sizeOverrides = readSizeOverrides(c);
+  // Task #970: each sub-field of `content.size` is now per-device — either
+  // a scalar number (legacy / desktop-only) or a `{ desktop?, tablet?, mobile? }`
+  // object that cascades mobile→tablet→desktop. Resolve each sub-field at
+  // the current breakpoint; sub-fields that resolve to undefined drop off
+  // so the resolved size still falls back to tenant/legacy baselines.
+  const rawSizeOverrides = readSizeOverrides(c);
+  const sizeOverrides = (() => {
+    if (!rawSizeOverrides) return null;
+    const out = {};
+    for (const k of ['paddingX', 'paddingY', 'fontSize', 'iconSize']) {
+      const v = resolveResponsiveValue(rawSizeOverrides[k], breakpoint);
+      if (Number.isFinite(v)) out[k] = v;
+    }
+    return out;
+  })();
   const hasSizeOverrides = !!sizeOverrides && Object.keys(sizeOverrides).length > 0;
   const legacySizeClass = readLegacySizeClass(c);
 
@@ -1264,25 +1320,26 @@ const BUTTON_SIZE_OVERRIDE_FIELDS = [
   { key: 'iconSize', label: 'Icon size' },
 ];
 
-function ButtonSizeOverridesField({ block, update, baseline, baselineLabel }) {
+function ButtonSizeOverridesField({ block, update, baseline, baselineLabel, breakpoint }) {
   const c = block.content || {};
   const overrides = readSizeOverrides(c) || {};
+  const bp = breakpoint || 'desktop';
+  // Task #970: each sub-field of the override object is now itself per-device.
+  // The writer updates the targeted sub-field via `writeResponsiveValue` (so
+  // desktop-only entries stay scalar) and then trims the parent `content.size`
+  // when no sub-field has any data — keeping no-override blocks byte-identical.
   const writeOverride = (key, nextVal) => {
     update((b) => {
       const content = { ...(b.content || {}) };
-      // Before mutating `content.size` (which is about to hold the
-      // override object), migrate any historical string size into
-      // `content.sizeClass` so the legacy baseline survives. Without
-      // this, a block that had `content.size = 'sm'` would lose 'sm'
-      // on the first override edit and silently fall back to 'default'.
       if (typeof content.size === 'string' && !content.sizeClass) {
         content.sizeClass = content.size;
       }
       const current = readSizeOverrides(content) ? { ...readSizeOverrides(content) } : {};
-      if (nextVal === null || nextVal === undefined || nextVal === '' || !Number.isFinite(nextVal)) {
+      const updated = writeResponsiveValue(current[key], bp, Number.isFinite(nextVal) ? nextVal : null);
+      if (updated === undefined) {
         delete current[key];
       } else {
-        current[key] = nextVal;
+        current[key] = updated;
       }
       if (Object.keys(current).length === 0) {
         delete content.size;
@@ -1297,19 +1354,32 @@ function ButtonSizeOverridesField({ block, update, baseline, baselineLabel }) {
       <div className="space-y-2">
         <p className="text-xs text-slate-500">
           Leave blank to use the {baselineLabel} for this variant. Set any value to override just this button.
+          {bp !== 'desktop' ? ` Editing the ${bp} breakpoint — blank inherits from the wider breakpoint.` : ''}
         </p>
         {BUTTON_SIZE_OVERRIDE_FIELDS.map((f) => {
-          const v = overrides[f.key];
-          const hasValue = Number.isFinite(v);
-          const placeholder = baseline && Number.isFinite(baseline[f.key]) ? String(baseline[f.key]) : '';
+          const subValue = overrides[f.key];
+          const ownVal = hasResponsiveOverride(subValue, bp)
+            ? (typeof subValue === 'number' ? subValue : subValue[bp])
+            : null;
+          const hasValue = Number.isFinite(ownVal);
+          // Placeholder: on tablet/mobile show what we would inherit (the next
+          // wider breakpoint's resolved value); on desktop show the variant
+          // baseline so the user knows what they would get if left blank.
+          let placeholder = '';
+          if (bp !== 'desktop') {
+            const inh = resolveResponsiveValue(subValue, bp === 'mobile' ? 'tablet' : 'desktop');
+            placeholder = Number.isFinite(inh) ? `${inh} (inherit)` : 'inherit';
+          } else if (baseline && Number.isFinite(baseline[f.key])) {
+            placeholder = String(baseline[f.key]);
+          }
           return (
             <div key={f.key} className="flex items-center gap-2">
-              <Label className="text-xs w-20 shrink-0">{f.label}</Label>
+              <Label className="text-xs w-20 shrink-0">{`${f.label}${bp !== 'desktop' ? ` (${bp})` : ''}`}</Label>
               <Input
                 type="number"
                 min={0}
                 step={1}
-                value={hasValue ? v : ''}
+                value={hasValue ? ownVal : ''}
                 placeholder={placeholder}
                 onChange={(e) => {
                   const raw = e.target.value;
@@ -1338,7 +1408,7 @@ function ButtonSizeOverridesField({ block, update, baseline, baselineLabel }) {
   );
 }
 
-function ButtonInspector({ block, update }) {
+function ButtonInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   // Pull tenant branding so we can append the tenant's free-form custom
@@ -1427,6 +1497,7 @@ function ButtonInspector({ block, update }) {
         update={update}
         baseline={inspectorSizeBaseline}
         baselineLabel={inspectorBaselineLabel}
+        breakpoint={breakpoint}
       />
       <ToggleField label="Open in new tab" value={c.newTab} onChange={(v) => set({ newTab: v })} testId="toggle-button-newtab" />
       <TextField label="ARIA label (optional)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-button-aria" />
@@ -1980,13 +2051,17 @@ function CustomHtmlInspector({ block, update }) {
 }
 
 // ICON -----------------------------------------------------------------------
-function IconRender({ block }) {
+function IconRender({ block, breakpoint }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon) || Star;
+  // Task #970: `c.size` is now per-device. Falls back to 48 (legacy default)
+  // when nothing resolves at this breakpoint, matching prior behaviour.
+  const resolvedSize = resolveResponsiveValue(c.size, breakpoint);
+  const size = Number.isFinite(resolvedSize) ? resolvedSize : 48;
   return (
     <div className="w-full h-full flex items-center justify-center">
       <Icon
-        style={{ color: c.color || '#0f172a', width: c.size || 48, height: c.size || 48 }}
+        style={{ color: c.color || '#0f172a', width: size, height: size }}
         aria-label={c.ariaLabel || undefined}
         aria-hidden={c.ariaLabel ? undefined : true}
       />
@@ -1994,7 +2069,7 @@ function IconRender({ block }) {
   );
 }
 
-function IconInspector({ block, update }) {
+function IconInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   return (
@@ -2007,7 +2082,16 @@ function IconInspector({ block, update }) {
         testId="select-icon-name"
       />
       <ColorField label="Colour" value={c.color} onChange={(v) => set({ color: v })} testId="input-icon-color" />
-      <NumberField label="Size (px)" min={8} max={256} value={c.size || 48} onChange={(v) => set({ size: Math.max(8, Number(v) || 8) })} testId="input-icon-size" />
+      <ResponsiveNumberField
+        label="Size (px)"
+        min={8}
+        max={256}
+        value={c.size}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ size: v })}
+        testId="input-icon-size"
+        placeholder="48"
+      />
       <TextField label="ARIA label (if meaningful)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-icon-aria" />
     </>
   );

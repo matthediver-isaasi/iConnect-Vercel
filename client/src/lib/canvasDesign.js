@@ -803,6 +803,66 @@ export function resolveBlockAtBreakpoint(block, breakpoint, options) {
   return geom;
 }
 
+// Task #970: per-device raw-px values (font size, line spacing, icon size,
+// button size sub-fields). Stored either as a scalar number (no responsive
+// override — byte-identical to pre-#970 blocks) or as a partial object
+// `{ desktop?, tablet?, mobile? }`. At read time we cascade
+// mobile -> tablet -> desktop so tablet/mobile inherit when blank, matching
+// the Position panel's resolution pattern. Non-finite/empty inputs return
+// undefined so callers can fall back to their pre-existing defaults.
+export function resolveResponsiveValue(value, breakpoint) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const d = Number.isFinite(value.desktop) ? value.desktop : undefined;
+  const t = Number.isFinite(value.tablet) ? value.tablet : undefined;
+  const m = Number.isFinite(value.mobile) ? value.mobile : undefined;
+  if (breakpoint === 'mobile') return m ?? t ?? d;
+  if (breakpoint === 'tablet') return t ?? d;
+  return d;
+}
+
+// True when the given responsive value has its own entry for `breakpoint`.
+// Scalar values count as a desktop entry; object values check for a finite
+// numeric value at that key. Anything else returns false.
+export function hasResponsiveOverride(value, breakpoint) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return breakpoint === 'desktop' && Number.isFinite(value);
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  return Number.isFinite(value[breakpoint]);
+}
+
+// Write `next` (a finite number or null/undefined to clear) at `breakpoint`
+// onto a responsive value, returning the normalised next value. The result
+// is either a scalar number (only the desktop slot is set) or a partial
+// object — and `undefined` when no slot is set. This preserves byte-identity
+// for blocks that never use tablet/mobile overrides.
+export function writeResponsiveValue(current, breakpoint, next) {
+  let obj;
+  if (typeof current === 'number' && Number.isFinite(current)) {
+    obj = { desktop: current };
+  } else if (current && typeof current === 'object' && !Array.isArray(current)) {
+    obj = {};
+    for (const k of ['desktop', 'tablet', 'mobile']) {
+      if (Number.isFinite(current[k])) obj[k] = current[k];
+    }
+  } else {
+    obj = {};
+  }
+  const finite = Number.isFinite(next);
+  if (!finite) {
+    delete obj[breakpoint];
+  } else {
+    obj[breakpoint] = next;
+  }
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return undefined;
+  if (keys.length === 1 && keys[0] === 'desktop') return obj.desktop;
+  return obj;
+}
+
 function stripUndefined(obj) {
   const out = {};
   for (const k of Object.keys(obj || {})) {
