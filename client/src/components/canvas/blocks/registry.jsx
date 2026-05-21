@@ -510,6 +510,37 @@ const TENANT_BUTTON_DEFAULT_SIZE = {
   iconSize: 18,
 };
 
+// Task #962: numeric baselines for the legacy size classes used by
+// `buttonClasses`. When a legacy variant gets a per-block `content.size`
+// override (partial { paddingX?, paddingY?, fontSize?, iconSize? }), the
+// non-overridden keys should still match the baseline implied by the
+// selected legacy size class (`sm` / `default` / `lg`) — not the tenant
+// CTA defaults — so partial overrides preserve prior visual sizing for
+// the keys that weren't touched.
+const LEGACY_BUTTON_SIZE_BASELINES = {
+  sm:      { paddingX: 12, paddingY: 6,  fontSize: 12, iconSize: 14 },
+  default: { paddingX: 16, paddingY: 8,  fontSize: 14, iconSize: 16 },
+  lg:      { paddingX: 20, paddingY: 10, fontSize: 16, iconSize: 18 },
+};
+
+// Pull the legacy size-class string off a block content object,
+// tolerating the historical shape where `content.size` was the string
+// itself. New writes go to `content.sizeClass` so `content.size` can
+// hold the per-block override object.
+function readLegacySizeClass(c) {
+  if (c && typeof c.sizeClass === 'string') return c.sizeClass;
+  if (c && typeof c.size === 'string') return c.size;
+  return 'default';
+}
+
+// Pull the per-block size override object off a block content object.
+// Only returns an object when `content.size` is a plain object (the new
+// override shape); strings (legacy) and missing values both return null.
+function readSizeOverrides(c) {
+  if (c && c.size && typeof c.size === 'object' && !Array.isArray(c.size)) return c.size;
+  return null;
+}
+
 // Compute a CSS `background` shorthand from a button_styles bg/hover config
 // (the shape produced by `/ButtonElements`). Mirrors the resolver already
 // used by PublicHeader / PublicLayout. Returns null when the config is
@@ -1073,15 +1104,17 @@ function ButtonRender({ block, asEditor }) {
   const tenantStyle = isTenantVariant ? resolveTenantButtonStyle(c.variant, branding) : null;
   const [tenantHovered, setTenantHovered] = useState(false);
 
-  // Task #962: per-block size overrides. `content.sizeOverrides` is a
-  // partial { paddingX?, paddingY?, fontSize?, iconSize? } that wins over
-  // the resolved tenant size and the tenant default. For legacy variants
-  // (no tenant style), any override switches the block to the same
-  // inline-styled <a> path used by tenant variants so the per-block size
-  // actually takes effect (legacy size classes like `lg`/`sm` are
-  // dropped when overrides are present).
-  const sizeOverrides = c.sizeOverrides && typeof c.sizeOverrides === 'object' ? c.sizeOverrides : null;
+  // Task #962: per-block size overrides. `content.size` (when stored as
+  // an object) is a partial { paddingX?, paddingY?, fontSize?, iconSize? }
+  // that wins over the resolved tenant size and the tenant/legacy
+  // default. For legacy variants any override switches the block to the
+  // inline-styled <a> path so the per-block size actually takes effect;
+  // non-overridden keys fall back to the legacy size-class baseline
+  // (sm/default/lg) so partial overrides keep the visual size of the
+  // keys the user didn't touch.
+  const sizeOverrides = readSizeOverrides(c);
   const hasSizeOverrides = !!sizeOverrides && Object.keys(sizeOverrides).length > 0;
+  const legacySizeClass = readLegacySizeClass(c);
 
   if (isTenantVariant && tenantStyle) {
     const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}), ...(sizeOverrides || {}) };
@@ -1136,7 +1169,8 @@ function ButtonRender({ block, asEditor }) {
   // `buttonClasses` (sans size class) so existing colour behaviour is
   // preserved; only the size class is replaced by inline styles.
   if (!isTenantVariant && hasSizeOverrides) {
-    const size = { ...TENANT_BUTTON_DEFAULT_SIZE, ...sizeOverrides };
+    const baseline = LEGACY_BUTTON_SIZE_BASELINES[legacySizeClass] || LEGACY_BUTTON_SIZE_BASELINES.default;
+    const size = { ...baseline, ...sizeOverrides };
     const variantClass = {
       primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
       default: 'bg-slate-900 text-white hover-elevate active-elevate-2',
@@ -1173,7 +1207,7 @@ function ButtonRender({ block, asEditor }) {
   // Fallback path: tenant variant selected but tenant has no button styles
   // configured (or branding hasn't loaded yet) — render with the `lg`
   // legacy classes so the button still has sensible CTA proportions.
-  const fallbackSize = isTenantVariant ? 'lg' : c.size;
+  const fallbackSize = isTenantVariant ? 'lg' : legacySizeClass;
   const fallbackVariant = isTenantVariant ? 'primary' : c.variant;
   const inner = (
     <>
@@ -1199,46 +1233,58 @@ function ButtonRender({ block, asEditor }) {
 
 // Task #962: Inspector control for per-block size overrides on a Button.
 // Renders four numeric inputs (px) for paddingX, paddingY, fontSize,
-// iconSize. Each input writes only its own key onto
-// `content.sizeOverrides`; clearing an input deletes that key. When the
-// resulting object is empty, the `sizeOverrides` key is removed entirely
-// so a no-overrides block round-trips with no `sizeOverrides` at all.
+// iconSize. The override object is stored at `content.size` (partial
+// object); the legacy string size lives at `content.sizeClass` so the
+// two coexist cleanly. Per-field placeholder reflects the *resolved*
+// default for the current variant: tenant defaults + tenantStyle.size
+// for tenant variants, or the legacy size-class baseline (sm/default/lg)
+// for legacy variants. Clearing all four inputs removes
+// `content.size` entirely so a no-overrides block has no `size` key.
 const BUTTON_SIZE_OVERRIDE_FIELDS = [
-  { key: 'paddingX', label: 'Padding X', placeholder: TENANT_BUTTON_DEFAULT_SIZE.paddingX },
-  { key: 'paddingY', label: 'Padding Y', placeholder: TENANT_BUTTON_DEFAULT_SIZE.paddingY },
-  { key: 'fontSize', label: 'Font size', placeholder: TENANT_BUTTON_DEFAULT_SIZE.fontSize },
-  { key: 'iconSize', label: 'Icon size', placeholder: TENANT_BUTTON_DEFAULT_SIZE.iconSize },
+  { key: 'paddingX', label: 'Padding X' },
+  { key: 'paddingY', label: 'Padding Y' },
+  { key: 'fontSize', label: 'Font size' },
+  { key: 'iconSize', label: 'Icon size' },
 ];
 
-function ButtonSizeOverridesField({ block, update }) {
+function ButtonSizeOverridesField({ block, update, baseline, baselineLabel }) {
   const c = block.content || {};
-  const overrides = (c.sizeOverrides && typeof c.sizeOverrides === 'object') ? c.sizeOverrides : {};
+  const overrides = readSizeOverrides(c) || {};
   const writeOverride = (key, nextVal) => {
     update((b) => {
       const content = { ...(b.content || {}) };
-      const current = (content.sizeOverrides && typeof content.sizeOverrides === 'object') ? { ...content.sizeOverrides } : {};
+      // Before mutating `content.size` (which is about to hold the
+      // override object), migrate any historical string size into
+      // `content.sizeClass` so the legacy baseline survives. Without
+      // this, a block that had `content.size = 'sm'` would lose 'sm'
+      // on the first override edit and silently fall back to 'default'.
+      if (typeof content.size === 'string' && !content.sizeClass) {
+        content.sizeClass = content.size;
+      }
+      const current = readSizeOverrides(content) ? { ...readSizeOverrides(content) } : {};
       if (nextVal === null || nextVal === undefined || nextVal === '' || !Number.isFinite(nextVal)) {
         delete current[key];
       } else {
         current[key] = nextVal;
       }
       if (Object.keys(current).length === 0) {
-        delete content.sizeOverrides;
+        delete content.size;
       } else {
-        content.sizeOverrides = current;
+        content.size = current;
       }
       return { ...b, content };
     });
   };
   return (
-    <Field label="Size overrides (px)">
+    <Field label="Size">
       <div className="space-y-2">
         <p className="text-xs text-slate-500">
-          Leave blank to use the tenant default for this variant. Set any value to override just this button.
+          Leave blank to use the {baselineLabel} for this variant. Set any value to override just this button.
         </p>
         {BUTTON_SIZE_OVERRIDE_FIELDS.map((f) => {
           const v = overrides[f.key];
           const hasValue = Number.isFinite(v);
+          const placeholder = baseline && Number.isFinite(baseline[f.key]) ? String(baseline[f.key]) : '';
           return (
             <div key={f.key} className="flex items-center gap-2">
               <Label className="text-xs w-20 shrink-0">{f.label}</Label>
@@ -1247,7 +1293,7 @@ function ButtonSizeOverridesField({ block, update }) {
                 min={0}
                 step={1}
                 value={hasValue ? v : ''}
-                placeholder={String(f.placeholder)}
+                placeholder={placeholder}
                 onChange={(e) => {
                   const raw = e.target.value;
                   writeOverride(f.key, raw === '' ? null : Number(raw));
@@ -1263,7 +1309,7 @@ function ButtonSizeOverridesField({ block, update }) {
                 onClick={() => writeOverride(f.key, null)}
                 data-testid={`button-button-size-${f.key}-reset`}
               >
-                Reset
+                Use {baselineLabel}
               </Button>
             </div>
           );
@@ -1290,6 +1336,18 @@ function ButtonInspector({ block, update }) {
       .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
       .map(([k, v]) => ({ key: k, label: v.label || k }));
   })();
+  // Task #962: resolve the effective default size for the currently
+  // selected variant so the per-block override inputs can show those
+  // values as placeholders ("the value you'd get if you leave this
+  // blank"). Tenant variants resolve via the saved tenant style;
+  // legacy variants resolve via the legacy size-class baseline.
+  const variant = c.variant || 'default';
+  const isTenantVar = isTenantButtonVariant(variant);
+  const tenantStyleForBaseline = isTenantVar ? resolveTenantButtonStyle(variant, branding) : null;
+  const inspectorSizeBaseline = isTenantVar
+    ? { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyleForBaseline?.size || {}) }
+    : (LEGACY_BUTTON_SIZE_BASELINES[readLegacySizeClass(c)] || LEGACY_BUTTON_SIZE_BASELINES.default);
+  const inspectorBaselineLabel = isTenantVar ? 'tenant default' : 'preset default';
   return (
     <>
       <TextField label="Label" value={c.label} onChange={(v) => set({ label: v })} testId="input-button-label" />
@@ -1319,9 +1377,18 @@ function ButtonInspector({ block, update }) {
         testId="select-button-variant"
       />
       <SelectField
-        label="Size"
-        value={c.size || 'default'}
-        onChange={(v) => set({ size: v })}
+        label="Size preset"
+        value={readLegacySizeClass(c)}
+        onChange={(v) => {
+          // Write new size class to `content.sizeClass`. Clear
+          // historical string `content.size` so it doesn't collide with
+          // the per-block override object that now lives there.
+          update((b) => {
+            const content = { ...(b.content || {}), sizeClass: v };
+            if (typeof content.size === 'string') delete content.size;
+            return { ...b, content };
+          });
+        }}
         options={[
           { value: 'sm', label: 'Small' },
           { value: 'default', label: 'Default' },
@@ -1336,7 +1403,12 @@ function ButtonInspector({ block, update }) {
         options={[{ value: '__none__', label: 'None' }, ...Object.keys(LUCIDE_ICONS).map((n) => ({ value: n, label: n }))]}
         testId="select-button-icon"
       />
-      <ButtonSizeOverridesField block={block} update={update} />
+      <ButtonSizeOverridesField
+        block={block}
+        update={update}
+        baseline={inspectorSizeBaseline}
+        baselineLabel={inspectorBaselineLabel}
+      />
       <ToggleField label="Open in new tab" value={c.newTab} onChange={(v) => set({ newTab: v })} testId="toggle-button-newtab" />
       <TextField label="ARIA label (optional)" value={c.ariaLabel} onChange={(v) => set({ ariaLabel: v })} testId="input-button-aria" />
     </>
