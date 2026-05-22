@@ -34,6 +34,13 @@ export default function IEditPageManagementPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [pageToDelete, setPageToDelete] = useState(null);
+  // Rename / change-slug dialog state (Task #979). Reachable for
+  // canvas-builder rows from the page list, mirroring the editor's
+  // header affordance.
+  const [pageToRename, setPageToRename] = useState(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameSlug, setRenameSlug] = useState('');
+  const [renameError, setRenameError] = useState('');
   const [newPage, setNewPage] = useState({
     title: "",
     slug: "",
@@ -149,6 +156,56 @@ export default function IEditPageManagementPage() {
       toast.error('Failed to update page status: ' + error.message);
     }
   });
+
+  const renamePageMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.IEditPage.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-pages'] });
+      setPageToRename(null);
+      setRenameError('');
+      toast.success('Page updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update page: ' + (error?.message || 'Unknown error'));
+    },
+  });
+
+  const openRenameDialog = (page) => {
+    setPageToRename(page);
+    setRenameTitle(page.title || '');
+    setRenameSlug(page.slug || '');
+    setRenameError('');
+  };
+
+  const failRename = (msg) => {
+    setRenameError(msg);
+    toast.error(msg);
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!pageToRename) return;
+    const title = (renameTitle || '').trim();
+    const slug = (renameSlug || '').trim().toLowerCase();
+    if (!title) { failRename('Title is required'); return; }
+    if (!slug) { failRename('Slug is required'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      failRename('Slug must be lowercase letters, numbers, and hyphens only');
+      return;
+    }
+    const others = pages.filter((p) => p.id !== pageToRename.id);
+    if (others.some((p) => (p.slug || '').toLowerCase() === slug)) {
+      failRename('Another page already uses this slug');
+      return;
+    }
+    setRenameError('');
+    try {
+      await renamePageMutation.mutateAsync({ id: pageToRename.id, data: { title, slug } });
+    } catch (error) {
+      // Mutation's onError already showed a toast; mirror the message
+      // inline in the dialog so the author sees it without dismissing.
+      setRenameError(error?.message || 'Failed to update page');
+    }
+  };
 
   const duplicatePageMutation = useMutation({
     mutationFn: async (page) => {
@@ -441,6 +498,17 @@ export default function IEditPageManagementPage() {
                         <ExternalLink className="w-3 h-3" />
                       </Button>
                     )}
+                    {page.builder_type === 'canvas' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openRenameDialog(page)}
+                        title="Rename / change slug"
+                        data-testid={`button-rename-page-${page.id}`}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -635,6 +703,55 @@ export default function IEditPageManagementPage() {
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 Create & Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rename / Change Slug Dialog (Task #979) */}
+        <Dialog open={!!pageToRename} onOpenChange={(open) => {
+          if (!open) { setPageToRename(null); setRenameError(''); }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Rename page</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="rename-list-title">Page Title *</Label>
+                <Input
+                  id="rename-list-title"
+                  value={renameTitle}
+                  onChange={(e) => setRenameTitle(e.target.value)}
+                  data-testid="input-rename-list-title"
+                />
+              </div>
+              <div>
+                <Label htmlFor="rename-list-slug">URL Slug *</Label>
+                <Input
+                  id="rename-list-slug"
+                  value={renameSlug}
+                  onChange={(e) => setRenameSlug(e.target.value.toLowerCase())}
+                  data-testid="input-rename-list-slug"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Lowercase letters, numbers, and hyphens only
+                </p>
+              </div>
+              {renameError && (
+                <p className="text-sm text-destructive" data-testid="text-rename-list-error">{renameError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPageToRename(null)} data-testid="button-rename-list-cancel">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRenameSubmit}
+                disabled={renamePageMutation.isPending}
+                data-testid="button-rename-list-save"
+              >
+                {renamePageMutation.isPending ? 'Saving…' : 'Save'}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -3,6 +3,8 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -15,7 +17,7 @@ import {
   Accessibility, Loader2,
   LayoutTemplate, Component as ComponentIcon, History as HistoryIcon,
   Images as ImagesIcon, Palette, Keyboard, Command as CommandIcon, ExternalLink,
-  Unlink, FileText,
+  Unlink, FileText, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -84,6 +86,11 @@ export default function CanvasPageEditorPage() {
   const [showTheme, setShowTheme] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  // Rename / change-slug dialog state (Task #979).
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameSlug, setRenameSlug] = useState('');
+  const [renameError, setRenameError] = useState('');
   // Picker callback for the media library dialog. When a block inspector
   // requests the library, we capture its onPick so the dialog can hand
   // the selected asset back through this single channel.
@@ -317,6 +324,48 @@ export default function CanvasPageEditorPage() {
       toast.error('Failed to update: ' + (error?.message || 'Unknown error'));
     },
   });
+
+  const openRenameDialog = useCallback(() => {
+    if (!page) return;
+    setRenameTitle(page.title || '');
+    setRenameSlug(page.slug || '');
+    setRenameError('');
+    setShowRenameDialog(true);
+  }, [page]);
+
+  const failRename = useCallback((msg) => {
+    setRenameError(msg);
+    toast.error(msg);
+  }, []);
+
+  const handleRenameSubmit = useCallback(async () => {
+    if (!page) return;
+    const title = (renameTitle || '').trim();
+    const slug = (renameSlug || '').trim().toLowerCase();
+    if (!title) { failRename('Title is required'); return; }
+    if (!slug) { failRename('Slug is required'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      failRename('Slug must be lowercase letters, numbers, and hyphens only');
+      return;
+    }
+    const others = Array.isArray(allPages) ? allPages.filter((p) => p.id !== page.id) : [];
+    if (others.some((p) => (p.slug || '').toLowerCase() === slug)) {
+      failRename('Another page already uses this slug');
+      return;
+    }
+    setRenameError('');
+    try {
+      await updatePageMetaMutation.mutateAsync({
+        id: page.id,
+        data: { title, slug },
+      });
+      setShowRenameDialog(false);
+    } catch (error) {
+      // Surface the server error inline in the dialog too — the mutation's
+      // onError already showed a toast.
+      setRenameError(error?.message || 'Failed to update page');
+    }
+  }, [page, renameTitle, renameSlug, allPages, updatePageMetaMutation, failRename]);
 
   // Returns a Promise so CanvasBuilder can only clear the dirty marker
   // after the save actually succeeded. CanvasBuilder is the source of
@@ -901,6 +950,15 @@ export default function CanvasPageEditorPage() {
             <span className="font-semibold text-slate-900 truncate" data-testid="text-page-title">
               {page.title}
             </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={openRenameDialog}
+              title="Rename page / change slug"
+              data-testid="button-rename-page"
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
             <Badge variant="outline" data-testid="badge-builder-type">Canvas</Badge>
             <Badge
               className={page.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}
@@ -1760,6 +1818,58 @@ export default function CanvasPageEditorPage() {
             })),
         ]}
       />
+
+      <Dialog open={showRenameDialog} onOpenChange={(open) => {
+        if (!open) setRenameError('');
+        setShowRenameDialog(open);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename page</DialogTitle>
+            <DialogDescription>
+              Update the page title and URL slug. Saving will reload the preview.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="rename-title">Page Title *</Label>
+              <Input
+                id="rename-title"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                data-testid="input-rename-title"
+              />
+            </div>
+            <div>
+              <Label htmlFor="rename-slug">URL Slug *</Label>
+              <Input
+                id="rename-slug"
+                value={renameSlug}
+                onChange={(e) => setRenameSlug(e.target.value.toLowerCase())}
+                data-testid="input-rename-slug"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Lowercase letters, numbers, and hyphens only
+              </p>
+            </div>
+            {renameError && (
+              <p className="text-sm text-destructive" data-testid="text-rename-error">{renameError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRenameDialog(false)} data-testid="button-rename-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRenameSubmit}
+              disabled={updatePageMetaMutation.isPending}
+              data-testid="button-rename-save"
+            >
+              {updatePageMetaMutation.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
