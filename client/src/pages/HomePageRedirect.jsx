@@ -1,6 +1,7 @@
 import { useLayoutEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import Events from "./Events";
@@ -68,6 +69,16 @@ export default function HomePageRedirect() {
 
   if (pageLoading || !pageData?.page) {
     return null;
+  }
+
+  // Canvas Builder pages render via their own design document instead of
+  // the stacked IEditPageElement list — mirror DynamicPage's dispatch.
+  if (pageData.page.builder_type === 'canvas') {
+    return (
+      <div className="w-full" data-testid="home-page-canvas">
+        <CanvasPageRenderer page={pageData.page} />
+      </div>
+    );
   }
 
   const sortedElements = [...(pageData.elements || [])].sort((a, b) => 
