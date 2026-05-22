@@ -40,6 +40,7 @@ export default function IEditPageManagementPage() {
   const [pageToRename, setPageToRename] = useState(null);
   const [renameTitle, setRenameTitle] = useState('');
   const [renameSlug, setRenameSlug] = useState('');
+  const [renameLayoutType, setRenameLayoutType] = useState('public');
   const [renameError, setRenameError] = useState('');
   const [newPage, setNewPage] = useState({
     title: "",
@@ -174,6 +175,7 @@ export default function IEditPageManagementPage() {
     setPageToRename(page);
     setRenameTitle(page.title || '');
     setRenameSlug(page.slug || '');
+    setRenameLayoutType(page.layout_type || 'public');
     setRenameError('');
   };
 
@@ -197,9 +199,10 @@ export default function IEditPageManagementPage() {
       failRename('Another page already uses this slug');
       return;
     }
+    const layoutType = ['public', 'member', 'hybrid'].includes(renameLayoutType) ? renameLayoutType : 'public';
     setRenameError('');
     try {
-      await renamePageMutation.mutateAsync({ id: pageToRename.id, data: { title, slug } });
+      await renamePageMutation.mutateAsync({ id: pageToRename.id, data: { title, slug, layout_type: layoutType } });
     } catch (error) {
       // Mutation's onError already showed a toast; mirror the message
       // inline in the dialog so the author sees it without dismissing.
@@ -714,7 +717,7 @@ export default function IEditPageManagementPage() {
         }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Rename page</DialogTitle>
+              <DialogTitle>Edit page settings</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
@@ -736,6 +739,24 @@ export default function IEditPageManagementPage() {
                 />
                 <p className="text-xs text-slate-500 mt-1">
                   Lowercase letters, numbers, and hyphens only
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="rename-list-layout-type">View Type</Label>
+                <Select value={renameLayoutType} onValueChange={setRenameLayoutType}>
+                  <SelectTrigger id="rename-list-layout-type" data-testid="select-rename-list-layout-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
+                    <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                    <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {renameLayoutType === 'public' && 'Accessible to everyone with public header/footer layout'}
+                  {renameLayoutType === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
+                  {renameLayoutType === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
                 </p>
               </div>
               {renameError && (

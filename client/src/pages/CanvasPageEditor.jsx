@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -90,6 +91,7 @@ export default function CanvasPageEditorPage() {
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
   const [renameSlug, setRenameSlug] = useState('');
+  const [renameLayoutType, setRenameLayoutType] = useState('public');
   const [renameError, setRenameError] = useState('');
   // Picker callback for the media library dialog. When a block inspector
   // requests the library, we capture its onPick so the dialog can hand
@@ -329,6 +331,7 @@ export default function CanvasPageEditorPage() {
     if (!page) return;
     setRenameTitle(page.title || '');
     setRenameSlug(page.slug || '');
+    setRenameLayoutType(page.layout_type || 'public');
     setRenameError('');
     setShowRenameDialog(true);
   }, [page]);
@@ -353,11 +356,12 @@ export default function CanvasPageEditorPage() {
       failRename('Another page already uses this slug');
       return;
     }
+    const layoutType = ['public', 'member', 'hybrid'].includes(renameLayoutType) ? renameLayoutType : 'public';
     setRenameError('');
     try {
       await updatePageMetaMutation.mutateAsync({
         id: page.id,
-        data: { title, slug },
+        data: { title, slug, layout_type: layoutType },
       });
       setShowRenameDialog(false);
     } catch (error) {
@@ -365,7 +369,7 @@ export default function CanvasPageEditorPage() {
       // onError already showed a toast.
       setRenameError(error?.message || 'Failed to update page');
     }
-  }, [page, renameTitle, renameSlug, allPages, updatePageMetaMutation, failRename]);
+  }, [page, renameTitle, renameSlug, renameLayoutType, allPages, updatePageMetaMutation, failRename]);
 
   // Returns a Promise so CanvasBuilder can only clear the dirty marker
   // after the save actually succeeded. CanvasBuilder is the source of
@@ -1825,9 +1829,9 @@ export default function CanvasPageEditorPage() {
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename page</DialogTitle>
+            <DialogTitle>Edit page settings</DialogTitle>
             <DialogDescription>
-              Update the page title and URL slug. Saving will reload the preview.
+              Update the page title, URL slug, and view type. Saving will reload the preview.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1850,6 +1854,24 @@ export default function CanvasPageEditorPage() {
               />
               <p className="text-xs text-slate-500 mt-1">
                 Lowercase letters, numbers, and hyphens only
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="rename-layout-type">View Type</Label>
+              <Select value={renameLayoutType} onValueChange={setRenameLayoutType}>
+                <SelectTrigger id="rename-layout-type" data-testid="select-rename-layout-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">Public (Anyone can view, public layout)</SelectItem>
+                  <SelectItem value="member">Portal (Members only, with sidebar)</SelectItem>
+                  <SelectItem value="hybrid">Hybrid (Anyone can view, members see portal)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500 mt-1">
+                {renameLayoutType === 'public' && 'Accessible to everyone with public header/footer layout'}
+                {renameLayoutType === 'member' && 'Only logged-in members can access, displayed within the portal sidebar'}
+                {renameLayoutType === 'hybrid' && 'Anyone can view; logged-in members see it within the portal sidebar'}
               </p>
             </div>
             {renameError && (
