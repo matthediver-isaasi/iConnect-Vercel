@@ -154,6 +154,21 @@ export const FIXTURE_SAMPLE_DATA = {
   },
   form_url: 'https://app.example.com/forms/preview-copyright-form',
   upload_url: 'https://app.example.com/forms/preview-case-study-uploads',
+  fee_link: {
+    payment_link:
+      '<a href="https://app.example.com/membership/pay?token=PREVIEW" style="color: #0066cc; text-decoration: underline;">https://app.example.com/membership/pay?token=PREVIEW</a>',
+    membership_year: '2026',
+    tier_label: 'Small School',
+    final_cost: '£249.00',
+    currency: 'GBP',
+    vat_amount: '£49.80',
+    total_with_vat: '£298.80',
+    po_number: 'PO-2026-0188',
+    expires_at: '4 May 2026',
+    xero_invoice_number: 'INV-2026-00188',
+    xero_online_invoice_url:
+      'https://in.xero.com/invoices/view/preview-online-invoice',
+  },
 };
 
 function nowIso() {
@@ -291,6 +306,7 @@ function buildResolverMap(s) {
     'organization.phone': text(o.phone),
     organization_id: text(o.id),
     organization_name: text(o.name),
+    organisation_name: text(o.name),
     'tenant.name': text(t.name),
     tenant_name: text(t.name),
 
@@ -406,6 +422,19 @@ function buildResolverMap(s) {
     facebook_url: text(social.facebook_url),
     instagram_url: text(social.instagram_url),
     youtube_url: text(social.youtube_url),
+
+    // Membership Fees (fee-link email per tier; Task #995)
+    payment_link: html(s.fee_link?.payment_link),
+    membership_year: text(s.fee_link?.membership_year),
+    tier_label: text(s.fee_link?.tier_label),
+    final_cost: text(s.fee_link?.final_cost),
+    currency: text(s.fee_link?.currency),
+    vat_amount: text(s.fee_link?.vat_amount),
+    total_with_vat: text(s.fee_link?.total_with_vat),
+    po_number: text(s.fee_link?.po_number),
+    expires_at: text(s.fee_link?.expires_at),
+    xero_invoice_number: text(s.fee_link?.xero_invoice_number),
+    xero_online_invoice_url: text(s.fee_link?.xero_online_invoice_url),
 
     // Article Briefs
     'brief.title': text(s.brief?.title),

@@ -574,6 +574,27 @@ function validateBands(bands, basisField) {
   return { sortedBands };
 }
 
+async function validateFeeLinkEmailTemplate(tenantId, templateId) {
+  if (!templateId) return { ok: true };
+  const { data: tpl, error } = await supabase
+    .from('email_template')
+    .select('id, name, subject, body, is_active')
+    .eq('id', templateId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error || !tpl) {
+    return { ok: false, error: 'Selected fee-link email template could not be found for this tenant' };
+  }
+  const haystack = `${tpl.subject || ''}\n${tpl.body || ''}`;
+  if (!/\{\{\s*payment_link\s*\}\}/i.test(haystack)) {
+    return {
+      ok: false,
+      error: `Fee-link email template "${tpl.name || tpl.subject || tpl.id}" must contain the {{payment_link}} placeholder — without it, the recipient has no way to pay.`,
+    };
+  }
+  return { ok: true };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
@@ -583,6 +604,11 @@ async function handlePost(req, res, tenantId) {
 
   if (!config.effective_from) {
     return res.status(400).json({ error: 'Effective from date is required' });
+  }
+
+  const feeLinkCheck = await validateFeeLinkEmailTemplate(tenantId, config.fee_link_email_template_id);
+  if (!feeLinkCheck.ok) {
+    return res.status(400).json({ error: feeLinkCheck.error });
   }
 
   const normalizedRecipients = normalizeInvoiceRecipients(config.invoice_recipients);
@@ -699,6 +725,7 @@ async function handlePost(req, res, tenantId) {
         invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
         invoice_recipients: normalizedRecipients,
+        fee_link_email_template_id: config.fee_link_email_template_id || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -815,6 +842,7 @@ async function handlePost(req, res, tenantId) {
       invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
       invoice_recipients: normalizedRecipients,
+      fee_link_email_template_id: config.fee_link_email_template_id || null,
     })
     .select()
     .single();

@@ -455,6 +455,7 @@ export default function MembershipTierManagement() {
         online_card_payment: c.online_card_payment ?? false,
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
+        fee_link_email_template_id: c.fee_link_email_template_id || null,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -511,6 +512,7 @@ export default function MembershipTierManagement() {
       online_card_payment: c.online_card_payment ?? false,
       invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
       invoice_recipients: deriveInvoiceRecipients(c),
+      fee_link_email_template_id: c.fee_link_email_template_id || null,
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -897,6 +899,7 @@ export default function MembershipTierManagement() {
       online_card_payment: false,
       invoice_address_field: null,
       invoice_recipients: { invoicing_email: true, primary_contact: true, role_ids: [] },
+      fee_link_email_template_id: null,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -984,6 +987,7 @@ export default function MembershipTierManagement() {
         online_card_payment: c.online_card_payment ?? false,
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
+        fee_link_email_template_id: c.fee_link_email_template_id || null,
       });
       setBands((data.bands || []).map(b => ({
         ...b,
@@ -2433,6 +2437,43 @@ export default function MembershipTierManagement() {
             )}
           </div>
         )}
+
+        <div className="space-y-2 pt-4 border-t">
+          <Label>Fee-link Email Template</Label>
+          <p className="text-xs text-muted-foreground">
+            Template used for the "Pay by card / Submit PO" email sent when fees are issued.
+            Leave unset to use the built-in default. Selected template must include the{' '}
+            <code className="text-xs">{'{{payment_link}}'}</code> placeholder.
+          </p>
+          <Select
+            value={config.fee_link_email_template_id || '__default'}
+            onValueChange={(v) =>
+              handleConfigChange('fee_link_email_template_id', v === '__default' ? null : v)
+            }
+            disabled={!isEditable}
+          >
+            <SelectTrigger data-testid="select-fee-link-template" className="max-w-md">
+              <SelectValue placeholder="Use built-in default" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__default">— Use built-in default —</SelectItem>
+              {emailTemplates.map((tpl) => (
+                <SelectItem key={tpl.id} value={tpl.id}>
+                  {tpl.name || tpl.subject || tpl.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {emailTemplates.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No email templates available. Create one in Email Templates first.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Available placeholders are documented under "Membership Fees" on the{' '}
+            <a href="/EmailPlaceholders" className="underline" target="_blank" rel="noreferrer">Email Placeholders</a> reference page.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -2837,6 +2878,21 @@ export default function MembershipTierManagement() {
                 {reminders.length === 0
                   ? 'None'
                   : `${reminders.length} reminder${reminders.length === 1 ? '' : 's'} (${reminders.filter(r => r.is_active !== false).length} active)`}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="pt-4">
+          {renderSummarySection('Fee-link Email', 5, (
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Template</span>
+              <span className="font-medium" data-testid="text-summary-fee-link-template">
+                {(() => {
+                  if (!config.fee_link_email_template_id) return 'Built-in default';
+                  const tpl = emailTemplates.find(t => t.id === config.fee_link_email_template_id);
+                  return tpl ? (tpl.name || tpl.subject || tpl.id) : '(template not found)';
+                })()}
               </span>
             </div>
           ))}

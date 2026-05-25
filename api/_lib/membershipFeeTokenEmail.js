@@ -3,6 +3,48 @@ import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
 
+/**
+ * Substitute the fee-link email placeholders documented under the
+ * "Membership Fees" category on /EmailPlaceholders.
+ *
+ * Optional tokens (xero_invoice_number, xero_online_invoice_url, po_number)
+ * MUST render as empty strings when absent — we never leak the raw token.
+ */
+function renderFeeLinkPlaceholders(str, data) {
+  if (!str) return '';
+  return String(str).replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (m, key) => {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const v = data[key];
+      return v === null || v === undefined ? '' : String(v);
+    }
+    return m;
+  });
+}
+
+async function loadFeeLinkTemplate(client, tenantId, templateId) {
+  if (!templateId) return null;
+  try {
+    const { data } = await client
+      .from('email_template')
+      .select('id, name, subject, body, is_active')
+      .eq('id', templateId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!data || data.is_active === false) return null;
+    if (!/\{\{\s*payment_link\s*\}\}/i.test(`${data.subject || ''}\n${data.body || ''}`)) {
+      console.warn(
+        `[FeeTokenEmail] Tier-configured template ${templateId} no longer contains {{payment_link}}; ` +
+        `falling back to system default.`
+      );
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.warn('[FeeTokenEmail] Failed to load fee-link template, falling back to default:', err.message);
+    return null;
+  }
+}
+
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
 let tokenTableEnsured = false;
@@ -285,7 +327,7 @@ export async function sendMembershipFeeTokenEmail({
     : 'Please review your fee details and submit a Purchase Order number using the link below:';
   const ctaButtonText = stripeEnabled ? 'View & Pay Membership Fee' : 'View & Submit Purchase Order';
 
-  const emailHtml = `
+  const defaultEmailHtml = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
         <h2 style="color: ${primaryColor}; margin-top: 0;">Membership Fee for ${membershipYear}</h2>
@@ -317,13 +359,49 @@ export async function sendMembershipFeeTokenEmail({
     </div>
   `;
 
+  const customTemplate = await loadFeeLinkTemplate(
+    client,
+    tenantId,
+    tierConfig?.fee_link_email_template_id,
+  );
+
+  let emailHtml = defaultEmailHtml;
+  let emailSubject = `Membership Fee for ${membershipYear} - ${tenantName}`;
+
+  if (customTemplate) {
+    const expiresHuman = expiresAt.toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    });
+    const paymentLinkHtml = `<a href="${paymentUrl}" style="color: ${primaryColor}; text-decoration: underline;">${paymentUrl}</a>`;
+    const placeholderData = {
+      payment_link: paymentLinkHtml,
+      recipient_name: organizationName || tenantName,
+      organisation_name: organizationName || '',
+      organization_name: organizationName || '',
+      membership_year: membershipYear || '',
+      tier_label: tierLabel || '',
+      final_cost: finalCost != null ? `${currencySymbol}${parseFloat(finalCost).toFixed(2)}` : '',
+      currency,
+      vat_amount: hasVat ? `${currencySymbol}${parseFloat(cb.vatAmount).toFixed(2)}` : '',
+      total_with_vat: hasVat ? `${currencySymbol}${parseFloat(cb.totalWithVat).toFixed(2)}` : '',
+      po_number: poNumber || '',
+      expires_at: expiresHuman,
+      xero_invoice_number: xeroInvoiceNumber || '',
+      xero_online_invoice_url: xeroOnlineInvoiceUrl || '',
+      tenant_name: tenantName,
+    };
+    emailHtml = renderFeeLinkPlaceholders(customTemplate.body || defaultEmailHtml, placeholderData);
+    const renderedSubject = renderFeeLinkPlaceholders(customTemplate.subject || '', placeholderData).trim();
+    if (renderedSubject) emailSubject = renderedSubject;
+  }
+
   const sentTo = [];
   const failed = [];
   for (const email of toEmails) {
     const r = await sendTenantEmail({
       tenantId,
       to: email,
-      subject: `Membership Fee for ${membershipYear} - ${tenantName}`,
+      subject: emailSubject,
       html: emailHtml,
     });
     if (r.success) sentTo.push(email);

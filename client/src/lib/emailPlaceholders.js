@@ -21,6 +21,7 @@
  *   - api/forms/send-submission-email.js        (form submission emails)
  *   - api/functions/[functionName].js           (member/team invites)
  *   - api/pending-purchase-orders/index.js      (PO reminder emails)
+ *   - api/_lib/membershipFeeTokenEmail.js       (membership fee-link emails)
  *
  * Two syntaxes are supported by the engine:
  *   - {{token}}   — form-field / workflow-time substitutions
@@ -45,6 +46,7 @@ export const PLACEHOLDER_CATEGORIES = [
   'Event Confirmation & Reminder',
   'Form Submissions',
   'Article Briefs',
+  'Membership Fees',
   'Workflow Triggers & Invites',
   'System & Links',
   'Footer & Socials',
@@ -63,6 +65,7 @@ export const PLACEHOLDER_CONTEXTS = [
   'Member / Team Invites',
   'Purchase Order Reminders',
   'Article Brief Forms',
+  'Membership Fee Link',
   'Email Footer (all emails)',
 ];
 
@@ -1246,6 +1249,129 @@ export const EMAIL_PLACEHOLDERS = [
     'Public URL where the case-study provider uploads supporting assets. Only populated on the case-study form.',
     ['Article Brief Forms'],
     'api/article-briefs/[briefId]/send-case-study-form.js',
+  ),
+
+  // --- Membership Fees (fee-link email per tier; Task #995) ---
+  entry(
+    '{{payment_link}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'HTML anchor pointing at the single-use payment / submit-PO page minted for the recipient. REQUIRED — the API refuses to save a tier whose chosen fee-link template is missing this token.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+    { prerequisites: 'Tier must have a fee_link_email_template_id picked on the Pricing step.' },
+  ),
+  entry(
+    '{{recipient_name}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Display name addressed in the salutation. Falls back to the organisation name (or tenant name if missing).',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{organisation_name}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Name of the organisation being invoiced. {{organization_name}} is also accepted as a US-spelling alias.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{organization_name}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'US-spelling alias of {{organisation_name}}.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{membership_year}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Membership year label the fee covers (e.g. "2026" or "2026/2027").',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{tier_label}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Tier band label resolved for the organisation (e.g. "Small School").',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{final_cost}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Net membership fee for the period, pre-formatted with the tenant currency symbol (e.g. "£249.00").',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{currency}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'ISO currency code used for the fee (e.g. "GBP", "USD", "EUR").',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{vat_amount}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'VAT/tax amount applied on top of the net fee, pre-formatted with the currency symbol. Empty string when no VAT applies.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{total_with_vat}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Total payable including VAT, pre-formatted with the currency symbol. Empty string when no VAT applies (use {{final_cost}} instead).',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{po_number}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Existing Purchase Order number on file for this membership year. Empty string when no PO is on file yet.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{expires_at}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Human-readable expiry date of the payment link (e.g. "4 May 2026").',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{xero_invoice_number}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Xero invoice number when an invoice has been pre-created for this fee (e.g. cron-scheduled renewals). Empty string for ad-hoc fee emails without a Xero invoice.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{xero_online_invoice_url}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Xero "View online invoice" URL for the pre-created invoice. Empty string when the invoice has no online URL or none was created.',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
+  ),
+  entry(
+    '{{tenant_name}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Membership Fees',
+    'Name of the membership organisation issuing the fee (the tenant).',
+    ['Membership Fee Link'],
+    'api/_lib/membershipFeeTokenEmail.js',
   ),
 ];
 
