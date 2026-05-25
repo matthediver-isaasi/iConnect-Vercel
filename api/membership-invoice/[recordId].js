@@ -124,19 +124,20 @@ export default async function handler(req, res) {
     const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
 
     const inline = req.query.inline === 'true';
+    const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
 
     if (inline) {
-      res.setHeader('Content-Disposition', `inline; filename="membership-invoice-${record.xero_invoice_number || recordId}.pdf"`);
+      res.setHeader('Content-Disposition', `inline; filename="membership-invoice-${invoiceNumber || recordId}.pdf"`);
     } else {
-      res.setHeader('Content-Disposition', `attachment; filename="membership-invoice-${record.xero_invoice_number || recordId}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="membership-invoice-${invoiceNumber || recordId}.pdf"`);
     }
 
     return res.send(pdfBuffer);
   } catch (error) {
     console.error('[membership-invoice] Error serving invoice PDF:', error);
-    return res.status(500).json({ error: 'Failed to fetch invoice from Xero' });
+    return res.status(500).json({ error: 'Failed to fetch invoice from accounting provider' });
   }
 }

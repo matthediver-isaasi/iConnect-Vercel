@@ -1452,6 +1452,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 <tbody>
                   {history.map((record) => {
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
+                    const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
+                    const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
                     return (
                     <tr key={record.id} className="border-b last:border-0" data-testid={`row-history-${record.id}`}>
                       <td className="p-3 font-medium">{record.membership_year}</td>
@@ -1482,7 +1484,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                         </Badge>
                       </td>
                       <td className="p-3">
-                        {record.xero_invoice_id ? (
+                        {invoiceId ? (
                           <div className="flex items-center justify-center gap-1">
                             {loadingInvoiceRecordId === record.id ? (
                               <Loader2
@@ -1494,8 +1496,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  onClick={() => handleViewInvoice(record.id, record.xero_invoice_number)}
-                                  title={`View invoice ${record.xero_invoice_number || ''}`.trim()}
+                                  onClick={() => handleViewInvoice(record.id, invoiceNumber)}
+                                  title={`View invoice ${invoiceNumber || ''}`.trim()}
                                   data-testid={`button-view-invoice-${record.id}`}
                                 >
                                   <Eye className="w-4 h-4" />
@@ -1503,8 +1505,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  onClick={() => handleDownloadInvoice(record.id, record.xero_invoice_number)}
-                                  title={`Download invoice ${record.xero_invoice_number || ''}`.trim()}
+                                  onClick={() => handleDownloadInvoice(record.id, invoiceNumber)}
+                                  title={`Download invoice ${invoiceNumber || ''}`.trim()}
                                   data-testid={`button-download-invoice-${record.id}`}
                                 >
                                   <Download className="w-4 h-4" />

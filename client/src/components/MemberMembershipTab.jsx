@@ -229,9 +229,9 @@ function MemberYearCostSection({
                 <p className="text-sm text-muted-foreground">
                   {formatCost(currentYearRecorded.total_with_vat || currentYearRecorded.final_cost, currency)} inc. VAT
                 </p>
-                {currentYearRecorded.xero_invoice_number && (
+                {(currentYearRecorded.accounting_invoice_number || currentYearRecorded.xero_invoice_number) && (
                   <p className="text-xs text-muted-foreground">
-                    Invoice: {currentYearRecorded.xero_invoice_number}
+                    Invoice: {currentYearRecorded.accounting_invoice_number || currentYearRecorded.xero_invoice_number}
                   </p>
                 )}
               </div>
@@ -244,9 +244,9 @@ function MemberYearCostSection({
                 <p className="text-sm text-muted-foreground">
                   {formatCost(currentYearRecorded.final_cost, currency)} excl. VAT
                 </p>
-                {currentYearRecorded.xero_invoice_number && (
+                {(currentYearRecorded.accounting_invoice_number || currentYearRecorded.xero_invoice_number) && (
                   <p className="text-xs text-muted-foreground">
-                    Invoice: {currentYearRecorded.xero_invoice_number}
+                    Invoice: {currentYearRecorded.accounting_invoice_number || currentYearRecorded.xero_invoice_number}
                   </p>
                 )}
               </div>
