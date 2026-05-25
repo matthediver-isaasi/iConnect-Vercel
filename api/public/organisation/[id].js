@@ -83,10 +83,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Organisation not found' });
     }
 
-    // Remove sensitive/internal fields from response
+    // Remove sensitive/internal fields from response.
+    // Note: `training_fund_balance` is intentionally exposed here because the
+    // FormBuilder prefill UI offers it as a selectable organisation prefill
+    // field (see ORG_CORE_FIELDS / ORG_PREFILL_FIELDS in
+    // client/src/pages/FormBuilder.jsx and WHITELISTED_ORG_FIELDS in
+    // api/public/form/prefill-booking.js). Keep `internal_notes` and `notes`
+    // hidden — they are not in the prefill whitelist.
     const {
       tenant_id,
-      training_fund_balance,
       internal_notes,
       notes,
       ...publicOrg

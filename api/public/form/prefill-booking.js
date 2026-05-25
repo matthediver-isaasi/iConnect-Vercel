@@ -17,9 +17,10 @@ const WHITELISTED_MEMBER_FIELDS = [
   'role_id'
 ];
 
+// Keep in sync with ORG_CORE_FIELDS / ORG_PREFILL_FIELDS in client/src/pages/FormBuilder.jsx.
 const WHITELISTED_ORG_FIELDS = [
-  'id', 'name', 'invoicing_email', 'phone', 'invoicing_address',
-  'website_url', 'logo_url'
+  'id', 'name', 'description', 'invoicing_email', 'phone', 'invoicing_address',
+  'website_url', 'logo_url', 'training_fund_balance', 'tags'
 ];
 
 export default async function handler(req, res) {

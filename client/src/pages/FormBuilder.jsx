@@ -124,13 +124,21 @@ const MEMBER_CORE_FIELDS = [
   { value: 'show_in_directory', label: 'Show in Member Directory' },
 ];
 
+// Canonical list of organisation core columns safe to expose for prefill.
+// Cross-referenced with OrganisationDetailView.jsx editable formData, the
+// WHITELISTED_ORG_FIELDS array in api/public/form/prefill-booking.js, and
+// the organization-table migrations (e.g. 20260410_add_tags_to_member_and_organization.sql).
+// Keep this list in sync with ORG_PREFILL_FIELDS below and WHITELISTED_ORG_FIELDS in the API.
 const ORG_CORE_FIELDS = [
   { value: 'name', label: 'Organisation Name' },
+  { value: 'description', label: 'Description' },
   { value: 'logo_url', label: 'Logo' },
   { value: 'invoicing_email', label: 'Invoicing Email' },
   { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
+  { value: 'training_fund_balance', label: 'Training Fund Balance' },
+  { value: 'tags', label: 'Tags' },
 ];
 
 const BOOKING_CORE_FIELDS = [
@@ -1985,12 +1993,18 @@ const MEMBER_PREFILL_FIELDS = [
   { value: 'job_title', label: 'Job Title' },
 ];
 
+// Keep in sync with the top-level ORG_CORE_FIELDS constant and the API's
+// WHITELISTED_ORG_FIELDS — see comment above ORG_CORE_FIELDS.
 const ORG_PREFILL_FIELDS = [
   { value: 'name', label: 'Organisation Name' },
+  { value: 'description', label: 'Description' },
+  { value: 'logo_url', label: 'Logo' },
   { value: 'invoicing_email', label: 'Invoicing Email' },
-  { value: 'phone', label: 'Phone' },
   { value: 'invoicing_address', label: 'Invoicing Address' },
+  { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
+  { value: 'training_fund_balance', label: 'Training Fund Balance' },
+  { value: 'tags', label: 'Tags' },
 ];
 
 const BOOKING_PREFILL_FIELDS = [
