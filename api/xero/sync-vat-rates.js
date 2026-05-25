@@ -96,24 +96,49 @@ export default async function handler(req, res) {
       syncedAt: new Date().toISOString(),
     };
 
+    // Write to BOTH the per-tenant suffixed key AND the unsuffixed
+    // `xero_vat_rates` key that every UI VAT-dropdown reader expects.
+    //   - The suffixed key keeps its legacy behaviour (no tenant_id column
+    //     populated) so server-side pricing simulators in
+    //     `api/_lib/membershipSimulation.js` — which look up by setting_key
+    //     only — continue to resolve correctly.
+    //   - The unsuffixed key MUST be tenant-scoped at the row level (tenant_id
+    //     column populated, queried with `.eq('tenant_id', appTenantId)`)
+    //     because multiple tenants will write the same setting_key and we
+    //     must not overwrite each other's rates. UI readers go through base44
+    //     entities which auto-scope by tenant_id, so the per-tenant row is
+    //     what they will see.
     const vatRatesKey = `xero_vat_rates_${appTenantId}`;
-    
-    const { data: existingSetting } = await supabase
-      .from("system_settings")
-      .select("*")
-      .eq("setting_key", vatRatesKey)
-      .single();
+    const unsuffixedKey = 'xero_vat_rates';
+    const serialized = JSON.stringify(syncData);
 
-    if (existingSetting) {
-      await supabase
-        .from("system_settings")
-        .update({ setting_value: JSON.stringify(syncData) })
-        .eq("setting_key", vatRatesKey);
-    } else {
-      await supabase.from("system_settings").insert({
-        setting_key: vatRatesKey,
-        setting_value: JSON.stringify(syncData),
-      });
+    const writeTargets = [
+      { key: vatRatesKey, scoped: false },
+      { key: unsuffixedKey, scoped: true },
+    ];
+
+    for (const { key, scoped } of writeTargets) {
+      let lookup = supabase
+        .from('system_settings')
+        .select('id')
+        .eq('setting_key', key);
+      if (scoped) lookup = lookup.eq('tenant_id', appTenantId);
+      const { data: existingSetting, error: lookupError } = await lookup.maybeSingle();
+      if (lookupError) {
+        console.error(`[Xero VAT sync] lookup failed for key=${key}:`, lookupError);
+        throw new Error(`Failed to look up existing system_settings row for ${key}`);
+      }
+
+      if (existingSetting) {
+        await supabase
+          .from('system_settings')
+          .update({ setting_value: serialized })
+          .eq('id', existingSetting.id);
+      } else {
+        const insertRow = { setting_key: key, setting_value: serialized };
+        if (scoped) insertRow.tenant_id = appTenantId;
+        await supabase.from('system_settings').insert(insertRow);
+      }
     }
 
     return res.status(200).json({

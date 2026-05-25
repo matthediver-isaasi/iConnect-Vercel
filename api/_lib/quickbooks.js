@@ -378,7 +378,39 @@ export async function createQuickBooksMembershipInvoice({
   });
 
   const itemId = await resolveMembershipItemId(appTenantId);
-  const { taxCodeId } = parseTaxCodeRef(vatRate);
+  let { taxCodeId } = parseTaxCodeRef(vatRate);
+
+  if (!taxCodeId) {
+    try {
+      const itemResp = await qboFetch(
+        'item-retrieve',
+        accessToken,
+        'GET',
+        `${base}/item/${encodeURIComponent(itemId)}?minorversion=${MINOR_VERSION}`
+      );
+      taxCodeId = itemResp?.Item?.SalesTaxCodeRef?.value || null;
+      if (taxCodeId) {
+        console.log(`[QBO] Falling back to Item SalesTaxCodeRef ${taxCodeId} for invoice line`);
+      }
+    } catch (itemErr) {
+      console.log(`[QBO] Item lookup for tax fallback failed (non-fatal): ${itemErr.message}`);
+    }
+  }
+  if (!taxCodeId) {
+    const defaultTaxCode = await getTenantSetting(appTenantId, 'quickbooks_default_tax_code_id');
+    if (defaultTaxCode) {
+      taxCodeId = String(defaultTaxCode);
+      console.log(`[QBO] Falling back to tenant default tax code ${taxCodeId} for invoice line`);
+    }
+  }
+  if (!taxCodeId) {
+    throw new Error(
+      'QuickBooks invoice requires a tax code, but none was provided by the membership band, ' +
+        'the QuickBooks Item, or the tenant default. Either set a VAT rate on the membership band, ' +
+        'configure SalesTaxCodeRef on the QuickBooks Item, or set system_settings key ' +
+        '`quickbooks_default_tax_code_id`.'
+    );
+  }
 
   const firstLine = invoiceDescription
     ? invoiceDescription.replace(/\{year\}/gi, membershipYear)
@@ -396,9 +428,7 @@ export async function createQuickBooksMembershipInvoice({
       UnitPrice: lineAmount,
     },
   };
-  if (taxCodeId) {
-    line.SalesItemLineDetail.TaxCodeRef = { value: taxCodeId };
-  }
+  line.SalesItemLineDetail.TaxCodeRef = { value: taxCodeId };
 
   const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const invoicePayload = {
@@ -406,6 +436,11 @@ export async function createQuickBooksMembershipInvoice({
     Line: [line],
     DueDate: dueDate,
     CustomerMemo: { value: reference || `Membership ${membershipYear}` },
+    // Required by QBO when the company file has VAT/Sales-Tax enabled. Without
+    // this flag QBO returns error 6000 "Make sure all your transactions have a
+    // VAT rate before you save". Membership line amounts are net of VAT, so
+    // TaxExcluded matches what the band stores.
+    GlobalTaxCalculation: 'TaxExcluded',
   };
   if (currency) invoicePayload.CurrencyRef = { value: currency };
 
@@ -624,9 +659,33 @@ export async function createQuickBooksCreditNote({
 
   const originalLine = (invoice.Line || []).find((l) => l.DetailType === 'SalesItemLineDetail');
   const itemId = originalLine?.SalesItemLineDetail?.ItemRef?.value;
-  const taxCodeId = originalLine?.SalesItemLineDetail?.TaxCodeRef?.value;
+  let taxCodeId = originalLine?.SalesItemLineDetail?.TaxCodeRef?.value || null;
   if (!itemId) {
     throw new Error(`Invoice ${invoiceId} has no SalesItemLineDetail line to mirror onto a credit note`);
+  }
+  if (!taxCodeId) {
+    try {
+      const itemResp = await qboFetch(
+        'item-retrieve',
+        accessToken,
+        'GET',
+        `${base}/item/${encodeURIComponent(itemId)}?minorversion=${MINOR_VERSION}`
+      );
+      taxCodeId = itemResp?.Item?.SalesTaxCodeRef?.value || null;
+    } catch (itemErr) {
+      console.log(`[QBO] Item lookup for credit note tax fallback failed (non-fatal): ${itemErr.message}`);
+    }
+  }
+  if (!taxCodeId) {
+    const defaultTaxCode = await getTenantSetting(appTenantId, 'quickbooks_default_tax_code_id');
+    if (defaultTaxCode) taxCodeId = String(defaultTaxCode);
+  }
+  if (!taxCodeId) {
+    throw new Error(
+      `QuickBooks credit note requires a tax code, but invoice ${invoice.DocNumber || invoiceId} ` +
+        'has no TaxCodeRef on its line and no fallback is configured. Set system_settings key ' +
+        '`quickbooks_default_tax_code_id` or configure SalesTaxCodeRef on the QuickBooks Item.'
+    );
   }
 
   const cmLine = {
@@ -639,13 +698,20 @@ export async function createQuickBooksCreditNote({
       UnitPrice: Number(effectiveAmount.toFixed(2)),
     },
   };
-  if (taxCodeId) cmLine.SalesItemLineDetail.TaxCodeRef = { value: taxCodeId };
+  cmLine.SalesItemLineDetail.TaxCodeRef = { value: taxCodeId };
 
   const cmPayload = {
     CustomerRef: { value: customerId },
     Line: [cmLine],
     TxnDate: new Date().toISOString().split('T')[0],
     PrivateNote: reference || `Credit for invoice ${invoice.DocNumber}`,
+    // QBO rejects credit memos with the same "Make sure all your transactions
+    // have a VAT rate" error as invoices when GlobalTaxCalculation is missing.
+    // Mirror the original invoice's value so the credit memo's tax maths match
+    // the document it is crediting (inclusive vs exclusive vs no-tax). Fall
+    // back to TaxExcluded — which is what membership invoices created by this
+    // module use — when the source invoice did not carry the field.
+    GlobalTaxCalculation: invoice.GlobalTaxCalculation || 'TaxExcluded',
   };
   if (invoice.CurrencyRef?.value) {
     cmPayload.CurrencyRef = { value: invoice.CurrencyRef.value };
@@ -1014,10 +1080,20 @@ export async function syncQuickBooksTaxRates(appTenantId) {
     provider: 'quickbooks',
   };
 
-  // Write to BOTH the new generic key and the legacy xero_vat_rates_{tenantId}
-  // key so existing pricing readers (membership simulation, MembershipTier
-  // editor, event pricing editors) work for QBO tenants with no UI rework.
-  const keys = [`accounting_vat_rates_${appTenantId}`, `xero_vat_rates_${appTenantId}`];
+  // Write to ALL three keys:
+  //   - `accounting_vat_rates_{tenantId}`: provider-neutral, new code path.
+  //   - `xero_vat_rates_{tenantId}`: legacy per-tenant key used by server-side
+  //     pricing simulators in api/_lib/membershipSimulation.js.
+  //   - `xero_vat_rates` (unsuffixed): the key every UI VAT-rate dropdown
+  //     reader (MembershipTierManagement, event editors, etc.) expects. This
+  //     is what makes the synced QBO rates actually appear in the band-level
+  //     VAT picker. SystemSettings is tenant-scoped via base44, so the
+  //     unsuffixed key does not collide across tenants.
+  const keys = [
+    `accounting_vat_rates_${appTenantId}`,
+    `xero_vat_rates_${appTenantId}`,
+    'xero_vat_rates',
+  ];
   for (const key of keys) {
     const { data: existing } = await supabase
       .from('system_settings')

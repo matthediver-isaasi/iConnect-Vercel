@@ -152,6 +152,10 @@ export default function AdminIntegrations() {
   const [qbAccountsLoading, setQbAccountsLoading] = useState(false);
   const [qbMembershipItemId, setQbMembershipItemId] = useState('');
   const [qbStripeBankAccountId, setQbStripeBankAccountId] = useState('');
+  const [qbDefaultTaxCodeId, setQbDefaultTaxCodeId] = useState('');
+  const [qbDefaultTaxCodeSettingId, setQbDefaultTaxCodeSettingId] = useState(null);
+  const [qbTaxCodes, setQbTaxCodes] = useState([]);
+  const [qbTaxCodesLoading, setQbTaxCodesLoading] = useState(false);
   const [qbMembershipItemSettingId, setQbMembershipItemSettingId] = useState(null);
   const [qbStripeBankSettingId, setQbStripeBankSettingId] = useState(null);
   const [qbSettingsSaving, setQbSettingsSaving] = useState(false);
@@ -961,6 +965,7 @@ export default function AdminIntegrations() {
       const bankSetting =
         list.find((s) => s.setting_key === 'quickbooks_stripe_bank_account_id') ||
         list.find((s) => s.setting_key === 'accounting_stripe_bank_account_id');
+      const taxCodeSetting = list.find((s) => s.setting_key === 'quickbooks_default_tax_code_id');
       setQbMembershipItemId(itemSetting?.setting_value || '');
       setQbMembershipItemSettingId(
         itemSetting && itemSetting.setting_key === 'quickbooks_membership_item_id' ? itemSetting.id : null,
@@ -969,6 +974,8 @@ export default function AdminIntegrations() {
       setQbStripeBankSettingId(
         bankSetting && bankSetting.setting_key === 'quickbooks_stripe_bank_account_id' ? bankSetting.id : null,
       );
+      setQbDefaultTaxCodeId(taxCodeSetting?.setting_value || '');
+      setQbDefaultTaxCodeSettingId(taxCodeSetting?.id || null);
     } catch (err) {
       console.error('Failed to load QuickBooks settings:', err);
     }
@@ -977,10 +984,12 @@ export default function AdminIntegrations() {
   const loadQuickBooksItemsAndAccounts = async () => {
     setQbItemsLoading(true);
     setQbAccountsLoading(true);
+    setQbTaxCodesLoading(true);
     try {
-      const [itemsResp, accountsResp] = await Promise.all([
+      const [itemsResp, accountsResp, taxCodesResp] = await Promise.all([
         fetch('/api/quickbooks/list-items', { credentials: 'include' }),
         fetch('/api/quickbooks/list-accounts', { credentials: 'include' }),
+        fetch('/api/quickbooks/list-tax-codes', { credentials: 'include' }),
       ]);
       if (itemsResp.ok) {
         const data = await itemsResp.json();
@@ -990,11 +999,16 @@ export default function AdminIntegrations() {
         const data = await accountsResp.json();
         setQbAccounts(data.accounts || []);
       }
+      if (taxCodesResp.ok) {
+        const data = await taxCodesResp.json();
+        setQbTaxCodes(data.taxCodes || []);
+      }
     } catch (err) {
-      console.error('Failed to load QuickBooks items/accounts:', err);
+      console.error('Failed to load QuickBooks items/accounts/tax codes:', err);
     } finally {
       setQbItemsLoading(false);
       setQbAccountsLoading(false);
+      setQbTaxCodesLoading(false);
     }
   };
 
@@ -1039,6 +1053,13 @@ export default function AdminIntegrations() {
         'QuickBooks Online bank account id used as DepositToAccountRef when applying Stripe payments to invoices',
         qbStripeBankSettingId,
         setQbStripeBankSettingId,
+      );
+      await upsertSystemSetting(
+        'quickbooks_default_tax_code_id',
+        qbDefaultTaxCodeId,
+        'QuickBooks Online default TaxCode id used on invoice/credit note lines when the membership band and Item do not specify one',
+        qbDefaultTaxCodeSettingId,
+        setQbDefaultTaxCodeSettingId,
       );
       toast({ title: 'Saved', description: 'QuickBooks settings saved successfully' });
     } catch (err) {
@@ -2223,6 +2244,46 @@ export default function AdminIntegrations() {
                     </p>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="qb-default-tax-code" className="text-slate-300">
+                      Default VAT / Tax Code (optional)
+                    </Label>
+                    <Select
+                      value={qbDefaultTaxCodeId || '__none'}
+                      onValueChange={(v) => setQbDefaultTaxCodeId(v === '__none' ? '' : v)}
+                      disabled={qbTaxCodesLoading || qbTaxCodes.length === 0}
+                    >
+                      <SelectTrigger
+                        id="qb-default-tax-code"
+                        className="bg-slate-900 border-slate-700 text-white"
+                        data-testid="select-quickbooks-default-tax-code"
+                      >
+                        <SelectValue
+                          placeholder={
+                            qbTaxCodesLoading
+                              ? 'Loading tax codes...'
+                              : qbTaxCodes.length === 0
+                              ? 'No tax codes found'
+                              : 'No default (require band VAT rate)'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">— No default —</SelectItem>
+                        {qbTaxCodes.map((tc) => (
+                          <SelectItem key={tc.id} value={tc.id}>
+                            {tc.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-400">
+                      Fallback tax code used on invoice/credit note lines when the membership band has no VAT rate
+                      set and the QuickBooks Item has no SalesTaxCodeRef. Without it, invoice creation fails with
+                      "Make sure all your transactions have a VAT rate".
+                    </p>
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <Button
                       onClick={handleSaveQuickBooksSettings}
@@ -2235,10 +2296,10 @@ export default function AdminIntegrations() {
                     <Button
                       variant="outline"
                       onClick={loadQuickBooksItemsAndAccounts}
-                      disabled={qbItemsLoading || qbAccountsLoading}
+                      disabled={qbItemsLoading || qbAccountsLoading || qbTaxCodesLoading}
                       data-testid="button-refresh-quickbooks-lists"
                     >
-                      <RefreshCw className={`h-4 w-4 mr-2 ${(qbItemsLoading || qbAccountsLoading) ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`h-4 w-4 mr-2 ${(qbItemsLoading || qbAccountsLoading || qbTaxCodesLoading) ? 'animate-spin' : ''}`} />
                       Refresh
                     </Button>
                   </div>
