@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { createXeroMembershipInvoice } from '../_lib/xero.js';
+import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
@@ -297,7 +297,8 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     const xeroReference = poNumber
       ? `Membership ${membershipYear.label} - PO: ${poNumber}`
       : `Membership ${membershipYear.label}`;
-    xeroInvoice = await createXeroMembershipInvoice({
+    const provider = await getAccountingProvider(tenantId);
+    xeroInvoice = await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,
@@ -314,10 +315,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     if (xeroInvoice) {
       const { error: linkError } = await supabase
         .from('member_membership_history')
-        .update({
-          xero_invoice_id: xeroInvoice.invoice_id,
-          xero_invoice_number: xeroInvoice.invoice_number,
-        })
+        .update(buildInvoiceColumnUpdate(xeroInvoice))
         .eq('id', record.id);
 
       if (linkError) {

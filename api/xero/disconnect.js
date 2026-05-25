@@ -1,5 +1,6 @@
 import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { disconnectActiveAccountingProvider } from '../_lib/accountingProvider.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -34,6 +35,12 @@ export default async function handler(req, res) {
     if (error) {
       console.error('[Xero] Disconnect error:', error);
       return res.status(500).json({ error: 'Failed to disconnect Xero' });
+    }
+
+    try {
+      await disconnectActiveAccountingProvider(tenantUser.tenant_id, 'xero');
+    } catch (provErr) {
+      console.error('[Xero] Failed to clear active accounting provider (non-fatal):', provErr.message);
     }
 
     console.log('[Xero] Disconnected for tenant:', tenantUser.tenant_id);

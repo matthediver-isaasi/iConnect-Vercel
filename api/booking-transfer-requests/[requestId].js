@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
-import { getValidXeroAccessToken } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { cancelZoomRegistrant, registerZoomWebinarAttendee, resolveEventZoomWebinar } from '../_lib/zoomClient.js';
 import { BOOKING_SOURCE_COMPLEX, isComplexSource, normalizeComplexBooking, getBookingTable, swapComplexEventZoomRegistrations } from '../_lib/bookingLookup.js';
@@ -324,7 +324,8 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
 
   console.log(`[TransferXero] Updating invoice ${booking.xero_invoice_id} description for transfer`);
 
-  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+  const _provider = await getAccountingProvider(tenantId);
+  const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
 
   if (!accessToken || !xeroTenantId) {
     console.error('[TransferXero] Missing Xero token or tenant ID — skipping');

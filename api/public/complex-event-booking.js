@@ -15,7 +15,7 @@ import {
   isTicketAccessibleToMember,
   getMemberGroupIdsForMember
 } from '../_lib/ticketAccess.js';
-import { getValidXeroAccessToken, findOrCreateXeroContact } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 
 function generateBookingReference() {
@@ -929,9 +929,11 @@ export default async function handler(req, res) {
 
           if (invoiceContactInfo && invoiceContactInfo.name) {
             try {
-              const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+              const _provider = await getAccountingProvider(appTenantId);
+              const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(appTenantId);
 
               if (accessToken && xeroTenantId) {
+                const { findOrCreateXeroContact } = await import('../_lib/xero.js');
                 const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, invoiceContactInfo);
 
                 const { data: accountCodeSetting } = await supabase

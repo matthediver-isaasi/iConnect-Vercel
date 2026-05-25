@@ -1,5 +1,5 @@
 import { getSessionMember } from '../_lib/session.js';
-import { fetchXeroCreditNotePdf } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -27,10 +27,10 @@ export default async function handler(req, res) {
 
     const { data: regularBooking, error } = await supabase
       .from('booking')
-      .select('xero_credit_note_id, xero_credit_note_number, member_id, organization_id')
+      .select('xero_credit_note_id, xero_credit_note_number, accounting_credit_note_id, accounting_credit_note_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
       .eq('tenant_id', sessionMember.tenant_id)
-      .not('xero_credit_note_id', 'is', null)
+      .or('xero_credit_note_id.not.is.null,accounting_credit_note_id.not.is.null')
       .limit(1)
       .maybeSingle();
 
@@ -40,14 +40,15 @@ export default async function handler(req, res) {
     }
 
     booking = regularBooking;
+    const hasCN = (b) => b && (b.accounting_credit_note_id || b.xero_credit_note_id);
 
-    if (!booking || !booking.xero_credit_note_id) {
+    if (!hasCN(booking)) {
       const { data: complexBooking, error: complexError } = await supabase
         .from('complex_event_booking')
-        .select('xero_credit_note_id, xero_credit_note_number, member_id, organization_id')
+        .select('xero_credit_note_id, xero_credit_note_number, accounting_credit_note_id, accounting_credit_note_number, member_id, organization_id')
         .eq('booking_group_reference', bookingGroupRef)
         .eq('tenant_id', sessionMember.tenant_id)
-        .not('xero_credit_note_id', 'is', null)
+        .or('xero_credit_note_id.not.is.null,accounting_credit_note_id.not.is.null')
         .limit(1)
         .maybeSingle();
 
@@ -55,12 +56,12 @@ export default async function handler(req, res) {
         console.error('Error fetching complex event booking for credit note:', complexError);
       }
 
-      if (complexBooking && complexBooking.xero_credit_note_id) {
+      if (hasCN(complexBooking)) {
         booking = complexBooking;
       }
     }
 
-    if (!booking || !booking.xero_credit_note_id) {
+    if (!hasCN(booking)) {
       return res.status(404).json({ error: 'Credit note not found for this booking' });
     }
 
@@ -77,22 +78,25 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Cannot determine tenant context for credit note' });
     }
 
-    const pdfBuffer = await fetchXeroCreditNotePdf(booking.xero_credit_note_id, appTenantId);
+    const creditNoteId = booking.accounting_credit_note_id || booking.xero_credit_note_id;
+    const creditNoteNumber = booking.accounting_credit_note_number || booking.xero_credit_note_number;
+    const provider = await getAccountingProvider(appTenantId);
+    const pdfBuffer = await provider.fetchCreditNotePdf(creditNoteId, appTenantId);
 
     const inline = req.query.inline === 'true';
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
 
-    if (inline) {
-      res.setHeader('Content-Disposition', `inline; filename="credit-note-${booking.xero_credit_note_number || bookingGroupRef}.pdf"`);
-    } else {
-      res.setHeader('Content-Disposition', `attachment; filename="credit-note-${booking.xero_credit_note_number || bookingGroupRef}.pdf"`);
-    }
+    const disposition = inline ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${disposition}; filename="credit-note-${creditNoteNumber || bookingGroupRef}.pdf"`);
 
     return res.send(pdfBuffer);
   } catch (error) {
     console.error('Error serving credit note PDF:', error);
-    return res.status(500).json({ error: 'Failed to fetch credit note from Xero' });
+    if (error.code === 'ACCOUNTING_PROVIDER_NONE' || error.code === 'ACCOUNTING_PROVIDER_NOT_CONFIGURED') {
+      return res.status(503).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Failed to fetch credit note from accounting provider' });
   }
 }

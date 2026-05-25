@@ -1,6 +1,6 @@
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
-import { fetchXeroInvoicePdf } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     if (isAdmin) {
       const { data, error } = await supabase
         .from('organisation_membership_history')
-        .select('id, xero_invoice_id, xero_invoice_number, organization_id, tenant_id')
+        .select('id, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, organization_id, tenant_id')
         .eq('id', recordId)
         .eq('tenant_id', appTenantId)
         .maybeSingle();
@@ -50,14 +50,14 @@ export default async function handler(req, res) {
       }
 
       if (data) {
-        if (!data.xero_invoice_id) {
+        if (!data.xero_invoice_id && !data.accounting_invoice_id) {
           return res.status(404).json({ error: 'Invoice not found for this membership record' });
         }
         record = data;
       } else {
         const { data: memberData, error: memberErr } = await supabase
           .from('member_membership_history')
-          .select('id, xero_invoice_id, xero_invoice_number, member_id, tenant_id')
+          .select('id, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, tenant_id')
           .eq('id', recordId)
           .eq('tenant_id', appTenantId)
           .maybeSingle();
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to fetch membership record' });
         }
 
-        if (!memberData || !memberData.xero_invoice_id) {
+        if (!memberData || (!memberData.xero_invoice_id && !memberData.accounting_invoice_id)) {
           return res.status(404).json({ error: 'Invoice not found for this membership record' });
         }
 
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     } else if (memberOrganizationId) {
       const { data, error } = await supabase
         .from('organisation_membership_history')
-        .select('id, xero_invoice_id, xero_invoice_number, organization_id, tenant_id')
+        .select('id, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, organization_id, tenant_id')
         .eq('id', recordId)
         .eq('tenant_id', appTenantId)
         .maybeSingle();
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch membership record' });
       }
 
-      if (!data || !data.xero_invoice_id) {
+      if (!data || (!data.xero_invoice_id && !data.accounting_invoice_id)) {
         return res.status(404).json({ error: 'Invoice not found for this membership record' });
       }
 
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
     } else {
       const { data, error } = await supabase
         .from('member_membership_history')
-        .select('id, xero_invoice_id, xero_invoice_number, member_id, tenant_id')
+        .select('id, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, tenant_id')
         .eq('id', recordId)
         .eq('tenant_id', appTenantId)
         .maybeSingle();
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch membership record' });
       }
 
-      if (!data || !data.xero_invoice_id) {
+      if (!data || (!data.xero_invoice_id && !data.accounting_invoice_id)) {
         return res.status(404).json({ error: 'Invoice not found for this membership record' });
       }
 
@@ -119,7 +119,9 @@ export default async function handler(req, res) {
       record = data;
     }
 
-    const pdfBuffer = await fetchXeroInvoicePdf(record.xero_invoice_id, appTenantId);
+    const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
+    const provider = await getAccountingProvider(appTenantId);
+    const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
 
     const inline = req.query.inline === 'true';
 

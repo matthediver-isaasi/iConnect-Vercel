@@ -21,7 +21,7 @@
 
 import { supabase } from './database.js';
 import { getStripeCredentials } from './stripeCredentials.js';
-import { createXeroCreditNote, emailXeroCreditNote } from './xero.js';
+import { getAccountingProvider, buildCreditNoteColumnUpdate } from './accountingProvider.js';
 import { sendEmail } from './emailService.js';
 import {
   buildCancellationEmail,
@@ -456,7 +456,8 @@ export async function cancelBooking({
   }
 
   // 8. Xero credit note.
-  if (!skipXeroCreditNote && booking.xero_invoice_id) {
+  const _invoiceIdForCredit = booking.accounting_invoice_id || booking.xero_invoice_id;
+  if (!skipXeroCreditNote && _invoiceIdForCredit) {
     let creditAmount = totalCost;
     if (refundAllocation && refundAllocation.invoiceAmount !== undefined) {
       const invoiceAlloc = parseFloat(refundAllocation.invoiceAmount);
@@ -478,9 +479,10 @@ export async function cancelBooking({
             ? `Event-cancel: ${booking.booking_reference || booking.id}`
             : `Cancel: ${booking.booking_reference || booking.id}`);
 
-        const result = await createXeroCreditNote({
+        const provider = await getAccountingProvider(tenantId);
+        const result = await provider.createCreditNote({
           appTenantId: tenantId,
-          invoiceId: booking.xero_invoice_id,
+          invoiceId: booking.accounting_invoice_id || booking.xero_invoice_id,
           creditAmount,
           description,
           reference: referenceText,
@@ -510,15 +512,12 @@ export async function cancelBooking({
           if (result.creditNoteId) {
             await supabase
               .from(bookingTable)
-              .update({
-                xero_credit_note_id: result.creditNoteId,
-                xero_credit_note_number: result.creditNoteNumber,
-              })
+              .update(buildCreditNoteColumnUpdate(result))
               .eq('id', booking.id);
 
             if (creditNoteEmail) {
               try {
-                await emailXeroCreditNote({
+                await provider.emailCreditNote({
                   appTenantId: tenantId,
                   creditNoteId: result.creditNoteId,
                   creditNoteNumber: result.creditNoteNumber,
@@ -543,8 +542,8 @@ export async function cancelBooking({
           amount: errCreditAmount,
           requiresManualAction: true,
           error: err.message,
-          invoiceId: booking.xero_invoice_id,
-          invoiceNumber: booking.xero_invoice_number,
+          invoiceId: _invoiceIdForCredit,
+          invoiceNumber: booking.accounting_invoice_number || booking.xero_invoice_number,
         };
         requiresManualAction = true;
       }

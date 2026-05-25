@@ -110,8 +110,9 @@ export default async function handler(req, res) {
       let xeroOnlineInvoiceUrl = feeToken.xero_online_invoice_url || null;
       if (feeToken.xero_invoice_id && !xeroOnlineInvoiceUrl) {
         try {
-          const { getValidXeroAccessToken } = await import('../../_lib/xero.js');
-          const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(feeToken.tenant_id);
+          const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
+          const _provider = await getAccountingProvider(feeToken.tenant_id);
+          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(feeToken.tenant_id);
           const r = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${feeToken.xero_invoice_id}/OnlineInvoice`, {
             headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
           });
@@ -270,9 +271,10 @@ export default async function handler(req, res) {
         let xeroPoWarning = null;
         if (feeToken.xero_invoice_id) {
           try {
-            const { pushPurchaseOrderToXero } = await import('../../_lib/xero.js');
+            const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
+            const _provider = await getAccountingProvider(feeToken.tenant_id);
             const reference = `Membership ${feeToken.membership_year} - PO: ${poNumber.trim()}`;
-            const xeroResult = await pushPurchaseOrderToXero({
+            const xeroResult = await _provider.pushPurchaseOrder({
               appTenantId: feeToken.tenant_id,
               xeroInvoiceId: feeToken.xero_invoice_id,
               purchaseOrderNumber: reference,
@@ -618,7 +620,7 @@ export default async function handler(req, res) {
                 } catch {}
               }
             } else {
-              const { createXeroMembershipInvoice } = await import('../../_lib/xero.js');
+              const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
               const { data: org } = await supabase
                 .from('organization')
                 .select('name, invoicing_address, invoicing_email')
@@ -629,7 +631,8 @@ export default async function handler(req, res) {
                 ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
                 : `Membership ${feeToken.membership_year}`;
 
-              xeroInvoice = await createXeroMembershipInvoice({
+              const _provider = await getAccountingProvider(feeToken.tenant_id);
+              xeroInvoice = await _provider.createMembershipInvoice({
                 appTenantId: feeToken.tenant_id,
                 organizationName: org?.name || 'Organisation',
                 invoicingEmail: org?.invoicing_email || null,

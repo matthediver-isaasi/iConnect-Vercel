@@ -1,5 +1,6 @@
 import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { getAccountingConnectionStatus } from '../_lib/accountingProvider.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -36,7 +37,14 @@ export default async function handler(req, res) {
       return res.json({ tokens: [] });
     }
 
-    res.json({ tokens: tokens || [] });
+    let accounting = null;
+    try {
+      accounting = await getAccountingConnectionStatus(tenantUser.tenant_id);
+    } catch (statusErr) {
+      console.error('[Admin] Accounting status error (non-fatal):', statusErr.message);
+    }
+
+    res.json({ tokens: tokens || [], accounting });
   } catch (error) {
     console.error('[Admin] Xero status error:', error);
     res.status(500).json({ error: 'Failed to get Xero status' });

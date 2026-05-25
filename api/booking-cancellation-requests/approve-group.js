@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
-import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
+import { getAccountingProvider, buildCreditNoteColumnUpdate } from '../_lib/accountingProvider.js';
 import { sendEmail } from '../_lib/emailService.js';
 import {
   buildCancellationEmail,
@@ -234,7 +234,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       return { success: false, error: `Group bookings have multiple Stripe payment intents (${stripeIntents.length}). Cannot process consolidated refund — use individual approval.` };
     }
 
-    const xeroInvoices = [...new Set(bookings.map(b => b.xero_invoice_id).filter(Boolean))];
+    const xeroInvoices = [...new Set(bookings.map(b => b.accounting_invoice_id || b.xero_invoice_id).filter(Boolean))];
     if (xeroInvoices.length > 1) {
       return { success: false, error: `Group bookings have multiple Xero invoices (${xeroInvoices.length}). Cannot process consolidated credit note — use individual approval.` };
     }
@@ -579,11 +579,11 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
     }
 
     // --- Consolidated Xero credit note (one credit note for the group) ---
-    const bookingsWithXero = bookings.filter(b => b.xero_invoice_id);
+    const bookingsWithXero = bookings.filter(b => b.accounting_invoice_id || b.xero_invoice_id);
     if (bookingsWithXero.length > 0) {
       try {
-        const xeroInvoiceId = bookingsWithXero[0].xero_invoice_id;
-        const bookingsForThisInvoice = bookings.filter(b => b.xero_invoice_id === xeroInvoiceId);
+        const xeroInvoiceId = bookingsWithXero[0].accounting_invoice_id || bookingsWithXero[0].xero_invoice_id;
+        const bookingsForThisInvoice = bookings.filter(b => (b.accounting_invoice_id || b.xero_invoice_id) === xeroInvoiceId);
         const fullCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
         let totalCreditAmount = fullCreditAmount;
         if (refund_allocation && refund_allocation.invoiceAmount !== undefined) {
@@ -605,9 +605,10 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
             ? `${uniqueNames.slice(0, 3).join(', ')} +${uniqueNames.length - 3} more`
             : uniqueNames.join(', ');
 
-          const result = await createXeroCreditNote({
+          const provider = await getAccountingProvider(tenantId);
+          const result = await provider.createCreditNote({
             appTenantId: tenantId,
-            invoiceId: xeroBooking.xero_invoice_id,
+            invoiceId: xeroBooking.accounting_invoice_id || xeroBooking.xero_invoice_id,
             creditAmount: totalCreditAmount,
             description: `Group cancellation of ${bookings.length} tickets (${groupRef || 'group'}) — ${namesText}`.trim(),
             reference: `Cancel-Group: ${groupRef || groupRequestIds}`,
@@ -641,10 +642,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
               for (const booking of bookings) {
                 const { error: cnUpdateError } = await supabase
                   .from(bookingTable)
-                  .update({
-                    xero_credit_note_id: result.creditNoteId,
-                    xero_credit_note_number: result.creditNoteNumber,
-                  })
+                  .update(buildCreditNoteColumnUpdate(result))
                   .eq('id', booking.id);
 
                 if (cnUpdateError) {
@@ -654,7 +652,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
               if (credit_note_email) {
                 try {
-                  await emailXeroCreditNote({
+                  await provider.emailCreditNote({
                     appTenantId: tenantId,
                     creditNoteId: result.creditNoteId,
                     creditNoteNumber: result.creditNoteNumber,

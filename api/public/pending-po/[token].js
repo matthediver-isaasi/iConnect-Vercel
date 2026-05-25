@@ -1,12 +1,13 @@
 import { supabase } from '../../_lib/database.js';
 import { applyInvoicePoUpdate, summariseInvoice, ensurePendingPoTokenTable } from '../../_lib/pendingPoInvoice.js';
-import { getValidXeroAccessToken } from '../../_lib/xero.js';
+import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 import { sendPoSubmissionNotification } from '../../_lib/poNotificationEmail.js';
 
 async function isInvoicePaidInXero(tenantId, xeroInvoiceId) {
   if (!xeroInvoiceId) return false;
   try {
-    const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+    const _provider = await getAccountingProvider(tenantId);
+    const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
     const resp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
       method: 'GET',
       headers: {

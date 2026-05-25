@@ -495,7 +495,7 @@ async function handlePost(req, res, resolvedTenantId) {
     let xeroInvoice = null;
     if (recordCreated) {
       try {
-        const { createXeroMembershipInvoice } = await import('../_lib/xero.js');
+        const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
         const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
 
         let invoiceOrgName, invoicingAddress, invoicingEmail;
@@ -516,7 +516,8 @@ async function handlePost(req, res, resolvedTenantId) {
 
         const reference = `Membership ${targetYear}`;
 
-        xeroInvoice = await createXeroMembershipInvoice({
+        const _provider = await getAccountingProvider(tenantId);
+        xeroInvoice = await _provider.createMembershipInvoice({
           appTenantId: tenantId,
           organizationName: invoiceOrgName,
           invoicingEmail,

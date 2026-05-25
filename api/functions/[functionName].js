@@ -7,7 +7,7 @@ import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
-import { pushPurchaseOrderToXero } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import {
@@ -5459,12 +5459,21 @@ const functionHandlers = {
       appTenantId = memberData?.tenant_id || null;
     }
 
-    const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
-      appTenantId,
-      xeroInvoiceId: invoiceRow?.xero_invoice_id || null,
-      purchaseOrderNumber: trimmedPo,
-      contextLabel: `updateXeroInvoicePO group ${bookingGroupReference}`
-    });
+    let xeroUpdated = false;
+    let xeroError = null;
+    try {
+      const _provider = await getAccountingProvider(appTenantId);
+      const _r = await _provider.pushPurchaseOrder({
+        appTenantId,
+        xeroInvoiceId: invoiceRow?.xero_invoice_id || null,
+        purchaseOrderNumber: trimmedPo,
+        contextLabel: `updateXeroInvoicePO group ${bookingGroupReference}`
+      });
+      xeroUpdated = _r.xeroUpdated;
+      xeroError = _r.xeroError;
+    } catch (_provErr) {
+      xeroError = _provErr.message;
+    }
 
     try {
       const { sendPoSubmissionNotification } = await import('../_lib/poNotificationEmail.js');

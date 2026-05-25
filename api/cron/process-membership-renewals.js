@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { createXeroMembershipInvoice } from '../_lib/xero.js';
+import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
@@ -312,7 +312,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
     const resolvedAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
-    xeroInvoice = await createXeroMembershipInvoice({
+    xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
       invoicingEmail: org.invoicing_email || null,
@@ -329,10 +329,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     if (xeroInvoice) {
       await supabase
         .from('organisation_membership_history')
-        .update({
-          xero_invoice_id: xeroInvoice.invoice_id,
-          xero_invoice_number: xeroInvoice.invoice_number,
-        })
+        .update(buildInvoiceColumnUpdate(xeroInvoice))
         .eq('id', existingRecord.id);
     }
   } catch (xeroErr) {
@@ -556,7 +553,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
       const resolvedOrgAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
-      xeroInvoice = await createXeroMembershipInvoice({
+      xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
         invoicingEmail: org.invoicing_email || null,
@@ -573,10 +570,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       if (xeroInvoice) {
         const { error: linkError } = await supabase
           .from('organisation_membership_history')
-          .update({
-            xero_invoice_id: xeroInvoice.invoice_id,
-            xero_invoice_number: xeroInvoice.invoice_number,
-          })
+          .update(buildInvoiceColumnUpdate(xeroInvoice))
           .eq('id', record.id);
 
         if (linkError) {
@@ -969,7 +963,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
       const resolvedMemberAddr = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
-      xeroInvoice = await createXeroMembershipInvoice({
+      xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
         appTenantId: tenantId,
         organizationName: memberName,
         invoicingEmail: member.email || null,
@@ -986,10 +980,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       if (xeroInvoice) {
         const { error: linkError } = await supabase
           .from('member_membership_history')
-          .update({
-            xero_invoice_id: xeroInvoice.invoice_id,
-            xero_invoice_number: xeroInvoice.invoice_number,
-          })
+          .update(buildInvoiceColumnUpdate(xeroInvoice))
           .eq('id', record.id);
 
         if (linkError) {
@@ -1112,7 +1103,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
     const resolvedMemberAddr2 = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
-    xeroInvoice = await createXeroMembershipInvoice({
+    xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,
@@ -1129,10 +1120,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     if (xeroInvoice) {
       await supabase
         .from('member_membership_history')
-        .update({
-          xero_invoice_id: xeroInvoice.invoice_id,
-          xero_invoice_number: xeroInvoice.invoice_number,
-        })
+        .update(buildInvoiceColumnUpdate(xeroInvoice))
         .eq('id', existingRecord.id);
     }
   } catch (xeroErr) {

@@ -1,5 +1,5 @@
 import { getSessionMember } from '../_lib/session.js';
-import { fetchXeroInvoicePdf } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -27,10 +27,10 @@ export default async function handler(req, res) {
 
     const { data: regularBooking, error } = await supabase
       .from('booking')
-      .select('xero_invoice_id, xero_invoice_number, member_id, organization_id')
+      .select('xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
       .eq('tenant_id', sessionMember.tenant_id)
-      .not('xero_invoice_id', 'is', null)
+      .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
       .limit(1)
       .maybeSingle();
 
@@ -40,14 +40,15 @@ export default async function handler(req, res) {
     }
 
     booking = regularBooking;
+    const hasInvoice = (b) => b && (b.accounting_invoice_id || b.xero_invoice_id);
 
-    if (!booking || !booking.xero_invoice_id) {
+    if (!hasInvoice(booking)) {
       const { data: complexBooking, error: complexError } = await supabase
         .from('complex_event_booking')
-        .select('xero_invoice_id, xero_invoice_number, member_id, organization_id')
+        .select('xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
         .eq('booking_group_reference', bookingGroupRef)
         .eq('tenant_id', sessionMember.tenant_id)
-        .not('xero_invoice_id', 'is', null)
+        .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
         .limit(1)
         .maybeSingle();
 
@@ -55,12 +56,12 @@ export default async function handler(req, res) {
         console.error('Error fetching complex event booking:', complexError);
       }
 
-      if (complexBooking && complexBooking.xero_invoice_id) {
+      if (hasInvoice(complexBooking)) {
         booking = complexBooking;
       }
     }
 
-    if (!booking || !booking.xero_invoice_id) {
+    if (!hasInvoice(booking)) {
       return res.status(404).json({ error: 'Invoice not found for this booking' });
     }
 
@@ -77,22 +78,25 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });
     }
 
-    const pdfBuffer = await fetchXeroInvoicePdf(booking.xero_invoice_id, appTenantId);
+    const invoiceId = booking.accounting_invoice_id || booking.xero_invoice_id;
+    const invoiceNumber = booking.accounting_invoice_number || booking.xero_invoice_number;
+    const provider = await getAccountingProvider(appTenantId);
+    const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
 
     const inline = req.query.inline === 'true';
-    
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
-    
-    if (inline) {
-      res.setHeader('Content-Disposition', `inline; filename="invoice-${booking.xero_invoice_number || bookingGroupRef}.pdf"`);
-    } else {
-      res.setHeader('Content-Disposition', `attachment; filename="invoice-${booking.xero_invoice_number || bookingGroupRef}.pdf"`);
-    }
-    
+
+    const disposition = inline ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${disposition}; filename="invoice-${invoiceNumber || bookingGroupRef}.pdf"`);
+
     return res.send(pdfBuffer);
   } catch (error) {
     console.error('Error serving invoice PDF:', error);
-    return res.status(500).json({ error: 'Failed to fetch invoice from Xero' });
+    if (error.code === 'ACCOUNTING_PROVIDER_NONE' || error.code === 'ACCOUNTING_PROVIDER_NOT_CONFIGURED') {
+      return res.status(503).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Failed to fetch invoice from accounting provider' });
   }
 }

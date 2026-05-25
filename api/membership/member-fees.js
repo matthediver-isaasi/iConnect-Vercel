@@ -459,7 +459,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
     let xeroInvoice = null;
     if (recordCreated) {
       try {
-        const { createXeroMembershipInvoice } = await import('../_lib/xero.js');
+        const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
         const { data: org } = await supabase
           .from('organization')
           .select('name, invoicing_address, invoicing_email')
@@ -480,7 +480,8 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
           : `Membership ${targetYear}`;
 
         const resolvedAddress = await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
-        xeroInvoice = await createXeroMembershipInvoice({
+        const _provider = await getAccountingProvider(tenantId);
+        xeroInvoice = await _provider.createMembershipInvoice({
           appTenantId: tenantId,
           organizationName: org?.name || 'Organisation',
           invoicingEmail: org?.invoicing_email || null,
@@ -793,7 +794,7 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
     let xeroInvoice = null;
     if (recordCreated) {
       try {
-        const { createXeroMembershipInvoice } = await import('../_lib/xero.js');
+        const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
         const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
 
         const { data: invoicingSetting } = await supabase
@@ -810,7 +811,8 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
           : `Membership ${targetYear}`;
 
         const resolvedMemberAddress = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
-        xeroInvoice = await createXeroMembershipInvoice({
+        const _provider = await getAccountingProvider(tenantId);
+        xeroInvoice = await _provider.createMembershipInvoice({
           appTenantId: tenantId,
           organizationName: memberName,
           invoicingEmail: member.email || null,

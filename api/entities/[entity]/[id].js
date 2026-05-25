@@ -6,7 +6,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, 
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
-import { pushPurchaseOrderToXero } from '../../_lib/xero.js';
+import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -618,12 +618,17 @@ export default async function handler(req, res) {
           }
         }
 
-        xeroPoSyncResult = await pushPurchaseOrderToXero({
-          appTenantId: appTenantIdForXero,
-          xeroInvoiceId: xeroInvoiceIdForPush,
-          purchaseOrderNumber: trimmedPo,
-          contextLabel: `Entity ${entity} ${id} PO update`,
-        });
+        try {
+          const _provider = await getAccountingProvider(appTenantIdForXero);
+          xeroPoSyncResult = await _provider.pushPurchaseOrder({
+            appTenantId: appTenantIdForXero,
+            xeroInvoiceId: xeroInvoiceIdForPush,
+            purchaseOrderNumber: trimmedPo,
+            contextLabel: `Entity ${entity} ${id} PO update`,
+          });
+        } catch (provErr) {
+          xeroPoSyncResult = { xeroUpdated: false, xeroError: provErr.message };
+        }
       }
 
       // Derive base URL for workflow email placeholders

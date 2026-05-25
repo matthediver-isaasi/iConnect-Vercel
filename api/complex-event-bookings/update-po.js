@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
-import { pushPurchaseOrderToXero } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendPoSubmissionNotification } from '../_lib/poNotificationEmail.js';
 
 export default async function handler(req, res) {
@@ -94,12 +94,21 @@ export default async function handler(req, res) {
       groupXeroInvoiceId = invoiceRow?.xero_invoice_id || null;
     }
 
-    const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
-      appTenantId: tenantId,
-      xeroInvoiceId: groupXeroInvoiceId,
-      purchaseOrderNumber: trimmedPO,
-      contextLabel: `ComplexEventBooking ${booking_id}`,
-    });
+    let xeroUpdated = false;
+    let xeroError = null;
+    try {
+      const provider = await getAccountingProvider(tenantId);
+      const result = await provider.pushPurchaseOrder({
+        appTenantId: tenantId,
+        xeroInvoiceId: groupXeroInvoiceId,
+        purchaseOrderNumber: trimmedPO,
+        contextLabel: `ComplexEventBooking ${booking_id}`,
+      });
+      xeroUpdated = !!result?.xeroUpdated;
+      xeroError = result?.xeroError || null;
+    } catch (provErr) {
+      xeroError = provErr.message;
+    }
 
     try {
       let eventName = '';

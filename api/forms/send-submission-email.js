@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../_lib/emailService.js';
-import { fetchXeroInvoicePdf } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { generatePasswordSetupUrl } from '../_lib/passwordSetupUrl.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -475,7 +475,8 @@ export default async function handler(req, res) {
 
           if (invoiceRecord?.xero_invoice_id) {
             console.log('[FormSubmissionEmail] Fetching Xero invoice PDF:', invoiceRecord.xero_invoice_number);
-            const pdfBuffer = await fetchXeroInvoicePdf(invoiceRecord.xero_invoice_id, tenantId);
+            const _provider = await getAccountingProvider(tenantId);
+            const pdfBuffer = await _provider.fetchInvoicePdf(invoiceRecord.accounting_invoice_id || invoiceRecord.xero_invoice_id, tenantId);
             emailAttachments = [{
               filename: `Invoice-${invoiceRecord.xero_invoice_number || 'document'}.pdf`,
               data: pdfBuffer,

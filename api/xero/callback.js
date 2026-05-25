@@ -284,6 +284,16 @@ export default async function handler(req, res) {
     
     console.log('[Xero Callback] Token saved successfully');
 
+    try {
+      if (appTenantId) {
+        const { setActiveAccountingProvider } = await import('../_lib/accountingProvider.js');
+        await setActiveAccountingProvider(appTenantId, 'xero');
+        console.log('[Xero Callback] Active accounting provider set to xero for tenant:', appTenantId);
+      }
+    } catch (provErr) {
+      console.error('[Xero Callback] Failed to set active accounting provider (non-fatal):', provErr.message);
+    }
+
     const debugInfo = {
       appTenantId,
       xeroTenantId: tenantId,

@@ -1,5 +1,5 @@
 import { supabase } from "../_lib/database.js";
-import { getValidXeroAccessToken } from "../_lib/xero.js";
+import { getAccountingProvider } from "../_lib/accountingProvider.js";
 import { getSessionTenantUser, getSessionMember } from "../_lib/session.js";
 
 export default async function handler(req, res) {
@@ -36,7 +36,8 @@ export default async function handler(req, res) {
     let accessToken, tenantId;
     
     try {
-      const tokenResult = await getValidXeroAccessToken(appTenantId);
+      const _provider = await getAccountingProvider(appTenantId);
+      const tokenResult = await _provider.getRawAccessToken(appTenantId);
       accessToken = tokenResult.accessToken;
       tenantId = tokenResult.tenantId;
     } catch (tokenError) {

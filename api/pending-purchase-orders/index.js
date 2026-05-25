@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
-import { getValidXeroAccessToken, pushPurchaseOrderToXero } from '../_lib/xero.js';
+import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import {
   applyInvoicePoUpdate,
@@ -424,7 +424,8 @@ export default async function handler(req, res) {
 
       if (invoiceIdsToCheck.length > 0) {
         try {
-          const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+          const _provider = await getAccountingProvider(tenantId);
+          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
 
           const xeroStatusById = new Map();
           const xeroPoById = new Map();
@@ -743,7 +744,8 @@ export default async function handler(req, res) {
         // Check if invoice is already paid in Xero before sending/previewing reminder
         if (summary.xeroInvoiceId) {
           try {
-            const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+            const _provider = await getAccountingProvider(tenantId);
+            const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
             const invoiceResponse = await fetch(
               `https://api.xero.com/api.xro/2.0/Invoices/${summary.xeroInvoiceId}`,
               {
@@ -1130,12 +1132,21 @@ export default async function handler(req, res) {
         }
         
         const trimmedPO = purchaseOrderNumber.trim();
-        const { xeroUpdated, xeroError } = await pushPurchaseOrderToXero({
-          appTenantId: tenantId,
-          xeroInvoiceId: existingRecord.xero_invoice_id,
-          purchaseOrderNumber: trimmedPO,
-          contextLabel: `PendingPO ${entityType} ${entityId}`,
-        });
+        let xeroUpdated = false;
+        let xeroError = null;
+        try {
+          const _provider = await getAccountingProvider(tenantId);
+          const r = await _provider.pushPurchaseOrder({
+            appTenantId: tenantId,
+            xeroInvoiceId: existingRecord.xero_invoice_id,
+            purchaseOrderNumber: trimmedPO,
+            contextLabel: `PendingPO ${entityType} ${entityId}`,
+          });
+          xeroUpdated = r.xeroUpdated;
+          xeroError = r.xeroError;
+        } catch (provErr) {
+          xeroError = provErr.message;
+        }
 
         return res.json({
           success: true,
@@ -1150,7 +1161,8 @@ export default async function handler(req, res) {
         }
         
         try {
-          const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+          const _provider = await getAccountingProvider(tenantId);
+          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
           
           const invoiceResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
             method: 'GET',

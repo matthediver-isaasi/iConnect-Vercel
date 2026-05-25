@@ -1,5 +1,5 @@
 import { supabase as defaultSupabase } from './database.js';
-import { pushPurchaseOrderToXero } from './xero.js';
+import { getAccountingProvider } from './accountingProvider.js';
 
 export function parseInvoiceKey(key) {
   if (typeof key !== 'string') return null;
@@ -271,14 +271,19 @@ export async function applyInvoicePoUpdate({
   let xeroUpdated = false;
   let xeroError = null;
   if (found.xeroInvoiceId) {
-    const result = await pushPurchaseOrderToXero({
-      appTenantId: tenantId,
-      xeroInvoiceId: found.xeroInvoiceId,
-      purchaseOrderNumber: trimmedPO,
-      contextLabel: contextLabel || `PendingPO invoice ${invoiceKey}`,
-    });
-    xeroUpdated = result.xeroUpdated;
-    xeroError = result.xeroError;
+    try {
+      const provider = await getAccountingProvider(tenantId);
+      const result = await provider.pushPurchaseOrder({
+        appTenantId: tenantId,
+        xeroInvoiceId: found.xeroInvoiceId,
+        purchaseOrderNumber: trimmedPO,
+        contextLabel: contextLabel || `PendingPO invoice ${invoiceKey}`,
+      });
+      xeroUpdated = result.xeroUpdated;
+      xeroError = result.xeroError;
+    } catch (provErr) {
+      xeroError = provErr.message;
+    }
   } else {
     xeroError = 'No Xero invoice ID on file — could not push PO to Xero';
   }
