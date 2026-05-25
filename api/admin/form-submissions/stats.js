@@ -77,21 +77,49 @@ export default async function handler(req, res) {
       }
     }
 
-    const { count: totalCount, error: totalError } = await supabase
+    // Get included form IDs setting - scoped to tenant
+    const { data: includedFormsSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_included_form_ids')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    let includedFormIds = [];
+    if (includedFormsSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(includedFormsSetting.setting_value);
+        if (Array.isArray(parsed)) {
+          includedFormIds = parsed.filter(id => typeof id === 'string' && id.length > 0);
+        }
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing included_form_ids:', e);
+      }
+    }
+
+    let totalQuery = supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId);
+    if (includedFormIds.length > 0) {
+      totalQuery = totalQuery.in('form_id', includedFormIds);
+    }
+    const { count: totalCount, error: totalError } = await totalQuery;
 
     if (totalError) {
       console.error('[FormSubmissionStats] Error getting total count:', totalError);
       return res.status(500).json({ error: 'Failed to get submission count' });
     }
 
-    const { count: newCount, error: newError } = await supabase
+    let newQuery = supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .or('status.eq.new,status.is.null');
+    if (includedFormIds.length > 0) {
+      newQuery = newQuery.in('form_id', includedFormIds);
+    }
+    const { count: newCount, error: newError } = await newQuery;
 
     if (newError) {
       console.error('[FormSubmissionStats] Error getting new count:', newError);

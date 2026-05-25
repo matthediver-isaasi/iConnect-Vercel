@@ -21,6 +21,8 @@ export default function FormSettingsPage() {
   const [newsletterSettingId, setNewsletterSettingId] = useState(null);
   const [statsBarRoleIds, setStatsBarRoleIds] = useState([]);
   const [statsBarSettingId, setStatsBarSettingId] = useState(null);
+  const [statsBarFormIds, setStatsBarFormIds] = useState([]);
+  const [statsBarFormsSettingId, setStatsBarFormsSettingId] = useState(null);
 
   const queryClient = useQueryClient();
 
@@ -46,14 +48,26 @@ export default function FormSettingsPage() {
       const consentSetting = allSettings.find(s => s.setting_key === 'form_default_consent_message');
       const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
       const statsBarSetting = allSettings.find(s => s.setting_key === 'submission_stats_allowed_roles');
+      const statsBarFormsSetting = allSettings.find(s => s.setting_key === 'submission_stats_included_form_ids');
       
+      let statsBarFormIds = [];
+      if (statsBarFormsSetting?.setting_value) {
+        try {
+          statsBarFormIds = JSON.parse(statsBarFormsSetting.setting_value);
+        } catch (e) {
+          statsBarFormIds = [];
+        }
+      }
+
       return {
         id: consentSetting?.id || null,
         consent_message: consentSetting?.setting_value || "",
         newsletter_setting_id: newsletterSetting?.id || null,
         newsletter_form_id: newsletterSetting?.setting_value || "",
         stats_bar_setting_id: statsBarSetting?.id || null,
-        stats_bar_role_ids: statsBarSetting?.setting_value ? JSON.parse(statsBarSetting.setting_value) : []
+        stats_bar_role_ids: statsBarSetting?.setting_value ? JSON.parse(statsBarSetting.setting_value) : [],
+        stats_bar_forms_setting_id: statsBarFormsSetting?.id || null,
+        stats_bar_form_ids: statsBarFormIds
       };
     },
     staleTime: 0,
@@ -78,6 +92,8 @@ export default function FormSettingsPage() {
       setNewsletterSettingId(formSettings.newsletter_setting_id || null);
       setStatsBarRoleIds(formSettings.stats_bar_role_ids || []);
       setStatsBarSettingId(formSettings.stats_bar_setting_id || null);
+      setStatsBarFormIds(formSettings.stats_bar_form_ids || []);
+      setStatsBarFormsSettingId(formSettings.stats_bar_forms_setting_id || null);
     }
   }, [formSettings]);
 
@@ -164,6 +180,43 @@ export default function FormSettingsPage() {
       toast.error('Failed to save stats bar visibility settings');
     }
   });
+
+  const saveStatsBarFormsMutation = useMutation({
+    mutationFn: async (formIds) => {
+      const value = JSON.stringify(formIds);
+      if (statsBarFormsSettingId) {
+        return await base44.entities.SystemSettings.update(statsBarFormsSettingId, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'submission_stats_included_form_ids',
+          setting_value: value,
+          description: 'Form IDs whose submissions count toward the sidebar Submission Stats Bar new-submissions tile'
+        });
+      }
+    },
+    onSuccess: (data) => {
+      if (data?.id && !statsBarFormsSettingId) {
+        setStatsBarFormsSettingId(data.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['formDefaultSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['form-submission-stats'] });
+      toast.success('Stats bar forms saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save stats bar forms:', error);
+      toast.error('Failed to save stats bar forms');
+    }
+  });
+
+  const handleToggleStatsForm = (formId) => {
+    const newFormIds = statsBarFormIds.includes(formId)
+      ? statsBarFormIds.filter(id => id !== formId)
+      : [...statsBarFormIds, formId];
+    setStatsBarFormIds(newFormIds);
+    saveStatsBarFormsMutation.mutate(newFormIds);
+  };
 
   const handleSave = () => {
     saveSettingsMutation.mutate(consentMessage);
@@ -253,6 +306,64 @@ export default function FormSettingsPage() {
               </div>
             )}
             {saveStatsBarRolesMutation.isPending && (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving...
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stats-bar-forms-card" className="mb-6">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              <CardTitle>Forms Counted in Stats Bar</CardTitle>
+            </div>
+            <CardDescription>
+              Select which forms feed the "new submissions" tile on the sidebar Submission Stats Bar.
+              If none are selected, all forms are counted.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {formsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading forms...
+              </div>
+            ) : !activeForms || activeForms.length === 0 ? (
+              <p className="text-sm text-slate-500">No active forms found.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {activeForms.map(form => (
+                  <div
+                    key={form.id}
+                    className="flex items-center gap-3 p-2 bg-white rounded hover:bg-blue-50 transition-colors cursor-pointer border border-slate-200"
+                    onClick={() => handleToggleStatsForm(form.id)}
+                    onKeyDown={(e) => e.key === 'Enter' || e.key === ' ' ? handleToggleStatsForm(form.id) : null}
+                    tabIndex={0}
+                    role="checkbox"
+                    aria-checked={statsBarFormIds.includes(form.id)}
+                    data-testid={`stats-form-checkbox-container-${form.id}`}
+                  >
+                    <Checkbox
+                      id={`stats-form-${form.id}`}
+                      checked={statsBarFormIds.includes(form.id)}
+                      className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 pointer-events-none"
+                      tabIndex={-1}
+                      data-testid={`checkbox-stats-form-${form.id}`}
+                    />
+                    <span className="flex-1 text-sm font-medium text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-slate-400" />
+                        {form.name}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {saveStatsBarFormsMutation.isPending && (
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Saving...
