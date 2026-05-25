@@ -28,9 +28,20 @@ import {
   History, AlertCircle, Wallet, ArrowRight, Pencil, X,
   FileText, Send, PlayCircle, ShieldAlert, CheckCircle2,
   XCircle, Info, AlertTriangle, CreditCard,
-  Lock, LockOpen, ShieldCheck, Mail
+  Lock, LockOpen, ShieldCheck, Mail, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
+
+function PaymentStatusBadge({ paymentStatus }) {
+  const status = paymentStatus || 'unpaid';
+  const variantMap = { paid: 'secondary', partial: 'warning', voided: 'destructive', unpaid: 'outline' };
+  const labelMap = { paid: 'Paid', partial: 'Partial', voided: 'Voided', unpaid: 'Unpaid' };
+  return (
+    <Badge variant={variantMap[status] || 'outline'} data-testid={`badge-payment-${status}`}>
+      {labelMap[status] || status}
+    </Badge>
+  );
+}
 
 function getCurrencySymbol(code) {
   const map = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -452,6 +463,32 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [simulationResults, setSimulationResults] = useState(null);
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
   const [simulatingYear, setSimulatingYear] = useState(null);
+  const [reconcilingRecordId, setReconcilingRecordId] = useState(null);
+
+  const handleReconcilePayment = async (recordId) => {
+    setReconcilingRecordId(recordId);
+    try {
+      const response = await fetch('/api/admin/membership-payment-reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recordId, table: 'member_membership_history' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Reconciliation failed');
+      if (data.transitioned) {
+        toast.success(`Payment status updated: ${data.beforeStatus} → ${data.afterStatus}`);
+        queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] });
+      } else {
+        toast.info(`No change (${data.skippedReason || 'already up to date'})`);
+      }
+    } catch (err) {
+      console.error('[MemberMembershipTab] reconcile failed:', err);
+      toast.error(err.message || 'Could not check payment status');
+    } finally {
+      setReconcilingRecordId(null);
+    }
+  };
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['member-membership', memberId],
@@ -1017,9 +1054,28 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                         <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
                         <td className="p-3 text-right font-semibold">{formatCost(record.total_with_vat || record.final_cost, record.currency)}</td>
                         <td className="p-3">
-                          <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
-                            {record.status || 'active'}
-                          </Badge>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
+                              {record.status || 'active'}
+                            </Badge>
+                            <PaymentStatusBadge paymentStatus={record.payment_status} />
+                            {(record.accounting_invoice_id || record.xero_invoice_id) && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleReconcilePayment(record.id)}
+                                disabled={reconcilingRecordId === record.id}
+                                title="Check payment status now"
+                                data-testid={`button-reconcile-payment-${record.id}`}
+                              >
+                                {reconcilingRecordId === record.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="w-4 h-4" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

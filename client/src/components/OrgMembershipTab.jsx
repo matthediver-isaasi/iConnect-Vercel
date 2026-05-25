@@ -28,13 +28,24 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Eye, Download
+  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft, Link2, Eye, Download, RefreshCw
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
+
+function PaymentStatusBadge({ paymentStatus }) {
+  const status = paymentStatus || 'unpaid';
+  const variantMap = { paid: 'secondary', partial: 'warning', voided: 'destructive', unpaid: 'outline' };
+  const labelMap = { paid: 'Paid', partial: 'Partial', voided: 'Voided', unpaid: 'Unpaid' };
+  return (
+    <Badge variant={variantMap[status] || 'outline'} data-testid={`badge-payment-${status}`}>
+      {labelMap[status] || status}
+    </Badge>
+  );
+}
 
 function getCurrencySymbol(code) {
   const map = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -561,6 +572,32 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  const [reconcilingRecordId, setReconcilingRecordId] = useState(null);
+
+  const handleReconcilePayment = async (recordId) => {
+    setReconcilingRecordId(recordId);
+    try {
+      const response = await fetch('/api/admin/membership-payment-reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recordId, table: 'organisation_membership_history' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Reconciliation failed');
+      if (data.transitioned) {
+        toast.success(`Payment status updated: ${data.beforeStatus} → ${data.afterStatus}`);
+        if (queryClient) queryClient.invalidateQueries({ queryKey: ['organization-membership-history'] });
+      } else {
+        toast.info(`No change (${data.skippedReason || 'already up to date'})`);
+      }
+    } catch (err) {
+      console.error('[OrgMembershipTab] reconcile failed:', err);
+      toast.error(err.message || 'Could not check payment status');
+    } finally {
+      setReconcilingRecordId(null);
+    }
+  };
 
   const handleViewInvoice = async (recordId, invoiceNumber) => {
     setLoadingInvoiceRecordId(recordId);
@@ -1479,9 +1516,12 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                       </td>
                       <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
                       <td className="p-3">
-                        <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
-                          {record.status || 'active'}
-                        </Badge>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
+                            {record.status || 'active'}
+                          </Badge>
+                          <PaymentStatusBadge paymentStatus={record.payment_status} />
+                        </div>
                       </td>
                       <td className="p-3">
                         {invoiceId ? (
@@ -1510,6 +1550,20 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                                   data-testid={`button-download-invoice-${record.id}`}
                                 >
                                   <Download className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleReconcilePayment(record.id)}
+                                  disabled={reconcilingRecordId === record.id}
+                                  title="Check payment status now"
+                                  data-testid={`button-reconcile-payment-${record.id}`}
+                                >
+                                  {reconcilingRecordId === record.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="w-4 h-4" />
+                                  )}
                                 </Button>
                               </>
                             )}

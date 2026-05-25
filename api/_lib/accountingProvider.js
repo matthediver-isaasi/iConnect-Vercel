@@ -389,6 +389,10 @@ function makeXeroProvider() {
       return xero.fetchXeroInvoicePdf(invoiceId, appTenantId);
     },
 
+    async fetchInvoiceStatus(invoiceId, appTenantId) {
+      return xero.fetchXeroInvoiceStatus(invoiceId, appTenantId);
+    },
+
     async fetchCreditNotePdf(creditNoteId, appTenantId) {
       return xero.fetchXeroCreditNotePdf(creditNoteId, appTenantId);
     },
@@ -478,6 +482,10 @@ function makeQuickBooksProvider() {
       return qbo.fetchQuickBooksInvoicePdf(appTenantId, invoiceId);
     },
 
+    async fetchInvoiceStatus(invoiceId, appTenantId) {
+      return qbo.fetchQuickBooksInvoiceStatus(invoiceId, appTenantId);
+    },
+
     async fetchCreditNotePdf(creditNoteId, appTenantId) {
       return qbo.fetchQuickBooksCreditNotePdf(appTenantId, creditNoteId);
     },
@@ -512,6 +520,7 @@ function makeNoneProvider() {
     async emailCreditNote()            { throw notConnected('emailCreditNote'); },
     async pushPurchaseOrder()          { throw notConnected('pushPurchaseOrder'); },
     async fetchInvoicePdf()            { throw notConnected('fetchInvoicePdf'); },
+    async fetchInvoiceStatus()         { throw notConnected('fetchInvoiceStatus'); },
     async fetchCreditNotePdf()         { throw notConnected('fetchCreditNotePdf'); },
     async updateInvoiceReference()     { throw notConnected('updateInvoiceReference'); },
     async updateInvoiceLineAttendeeDescription() { throw notConnected('updateInvoiceLineAttendeeDescription'); },
@@ -526,7 +535,17 @@ function makeNoneProvider() {
  */
 export async function getAccountingProvider(appTenantId) {
   const active = await getActiveAccountingProvider(appTenantId);
-  if (active === PROVIDER_XERO) return makeXeroProvider();
-  if (active === PROVIDER_QUICKBOOKS) return makeQuickBooksProvider();
+  return getAccountingProviderByName(active);
+}
+
+/**
+ * Return a provider implementation by literal name. Useful when a record
+ * carries its own `accounting_provider` column (e.g. historical invoice
+ * rows whose provider may differ from the tenant's current setting —
+ * Task #1017 reconciliation cron).
+ */
+export function getAccountingProviderByName(name) {
+  if (name === PROVIDER_XERO) return makeXeroProvider();
+  if (name === PROVIDER_QUICKBOOKS) return makeQuickBooksProvider();
   return makeNoneProvider();
 }

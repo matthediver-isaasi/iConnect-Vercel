@@ -653,9 +653,40 @@ export default async function handler(req, res) {
                 stripePaymentIntentId: paymentIntentId,
                 invoiceDescription: simResult.config?.invoice_description || null,
               });
+              // Task #1017 — persist invoice id/number on the history row so
+              // the inline reconciliation below (and the cron, if it falls
+              // through) can locate it.
+              if (xeroInvoice && historyRecord) {
+                try {
+                  await supabase
+                    .from('organisation_membership_history')
+                    .update(buildInvoiceColumnUpdate({
+                      invoice_id: xeroInvoice.invoice_id,
+                      invoice_number: xeroInvoice.invoice_number,
+                      provider: _provider.name,
+                    }))
+                    .eq('id', historyRecord.id);
+                } catch {}
+              }
             }
           } catch (xeroErr) {
             console.error('[Public Fee] Xero invoice failed (non-fatal):', xeroErr.message);
+          }
+
+          // Task #1017 — fire workflow immediately for both the pre-created
+          // invoice path AND the newly-created-on-confirm path. The helper
+          // is idempotent and a no-op when the row is already in a terminal
+          // payment state.
+          if (xeroInvoice && historyRecord?.id) {
+            try {
+              const { reconcileMembershipInvoicePayment } = await import('../../_lib/membershipPaymentReconciliation.js');
+              await reconcileMembershipInvoicePayment({
+                table: 'organisation_membership_history',
+                recordId: historyRecord.id,
+              });
+            } catch (reconcileErr) {
+              console.warn('[Public Fee] inline payment reconciliation failed (non-fatal):', reconcileErr.message);
+            }
           }
 
           if (xeroInvoice && historyRecord) {

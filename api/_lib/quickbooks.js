@@ -987,6 +987,71 @@ async function fetchPdf(appTenantId, entity, id) {
   return Buffer.from(buf);
 }
 
+/**
+ * Fetch a QuickBooks invoice (raw API response shape).
+ */
+export async function getQuickBooksInvoice(appTenantId, invoiceId) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const base = companyBase(apiBaseUrl, realmId);
+
+  const resp = await qboFetch(
+    'invoice-retrieve',
+    accessToken,
+    'GET',
+    `${base}/invoice/${encodeURIComponent(invoiceId)}?minorversion=${MINOR_VERSION}`,
+  );
+  return resp?.Invoice || null;
+}
+
+/**
+ * Returns a normalised payment-state snapshot for a QBO invoice.
+ * QBO has no "PAID" status string — paid means `Balance === 0 && TotalAmt > 0`.
+ */
+export async function fetchQuickBooksInvoiceStatus(invoiceId, appTenantId) {
+  const invoice = await getQuickBooksInvoice(appTenantId, invoiceId);
+  if (!invoice) return null;
+
+  const total = Number(parseFloat(invoice.TotalAmt ?? 0));
+  const balance = Number(parseFloat(invoice.Balance ?? 0));
+  const amountPaid = Math.max(0, total - balance);
+  const voided = invoice.Voided === true;
+
+  let status = 'unpaid';
+  if (voided) {
+    status = 'voided';
+  } else if (total > 0 && balance === 0) {
+    status = 'paid';
+  } else if (amountPaid > 0 && balance > 0) {
+    status = 'partial';
+  }
+
+  // QBO surfaces LinkedTxn payments at the invoice level; best-effort paidAt
+  // is the most recent linked Payment TxnDate. Fall back to MetaData.LastUpdatedTime.
+  let paidAt = null;
+  if (status === 'paid') {
+    const lastUpdated = invoice.MetaData?.LastUpdatedTime;
+    if (lastUpdated) {
+      const t = Date.parse(lastUpdated);
+      if (!Number.isNaN(t)) paidAt = new Date(t).toISOString();
+    }
+    if (!paidAt) paidAt = new Date().toISOString();
+  }
+
+  return {
+    status,
+    balance,
+    totalAmt: total,
+    amountPaid,
+    paidAt,
+    voided,
+    raw: invoice,
+  };
+}
+
 export async function fetchQuickBooksInvoicePdf(appTenantId, invoiceId) {
   return fetchPdf(appTenantId, 'invoice', invoiceId);
 }

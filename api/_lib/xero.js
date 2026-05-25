@@ -722,6 +722,101 @@ export async function applyStripePaymentToXeroInvoice({
   };
 }
 
+/**
+ * Fetch a Xero invoice (raw API response shape).
+ * Used by the reconciliation helper and as a building block for any
+ * status/PDF/line-edit code that needs the latest server-side invoice.
+ */
+export async function getXeroInvoice(invoiceId, appTenantId) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const response = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json',
+      },
+    },
+  );
+
+  const data = await safeXeroJson(response, 'invoice-retrieve');
+  return data?.Invoices?.[0] || null;
+}
+
+/**
+ * Returns a normalised payment-state snapshot for a Xero invoice.
+ *   status     — 'paid' | 'voided' | 'partial' | 'unpaid'
+ *   balance    — outstanding balance
+ *   totalAmt   — invoice total
+ *   amountPaid — total paid so far
+ *   paidAt     — ISO timestamp of the last payment (best-effort)
+ *   voided     — boolean
+ *   raw        — original Xero invoice object (for debugging)
+ */
+export async function fetchXeroInvoiceStatus(invoiceId, appTenantId) {
+  const invoice = await getXeroInvoice(invoiceId, appTenantId);
+  if (!invoice) return null;
+
+  const xStatus = invoice.Status || '';
+  const total = parseFloat(invoice.Total || 0);
+  const balance = parseFloat(invoice.AmountDue ?? invoice.amountDue ?? 0);
+  const amountPaid = parseFloat(invoice.AmountPaid ?? invoice.amountPaid ?? 0);
+
+  let status = 'unpaid';
+  if (xStatus === 'PAID' || (total > 0 && balance === 0 && amountPaid >= total)) {
+    status = 'paid';
+  } else if (xStatus === 'VOIDED' || xStatus === 'DELETED') {
+    status = 'voided';
+  } else if (amountPaid > 0 && balance > 0) {
+    status = 'partial';
+  }
+
+  // Best-effort: most recent payment date from the Payments[] sub-array.
+  let paidAt = null;
+  if (status === 'paid' && Array.isArray(invoice.Payments) && invoice.Payments.length > 0) {
+    const dates = invoice.Payments
+      .map((p) => p?.Date)
+      .filter(Boolean)
+      .map((d) => parseXeroDate(d))
+      .filter(Boolean)
+      .sort((a, b) => b - a);
+    if (dates.length > 0) paidAt = new Date(dates[0]).toISOString();
+  }
+  if (status === 'paid' && !paidAt && invoice.FullyPaidOnDate) {
+    const t = parseXeroDate(invoice.FullyPaidOnDate);
+    if (t) paidAt = new Date(t).toISOString();
+  }
+  if (status === 'paid' && !paidAt) {
+    paidAt = new Date().toISOString();
+  }
+
+  return {
+    status,
+    balance,
+    totalAmt: total,
+    amountPaid,
+    paidAt,
+    voided: xStatus === 'VOIDED' || xStatus === 'DELETED',
+    raw: invoice,
+  };
+}
+
+// Xero serialises dates as "/Date(1700000000000+0000)/" — extract the millis.
+function parseXeroDate(value) {
+  if (!value) return null;
+  if (typeof value === 'number') return value;
+  const m = String(value).match(/\/Date\((-?\d+)/);
+  if (m) return Number(m[1]);
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
+}
+
 export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   

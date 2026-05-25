@@ -37,6 +37,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/reconcile-membership-invoice-payments",
+      "schedule": "0 */3 * * *"
+    },
+    {
       "path": "/api/cron/run-form-submission-export-jobs",
       "schedule": "* * * * *"
     }

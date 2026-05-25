@@ -22,6 +22,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const MIGRATIONS = [
   'supabase/migrations/20260525_accounting_provider_phase1.sql',
   'supabase/migrations/20260525_backfill_accounting_provider_xero.sql',
+  'supabase/migrations/20260525_membership_history_payment_status.sql',
 ];
 
 const connectionString = process.env.DEST_DATABASE_URL || process.env.DATABASE_URL;

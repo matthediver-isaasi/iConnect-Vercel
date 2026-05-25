@@ -70,6 +70,15 @@ const ORGANIZATION_CORE_FIELDS = [
   { id: 'description', label: 'Description', type: 'text' },
   { id: 'logo_url', label: 'Logo URL', type: 'url' },
   { id: 'account_owner_id', label: 'Account Owner ID', type: 'text' },
+  { id: 'payment_status', label: 'Membership Payment Status', type: 'text', options: [
+    { label: 'Unpaid', value: 'unpaid' },
+    { label: 'Paid', value: 'paid' },
+    { label: 'Partial', value: 'partial' },
+    { label: 'Voided', value: 'voided' },
+  ]},
+  { id: 'paid_at', label: 'Membership Invoice Paid At', type: 'date' },
+  { id: 'last_membership_invoice_number', label: 'Last Membership Invoice Number', type: 'text' },
+  { id: 'last_membership_invoice_paid_at', label: 'Last Membership Invoice Paid At', type: 'date' },
 ];
 
 const MEMBER_CORE_FIELDS = [
@@ -90,6 +99,15 @@ const MEMBER_CORE_FIELDS = [
   { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
   { id: 'is_admin', label: 'Is Admin', type: 'boolean' },
   { id: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
+  { id: 'payment_status', label: 'Membership Payment Status', type: 'text', options: [
+    { label: 'Unpaid', value: 'unpaid' },
+    { label: 'Paid', value: 'paid' },
+    { label: 'Partial', value: 'partial' },
+    { label: 'Voided', value: 'voided' },
+  ]},
+  { id: 'paid_at', label: 'Membership Invoice Paid At', type: 'date' },
+  { id: 'last_membership_invoice_number', label: 'Last Membership Invoice Number', type: 'text' },
+  { id: 'last_membership_invoice_paid_at', label: 'Last Membership Invoice Paid At', type: 'date' },
 ];
 
 const JOB_POSTING_CORE_FIELDS = [
