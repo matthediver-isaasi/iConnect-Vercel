@@ -478,6 +478,126 @@ export async function pushPurchaseOrderToXero({
   }
 }
 
+/**
+ * Apply a Stripe payment to an *existing* Xero invoice (created earlier by
+ * the auto-renewal cron). Used when a membership_fee_token already carries a
+ * xero_invoice_id — we must not create a second invoice for the same year.
+ *
+ * If the invoice is currently DRAFT, it is first promoted to AUTHORISED.
+ * Payment is recorded against the tenant's configured Stripe bank account
+ * (system setting `xero_stripe_bank_account_code`). The current online
+ * invoice URL is fetched and returned for display on the payer's confirmation
+ * screen.
+ */
+export async function applyStripePaymentToXeroInvoice({
+  appTenantId,
+  xeroInvoiceId,
+  stripePaymentIntentId,
+}) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const invResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Accept': 'application/json',
+    },
+  });
+  const invData = await safeXeroJson(invResp, 'invoice-retrieve');
+  const invoice = invData?.Invoices?.[0];
+  if (!invoice) throw new Error(`Xero invoice ${xeroInvoiceId} not found`);
+
+  if (invoice.Status === 'DRAFT' || invoice.Status === 'SUBMITTED') {
+    const authResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ Invoices: [{ InvoiceID: xeroInvoiceId, Status: 'AUTHORISED' }] }),
+    });
+    await safeXeroJson(authResp, 'invoice-authorise');
+  }
+
+  let paymentRecorded = false;
+  let paymentId = null;
+  try {
+    const { data: stripeBankCodeSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_stripe_bank_account_code')
+      .eq('tenant_id', appTenantId)
+      .maybeSingle();
+    const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+    if (stripeBankAccountCode) {
+      const accountsResp = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+      });
+      const accountsData = await safeXeroJson(accountsResp, 'accounts-lookup');
+      const bankAccount = accountsData?.Accounts?.[0];
+      if (bankAccount?.AccountID) {
+        const paymentPayload = {
+          Invoice: { InvoiceID: xeroInvoiceId },
+          Account: { AccountID: bankAccount.AccountID },
+          Date: new Date().toISOString().split('T')[0],
+          Amount: parseFloat(invoice.Total),
+          Reference: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment',
+        };
+        const payResp = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ Payments: [paymentPayload] }),
+        });
+        const payData = await safeXeroJson(payResp, 'payment-create');
+        if (payData?.Payments?.[0]?.PaymentID) {
+          paymentRecorded = true;
+          paymentId = payData.Payments[0].PaymentID;
+          console.log(`[Xero] Payment recorded against existing invoice ${invoice.InvoiceNumber} - PaymentID: ${paymentId}`);
+        }
+      } else {
+        console.warn(`[Xero] Bank account not found for code ${stripeBankAccountCode} - invoice authorised but payment not recorded`);
+      }
+    } else {
+      console.log(`[Xero] xero_stripe_bank_account_code not configured - invoice authorised but payment not recorded`);
+    }
+  } catch (payErr) {
+    console.error(`[Xero] Error recording payment against existing invoice (non-fatal): ${payErr.message}`);
+  }
+
+  let onlineInvoiceUrl = null;
+  try {
+    const onlineResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}/OnlineInvoice`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+    });
+    const onlineData = await safeXeroJson(onlineResp, 'online-invoice-url');
+    onlineInvoiceUrl = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+  } catch (urlErr) {
+    console.warn(`[Xero] Could not fetch online invoice URL (non-fatal): ${urlErr.message}`);
+  }
+
+  return {
+    invoice_id: xeroInvoiceId,
+    invoice_number: invoice.InvoiceNumber,
+    total: invoice.Total,
+    payment_recorded: paymentRecorded,
+    payment_id: paymentId,
+    online_invoice_url: onlineInvoiceUrl,
+  };
+}
+
 export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   

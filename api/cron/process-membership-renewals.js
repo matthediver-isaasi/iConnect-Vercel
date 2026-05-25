@@ -341,22 +341,72 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
 
   if (xeroInvoice) {
     try {
-      await sendMembershipInvoiceEmail({
-        tenantId,
-        organizationId: orgId,
-        organizationName: org.name,
-        membershipYear: record.membership_year,
-        finalCost: parseFloat(record.final_cost),
-        currency: record.currency || 'GBP',
-        tierLabel: record.tier_label,
-        xeroInvoiceNumber: xeroInvoice.invoice_number,
-        xeroInvoiceId: xeroInvoice.invoice_id,
-        historyRecordId: existingRecord.id,
-        onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
-        tierConfig: simResult.config,
-      });
+      if (poNumber) {
+        // PO already on file → send the traditional invoice email with the Xero link.
+        await sendMembershipInvoiceEmail({
+          tenantId,
+          organizationId: orgId,
+          organizationName: org.name,
+          membershipYear: record.membership_year,
+          finalCost: parseFloat(record.final_cost),
+          currency: record.currency || 'GBP',
+          tierLabel: record.tier_label,
+          xeroInvoiceNumber: xeroInvoice.invoice_number,
+          xeroInvoiceId: xeroInvoice.invoice_id,
+          historyRecordId: existingRecord.id,
+          onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+          tierConfig: simResult.config,
+        });
+      } else {
+        // No PO → mint a membership_fee_token and send the
+        // Pay-by-card / Submit-PO email (mirrors manual "Email fees" flow).
+        // The pre-created Xero invoice details are attached to the token so
+        // PO submission can push the PO into the Xero Reference, and Stripe
+        // payment can apply against the existing invoice instead of creating
+        // a duplicate. (Task #990)
+        const { sendMembershipFeeTokenEmail } = await import('../_lib/membershipFeeTokenEmail.js');
+        const stripeEnabled = !!simResult.config?.online_card_payment;
+        const costBreakdown = {
+          annualCost: simResult.annualCost,
+          annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
+          customDiscountTotal: simResult.customDiscountTotal || 0,
+          customDiscountDetails: simResult.customDiscountDetails || [],
+          prorataCost: simResult.prorataCost,
+          prorataDays: simResult.prorataDays,
+          dailyCost: simResult.dailyCost,
+          freeDiscount: simResult.freeDiscount || 0,
+          freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+          freePeriodAmount: simResult.freePeriodAmount,
+          freePeriodUnit: simResult.freePeriodUnit,
+          yearNumber: simResult.yearNumber,
+          rolloverDiscount: simResult.rolloverDiscount || 0,
+          proRataEnabled: simResult.proRataEnabled,
+          overrideType: simResult.overrideType || null,
+          vatRatePercent: simResult.vatRatePercent || null,
+          vatAmount: simResult.vatAmount || 0,
+          totalWithVat: simResult.totalWithVat || parseFloat(record.final_cost),
+          taxLabel: simResult.taxLabel || null,
+        };
+        await sendMembershipFeeTokenEmail({
+          client: supabase,
+          tenantId,
+          organizationId: orgId,
+          organizationName: org.name,
+          membershipYear: record.membership_year,
+          finalCost: parseFloat(record.final_cost),
+          currency: record.currency || 'GBP',
+          tierLabel: record.tier_label,
+          costBreakdown,
+          poNumber: null,
+          stripeEnabled,
+          xeroInvoiceId: xeroInvoice.invoice_id,
+          xeroInvoiceNumber: xeroInvoice.invoice_number,
+          xeroOnlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+          historyRecordId: existingRecord.id,
+        });
+      }
     } catch (emailErr) {
-      console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);
+      console.error(`[cron/process-membership-renewals] Invoice/fee email failed for org ${orgId} (non-fatal):`, emailErr.message);
     }
   }
 
@@ -539,22 +589,73 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
 
   if (xeroInvoice) {
     try {
-      await sendMembershipInvoiceEmail({
-        tenantId,
-        organizationId: orgId,
-        organizationName: org.name,
-        membershipYear: membershipYear.label,
-        finalCost,
-        currency,
-        tierLabel,
-        xeroInvoiceNumber: xeroInvoice.invoice_number,
-        xeroInvoiceId: xeroInvoice.invoice_id,
-        historyRecordId: record.id,
-        onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
-        tierConfig: simResult.config,
-      });
+      if (poNumber) {
+        await sendMembershipInvoiceEmail({
+          tenantId,
+          organizationId: orgId,
+          organizationName: org.name,
+          membershipYear: membershipYear.label,
+          finalCost,
+          currency,
+          tierLabel,
+          xeroInvoiceNumber: xeroInvoice.invoice_number,
+          xeroInvoiceId: xeroInvoice.invoice_id,
+          historyRecordId: record.id,
+          onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+          tierConfig: simResult.config,
+        });
+      } else {
+        // No PO → mint membership_fee_token and send Pay-by-card/Submit-PO
+        // email. Pre-created Xero invoice details are attached to the token
+        // so PO submission can push the PO to Xero and Stripe payment can
+        // apply against the existing invoice instead of creating a duplicate.
+        // (Task #990)
+        const { sendMembershipFeeTokenEmail } = await import('../_lib/membershipFeeTokenEmail.js');
+        const stripeEnabled = !!simResult.config?.online_card_payment;
+        const costBreakdown = {
+          annualCost: simResult.annualCost,
+          annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
+          customDiscountTotal: simResult.customDiscountTotal || 0,
+          customDiscountDetails: simResult.customDiscountDetails || [],
+          prorataCost: simResult.prorataCost,
+          prorataDays: simResult.prorataDays,
+          dailyCost: simResult.dailyCost,
+          freeDiscount: simResult.freeDiscount || 0,
+          freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+          freePeriodAmount: simResult.freePeriodAmount,
+          freePeriodUnit: simResult.freePeriodUnit,
+          yearNumber: simResult.yearNumber,
+          rolloverDiscount: simResult.rolloverDiscount || 0,
+          proRataEnabled: simResult.proRataEnabled,
+          overrideType: simResult.overrideType || null,
+          vatRatePercent: simResult.vatRatePercent || null,
+          vatAmount: simResult.vatAmount || 0,
+          totalWithVat: simResult.totalWithVat || finalCost,
+          taxLabel: simResult.taxLabel || null,
+        };
+        const sendResult = await sendMembershipFeeTokenEmail({
+          client: supabase,
+          tenantId,
+          organizationId: orgId,
+          organizationName: org.name,
+          membershipYear: membershipYear.label,
+          finalCost,
+          currency,
+          tierLabel,
+          costBreakdown,
+          poNumber: null,
+          stripeEnabled,
+          xeroInvoiceId: xeroInvoice.invoice_id,
+          xeroInvoiceNumber: xeroInvoice.invoice_number,
+          xeroOnlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+          historyRecordId: record.id,
+        });
+        if (sendResult && sendResult.success === false) {
+          console.error(`[cron/process-membership-renewals] Fee token email reported failure for org ${orgId}:`, sendResult.error || 'unknown');
+        }
+      }
     } catch (emailErr) {
-      console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);
+      console.error(`[cron/process-membership-renewals] Invoice/fee email failed for org ${orgId} (non-fatal):`, emailErr.message);
     }
   }
 

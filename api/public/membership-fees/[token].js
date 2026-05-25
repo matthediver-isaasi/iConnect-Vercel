@@ -102,6 +102,29 @@ export default async function handler(req, res) {
       const tokenVatAmount = breakdown.vatAmount || 0;
       const tokenTotalWithVat = breakdown.totalWithVat || parseFloat(feeToken.final_cost);
 
+      // If the token carries a pre-created Xero invoice id but no online URL
+      // yet (e.g. the cron created the invoice but the URL fetch failed at
+      // the time, or the invoice was in DRAFT and has since been authorised),
+      // try once more to resolve the online URL so we can show it on the
+      // confirmation screen.
+      let xeroOnlineInvoiceUrl = feeToken.xero_online_invoice_url || null;
+      if (feeToken.xero_invoice_id && !xeroOnlineInvoiceUrl) {
+        try {
+          const { getValidXeroAccessToken } = await import('../../_lib/xero.js');
+          const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(feeToken.tenant_id);
+          const r = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${feeToken.xero_invoice_id}/OnlineInvoice`, {
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+          });
+          if (r.ok) {
+            const d = await r.json();
+            xeroOnlineInvoiceUrl = d?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+            if (xeroOnlineInvoiceUrl) {
+              await supabase.from('membership_fee_token').update({ xero_online_invoice_url: xeroOnlineInvoiceUrl, updated_at: new Date().toISOString() }).eq('id', feeToken.id);
+            }
+          }
+        } catch {}
+      }
+
       return res.json({
         status: feeToken.status,
         organizationName: org?.name || 'Organisation',
@@ -116,6 +139,8 @@ export default async function handler(req, res) {
         poNumber: feeToken.po_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
+        xeroInvoiceNumber: feeToken.xero_invoice_number || null,
+        xeroOnlineInvoiceUrl,
         tenant: tenantBranding ? {
           name: tenantBranding.name,
           logoUrl: tenantBranding.logo_url,
@@ -239,11 +264,46 @@ export default async function handler(req, res) {
           poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab.';
         }
 
+        // If the token carries a pre-created Xero invoice id (cron-created
+        // auto-renewal path, Task #990), push the submitted PO into the Xero
+        // invoice's Reference field so finance sees it on the invoice itself.
+        let xeroPoWarning = null;
+        if (feeToken.xero_invoice_id) {
+          try {
+            const { pushPurchaseOrderToXero } = await import('../../_lib/xero.js');
+            const reference = `Membership ${feeToken.membership_year} - PO: ${poNumber.trim()}`;
+            const xeroResult = await pushPurchaseOrderToXero({
+              appTenantId: feeToken.tenant_id,
+              xeroInvoiceId: feeToken.xero_invoice_id,
+              purchaseOrderNumber: reference,
+              contextLabel: 'Public Fee PO',
+            });
+            if (!xeroResult.xeroUpdated && xeroResult.xeroError) {
+              xeroPoWarning = `PO saved but could not be pushed to Xero invoice: ${xeroResult.xeroError}`;
+            }
+          } catch (xeroErr) {
+            console.error('[Public Fee] Xero PO push failed:', xeroErr.message);
+            xeroPoWarning = 'PO saved but could not be pushed to Xero invoice.';
+          }
+        }
+
+        // Mirror PO onto the membership history record so admin views show it.
+        if (feeToken.history_record_id) {
+          try {
+            await supabase
+              .from('organisation_membership_history')
+              .update({ purchase_order_number: poNumber.trim() })
+              .eq('id', feeToken.history_record_id);
+          } catch (histErr) {
+            console.warn('[Public Fee] history PO update failed:', histErr.message);
+          }
+        }
+
         try {
           await supabase.from('organization_note').insert({
             organization_id: feeToken.organization_id,
             member_id: null,
-            content: `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.`,
+            content: `[Membership Fee - PO Submitted] Purchase order ${poNumber.trim()} submitted via fee link for ${feeToken.membership_year}.${feeToken.xero_invoice_number ? ` Xero invoice: ${feeToken.xero_invoice_number}.` : ''}`,
             attachments: [],
           });
         } catch {}
@@ -251,8 +311,11 @@ export default async function handler(req, res) {
         const response = {
           success: true,
           message: 'Purchase order number submitted successfully',
+          xeroInvoiceNumber: feeToken.xero_invoice_number || null,
+          xeroOnlineInvoiceUrl: feeToken.xero_online_invoice_url || null,
         };
         if (poSyncWarning) response.warning = poSyncWarning;
+        if (xeroPoWarning) response.xeroWarning = xeroPoWarning;
         return res.json(response);
       }
 
@@ -432,6 +495,36 @@ export default async function handler(req, res) {
 
         let recordCreated = false;
         let historyRecord = null;
+        if (simResult.success && simResult.existingRecord) {
+          // Cron-created path (Task #990): a history record already exists
+          // (created by the auto-renewal cron). Load it and stamp the Stripe
+          // PI for traceability so confirm-payment is idempotent against
+          // existing-record tokens too.
+          try {
+            const { data: existing } = await supabase
+              .from('organisation_membership_history')
+              .select('*')
+              .eq('id', feeToken.history_record_id || '00000000-0000-0000-0000-000000000000')
+              .maybeSingle();
+            historyRecord = existing
+              || (await supabase
+                .from('organisation_membership_history')
+                .select('*')
+                .eq('tenant_id', feeToken.tenant_id)
+                .eq('organization_id', feeToken.organization_id)
+                .eq('membership_year', feeToken.membership_year)
+                .maybeSingle()).data;
+            if (historyRecord && !historyRecord.stripe_payment_intent_id) {
+              await supabase
+                .from('organisation_membership_history')
+                .update({ payment_method: 'stripe', stripe_payment_intent_id: paymentIntentId })
+                .eq('id', historyRecord.id);
+            }
+            recordCreated = !!historyRecord;
+          } catch (linkErr) {
+            console.warn('[Public Fee] Could not link existing history record:', linkErr.message);
+          }
+        }
         if (simResult.success && !simResult.existingRecord) {
           const { data: insertedRecord, error: insertError } = await supabase
             .from('organisation_membership_history')
@@ -496,32 +589,62 @@ export default async function handler(req, res) {
         let xeroInvoice = null;
         if (recordCreated) {
           try {
-            const { createXeroMembershipInvoice } = await import('../../_lib/xero.js');
-            const { data: org } = await supabase
-              .from('organization')
-              .select('name, invoicing_address, invoicing_email')
-              .eq('id', feeToken.organization_id)
-              .single();
+            if (feeToken.xero_invoice_id) {
+              // Cron-created invoice already exists (Task #990). Apply the
+              // Stripe payment to it instead of minting a duplicate.
+              const { applyStripePaymentToXeroInvoice } = await import('../../_lib/xero.js');
+              xeroInvoice = await applyStripePaymentToXeroInvoice({
+                appTenantId: feeToken.tenant_id,
+                xeroInvoiceId: feeToken.xero_invoice_id,
+                stripePaymentIntentId: paymentIntentId,
+              });
+              if (xeroInvoice?.online_invoice_url) {
+                try {
+                  await supabase
+                    .from('membership_fee_token')
+                    .update({ xero_online_invoice_url: xeroInvoice.online_invoice_url, updated_at: new Date().toISOString() })
+                    .eq('id', feeToken.id);
+                } catch {}
+              }
+              if (historyRecord && !historyRecord.xero_invoice_id) {
+                try {
+                  await supabase
+                    .from('organisation_membership_history')
+                    .update({
+                      xero_invoice_id: feeToken.xero_invoice_id,
+                      xero_invoice_number: feeToken.xero_invoice_number,
+                    })
+                    .eq('id', historyRecord.id);
+                } catch {}
+              }
+            } else {
+              const { createXeroMembershipInvoice } = await import('../../_lib/xero.js');
+              const { data: org } = await supabase
+                .from('organization')
+                .select('name, invoicing_address, invoicing_email')
+                .eq('id', feeToken.organization_id)
+                .single();
 
-            const reference = feeToken.po_number
-              ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
-              : `Membership ${feeToken.membership_year}`;
+              const reference = feeToken.po_number
+                ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
+                : `Membership ${feeToken.membership_year}`;
 
-            xeroInvoice = await createXeroMembershipInvoice({
-              appTenantId: feeToken.tenant_id,
-              organizationName: org?.name || 'Organisation',
-              invoicingEmail: org?.invoicing_email || null,
-              invoicingAddress: org?.invoicing_address,
-              membershipYear: feeToken.membership_year,
-              tierLabel: feeToken.tier_label,
-              finalCost: parseFloat(feeToken.final_cost),
-              currency: feeToken.currency || 'GBP',
-              reference,
-              vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
-              markAsPaid: true,
-              stripePaymentIntentId: paymentIntentId,
-              invoiceDescription: simResult.config?.invoice_description || null,
-            });
+              xeroInvoice = await createXeroMembershipInvoice({
+                appTenantId: feeToken.tenant_id,
+                organizationName: org?.name || 'Organisation',
+                invoicingEmail: org?.invoicing_email || null,
+                invoicingAddress: org?.invoicing_address,
+                membershipYear: feeToken.membership_year,
+                tierLabel: feeToken.tier_label,
+                finalCost: parseFloat(feeToken.final_cost),
+                currency: feeToken.currency || 'GBP',
+                reference,
+                vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+                markAsPaid: true,
+                stripePaymentIntentId: paymentIntentId,
+                invoiceDescription: simResult.config?.invoice_description || null,
+              });
+            }
           } catch (xeroErr) {
             console.error('[Public Fee] Xero invoice failed (non-fatal):', xeroErr.message);
           }
@@ -574,6 +697,8 @@ export default async function handler(req, res) {
           success: true,
           recordCreated,
           xeroInvoice: xeroInvoice ? { invoice_number: xeroInvoice.invoice_number } : null,
+          xeroInvoiceNumber: xeroInvoice?.invoice_number || feeToken.xero_invoice_number || null,
+          xeroOnlineInvoiceUrl: xeroInvoice?.online_invoice_url || feeToken.xero_online_invoice_url || null,
           message: 'Payment confirmed successfully',
         });
       }

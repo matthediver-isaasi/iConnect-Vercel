@@ -33,6 +33,8 @@ export default function MembershipFeePage() {
   const [poNumber, setPoNumber] = useState('');
   const [submittingPo, setSubmittingPo] = useState(false);
   const [poSubmitted, setPoSubmitted] = useState(false);
+  const [invoiceLink, setInvoiceLink] = useState(null);
+  const [invoiceNumber, setInvoiceNumber] = useState(null);
 
   const [paymentMode, setPaymentMode] = useState(null);
   const [creatingPayment, setCreatingPayment] = useState(false);
@@ -68,6 +70,8 @@ export default function MembershipFeePage() {
           setPoSubmitted(true);
           setPoNumber(result.poNumber || '');
         }
+        if (result.xeroInvoiceNumber) setInvoiceNumber(result.xeroInvoiceNumber);
+        if (result.xeroOnlineInvoiceUrl) setInvoiceLink(result.xeroOnlineInvoiceUrl);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -114,6 +118,9 @@ export default function MembershipFeePage() {
           throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
         }
 
+        const body = await confirmRes.json().catch(() => ({}));
+        if (body.xeroInvoiceNumber) setInvoiceNumber(body.xeroInvoiceNumber);
+        if (body.xeroOnlineInvoiceUrl) setInvoiceLink(body.xeroOnlineInvoiceUrl);
         setPaymentComplete(true);
       } catch (err) {
         setPaymentError(err.message);
@@ -138,6 +145,9 @@ export default function MembershipFeePage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to submit PO number');
       }
+      const body = await res.json().catch(() => ({}));
+      if (body.xeroInvoiceNumber) setInvoiceNumber(body.xeroInvoiceNumber);
+      if (body.xeroOnlineInvoiceUrl) setInvoiceLink(body.xeroOnlineInvoiceUrl);
       setPoSubmitted(true);
     } catch (err) {
       setPaymentError(err.message);
@@ -234,6 +244,9 @@ export default function MembershipFeePage() {
           throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
         }
 
+        const confirmBody = await confirmRes.json().catch(() => ({}));
+        if (confirmBody.xeroInvoiceNumber) setInvoiceNumber(confirmBody.xeroInvoiceNumber);
+        if (confirmBody.xeroOnlineInvoiceUrl) setInvoiceLink(confirmBody.xeroOnlineInvoiceUrl);
         setPaymentComplete(true);
       }
     } catch (err) {
@@ -300,6 +313,25 @@ export default function MembershipFeePage() {
                 {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </p>
             </div>
+            {(invoiceLink || invoiceNumber) && (
+              <div className="mt-4 p-3 rounded-md border bg-white text-left">
+                <p className="text-sm text-gray-600 mb-1">
+                  {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Xero invoice is available online.'}
+                </p>
+                {invoiceLink ? (
+                  <a
+                    href={invoiceLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-sm font-medium"
+                    style={{ color: primaryColor }}
+                    data-testid="link-xero-invoice-paid"
+                  >
+                    <FileText className="w-4 h-4" /> View invoice
+                  </a>
+                ) : null}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -447,6 +479,25 @@ export default function MembershipFeePage() {
               <p className="text-sm text-gray-500 mt-1">
                 PO Number: <span className="font-medium text-gray-700">{poNumber}</span>
               </p>
+              {(invoiceLink || invoiceNumber) && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-sm text-gray-600 mb-1">
+                    {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Xero invoice is available online.'}
+                  </p>
+                  {invoiceLink ? (
+                    <a
+                      href={invoiceLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm font-medium"
+                      style={{ color: primaryColor }}
+                      data-testid="link-xero-invoice-po"
+                    >
+                      <FileText className="w-4 h-4" /> View invoice
+                    </a>
+                  ) : null}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

@@ -32,6 +32,11 @@ export default async function handler(req, res) {
         stripe_payment_intent_id TEXT,
         stripe_client_secret TEXT,
         recipient_email TEXT,
+        xero_invoice_id TEXT,
+        xero_invoice_number TEXT,
+        xero_online_invoice_url TEXT,
+        history_record_id UUID,
+        paid_at TIMESTAMPTZ,
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
