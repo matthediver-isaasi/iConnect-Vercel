@@ -1,0 +1,34 @@
+2026-05-25 08:18:41.212 [info] [TenantResolver] resolveTenantFromRequest called
+2026-05-25 08:18:41.213 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-05-25 08:18:41.214 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-05-25 08:18:41.214 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-05-25 08:18:41.214 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-05-25 08:18:41.214 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-05-25 08:18:41.215 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-05-25 08:18:41.215 [info] [TenantResolver] Looking up by slug: gsf
+2026-05-25 08:18:41.231 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-05-25 08:18:41.401 [info] [TenantResolver] Found tenant by slug: gsf
+2026-05-25 08:18:41.401 [info] [TenantContext] About to call getSessionTenantUser
+2026-05-25 08:18:41.403 [info] [Session] getSession: Looking up session: 854eef31
+2026-05-25 08:18:41.513 [info] [Session] getSession: Session found, userType: member
+2026-05-25 08:18:41.513 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"854eef31","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-05-25 08:18:41.513 [info] [Session] Found member session with identityId, attempting promotion
+2026-05-25 08:18:41.730 [info] [Session] No tenant_user record found for identity promotion
+2026-05-25 08:18:41.730 [info] [Session] Member session promotion failed
+2026-05-25 08:18:41.730 [info] [TenantContext] getSessionTenantUser returned: null
+2026-05-25 08:18:41.730 [info] [TenantContext] Checking for member session...
+2026-05-25 08:18:41.730 [info] [Session] getSession: Looking up session: 854eef31
+2026-05-25 08:18:41.840 [info] [Session] getSession: Session found, userType: member
+2026-05-25 08:18:41.840 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"854eef31","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-05-25 08:18:41.951 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-05-25 08:18:41.951 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-05-25 08:18:42.423 [error] [dd seed-config] Unexpected error: {
+  code: '42703',
+  details: null,
+  hint: null,
+  message: 'column stage_meeting_request.form_id does not exist'
+}
