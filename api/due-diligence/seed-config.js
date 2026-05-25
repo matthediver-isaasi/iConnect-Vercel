@@ -1,20 +1,18 @@
-import pg from 'pg';
+import { createClient } from '@supabase/supabase-js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
-const { Pool } = pg;
+const supabaseUrl =
+  process.env.DEST_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  process.env.DEV_SUPABASE_URL;
+const supabaseKey =
+  process.env.DEST_SUPABASE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.DEV_SUPABASE_SERVICE_KEY;
 
-const databaseUrl =
-  process.env.DATABASE_URL ||
-  process.env.DEST_DATABASE_URL ||
-  process.env.SUPABASE_DB_URL;
-
-let _pool = null;
-function getPool() {
-  if (!_pool && databaseUrl) {
-    _pool = new Pool({ connectionString: databaseUrl, max: 5 });
-  }
-  return _pool;
-}
+const supabase = supabaseUrl && supabaseKey
+  ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
+  : null;
 
 const CONFIG_CLONE_COLUMNS = [
   'scoring_approach',
@@ -85,32 +83,12 @@ const MEETING_REQUEST_CLONE_COLUMNS = [
   'is_active',
 ];
 
-function collectStageIds(workflowStages) {
-  if (!Array.isArray(workflowStages)) return [];
-  return workflowStages
-    .map(s => (s && typeof s === 'object' ? s.id : null))
-    .filter(id => typeof id === 'string' && id.length > 0);
-}
-
-function buildInsertSQL(table, columns, rows, extraColumns) {
-  // Returns { text, values } that inserts `rows.length` rows.
-  // Each row: pickColumns(row, columns) + extraColumns (object, same for all rows).
-  const extraKeys = Object.keys(extraColumns || {});
-  const allCols = [...columns, ...extraKeys];
-  const values = [];
-  const tuples = rows.map((row) => {
-    const placeholders = allCols.map((col) => {
-      const v = extraKeys.includes(col) ? extraColumns[col] : row[col];
-      values.push(v === undefined ? null : v);
-      return `$${values.length}`;
-    });
-    return `(${placeholders.join(',')})`;
-  });
-  const colList = allCols.map((c) => `"${c}"`).join(',');
-  return {
-    text: `INSERT INTO "${table}" (${colList}) VALUES ${tuples.join(',')}`,
-    values,
-  };
+function pickColumns(row, columns) {
+  const out = {};
+  for (const col of columns) {
+    if (row[col] !== undefined) out[col] = row[col];
+  }
+  return out;
 }
 
 export default async function handler(req, res) {
@@ -118,7 +96,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!databaseUrl) {
+  if (!supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
@@ -139,109 +117,125 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'sourceFormId and targetFormId must differ' });
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
   try {
-    // Look up forms (tenant guarded)
-    const formsResult = await client.query(
-      `SELECT id, name FROM "form" WHERE id IN ($1, $2) AND tenant_id = $3`,
-      [sourceFormId, targetFormId, tenantId]
-    );
-    const sourceForm = formsResult.rows.find(f => f.id === sourceFormId);
-    const targetForm = formsResult.rows.find(f => f.id === targetFormId);
+    // Look up both forms (tenant guarded)
+    const { data: forms, error: formsErr } = await supabase
+      .from('form')
+      .select('id, name')
+      .in('id', [sourceFormId, targetFormId])
+      .eq('tenant_id', tenantId);
+    if (formsErr) throw formsErr;
+
+    const sourceForm = forms?.find(f => f.id === sourceFormId);
+    const targetForm = forms?.find(f => f.id === targetFormId);
     if (!sourceForm) return res.status(404).json({ error: 'Source form not found in this tenant' });
     if (!targetForm) return res.status(404).json({ error: 'Target form not found in this tenant' });
 
-    const sourceConfigResult = await client.query(
-      `SELECT * FROM "form_due_diligence_config" WHERE form_id = $1 AND tenant_id = $2`,
-      [sourceFormId, tenantId]
-    );
-    const sourceConfig = sourceConfigResult.rows[0];
+    // Source config
+    const { data: sourceConfigRows, error: srcCfgErr } = await supabase
+      .from('form_due_diligence_config')
+      .select('*')
+      .eq('form_id', sourceFormId)
+      .eq('tenant_id', tenantId)
+      .limit(1);
+    if (srcCfgErr) throw srcCfgErr;
+    const sourceConfig = sourceConfigRows?.[0];
     if (!sourceConfig) {
       return res.status(400).json({ error: 'Source form has no due diligence configuration to copy' });
     }
 
-    const targetConfigResult = await client.query(
-      `SELECT id, workflow_stages FROM "form_due_diligence_config" WHERE form_id = $1 AND tenant_id = $2`,
-      [targetFormId, tenantId]
-    );
-    const existingTargetConfig = targetConfigResult.rows[0];
+    // Existing target config (if any)
+    const { data: targetCfgRows, error: tgtCfgErr } = await supabase
+      .from('form_due_diligence_config')
+      .select('id, workflow_stages')
+      .eq('form_id', targetFormId)
+      .eq('tenant_id', tenantId)
+      .limit(1);
+    if (tgtCfgErr) throw tgtCfgErr;
+    const existingTargetConfig = targetCfgRows?.[0];
 
     // ============================================================
-    // TRANSACTION
+    // Read all source action rows up front
     // ============================================================
-    await client.query('BEGIN');
-
-    // Delete target's existing stage actions
-    await client.query(
-      `DELETE FROM "stage_email_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, targetFormId]
-    );
-    await client.query(
-      `DELETE FROM "stage_member_action" WHERE tenant_id = $1 AND (form_id = $2 OR form_due_diligence_config_id = $3)`,
-      [tenantId, targetFormId, existingTargetConfig?.id || null]
-    );
-    await client.query(
-      `DELETE FROM "stage_field_mapping_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, targetFormId]
-    );
-    await client.query(
-      `DELETE FROM "stage_zoho_crm_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, targetFormId]
-    );
-    await client.query(
-      `DELETE FROM "stage_meeting_request" WHERE tenant_id = $1 AND (form_id = $2 OR form_due_diligence_config_id = $3)`,
-      [tenantId, targetFormId, existingTargetConfig?.id || null]
-    );
-
-    // Upsert config row on target
-    const configPayload = {};
-    for (const col of CONFIG_CLONE_COLUMNS) {
-      if (sourceConfig[col] !== undefined) configPayload[col] = sourceConfig[col];
+    const [srcEmail, srcMember, srcFm, srcZoho, srcMtg] = await Promise.all([
+      supabase.from('stage_email_action').select('*')
+        .eq('tenant_id', tenantId).eq('form_id', sourceFormId),
+      supabase.from('stage_member_action').select('*')
+        .eq('tenant_id', tenantId)
+        .or(`form_id.eq.${sourceFormId},form_due_diligence_config_id.eq.${sourceConfig.id}`),
+      supabase.from('stage_field_mapping_action').select('*')
+        .eq('tenant_id', tenantId).eq('form_id', sourceFormId),
+      supabase.from('stage_zoho_crm_action').select('*')
+        .eq('tenant_id', tenantId).eq('form_id', sourceFormId),
+      supabase.from('stage_meeting_request').select('*')
+        .eq('tenant_id', tenantId)
+        .or(`form_id.eq.${sourceFormId},form_due_diligence_config_id.eq.${sourceConfig.id}`),
+    ]);
+    for (const r of [srcEmail, srcMember, srcFm, srcZoho, srcMtg]) {
+      if (r.error) throw r.error;
     }
+
+    // ============================================================
+    // Upsert target config
+    // ============================================================
+    const configPayload = pickColumns(sourceConfig, CONFIG_CLONE_COLUMNS);
     configPayload.tenant_id = tenantId;
     configPayload.form_id = targetFormId;
-    configPayload.updated_at = new Date();
+    configPayload.updated_at = new Date().toISOString();
 
     let targetConfigId;
     if (existingTargetConfig?.id) {
-      const setCols = Object.keys(configPayload);
-      const setClause = setCols.map((c, i) => `"${c}" = $${i + 1}`).join(', ');
-      const vals = setCols.map(c => {
-        const v = configPayload[c];
-        return v !== null && typeof v === 'object' && !(v instanceof Date) ? JSON.stringify(v) : v;
-      });
-      vals.push(existingTargetConfig.id, tenantId);
-      const updateRes = await client.query(
-        `UPDATE "form_due_diligence_config" SET ${setClause} WHERE id = $${setCols.length + 1} AND tenant_id = $${setCols.length + 2} RETURNING id`,
-        vals
-      );
-      targetConfigId = updateRes.rows[0]?.id;
+      const { data: upd, error: updErr } = await supabase
+        .from('form_due_diligence_config')
+        .update(configPayload)
+        .eq('id', existingTargetConfig.id)
+        .eq('tenant_id', tenantId)
+        .select('id')
+        .single();
+      if (updErr) throw updErr;
+      targetConfigId = upd.id;
     } else {
-      const cols = Object.keys(configPayload);
-      const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-      const vals = cols.map(c => {
-        const v = configPayload[c];
-        return v !== null && typeof v === 'object' && !(v instanceof Date) ? JSON.stringify(v) : v;
-      });
-      const insertRes = await client.query(
-        `INSERT INTO "form_due_diligence_config" (${cols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders}) RETURNING id`,
-        vals
-      );
-      targetConfigId = insertRes.rows[0]?.id;
+      const { data: ins, error: insErr } = await supabase
+        .from('form_due_diligence_config')
+        .insert(configPayload)
+        .select('id')
+        .single();
+      if (insErr) throw insErr;
+      targetConfigId = ins.id;
+    }
+    if (!targetConfigId) throw new Error('Failed to obtain target config id');
+
+    // ============================================================
+    // Delete target's existing stage actions (best-effort overwrite)
+    // ============================================================
+    const existingTargetConfigId = existingTargetConfig?.id || null;
+    const deletions = await Promise.all([
+      supabase.from('stage_email_action').delete()
+        .eq('tenant_id', tenantId).eq('form_id', targetFormId),
+      existingTargetConfigId
+        ? supabase.from('stage_member_action').delete()
+            .eq('tenant_id', tenantId)
+            .or(`form_id.eq.${targetFormId},form_due_diligence_config_id.eq.${existingTargetConfigId}`)
+        : supabase.from('stage_member_action').delete()
+            .eq('tenant_id', tenantId).eq('form_id', targetFormId),
+      supabase.from('stage_field_mapping_action').delete()
+        .eq('tenant_id', tenantId).eq('form_id', targetFormId),
+      supabase.from('stage_zoho_crm_action').delete()
+        .eq('tenant_id', tenantId).eq('form_id', targetFormId),
+      existingTargetConfigId
+        ? supabase.from('stage_meeting_request').delete()
+            .eq('tenant_id', tenantId)
+            .or(`form_id.eq.${targetFormId},form_due_diligence_config_id.eq.${existingTargetConfigId}`)
+        : supabase.from('stage_meeting_request').delete()
+            .eq('tenant_id', tenantId).eq('form_id', targetFormId),
+    ]);
+    for (const r of deletions) {
+      if (r.error) throw r.error;
     }
 
-    if (!targetConfigId) {
-      throw new Error('Failed to obtain target config id');
-    }
-
-    // Mark target form as DD enabled
-    await client.query(
-      `UPDATE "form" SET due_diligence_required = true WHERE id = $1 AND tenant_id = $2`,
-      [targetFormId, tenantId]
-    );
-
-    // Clone source stage actions
+    // ============================================================
+    // Bulk insert cloned rows
+    // ============================================================
     const cloned = {
       email_actions: 0,
       member_actions: 0,
@@ -250,120 +244,70 @@ export default async function handler(req, res) {
       meeting_requests: 0,
     };
 
-    const srcEmail = await client.query(
-      `SELECT * FROM "stage_email_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, sourceFormId]
-    );
-    if (srcEmail.rows.length) {
-      const { text, values } = buildInsertSQL(
-        'stage_email_action',
-        EMAIL_ACTION_CLONE_COLUMNS,
-        srcEmail.rows,
-        { tenant_id: tenantId, form_id: targetFormId }
-      );
-      await client.query(text, values);
-      cloned.email_actions = srcEmail.rows.length;
-    }
-
-    const srcMember = await client.query(
-      `SELECT * FROM "stage_member_action" WHERE tenant_id = $1 AND (form_id = $2 OR form_due_diligence_config_id = $3)`,
-      [tenantId, sourceFormId, sourceConfig.id]
-    );
-    if (srcMember.rows.length) {
-      // jsonb columns come back as objects; need to stringify when re-inserting via pg
-      const memberRows = srcMember.rows.map(r => ({
-        ...r,
-        field_mappings:
-          r.field_mappings && typeof r.field_mappings === 'object'
-            ? JSON.stringify(r.field_mappings)
-            : r.field_mappings,
+    if (srcEmail.data?.length) {
+      const rows = srcEmail.data.map(r => ({
+        ...pickColumns(r, EMAIL_ACTION_CLONE_COLUMNS),
+        tenant_id: tenantId,
+        form_id: targetFormId,
       }));
-      const { text, values } = buildInsertSQL(
-        'stage_member_action',
-        MEMBER_ACTION_CLONE_COLUMNS,
-        memberRows,
-        {
-          tenant_id: tenantId,
-          form_id: targetFormId,
-          form_due_diligence_config_id: targetConfigId,
-        }
-      );
-      await client.query(text, values);
-      cloned.member_actions = srcMember.rows.length;
+      const { error } = await supabase.from('stage_email_action').insert(rows);
+      if (error) throw error;
+      cloned.email_actions = rows.length;
     }
 
-    const srcFm = await client.query(
-      `SELECT * FROM "stage_field_mapping_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, sourceFormId]
-    );
-    if (srcFm.rows.length) {
-      const fmRows = srcFm.rows.map(r => ({
-        ...r,
-        field_mappings:
-          r.field_mappings && typeof r.field_mappings === 'object'
-            ? JSON.stringify(r.field_mappings)
-            : r.field_mappings,
+    if (srcMember.data?.length) {
+      const rows = srcMember.data.map(r => ({
+        ...pickColumns(r, MEMBER_ACTION_CLONE_COLUMNS),
+        tenant_id: tenantId,
+        form_id: targetFormId,
+        form_due_diligence_config_id: targetConfigId,
       }));
-      const { text, values } = buildInsertSQL(
-        'stage_field_mapping_action',
-        FIELD_MAPPING_ACTION_CLONE_COLUMNS,
-        fmRows,
-        { tenant_id: tenantId, form_id: targetFormId }
-      );
-      await client.query(text, values);
-      cloned.field_mapping_actions = srcFm.rows.length;
+      const { error } = await supabase.from('stage_member_action').insert(rows);
+      if (error) throw error;
+      cloned.member_actions = rows.length;
     }
 
-    const srcZoho = await client.query(
-      `SELECT * FROM "stage_zoho_crm_action" WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, sourceFormId]
-    );
-    if (srcZoho.rows.length) {
-      const zohoRows = srcZoho.rows.map(r => ({
-        ...r,
-        field_mappings:
-          r.field_mappings && typeof r.field_mappings === 'object'
-            ? JSON.stringify(r.field_mappings)
-            : r.field_mappings,
+    if (srcFm.data?.length) {
+      const rows = srcFm.data.map(r => ({
+        ...pickColumns(r, FIELD_MAPPING_ACTION_CLONE_COLUMNS),
+        tenant_id: tenantId,
+        form_id: targetFormId,
       }));
-      const { text, values } = buildInsertSQL(
-        'stage_zoho_crm_action',
-        ZOHO_CRM_ACTION_CLONE_COLUMNS,
-        zohoRows,
-        { tenant_id: tenantId, form_id: targetFormId }
-      );
-      await client.query(text, values);
-      cloned.zoho_crm_actions = srcZoho.rows.length;
+      const { error } = await supabase.from('stage_field_mapping_action').insert(rows);
+      if (error) throw error;
+      cloned.field_mapping_actions = rows.length;
     }
 
-    // Source meeting requests: only rows explicitly scoped to the source
-    // form/config are cloned. Legacy (NULL form_id) rows are NOT pulled
-    // via stage-id heuristics — that would risk cloning unrelated forms'
-    // meeting actions when default stage IDs (e.g. "new") are shared.
-    // The migration backfills unambiguous legacy rows; anything still
-    // unscoped must be remediated manually.
-    const srcMtg = await client.query(
-      `SELECT * FROM "stage_meeting_request"
-         WHERE tenant_id = $1
-           AND (form_id = $2 OR form_due_diligence_config_id = $3)`,
-      [tenantId, sourceFormId, sourceConfig.id]
-    );
-    if (srcMtg.rows.length) {
-      const { text, values } = buildInsertSQL(
-        'stage_meeting_request',
-        MEETING_REQUEST_CLONE_COLUMNS,
-        srcMtg.rows,
-        {
-          tenant_id: tenantId,
-          form_id: targetFormId,
-          form_due_diligence_config_id: targetConfigId,
-        }
-      );
-      await client.query(text, values);
-      cloned.meeting_requests = srcMtg.rows.length;
+    if (srcZoho.data?.length) {
+      const rows = srcZoho.data.map(r => ({
+        ...pickColumns(r, ZOHO_CRM_ACTION_CLONE_COLUMNS),
+        tenant_id: tenantId,
+        form_id: targetFormId,
+      }));
+      const { error } = await supabase.from('stage_zoho_crm_action').insert(rows);
+      if (error) throw error;
+      cloned.zoho_crm_actions = rows.length;
     }
 
-    await client.query('COMMIT');
+    if (srcMtg.data?.length) {
+      const rows = srcMtg.data.map(r => ({
+        ...pickColumns(r, MEETING_REQUEST_CLONE_COLUMNS),
+        tenant_id: tenantId,
+        form_id: targetFormId,
+        form_due_diligence_config_id: targetConfigId,
+      }));
+      const { error } = await supabase.from('stage_meeting_request').insert(rows);
+      if (error) throw error;
+      cloned.meeting_requests = rows.length;
+    }
+
+    // Mark target form as DD enabled
+    const { error: formUpdErr } = await supabase
+      .from('form')
+      .update({ due_diligence_required: true })
+      .eq('id', targetFormId)
+      .eq('tenant_id', tenantId);
+    if (formUpdErr) throw formUpdErr;
 
     return res.json({
       success: true,
@@ -374,12 +318,7 @@ export default async function handler(req, res) {
       target_form_name: targetForm.name,
     });
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (_) {}
     console.error('[dd seed-config] Unexpected error:', err);
     return res.status(500).json({ error: err.message || 'Internal server error' });
-  } finally {
-    client.release();
   }
 }

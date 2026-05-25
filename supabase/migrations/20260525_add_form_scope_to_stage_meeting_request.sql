@@ -38,8 +38,8 @@ WITH stage_form_map AS (
 ),
 unique_map AS (
   SELECT tenant_id, stage_id,
-         MIN(form_id) AS form_id,
-         MIN(config_id) AS config_id,
+         (array_agg(form_id))[1] AS form_id,
+         (array_agg(config_id))[1] AS config_id,
          COUNT(*) AS hit_count
   FROM stage_form_map
   GROUP BY tenant_id, stage_id
