@@ -587,7 +587,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       if (!response.ok) throw new Error(data?.error || 'Reconciliation failed');
       if (data.transitioned) {
         toast.success(`Payment status updated: ${data.beforeStatus} → ${data.afterStatus}`);
-        if (queryClient) queryClient.invalidateQueries({ queryKey: ['organization-membership-history'] });
+        if (queryClient) queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
       } else {
         toast.info(`No change (${data.skippedReason || 'already up to date'})`);
       }

@@ -31,11 +31,16 @@ export default async function handler(req, res) {
   const baseUrl = req.headers.host
     ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
     : '';
+  // Response shape mirrors the renewals cron: { processed, skipped,
+  // errors, details } so dashboards/log scrapers can reuse the same
+  // parsing logic. `transitioned` and `by_tenant` are additional
+  // diagnostic fields.
   const results = {
     processed: 0,
     transitioned: 0,
     skipped: 0,
     errors: 0,
+    details: [],
     by_tenant: {},
   };
 
@@ -79,6 +84,13 @@ export default async function handler(req, res) {
         if (outcome.transitioned) {
           results.transitioned++;
           tenantBucket.transitioned++;
+          results.details.push({
+            tenantId,
+            table,
+            recordId: row.id,
+            before: outcome.beforeStatus,
+            after: outcome.afterStatus,
+          });
         } else {
           results.skipped++;
           tenantBucket.skipped++;
@@ -86,6 +98,7 @@ export default async function handler(req, res) {
       } catch (err) {
         results.errors++;
         tenantBucket.errors++;
+        results.details.push({ tenantId, table: row._sourceTable, recordId: row.id, error: err.message });
         console.error(`[cron/reconcile-membership-invoice-payments] tenant=${tenantId} row=${row.id} error: ${err.message}`);
         // One bad invoice shouldn't poison the rest of the same tenant's
         // batch — keep going.
@@ -111,10 +124,12 @@ export default async function handler(req, res) {
 }
 
 async function fetchOutstanding(table) {
+  // Non-terminal payment statuses: `unpaid` and `partial` both need
+  // continued polling until they settle as `paid` (or `voided`).
   const { data, error } = await supabase
     .from(table)
     .select('*')
-    .eq('payment_status', 'unpaid')
+    .in('payment_status', ['unpaid', 'partial'])
     .or('accounting_invoice_id.not.is.null,xero_invoice_id.not.is.null')
     .order('created_at', { ascending: true })
     .limit(MAX_ROWS_PER_RUN);
