@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { resolveTierRecipients } from './membershipRecipientResolver.js';
 
 export async function sendMembershipInvoiceEmail({
   tenantId,
@@ -28,55 +29,20 @@ export async function sendMembershipInvoiceEmail({
   }
 
   try {
-    const recipientEmails = new Set();
+    const resolved = await resolveTierRecipients({
+      client: supabase,
+      tenantId,
+      organizationId,
+      tierConfig,
+    });
+    const allRecipients = resolved.recipients;
 
-    const { data: orgData } = await supabase
-      .from('organization')
-      .select('invoicing_email')
-      .eq('id', organizationId)
-      .single();
-
-    const invoicingEmail = orgData?.invoicing_email;
-    const emailFieldName = tierConfig?.invoice_email_field_name;
-
-    if (emailFieldName === 'invoicing_email') {
-      if (invoicingEmail) recipientEmails.add(invoicingEmail.toLowerCase());
-    } else {
-      if (invoicingEmail) {
-        recipientEmails.add(invoicingEmail.toLowerCase());
-      } else {
-        const { data: primaryContact } = await supabase
-          .from('member')
-          .select('email')
-          .eq('organization_id', organizationId)
-          .eq('is_primary_contact', true)
-          .not('email', 'like', 'deleted_%@deleted.local')
-          .limit(1)
-          .maybeSingle();
-
-        if (primaryContact?.email) {
-          recipientEmails.add(primaryContact.email.toLowerCase());
-        }
-      }
+    if (resolved.usedFallback) {
+      console.warn(
+        `[Invoice Email] Tier recipients resolved to no addresses for org ${organizationId}; ` +
+        `using invoicing-email/primary-contact safety fallback (${allRecipients.join(', ') || 'none'}).`
+      );
     }
-
-    const roleIds = tierConfig?.invoice_recipient_role_ids;
-    if (Array.isArray(roleIds) && roleIds.length > 0) {
-      const { data: roleMembers } = await supabase
-        .from('member')
-        .select('email')
-        .eq('organization_id', organizationId)
-        .in('role_id', roleIds)
-        .not('email', 'like', 'deleted_%@deleted.local');
-
-      if (roleMembers) {
-        for (const m of roleMembers) {
-          if (m.email) recipientEmails.add(m.email.toLowerCase());
-        }
-      }
-    }
-
-    const allRecipients = [...recipientEmails];
 
     if (allRecipients.length === 0) {
       console.log(`[Invoice Email] No recipient emails found for org ${organizationId} - skipping`);

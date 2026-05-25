@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
 import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
+import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -584,6 +585,14 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Effective from date is required' });
   }
 
+  const normalizedRecipients = normalizeInvoiceRecipients(config.invoice_recipients);
+  if ((config.structure_scope_type || 'organization') !== 'member') {
+    const recipientErr = validateInvoiceRecipientsShape(normalizedRecipients);
+    if (recipientErr) {
+      return res.status(400).json({ error: recipientErr });
+    }
+  }
+
   if (config.structure_field_id && !config.structure_match_value?.trim()) {
     return res.status(400).json({ error: 'Match value is required when a structure scope field is selected' });
   }
@@ -689,8 +698,7 @@ async function handlePost(req, res, tenantId) {
         online_card_payment: config.online_card_payment ?? false,
         invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
-        invoice_email_field_name: config.invoice_email_field_name || null,
-        invoice_recipient_role_ids: Array.isArray(config.invoice_recipient_role_ids) && config.invoice_recipient_role_ids.length > 0 ? config.invoice_recipient_role_ids : null,
+        invoice_recipients: normalizedRecipients,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -806,8 +814,7 @@ async function handlePost(req, res, tenantId) {
       online_card_payment: config.online_card_payment ?? false,
       invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
-      invoice_email_field_name: config.invoice_email_field_name || null,
-      invoice_recipient_role_ids: Array.isArray(config.invoice_recipient_role_ids) && config.invoice_recipient_role_ids.length > 0 ? config.invoice_recipient_role_ids : null,
+      invoice_recipients: normalizedRecipients,
     })
     .select()
     .single();

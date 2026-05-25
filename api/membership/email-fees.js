@@ -97,6 +97,7 @@ export default async function handler(req, res) {
       costBreakdown,
       poNumber,
       recipientEmails: toEmails,
+      tierConfig: simResult.config,
       stripeEnabled,
     });
 

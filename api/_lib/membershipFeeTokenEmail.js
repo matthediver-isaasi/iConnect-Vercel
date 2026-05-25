@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase as defaultSupabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
+import { resolveTierRecipients } from './membershipRecipientResolver.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
@@ -119,6 +120,7 @@ export async function sendMembershipFeeTokenEmail({
   costBreakdown,
   poNumber = null,
   recipientEmails,
+  tierConfig = null,
   stripeEnabled = false,
   xeroInvoiceId = null,
   xeroInvoiceNumber = null,
@@ -132,22 +134,19 @@ export async function sendMembershipFeeTokenEmail({
     : [];
 
   if (toEmails.length === 0) {
-    const { data: orgData } = await client
-      .from('organization')
-      .select('invoicing_email')
-      .eq('id', organizationId)
-      .maybeSingle();
-    if (orgData?.invoicing_email) toEmails.push(orgData.invoicing_email.trim().toLowerCase());
-  }
-  if (toEmails.length === 0) {
-    const { data: primaryContact } = await client
-      .from('member')
-      .select('email')
-      .eq('organization_id', organizationId)
-      .eq('is_primary_contact', true)
-      .limit(1)
-      .maybeSingle();
-    if (primaryContact?.email) toEmails.push(primaryContact.email.trim().toLowerCase());
+    const resolved = await resolveTierRecipients({
+      client,
+      tenantId,
+      organizationId,
+      tierConfig,
+    });
+    toEmails = resolved.recipients;
+    if (resolved.usedFallback) {
+      console.warn(
+        `[FeeTokenEmail] Tier recipients resolved to no addresses for org ${organizationId}; ` +
+        `using invoicing-email/primary-contact safety fallback (${toEmails.join(', ') || 'none'}).`
+      );
+    }
   }
   if (toEmails.length === 0) {
     return { success: false, error: 'No recipient email available' };
