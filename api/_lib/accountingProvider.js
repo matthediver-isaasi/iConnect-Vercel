@@ -21,6 +21,7 @@
 
 import { supabase } from './database.js';
 import * as xero from './xero.js';
+import * as qbo from './quickbooks.js';
 
 export const PROVIDER_XERO = 'xero';
 export const PROVIDER_QUICKBOOKS = 'quickbooks';
@@ -399,27 +400,87 @@ function makeXeroProvider() {
 }
 
 function makeQuickBooksProvider() {
-  const notReady = (op) => {
-    const err = new Error(
-      `QuickBooks Online is not yet configured for this tenant (operation: ${op}). ` +
-      `QuickBooks support is planned for a future phase — please use Xero or contact support.`,
-    );
-    err.code = 'ACCOUNTING_PROVIDER_NOT_CONFIGURED';
-    err.provider = PROVIDER_QUICKBOOKS;
-    return err;
-  };
   return {
     name: PROVIDER_QUICKBOOKS,
-    async getRawAccessToken()          { throw notReady('getRawAccessToken'); },
-    async resolveOrCreateContact()     { throw notReady('resolveOrCreateContact'); },
-    async createMembershipInvoice()    { throw notReady('createMembershipInvoice'); },
-    async applyStripePaymentToInvoice(){ throw notReady('applyStripePaymentToInvoice'); },
-    async createCreditNote()           { throw notReady('createCreditNote'); },
-    async emailCreditNote()            { throw notReady('emailCreditNote'); },
-    async pushPurchaseOrder()          { throw notReady('pushPurchaseOrder'); },
-    async fetchInvoicePdf()            { throw notReady('fetchInvoicePdf'); },
-    async fetchCreditNotePdf()         { throw notReady('fetchCreditNotePdf'); },
-    async updateInvoiceReference()     { throw notReady('updateInvoiceReference'); },
+
+    async getRawAccessToken(appTenantId) {
+      const { accessToken, realmId, environment } = await qbo.getValidQuickBooksAccessToken(appTenantId);
+      // tenantId is aliased to realmId so callers using the Xero-shaped
+      // { accessToken, tenantId } pair still work (e.g. raw HTTP probes).
+      return { accessToken, tenantId: realmId, realmId, environment };
+    },
+
+    async resolveOrCreateContact({ appTenantId, contactInfo }) {
+      const contactId = await qbo.findOrCreateQuickBooksCustomer(appTenantId, contactInfo);
+      return { provider: PROVIDER_QUICKBOOKS, contactId };
+    },
+
+    async createMembershipInvoice(args) {
+      const result = await qbo.createQuickBooksMembershipInvoice(args);
+      if (!result) return null;
+      return {
+        provider: PROVIDER_QUICKBOOKS,
+        invoiceId: result.invoice_id,
+        invoiceNumber: result.invoice_number,
+        onlineInvoiceUrl: result.online_invoice_url || null,
+        raw: result,
+        invoice_id: result.invoice_id,
+        invoice_number: result.invoice_number,
+        online_invoice_url: result.online_invoice_url || null,
+      };
+    },
+
+    async applyStripePaymentToInvoice(args) {
+      const result = await qbo.applyStripePaymentToQuickBooksInvoice(args);
+      if (!result) return null;
+      return {
+        provider: PROVIDER_QUICKBOOKS,
+        invoiceId: result.invoice_id,
+        invoiceNumber: result.invoice_number,
+        onlineInvoiceUrl: result.online_invoice_url || null,
+        raw: result,
+        invoice_id: result.invoice_id,
+        invoice_number: result.invoice_number,
+        online_invoice_url: result.online_invoice_url || null,
+      };
+    },
+
+    async createCreditNote(args) {
+      const result = await qbo.createQuickBooksCreditNote(args);
+      if (!result) return null;
+      return {
+        provider: PROVIDER_QUICKBOOKS,
+        creditNoteId: result.creditNoteId,
+        creditNoteNumber: result.creditNoteNumber,
+        amount: result.amount,
+        allocated: result.allocated,
+        invoiceNumber: result.invoiceNumber,
+        alreadyExisted: !!result.alreadyExisted,
+        skipped: !!result.skipped,
+        reason: result.reason || null,
+        ...result,
+      };
+    },
+
+    async emailCreditNote(args) {
+      return qbo.emailQuickBooksCreditNote(args);
+    },
+
+    async pushPurchaseOrder(args) {
+      return qbo.pushPurchaseOrderToQuickBooksInvoice(args);
+    },
+
+    async fetchInvoicePdf(invoiceId, appTenantId) {
+      return qbo.fetchQuickBooksInvoicePdf(appTenantId, invoiceId);
+    },
+
+    async fetchCreditNotePdf(creditNoteId, appTenantId) {
+      return qbo.fetchQuickBooksCreditNotePdf(appTenantId, creditNoteId);
+    },
+
+    async updateInvoiceReference(appTenantId, invoiceId, reference) {
+      return qbo.updateQuickBooksInvoiceReference(appTenantId, invoiceId, reference);
+    },
   };
 }
 
