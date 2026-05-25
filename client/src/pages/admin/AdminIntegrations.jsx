@@ -40,6 +40,7 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
+import { base44 } from "@/api/base44Client";
 
 function StripeTestCardForm({ onReady }) {
   const [ready, setReady] = useState(false);
@@ -145,6 +146,15 @@ export default function AdminIntegrations() {
   const [qbLastRefreshed, setQbLastRefreshed] = useState(null);
   const [hasQbCredentials, setHasQbCredentials] = useState(false);
   const [showQbSecrets, setShowQbSecrets] = useState(false);
+  const [qbItems, setQbItems] = useState([]);
+  const [qbItemsLoading, setQbItemsLoading] = useState(false);
+  const [qbAccounts, setQbAccounts] = useState([]);
+  const [qbAccountsLoading, setQbAccountsLoading] = useState(false);
+  const [qbMembershipItemId, setQbMembershipItemId] = useState('');
+  const [qbStripeBankAccountId, setQbStripeBankAccountId] = useState('');
+  const [qbMembershipItemSettingId, setQbMembershipItemSettingId] = useState(null);
+  const [qbStripeBankSettingId, setQbStripeBankSettingId] = useState(null);
+  const [qbSettingsSaving, setQbSettingsSaving] = useState(false);
 
   const [stripeForm, setStripeForm] = useState({
     secret_key: '',
@@ -938,6 +948,103 @@ export default function AdminIntegrations() {
       }
     } catch (err) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to disconnect QuickBooks account' });
+    }
+  };
+
+  const loadQuickBooksSettings = async () => {
+    try {
+      const settings = await base44.entities.SystemSettings.list();
+      const list = Array.isArray(settings) ? settings : [];
+      const itemSetting =
+        list.find((s) => s.setting_key === 'quickbooks_membership_item_id') ||
+        list.find((s) => s.setting_key === 'accounting_membership_item_id');
+      const bankSetting =
+        list.find((s) => s.setting_key === 'quickbooks_stripe_bank_account_id') ||
+        list.find((s) => s.setting_key === 'accounting_stripe_bank_account_id');
+      setQbMembershipItemId(itemSetting?.setting_value || '');
+      setQbMembershipItemSettingId(
+        itemSetting && itemSetting.setting_key === 'quickbooks_membership_item_id' ? itemSetting.id : null,
+      );
+      setQbStripeBankAccountId(bankSetting?.setting_value || '');
+      setQbStripeBankSettingId(
+        bankSetting && bankSetting.setting_key === 'quickbooks_stripe_bank_account_id' ? bankSetting.id : null,
+      );
+    } catch (err) {
+      console.error('Failed to load QuickBooks settings:', err);
+    }
+  };
+
+  const loadQuickBooksItemsAndAccounts = async () => {
+    setQbItemsLoading(true);
+    setQbAccountsLoading(true);
+    try {
+      const [itemsResp, accountsResp] = await Promise.all([
+        fetch('/api/quickbooks/list-items', { credentials: 'include' }),
+        fetch('/api/quickbooks/list-accounts', { credentials: 'include' }),
+      ]);
+      if (itemsResp.ok) {
+        const data = await itemsResp.json();
+        setQbItems(data.items || []);
+      }
+      if (accountsResp.ok) {
+        const data = await accountsResp.json();
+        setQbAccounts(data.accounts || []);
+      }
+    } catch (err) {
+      console.error('Failed to load QuickBooks items/accounts:', err);
+    } finally {
+      setQbItemsLoading(false);
+      setQbAccountsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (qbConnected) {
+      loadQuickBooksSettings();
+      loadQuickBooksItemsAndAccounts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qbConnected]);
+
+  const upsertSystemSetting = async (key, value, description, currentId, setId) => {
+    if (currentId) {
+      await base44.entities.SystemSettings.update(currentId, { setting_value: value || '' });
+    } else {
+      const created = await base44.entities.SystemSettings.create({
+        setting_key: key,
+        setting_value: value || '',
+        description,
+      });
+      if (created?.id) setId(created.id);
+    }
+  };
+
+  const handleSaveQuickBooksSettings = async () => {
+    if (!qbMembershipItemId) {
+      toast({ variant: 'destructive', title: 'Missing item', description: 'Pick a Membership item before saving.' });
+      return;
+    }
+    setQbSettingsSaving(true);
+    try {
+      await upsertSystemSetting(
+        'quickbooks_membership_item_id',
+        qbMembershipItemId,
+        'QuickBooks Online Item id used as the line item on membership invoices',
+        qbMembershipItemSettingId,
+        setQbMembershipItemSettingId,
+      );
+      await upsertSystemSetting(
+        'quickbooks_stripe_bank_account_id',
+        qbStripeBankAccountId,
+        'QuickBooks Online bank account id used as DepositToAccountRef when applying Stripe payments to invoices',
+        qbStripeBankSettingId,
+        setQbStripeBankSettingId,
+      );
+      toast({ title: 'Saved', description: 'QuickBooks settings saved successfully' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Save failed', description: err.message || 'Failed to save QuickBooks settings' });
+    } finally {
+      setQbSettingsSaving(false);
     }
   };
 
@@ -2027,6 +2134,113 @@ export default function AdminIntegrations() {
                         {xeroConnected && ' This will disconnect your current Xero connection.'}
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {qbConnected && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div>
+                    <h4 className="text-sm font-medium text-white">Invoicing settings</h4>
+                    <p className="text-xs text-slate-400">
+                      Pick the QuickBooks Item used on membership invoice lines and (optionally) the bank account
+                      where Stripe payments are deposited.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="qb-membership-item" className="text-slate-300">
+                      Membership Item <span className="text-red-400">*</span>
+                    </Label>
+                    <Select
+                      value={qbMembershipItemId || ''}
+                      onValueChange={setQbMembershipItemId}
+                      disabled={qbItemsLoading || qbItems.length === 0}
+                    >
+                      <SelectTrigger
+                        id="qb-membership-item"
+                        className="bg-slate-900 border-slate-700 text-white"
+                        data-testid="select-quickbooks-membership-item"
+                      >
+                        <SelectValue
+                          placeholder={
+                            qbItemsLoading
+                              ? 'Loading items...'
+                              : qbItems.length === 0
+                              ? 'No items found in QuickBooks'
+                              : 'Select an item'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {qbItems.map((it) => (
+                          <SelectItem key={it.id} value={it.id}>
+                            {it.name}{it.type ? ` (${it.type})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-400">
+                      Required. Without this, membership invoices fail to create in QuickBooks.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="qb-stripe-bank" className="text-slate-300">
+                      Stripe Deposit Account (optional)
+                    </Label>
+                    <Select
+                      value={qbStripeBankAccountId || '__none'}
+                      onValueChange={(v) => setQbStripeBankAccountId(v === '__none' ? '' : v)}
+                      disabled={qbAccountsLoading || qbAccounts.length === 0}
+                    >
+                      <SelectTrigger
+                        id="qb-stripe-bank"
+                        className="bg-slate-900 border-slate-700 text-white"
+                        data-testid="select-quickbooks-stripe-bank"
+                      >
+                        <SelectValue
+                          placeholder={
+                            qbAccountsLoading
+                              ? 'Loading accounts...'
+                              : qbAccounts.length === 0
+                              ? 'No bank accounts found'
+                              : 'Use QuickBooks default'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">— Use QuickBooks default —</SelectItem>
+                        {qbAccounts.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}{a.type ? ` (${a.type})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-400">
+                      Used as DepositToAccountRef when Stripe payments are applied to QuickBooks invoices.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={handleSaveQuickBooksSettings}
+                      disabled={qbSettingsSaving}
+                      data-testid="button-save-quickbooks-settings"
+                    >
+                      {qbSettingsSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                      Save QuickBooks Settings
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={loadQuickBooksItemsAndAccounts}
+                      disabled={qbItemsLoading || qbAccountsLoading}
+                      data-testid="button-refresh-quickbooks-lists"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${(qbItemsLoading || qbAccountsLoading) ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </Button>
                   </div>
                 </div>
               )}
