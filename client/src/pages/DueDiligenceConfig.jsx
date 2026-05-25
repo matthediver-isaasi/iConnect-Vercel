@@ -2704,6 +2704,8 @@ export default function DueDiligenceConfigPage() {
                                                         : null;
                                                       const isPicklistTarget = targetCustomField && ['select', 'dropdown', 'radio', 'picklist', 'multiselect'].includes(targetCustomField.field_type);
                                                       const targetOptions = targetCustomField?.options || [];
+                                                      const isDateTarget = targetCustomField && targetCustomField.field_type === 'date';
+                                                      const isTodayToken = isDateTarget && typeof mapping.static_value === 'string' && mapping.static_value.trim().toLowerCase() === '{today}';
                                                       
                                                       return (
                                                       <div key={mapIdx} className="flex items-center gap-2 p-2 border rounded bg-background">
@@ -2764,6 +2766,36 @@ export default function DueDiligenceConfigPage() {
                                                                     disabled
                                                                     data-testid={`input-static-placeholder-${mapIdx}`}
                                                                   />
+                                                                ) : isDateTarget ? (
+                                                                  <div className="space-y-1">
+                                                                    <Input
+                                                                      type="date"
+                                                                      value={isTodayToken ? '' : (mapping.static_value || '')}
+                                                                      onChange={(e) => {
+                                                                        setPendingFieldMappingAction(prev => {
+                                                                          const newMappings = [...(prev.mappings || [])];
+                                                                          newMappings[mapIdx] = { ...newMappings[mapIdx], static_value: e.target.value };
+                                                                          return { ...prev, mappings: newMappings };
+                                                                        });
+                                                                      }}
+                                                                      disabled={isTodayToken}
+                                                                      data-testid={`input-static-date-${mapIdx}`}
+                                                                    />
+                                                                    <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                                                                      <Checkbox
+                                                                        checked={isTodayToken}
+                                                                        onCheckedChange={(checked) => {
+                                                                          setPendingFieldMappingAction(prev => {
+                                                                            const newMappings = [...(prev.mappings || [])];
+                                                                            newMappings[mapIdx] = { ...newMappings[mapIdx], static_value: checked ? '{today}' : '' };
+                                                                            return { ...prev, mappings: newMappings };
+                                                                          });
+                                                                        }}
+                                                                        data-testid={`checkbox-static-today-${mapIdx}`}
+                                                                      />
+                                                                      <span>Use today's date when this runs</span>
+                                                                    </label>
+                                                                  </div>
                                                                 ) : isPicklistTarget && targetOptions.length > 0 ? (
                                                                   <Select
                                                                     value={mapping.static_value || ''}

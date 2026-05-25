@@ -1848,6 +1848,17 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           // Use the static value directly
           sourceValue = static_value;
           valueSource = 'static';
+
+          // Resolve dynamic {today} token to current date as YYYY-MM-DD
+          if (typeof sourceValue === 'string' && sourceValue.trim().toLowerCase() === '{today}') {
+            const now = new Date();
+            const yyyy = now.getUTCFullYear();
+            const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(now.getUTCDate()).padStart(2, '0');
+            const resolved = `${yyyy}-${mm}-${dd}`;
+            console.log(`[DD Field Mapping] Target ${target_field}: resolved {today} token to "${resolved}"`);
+            sourceValue = resolved;
+          }
           
           // Check if static value is usable
           if (sourceValue === undefined || sourceValue === null || sourceValue === '') {
