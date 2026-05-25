@@ -12,7 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus, Copy } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
@@ -76,6 +80,9 @@ export default function DueDiligenceConfigPage() {
   const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, promptCustomMessage, editId? }
   const [pendingMemberAction, setPendingMemberAction] = useState(null); // { stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, editId? }
   const [pendingFieldMappingAction, setPendingFieldMappingAction] = useState(null); // { stageId, mappings: [], editId? }
+  const [seedDialogOpen, setSeedDialogOpen] = useState(false);
+  const [seedSourceFormId, setSeedSourceFormId] = useState('');
+  const [seeding, setSeeding] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -135,9 +142,9 @@ export default function DueDiligenceConfigPage() {
   const meetingTemplates = meetingTemplatesData || [];
 
   const { data: stageMeetingRequestsData, refetch: refetchStageMeetingRequests } = useQuery({
-    queryKey: ['stage-meeting-requests'],
+    queryKey: ['stage-meeting-requests', formId],
     queryFn: async () => {
-      const response = await fetch('/api/stage-meeting-requests', { credentials: 'include' });
+      const response = await fetch(`/api/stage-meeting-requests?formId=${formId}`, { credentials: 'include' });
       if (!response.ok) return [];
       const data = await response.json();
       return data.meeting_requests || [];
@@ -210,7 +217,9 @@ export default function DueDiligenceConfigPage() {
           due_diligence_stage_id: stageId,
           meeting_template_id: meetingTemplateId,
           recipient_email_field: recipientEmailField,
-          first_name_field: firstNameField
+          first_name_field: firstNameField,
+          form_id: formId,
+          form_due_diligence_config_id: ddConfig?.id || null
         })
       });
       if (!response.ok) throw new Error('Failed to add meeting request');
@@ -1001,11 +1010,77 @@ export default function DueDiligenceConfigPage() {
             <p className="text-muted-foreground">{form.name}</p>
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-config">
-          {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-          Save Configuration
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => { setSeedSourceFormId(''); setSeedDialogOpen(true); }}
+            data-testid="button-open-seed-dialog"
+          >
+            <Copy className="w-4 h-4 mr-2" />
+            Seed from another form
+          </Button>
+          <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-config">
+            {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Save Configuration
+          </Button>
+        </div>
       </div>
+
+      <SeedFromFormDialog
+        open={seedDialogOpen}
+        onOpenChange={setSeedDialogOpen}
+        targetFormId={formId}
+        targetFormName={form?.name}
+        hasExistingConfig={!!ddConfig?.id}
+        hasExistingActions={
+          (stageMeetingRequests?.length || 0) +
+            (stageEmailActions?.length || 0) +
+            (stageMemberActions?.length || 0) +
+            (stageFieldMappingActions?.length || 0) +
+            (stageZohoCrmActions?.length || 0) > 0
+        }
+        sourceFormId={seedSourceFormId}
+        setSourceFormId={setSeedSourceFormId}
+        seeding={seeding}
+        onConfirm={async () => {
+          if (!seedSourceFormId) return;
+          setSeeding(true);
+          try {
+            const res = await fetch('/api/due-diligence/seed-config', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sourceFormId: seedSourceFormId, targetFormId: formId }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(data?.error || 'Failed to seed configuration');
+            }
+            const c = data?.cloned || {};
+            toast.success(
+              `Seeded from "${data.source_form_name}" — copied ${c.email_actions || 0} email, ${c.member_actions || 0} member, ${c.field_mapping_actions || 0} field mapping, ${c.zoho_crm_actions || 0} Zoho, ${c.meeting_requests || 0} meeting actions`
+            );
+            setHasInitialized(false);
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['dd-config', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['form-for-dd-config', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['stage-meeting-requests'] }),
+              queryClient.invalidateQueries({ queryKey: ['stage-email-actions', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['stage-member-actions', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['stage-field-mapping-actions', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['stage-zoho-crm-actions', formId] }),
+              queryClient.invalidateQueries({ queryKey: ['dd-configs-all'] }),
+              queryClient.invalidateQueries({ queryKey: ['dd-enabled-forms'] }),
+            ]);
+            setSeedDialogOpen(false);
+          } catch (err) {
+            console.error('[seed-config]', err);
+            toast.error(err.message || 'Failed to seed configuration');
+          } finally {
+            setSeeding(false);
+          }
+        }}
+      />
 
       <Tabs defaultValue="settings" className="space-y-6">
         <TabsList data-testid="tabs-config">
@@ -3183,5 +3258,166 @@ export default function DueDiligenceConfigPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function SeedFromFormDialog({
+  open,
+  onOpenChange,
+  targetFormId,
+  targetFormName,
+  hasExistingConfig,
+  hasExistingActions,
+  sourceFormId,
+  setSourceFormId,
+  seeding,
+  onConfirm,
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const { data: allForms = [], isLoading: formsLoading } = useQuery({
+    queryKey: ['seedable-forms-all'],
+    queryFn: async () => await base44.entities.Form.list(),
+    enabled: open,
+  });
+
+  const { data: allConfigs = [], isLoading: configsLoading } = useQuery({
+    queryKey: ['seedable-forms-configs'],
+    queryFn: async () => await base44.entities.FormDueDiligenceConfig.list(),
+    enabled: open,
+  });
+
+  const sourceOptions = useMemo(() => {
+    const formIdsWithConfig = new Set((allConfigs || []).map(c => c.form_id));
+    return (allForms || [])
+      .filter(f => f.id !== targetFormId && formIdsWithConfig.has(f.id))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [allForms, allConfigs, targetFormId]);
+
+  const loading = formsLoading || configsLoading;
+  const selectedForm = sourceOptions.find(f => f.id === sourceFormId);
+  const overwriteWarn = hasExistingConfig || hasExistingActions;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="dialog-seed-from-form">
+        <DialogHeader>
+          <DialogTitle>Seed configuration from another form</DialogTitle>
+          <DialogDescription>
+            Copies the full due diligence setup from a source form onto{' '}
+            <span className="font-medium text-foreground">{targetFormName || 'this form'}</span>{' '}
+            — including workflow stages, scoring, risk levels, webhooks, and every stage action
+            (email, member, field mapping, Zoho CRM, meeting requests).
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="seed-source-form">Source form</Label>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading forms…
+              </div>
+            ) : sourceOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No other forms in this tenant have a due diligence configuration to copy from.
+              </p>
+            ) : (
+              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="seed-source-form"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={pickerOpen}
+                    className="w-full justify-between font-normal"
+                    data-testid="button-seed-source-picker"
+                  >
+                    <span className="truncate">
+                      {selectedForm ? (selectedForm.name || '(unnamed form)') : 'Choose a form to copy from…'}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search forms…" data-testid="input-seed-source-search" />
+                    <CommandList>
+                      <CommandEmpty>No forms match.</CommandEmpty>
+                      <CommandGroup>
+                        {sourceOptions.map(f => (
+                          <CommandItem
+                            key={f.id}
+                            value={`${f.name || ''} ${f.id}`}
+                            onSelect={() => {
+                              setSourceFormId(f.id);
+                              setPickerOpen(false);
+                            }}
+                            data-testid={`option-seed-source-${f.id}`}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                sourceFormId === f.id ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            <span className="truncate">{f.name || '(unnamed form)'}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+
+          {overwriteWarn && (
+            <Alert variant="warning">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                This form already has{' '}
+                {hasExistingConfig && hasExistingActions
+                  ? 'a due diligence configuration and stage actions'
+                  : hasExistingConfig
+                  ? 'a due diligence configuration'
+                  : 'stage actions configured'}
+                . Seeding will <span className="font-medium">overwrite</span> the existing config
+                and delete all of its current stage actions before copying.
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={seeding}
+            data-testid="button-seed-cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={!sourceFormId || seeding || sourceOptions.length === 0}
+            data-testid="button-seed-confirm"
+          >
+            {seeding ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Seeding…
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 mr-2" />
+                {overwriteWarn ? 'Overwrite & seed' : 'Seed configuration'}
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

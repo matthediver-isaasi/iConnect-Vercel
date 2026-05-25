@@ -20,8 +20,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { stageId } = req.query;
-      
+      const { stageId, formId, form_id: formIdSnake, configId, config_id: configIdSnake } = req.query;
+      const effectiveFormId = formId || formIdSnake;
+      const effectiveConfigId = configId || configIdSnake;
+
       let query = supabase
         .from('stage_meeting_request')
         .select(`
@@ -35,6 +37,12 @@ export default async function handler(req, res) {
 
       if (stageId && stageId !== 'undefined') {
         query = query.eq('due_diligence_stage_id', stageId);
+      }
+      if (effectiveFormId && effectiveFormId !== 'undefined') {
+        query = query.eq('form_id', effectiveFormId);
+      }
+      if (effectiveConfigId && effectiveConfigId !== 'undefined') {
+        query = query.eq('form_due_diligence_config_id', effectiveConfigId);
       }
 
       const { data, error } = await query;
@@ -59,7 +67,9 @@ export default async function handler(req, res) {
         recipient_email_field, 
         first_name_field,
         sort_order,
-        is_active 
+        is_active,
+        form_id,
+        form_due_diligence_config_id
       } = req.body;
 
       if (!due_diligence_stage_id) {
@@ -81,7 +91,9 @@ export default async function handler(req, res) {
           recipient_email_field,
           first_name_field: first_name_field || null,
           sort_order: sort_order || 0,
-          is_active: is_active !== false
+          is_active: is_active !== false,
+          form_id: form_id || null,
+          form_due_diligence_config_id: form_due_diligence_config_id || null
         })
         .select(`
           *,

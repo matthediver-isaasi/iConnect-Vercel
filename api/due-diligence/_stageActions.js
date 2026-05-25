@@ -516,7 +516,19 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
   try {
     // Fetch meeting request configs for this stage
     console.log('[DD Meeting Request] Querying stage_meeting_request for stageId:', stageId, 'tenantId:', tenantId);
-    const { data: meetingRequests, error: mrError } = await supabase
+    // First look up the form for this submission so we can scope by form_id.
+    let scopedFormId = null;
+    if (ddSubmission?.form_submission_id) {
+      const { data: subRow } = await supabase
+        .from('form_submission')
+        .select('form_id')
+        .eq('id', ddSubmission.form_submission_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      scopedFormId = subRow?.form_id || null;
+    }
+
+    let mrQuery = supabase
       .from('stage_meeting_request')
       .select(`
         *,
@@ -528,6 +540,31 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
+
+    if (scopedFormId) {
+      // Form-scoped rows take precedence; fall back to legacy form_id IS NULL
+      // rows below if no form-scoped match exists.
+      mrQuery = mrQuery.eq('form_id', scopedFormId);
+    }
+
+    let { data: meetingRequests, error: mrError } = await mrQuery;
+
+    if (!mrError && scopedFormId && (!meetingRequests || meetingRequests.length === 0)) {
+      const legacy = await supabase
+        .from('stage_meeting_request')
+        .select(`
+          *,
+          meeting_template:meeting_template_id (
+            id, name, slug, duration_minutes, meeting_type, email_template_id
+          )
+        `)
+        .eq('due_diligence_stage_id', stageId)
+        .eq('tenant_id', tenantId)
+        .is('form_id', null)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (!legacy.error) meetingRequests = legacy.data;
+    }
 
     if (mrError) {
       console.log('[DD Meeting Request] Query error:', mrError);

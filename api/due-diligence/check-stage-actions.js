@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     // Query stage_meeting_request for this stage
     console.log('[DD Check Stage Actions] Querying stage_meeting_request for stageId:', stageId);
-    const { data: meetingRequests, error: mrError } = await supabase
+    let mrQuery = supabase
       .from('stage_meeting_request')
       .select(`
         id,
@@ -57,6 +57,32 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantCtx.tenantId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
+
+    if (formId) {
+      // Form-scoped rows take precedence; fall back to legacy unscoped rows below.
+      mrQuery = mrQuery.eq('form_id', formId);
+    }
+
+    let { data: meetingRequests, error: mrError } = await mrQuery;
+
+    if (!mrError && formId && (!meetingRequests || meetingRequests.length === 0)) {
+      const legacy = await supabase
+        .from('stage_meeting_request')
+        .select(`
+          id,
+          due_diligence_stage_id,
+          is_active,
+          meeting_template:meeting_template_id (
+            id, name, slug, duration_minutes
+          )
+        `)
+        .eq('due_diligence_stage_id', stageId)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .is('form_id', null)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (!legacy.error) meetingRequests = legacy.data;
+    }
 
     console.log('[DD Check Stage Actions] stage_meeting_request query result:', {
       error: mrError,
