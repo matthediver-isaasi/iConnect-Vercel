@@ -22,7 +22,10 @@ import { triggerWorkflows } from './workflows.js';
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
 
-const TERMINAL_STATUSES = new Set(['paid', 'partial', 'voided']);
+// `paid` and `voided` are terminal — no further polling. `partial` is
+// NOT terminal because a partial invoice can still reach `paid` later,
+// and the workflow MUST fire on that final transition.
+const TERMINAL_STATUSES = new Set(['paid', 'voided']);
 
 /**
  * Reconcile a single membership history row by id.
@@ -64,12 +67,9 @@ export async function reconcileRow({ table, row, baseUrl = '' }) {
 
   const beforeStatus = row.payment_status || 'unpaid';
 
-  // Already settled — skip unless we need to flip to voided.
-  if (TERMINAL_STATUSES.has(beforeStatus) && beforeStatus !== 'unpaid') {
-    // We still want to flip an active row to 'voided' if the remote
-    // status indicates a void; otherwise no-op.
-    if (beforeStatus === 'voided') return skipped(table, recordId, 'already-voided');
-    // For 'paid' / 'partial' we don't need to refetch — caller can rely on terminal state.
+  // Skip rows that are already in a terminal state (paid/voided).
+  // `partial` rows continue to be polled so they can transition to paid.
+  if (TERMINAL_STATUSES.has(beforeStatus)) {
     return skipped(table, recordId, `already-${beforeStatus}`);
   }
 
@@ -112,9 +112,10 @@ export async function reconcileRow({ table, row, baseUrl = '' }) {
 
   console.log(`[membershipPaymentReconciliation] ${table}#${recordId} ${beforeStatus} -> ${afterStatus} (provider=${providerName}, invoice=${invoiceId})`);
 
-  // Workflow trigger — only on `unpaid -> paid` transitions.
-  // Voided / partial transitions are recorded but do NOT fire workflows.
-  if (beforeStatus === 'unpaid' && afterStatus === 'paid') {
+  // Workflow trigger — fire on any transition that reaches `paid`
+  // (e.g. `unpaid -> paid` AND `partial -> paid`). Voided / partial
+  // transitions are recorded but do NOT fire workflows.
+  if (afterStatus === 'paid' && beforeStatus !== 'paid') {
     try {
       await fireWorkflowForPaidRow({ table, row, snapshot, baseUrl });
     } catch (wfErr) {

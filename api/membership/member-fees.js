@@ -499,6 +499,41 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
       } catch (xeroErr) {
         console.error('[Member Fees] Xero invoice failed (non-fatal):', xeroErr.message);
       }
+
+      // Task #1017 — locate the freshly-inserted history row, persist the
+      // accounting invoice id/number on it, then fire the workflow via
+      // the shared reconciliation helper. Non-fatal on failure (the cron
+      // is the backstop).
+      if (xeroInvoice) {
+        try {
+          const { buildInvoiceColumnUpdate, getAccountingProvider } = await import('../_lib/accountingProvider.js');
+          const { reconcileMembershipInvoicePayment } = await import('../_lib/membershipPaymentReconciliation.js');
+          const { data: histRow } = await supabase
+            .from('organisation_membership_history')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('organization_id', organizationId)
+            .eq('stripe_payment_intent_id', paymentIntentId)
+            .maybeSingle();
+          if (histRow?.id) {
+            const provider = await getAccountingProvider(tenantId);
+            await supabase
+              .from('organisation_membership_history')
+              .update(buildInvoiceColumnUpdate({
+                invoice_id: xeroInvoice.invoice_id,
+                invoice_number: xeroInvoice.invoice_number,
+                provider: provider.name,
+              }))
+              .eq('id', histRow.id);
+            await reconcileMembershipInvoicePayment({
+              table: 'organisation_membership_history',
+              recordId: histRow.id,
+            });
+          }
+        } catch (reconcileErr) {
+          console.warn('[Member Fees] inline org payment reconciliation failed (non-fatal):', reconcileErr.message);
+        }
+      }
     }
 
     try {
@@ -829,6 +864,38 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
         });
       } catch (xeroErr) {
         console.error('[Member Fees] Xero invoice failed for member (non-fatal):', xeroErr.message);
+      }
+
+      // Task #1017 — fire workflow immediately for the member-scoped flow.
+      if (xeroInvoice) {
+        try {
+          const { buildInvoiceColumnUpdate, getAccountingProvider } = await import('../_lib/accountingProvider.js');
+          const { reconcileMembershipInvoicePayment } = await import('../_lib/membershipPaymentReconciliation.js');
+          const { data: histRow } = await supabase
+            .from('member_membership_history')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('member_id', memberId)
+            .eq('stripe_payment_intent_id', paymentIntentId)
+            .maybeSingle();
+          if (histRow?.id) {
+            const provider = await getAccountingProvider(tenantId);
+            await supabase
+              .from('member_membership_history')
+              .update(buildInvoiceColumnUpdate({
+                invoice_id: xeroInvoice.invoice_id,
+                invoice_number: xeroInvoice.invoice_number,
+                provider: provider.name,
+              }))
+              .eq('id', histRow.id);
+            await reconcileMembershipInvoicePayment({
+              table: 'member_membership_history',
+              recordId: histRow.id,
+            });
+          }
+        } catch (reconcileErr) {
+          console.warn('[Member Fees] inline member payment reconciliation failed (non-fatal):', reconcileErr.message);
+        }
       }
     }
 

@@ -626,7 +626,7 @@ export default async function handler(req, res) {
                 } catch {}
               }
             } else {
-              const { getAccountingProvider } = await import('../../_lib/accountingProvider.js');
+              const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
               const { data: org } = await supabase
                 .from('organization')
                 .select('name, invoicing_address, invoicing_email')

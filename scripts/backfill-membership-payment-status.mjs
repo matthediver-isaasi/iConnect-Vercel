@@ -28,6 +28,20 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
+// The provider helpers (`api/_lib/xero.js`, `api/_lib/quickbooks.js`)
+// import `api/_lib/database.js`, which reads `SUPABASE_URL` /
+// `SUPABASE_SERVICE_KEY`. In this workspace those env vars may not be
+// set — only the `DEST_*` ones are. Mirror them across BEFORE any
+// `api/_lib/*` module is imported so the provider's internal Supabase
+// client is configured against the same destination DB the script
+// itself uses.
+if (!process.env.SUPABASE_URL && process.env.DEST_SUPABASE_URL) {
+  process.env.SUPABASE_URL = process.env.DEST_SUPABASE_URL;
+}
+if (!process.env.SUPABASE_SERVICE_KEY && process.env.DEST_SUPABASE_KEY) {
+  process.env.SUPABASE_SERVICE_KEY = process.env.DEST_SUPABASE_KEY;
+}
+
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const [k, v] = a.replace(/^--/, '').split('=');
