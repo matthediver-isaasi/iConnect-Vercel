@@ -4,6 +4,7 @@ import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOv
 import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
+import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from './membershipYear.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
   const {
@@ -373,14 +374,22 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
       if (isPercentIncentive) {
         const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
 
-        const startMonth = config.membership_start_month || 1;
-        const startDay = config.membership_start_day || 1;
         const joinMidnight = new Date(effectiveJoinDate);
         joinMidnight.setHours(0, 0, 0, 0);
-        const joinYear = joinMidnight.getFullYear();
-        const y1Start = new Date(joinYear, startMonth - 1, startDay);
-        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
-        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        let firstYearStart;
+        let firstYearEnd;
+        if (config.start_mode === 'immediate') {
+          firstYearStart = new Date(joinMidnight);
+          firstYearEnd = new Date(joinMidnight);
+          firstYearEnd.setFullYear(firstYearEnd.getFullYear() + 1);
+        } else {
+          const startMonth = config.membership_start_month || 1;
+          const startDay = config.membership_start_day || 1;
+          const joinYear = joinMidnight.getFullYear();
+          const y1Start = new Date(joinYear, startMonth - 1, startDay);
+          firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
+          firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        }
         const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
         const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
 
@@ -701,37 +710,11 @@ async function getBandsForConfig(configId, tenantId) {
 
 
 function calculateMembershipYear(config) {
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const yearStart = new Date(currentYear, startMonth - 1, startDay);
-
-  if (now < yearStart) {
-    return {
-      label: `${currentYear - 1}/${currentYear}`,
-      start: new Date(currentYear - 1, startMonth - 1, startDay),
-      end: new Date(currentYear, startMonth - 1, startDay - 1),
-    };
-  }
-  return {
-    label: `${currentYear}/${currentYear + 1}`,
-    start: yearStart,
-    end: new Date(currentYear + 1, startMonth - 1, startDay - 1),
-  };
+  return calculateMembershipYearWindow(config);
 }
 
 function calculateNextMembershipYear(config) {
-  const current = calculateMembershipYear(config);
-  const nextStart = new Date(current.end);
-  nextStart.setDate(nextStart.getDate() + 1);
-  const startMonth = config.membership_start_month || 1;
-  const nextYear = nextStart.getFullYear();
-  return {
-    label: `${nextYear}/${nextYear + 1}`,
-    start: nextStart,
-    end: new Date(nextYear + 1, startMonth - 1, (config.membership_start_day || 1) - 1),
-  };
+  return calculateNextMembershipYearWindow(config);
 }
 
 function calculateFreePeriodDiscount(annualCost, config) {
@@ -793,6 +776,10 @@ function getFreeMonths(config) {
 
 function determineMembershipYearNumber(goLiveDate, targetYear, config) {
   if (!goLiveDate) return 99;
+
+  if (config?.start_mode === 'immediate') {
+    return 1;
+  }
 
   const goLive = new Date(goLiveDate);
   if (isNaN(goLive.getTime())) return 99;
@@ -1290,14 +1277,22 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     if (isNewMember && config.free_period_amount && config.free_period_unit && config.rollover_enabled) {
       if (isPercentIncentive) {
         const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
-        const startMonth = config.membership_start_month || 1;
-        const startDay = config.membership_start_day || 1;
         const joinMidnight = new Date(effectiveJoinDate);
         joinMidnight.setHours(0, 0, 0, 0);
-        const joinDateYear = joinMidnight.getFullYear();
-        const y1Start = new Date(joinDateYear, startMonth - 1, startDay);
-        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinDateYear - 1, startMonth - 1, startDay);
-        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        let firstYearStart;
+        let firstYearEnd;
+        if (config.start_mode === 'immediate') {
+          firstYearStart = new Date(joinMidnight);
+          firstYearEnd = new Date(joinMidnight);
+          firstYearEnd.setFullYear(firstYearEnd.getFullYear() + 1);
+        } else {
+          const startMonth = config.membership_start_month || 1;
+          const startDay = config.membership_start_day || 1;
+          const joinDateYear = joinMidnight.getFullYear();
+          const y1Start = new Date(joinDateYear, startMonth - 1, startDay);
+          firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinDateYear - 1, startMonth - 1, startDay);
+          firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        }
         const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
         const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
 

@@ -3,6 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { matchBand } from '../_lib/tierBandMatcher.js';
+import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -62,39 +63,11 @@ async function getBandsForConfig(configId, tenantId) {
 
 
 function calculateMembershipYear(config) {
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-
-  const yearStart = new Date(currentYear, startMonth - 1, startDay);
-
-  if (now < yearStart) {
-    return {
-      label: `${currentYear - 1}/${currentYear}`,
-      start: new Date(currentYear - 1, startMonth - 1, startDay),
-      end: new Date(currentYear, startMonth - 1, startDay - 1),
-    };
-  }
-  return {
-    label: `${currentYear}/${currentYear + 1}`,
-    start: yearStart,
-    end: new Date(currentYear + 1, startMonth - 1, startDay - 1),
-  };
+  return calculateMembershipYearWindow(config);
 }
 
 function calculateNextMembershipYear(config) {
-  const current = calculateMembershipYear(config);
-  const nextStart = new Date(current.end);
-  nextStart.setDate(nextStart.getDate() + 1);
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const nextYear = nextStart.getFullYear();
-  return {
-    label: `${nextYear}/${nextYear + 1}`,
-    start: nextStart,
-    end: new Date(nextYear + 1, startMonth - 1, startDay - 1),
-  };
+  return calculateNextMembershipYearWindow(config);
 }
 
 function calculateProRata(annualCost, config, joinDate) {
@@ -188,6 +161,10 @@ async function getOrgGoLiveDate(orgId, goLiveFieldId) {
 
 function determineMembershipYearNumber(goLiveDate, targetYear, config) {
   if (!goLiveDate) return 99;
+
+  if (config?.start_mode === 'immediate') {
+    return 1;
+  }
 
   const goLive = new Date(goLiveDate);
   if (isNaN(goLive.getTime())) return 99;

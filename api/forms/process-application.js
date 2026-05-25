@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { triggerWorkflows } from '../_lib/workflows.js';
+import { calculateMembershipYearWindow } from '../_lib/membershipYear.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -2099,14 +2100,7 @@ export default async function handler(req, res) {
 
           const memberConfig = await getConfigForMember(effectiveTenantId, createdMemberId);
           if (memberConfig && memberConfig.structure_scope_type === 'member' && memberConfig.auto_approve_fees) {
-            const startMonth = memberConfig.membership_start_month || 1;
-            const startDay = memberConfig.membership_start_day || 1;
-            const now = new Date();
-            const currentYear = now.getFullYear();
-            const yearStart = new Date(currentYear, startMonth - 1, startDay);
-            const membershipYearLabel = now < yearStart
-              ? `${currentYear - 1}/${currentYear}`
-              : `${currentYear}/${currentYear + 1}`;
+            const membershipYearLabel = calculateMembershipYearWindow(memberConfig).label;
 
             const { data: existingInvoicing } = await supabase
               .from('member_membership_invoicing')
@@ -2147,14 +2141,7 @@ export default async function handler(req, res) {
           if (resolvedOrgId) {
             const orgConfig = await getConfigForOrganisation(effectiveTenantId, resolvedOrgId);
             if (orgConfig && orgConfig.auto_approve_fees) {
-              const startMonth = orgConfig.membership_start_month || 1;
-              const startDay = orgConfig.membership_start_day || 1;
-              const now = new Date();
-              const currentYear = now.getFullYear();
-              const yearStart = new Date(currentYear, startMonth - 1, startDay);
-              const membershipYearLabel = now < yearStart
-                ? `${currentYear - 1}/${currentYear}`
-                : `${currentYear}/${currentYear + 1}`;
+              const membershipYearLabel = calculateMembershipYearWindow(orgConfig).label;
 
               const { data: existingOrgInvoicing } = await supabase
                 .from('organisation_membership_invoicing')

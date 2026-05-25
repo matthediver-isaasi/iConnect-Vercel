@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getConfigForMember } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -99,35 +100,8 @@ async function handleGet(req, res, tenantId) {
     });
   }
 
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const now = new Date();
-  const currentCalYear = now.getFullYear();
-  const yearStart = new Date(currentCalYear, startMonth - 1, startDay);
-
-  let currentYear;
-  if (now < yearStart) {
-    currentYear = {
-      label: `${currentCalYear - 1}/${currentCalYear}`,
-      start: new Date(currentCalYear - 1, startMonth - 1, startDay),
-      end: new Date(currentCalYear, startMonth - 1, startDay - 1),
-    };
-  } else {
-    currentYear = {
-      label: `${currentCalYear}/${currentCalYear + 1}`,
-      start: yearStart,
-      end: new Date(currentCalYear + 1, startMonth - 1, startDay - 1),
-    };
-  }
-
-  const nextStart = new Date(currentYear.end);
-  nextStart.setDate(nextStart.getDate() + 1);
-  const nextCalYear = nextStart.getFullYear();
-  const nextYear = {
-    label: `${nextCalYear}/${nextCalYear + 1}`,
-    start: nextStart,
-    end: new Date(nextCalYear + 1, startMonth - 1, startDay - 1),
-  };
+  const currentYear = calculateMembershipYearWindow(config);
+  const nextYear = calculateNextMembershipYearWindow(config);
 
   let history = [];
   try {
