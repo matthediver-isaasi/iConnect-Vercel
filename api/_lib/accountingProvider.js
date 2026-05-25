@@ -181,13 +181,67 @@ export async function getAccountingConnectionStatus(appTenantId) {
     };
   }
   if (provider === PROVIDER_QUICKBOOKS) {
-    // Phase 1: no QBO tokens exist yet; report not connected.
-    return { provider, connected: false, tokens: [] };
+    const quickbooks = await getQuickBooksStatusSummary(appTenantId);
+    return {
+      provider,
+      connected: !!quickbooks.connected,
+      tokens: [],
+      quickbooks,
+    };
   }
   // Even when 'none' is active, fall through and report any latent
   // xero_token rows so the admin UI can show "previously connected".
   const tokens = await getXeroTokenSummaries(appTenantId);
-  return { provider: PROVIDER_NONE, connected: false, tokens };
+  const quickbooks = await getQuickBooksStatusSummary(appTenantId);
+  return { provider: PROVIDER_NONE, connected: false, tokens, quickbooks };
+}
+
+async function getQuickBooksTokenSummary(appTenantId) {
+  try {
+    const { data, error } = await supabase
+      .from('quickbooks_token')
+      .select('id, realm_id, company_name, environment, expires_at, updated_at, created_at')
+      .eq('app_tenant_id', appTenantId)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116' && error.code !== '42P01') {
+      console.warn('[accountingProvider] qbo token lookup failed:', error.message);
+    }
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+async function hasQuickBooksCredentials(appTenantId) {
+  try {
+    const { data, error } = await supabase
+      .from('tenant_integrations')
+      .select('id, is_enabled')
+      .eq('tenant_id', appTenantId)
+      .eq('integration_type', 'quickbooks')
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116' && error.code !== '42P01') {
+      console.warn('[accountingProvider] qbo integration lookup failed:', error.message);
+    }
+    return { has_credentials: !!data, is_enabled: !!(data && data.is_enabled) };
+  } catch {
+    return { has_credentials: false, is_enabled: false };
+  }
+}
+
+async function getQuickBooksStatusSummary(appTenantId) {
+  const [token, creds] = await Promise.all([
+    getQuickBooksTokenSummary(appTenantId),
+    hasQuickBooksCredentials(appTenantId),
+  ]);
+  const connected = !!(token && token.realm_id);
+  return {
+    ...(token || {}),
+    has_credentials: creds.has_credentials,
+    is_enabled: creds.is_enabled,
+    connected,
+    needs_connection: creds.has_credentials && !connected,
+  };
 }
 
 async function getXeroTokenSummaries(appTenantId) {

@@ -42,7 +42,7 @@ function decrypt(encryptedText) {
   }
 }
 
-const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising'];
+const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment'];
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};
@@ -144,7 +144,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'integration_type is required' });
       }
 
-      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe'];
+      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks'];
       if (!validTypes.includes(integration_type)) {
         return res.status(400).json({ error: 'Invalid integration type' });
       }

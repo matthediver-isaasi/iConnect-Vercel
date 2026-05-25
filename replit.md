@@ -7,7 +7,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Typecheck:** `npm run typecheck`
 -   **Codegen:** `npm run codegen`
 -   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — note this only works from environments with IPv6 outbound (see "Database connection" below); it will not run from this Replit workspace.
--   **Env Vars:** `DATABASE_URL` (the Supabase direct host — IPv6 only, see "Database connection"), `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`, `BROWSERLESS_API_TOKEN` (powers Accessibility Audits via browserless.io; optional `BROWSERLESS_BASE_URL`, `BROWSERLESS_AUDIT_TIMEOUT_MS`)
+-   **Env Vars:** `DATABASE_URL` (the Supabase direct host — IPv6 only, see "Database connection"), `STRIPE_SECRET_KEY`, `XERO_CLIENT_ID`, `MAILGUN_API_KEY`, `VITE_APP_URL`, `BROWSERLESS_API_TOKEN` (powers Accessibility Audits via browserless.io; optional `BROWSERLESS_BASE_URL`, `BROWSERLESS_AUDIT_TIMEOUT_MS`), optional `QUICKBOOKS_REDIRECT_URI` (overrides the default `${origin}/api/quickbooks/callback` used by the QBO OAuth flow — handy for forcing a stable redirect URI that matches the one registered in the Intuit Developer Portal)
 
 ## Database connection
 There are two Supabase projects this codebase talks to:

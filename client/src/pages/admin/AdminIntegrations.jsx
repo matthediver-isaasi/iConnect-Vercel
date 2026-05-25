@@ -27,7 +27,8 @@ import {
   Unplug,
   CreditCard,
   TestTube2,
-  BarChart3
+  BarChart3,
+  Building2
 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement } from "@stripe/react-stripe-js";
@@ -127,6 +128,23 @@ export default function AdminIntegrations() {
   const [hasXeroCredentials, setHasXeroCredentials] = useState(false);
   const [showXeroSecrets, setShowXeroSecrets] = useState(false);
   const [xeroTenantName, setXeroTenantName] = useState('');
+
+  const [accountingProvider, setAccountingProvider] = useState('none');
+  const [qbForm, setQbForm] = useState({
+    client_id: '',
+    client_secret: '',
+    environment: 'sandbox'
+  });
+  const [qbEnabled, setQbEnabled] = useState(false);
+  const [qbSaving, setQbSaving] = useState(false);
+  const [qbConnecting, setQbConnecting] = useState(false);
+  const [qbConnected, setQbConnected] = useState(false);
+  const [qbCompanyName, setQbCompanyName] = useState('');
+  const [qbEnvironmentConnected, setQbEnvironmentConnected] = useState('');
+  const [qbExpiresAt, setQbExpiresAt] = useState(null);
+  const [qbLastRefreshed, setQbLastRefreshed] = useState(null);
+  const [hasQbCredentials, setHasQbCredentials] = useState(false);
+  const [showQbSecrets, setShowQbSecrets] = useState(false);
 
   const [stripeForm, setStripeForm] = useState({
     secret_key: '',
@@ -232,14 +250,37 @@ export default function AdminIntegrations() {
           const token = data.tokens.find(t => t.tenant_id !== 'PENDING_SELECTION');
           setXeroTenantName(token?.tenant_name || '');
         }
-        return hasValidToken;
+
+        const qb = data.accounting?.quickbooks || null;
+        const qbValid = !!(qb && (qb.connected || qb.realm_id));
+        setQbConnected(qbValid);
+        setQbCompanyName(qb?.company_name || '');
+        setQbEnvironmentConnected(qb?.environment || '');
+        setQbExpiresAt(qb?.expires_at || null);
+        setQbLastRefreshed(qb?.updated_at || null);
+        if (qb && typeof qb.has_credentials === 'boolean') {
+          setHasQbCredentials(qb.has_credentials);
+        }
+
+        const activeProvider = data.accounting?.provider;
+        if (activeProvider === 'xero' || activeProvider === 'quickbooks') {
+          setAccountingProvider(activeProvider);
+        } else if (qbValid) {
+          setAccountingProvider('quickbooks');
+        } else if (hasValidToken) {
+          setAccountingProvider('xero');
+        }
+
+        return { xeroConnected: hasValidToken, qbConnected: qbValid };
       }
-      return false;
+      return { xeroConnected: false, qbConnected: false };
     } catch (err) {
       console.error('Failed to fetch Xero status:', err);
-      return false;
+      return { xeroConnected: false, qbConnected: false };
     }
   };
+
+  const fetchQuickBooksStatus = fetchXeroStatus;
 
   const fetchZohoWebhookUrl = async () => {
     try {
@@ -296,6 +337,19 @@ export default function AdminIntegrations() {
             setXeroForm({
               client_id: xeroIntegration.credentials.client_id || '',
               client_secret: xeroIntegration.credentials.client_secret || ''
+            });
+          }
+        }
+
+        const qbIntegration = data.integrations?.find(i => i.integration_type === 'quickbooks');
+        if (qbIntegration) {
+          setQbEnabled(qbIntegration.is_enabled);
+          setHasQbCredentials(qbIntegration.has_credentials);
+          if (qbIntegration.credentials) {
+            setQbForm({
+              client_id: qbIntegration.credentials.client_id || '',
+              client_secret: qbIntegration.credentials.client_secret || '',
+              environment: qbIntegration.credentials.environment === 'production' ? 'production' : 'sandbox'
             });
           }
         }
@@ -732,8 +786,8 @@ export default function AdminIntegrations() {
       window.open(authUrl, 'xero-auth', 'width=600,height=700');
       
       const checkInterval = setInterval(async () => {
-        const isConnected = await fetchXeroStatus();
-        if (isConnected) {
+        const status = await fetchXeroStatus();
+        if (status && status.xeroConnected) {
           clearInterval(checkInterval);
           setXeroConnecting(false);
           toast({
@@ -779,6 +833,128 @@ export default function AdminIntegrations() {
         description: "Failed to disconnect Xero account"
       });
     }
+  };
+
+  const handleSaveQuickBooks = async () => {
+    setQbSaving(true);
+    try {
+      const response = await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'quickbooks',
+          credentials: {
+            client_id: qbForm.client_id,
+            client_secret: qbForm.client_secret,
+            environment: qbForm.environment
+          },
+          is_enabled: qbEnabled
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast({ title: 'Saved', description: 'QuickBooks credentials saved successfully' });
+        setHasQbCredentials(true);
+        fetchIntegrations();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to save QuickBooks settings', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to save QuickBooks settings', variant: 'destructive' });
+    } finally {
+      setQbSaving(false);
+    }
+  };
+
+  const handleToggleQuickBooks = async (enabled) => {
+    setQbEnabled(enabled);
+    try {
+      await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_type: 'quickbooks', is_enabled: enabled })
+      });
+    } catch (err) {
+      console.error('Failed to toggle quickbooks:', err);
+    }
+  };
+
+  const handleConnectQuickBooks = async () => {
+    setQbConnecting(true);
+    try {
+      const response = await fetch('/api/quickbooks/auth-url', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to get auth URL');
+      }
+      const { authUrl } = await response.json();
+      window.open(authUrl, 'qbo-auth', 'width=700,height=800');
+
+      const checkInterval = setInterval(async () => {
+        const status = await fetchXeroStatus();
+        if (status && status.qbConnected) {
+          clearInterval(checkInterval);
+          setQbConnecting(false);
+          toast({ title: 'Connected', description: 'QuickBooks Online connected successfully' });
+        }
+      }, 2000);
+
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        setQbConnecting(false);
+        fetchXeroStatus();
+      }, 120000);
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: error.message || 'Failed to initiate QuickBooks connection'
+      });
+      setQbConnecting(false);
+    }
+  };
+
+  const handleDisconnectQuickBooks = async () => {
+    try {
+      const response = await fetch('/api/quickbooks/disconnect', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ removeCredentials: false })
+      });
+      if (response.ok) {
+        setQbConnected(false);
+        setQbCompanyName('');
+        setQbEnvironmentConnected('');
+        setQbExpiresAt(null);
+        setQbLastRefreshed(null);
+        toast({ title: 'Disconnected', description: 'QuickBooks account has been disconnected' });
+        fetchXeroStatus();
+      }
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to disconnect QuickBooks account' });
+    }
+  };
+
+  const handleAccountingProviderChange = (value) => {
+    const previous = accountingProvider;
+    if (value === previous) return;
+    if (value === 'quickbooks' && xeroConnected) {
+      if (!window.confirm('Switching to QuickBooks will disconnect your active Xero connection. Continue?')) {
+        return;
+      }
+    }
+    if (value === 'xero' && qbConnected) {
+      if (!window.confirm('Switching to Xero will disconnect your active QuickBooks connection. Continue?')) {
+        return;
+      }
+    }
+    setAccountingProvider(value);
   };
 
   const handleDisconnectZoho = async () => {
@@ -1423,6 +1599,44 @@ export default function AdminIntegrations() {
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <FileText className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-white">Accounting package</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Choose which accounting system to use for invoicing and credit notes.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <Label className="text-slate-300">Active provider</Label>
+                <Select value={accountingProvider} onValueChange={handleAccountingProviderChange}>
+                  <SelectTrigger
+                    className="bg-slate-800 border-slate-600 text-white"
+                    data-testid="select-accounting-provider"
+                  >
+                    <SelectValue placeholder="Select accounting package" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" data-testid="option-accounting-none">None</SelectItem>
+                    <SelectItem value="xero" data-testid="option-accounting-xero">Xero</SelectItem>
+                    <SelectItem value="quickbooks" data-testid="option-accounting-quickbooks">QuickBooks Online</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-400">
+                  Only one accounting provider can be active at a time. Connecting one will disconnect the other.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {accountingProvider === 'xero' && (
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
@@ -1602,6 +1816,223 @@ export default function AdminIntegrations() {
               )}
             </CardContent>
           </Card>
+          )}
+
+          {accountingProvider === 'quickbooks' && (
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">QuickBooks Online</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Create invoices and sync accounting data with QuickBooks Online
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {hasQbCredentials && (
+                    <Badge
+                      variant={qbEnabled ? "default" : "secondary"}
+                      className={qbEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}
+                    >
+                      {qbEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                  <Switch
+                    checked={qbEnabled}
+                    onCheckedChange={handleToggleQuickBooks}
+                    disabled={!hasQbCredentials}
+                    data-testid="switch-quickbooks-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <Plug className="h-4 w-4 text-slate-400" />
+                  OAuth2 Credentials
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Create an app in the{" "}
+                  <a
+                    href="https://developer.intuit.com/app/developer/myapps"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    Intuit Developer Portal
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="qb_environment" className="text-slate-300">Environment</Label>
+                    <Select
+                      value={qbForm.environment}
+                      onValueChange={(v) => setQbForm(prev => ({ ...prev, environment: v }))}
+                    >
+                      <SelectTrigger
+                        id="qb_environment"
+                        className="bg-slate-800 border-slate-600 text-white"
+                        data-testid="select-quickbooks-environment"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sandbox" data-testid="option-qb-env-sandbox">Sandbox (testing)</SelectItem>
+                        <SelectItem value="production" data-testid="option-qb-env-production">Production (live)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Match this to the keys configured for your Intuit app.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="qb_client_id" className="text-slate-300">Client ID</Label>
+                    <Input
+                      id="qb_client_id"
+                      type={showQbSecrets ? "text" : "password"}
+                      value={qbForm.client_id}
+                      onChange={(e) => setQbForm(prev => ({ ...prev, client_id: e.target.value }))}
+                      placeholder="Enter your QuickBooks Client ID"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-quickbooks-client-id"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="qb_client_secret" className="text-slate-300">Client Secret</Label>
+                    <Input
+                      id="qb_client_secret"
+                      type={showQbSecrets ? "text" : "password"}
+                      value={qbForm.client_secret}
+                      onChange={(e) => setQbForm(prev => ({ ...prev, client_secret: e.target.value }))}
+                      placeholder="Enter your QuickBooks Client Secret"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-quickbooks-client-secret"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowQbSecrets(!showQbSecrets)}
+                      className="text-slate-400 hover:text-white"
+                      data-testid="button-toggle-quickbooks-secrets"
+                    >
+                      {showQbSecrets ? (
+                        <><EyeOff className="h-4 w-4 mr-2" /> Hide values</>
+                      ) : (
+                        <><Eye className="h-4 w-4 mr-2" /> Show values</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2">Redirect URI</h4>
+                <p className="text-xs text-slate-400 mb-2">
+                  Add this redirect URI in your Intuit app settings (for both Development and Production keys):
+                </p>
+                <code className="text-xs bg-slate-800 px-2 py-1 rounded text-blue-400 block" data-testid="text-quickbooks-redirect-uri">
+                  {typeof window !== 'undefined' ? `${window.location.origin}/api/quickbooks/callback` : '/api/quickbooks/callback'}
+                </code>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  onClick={handleSaveQuickBooks}
+                  disabled={qbSaving}
+                  className="bg-primary hover:bg-primary/90"
+                  data-testid="button-save-quickbooks"
+                >
+                  {qbSaving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save Credentials
+                </Button>
+
+                {hasQbCredentials && !qbConnected && (
+                  <Button
+                    onClick={handleConnectQuickBooks}
+                    disabled={qbConnecting}
+                    className="bg-blue-500 hover:bg-blue-600"
+                    data-testid="button-connect-quickbooks"
+                  >
+                    {qbConnecting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plug className="h-4 w-4 mr-2" />
+                    )}
+                    Connect QuickBooks
+                  </Button>
+                )}
+              </div>
+
+              {hasQbCredentials && qbConnected && (
+                <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-green-400" data-testid="text-quickbooks-connected">
+                          Connected to {qbCompanyName || 'QuickBooks'}
+                          {qbEnvironmentConnected ? ` (${qbEnvironmentConnected === 'sandbox' ? 'Sandbox' : 'Production'})` : ''}
+                        </p>
+                        {qbExpiresAt && (
+                          <p className="text-xs text-slate-400">
+                            Token expires: {new Date(qbExpiresAt).toLocaleString()}
+                          </p>
+                        )}
+                        {qbLastRefreshed && (
+                          <p className="text-xs text-slate-400">
+                            Last refreshed: {new Date(qbLastRefreshed).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDisconnectQuickBooks}
+                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                      data-testid="button-disconnect-quickbooks"
+                    >
+                      <Unplug className="h-4 w-4 mr-2" />
+                      Disconnect
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {hasQbCredentials && !qbConnected && (
+                <div className="rounded-lg bg-warning/10 p-4 border border-warning/30">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-warning" />
+                    <div>
+                      <p className="text-sm font-medium text-warning">Not Connected</p>
+                      <p className="text-xs text-slate-400">
+                        Click "Connect QuickBooks" to authorize access to your QuickBooks company.
+                        {xeroConnected && ' This will disconnect your current Xero connection.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          )}
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
