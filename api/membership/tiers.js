@@ -585,7 +585,7 @@ async function validateFeeLinkEmailTemplate(tenantId, templateId) {
   if (error || !tpl) {
     return { ok: false, error: 'Selected fee-link email template could not be found for this tenant' };
   }
-  if (!/\{\{\s*payment_link\s*\}\}/i.test(tpl.body || '')) {
+  if (!/\{\{\s*payment_link\s*\}\}/.test(tpl.body || '')) {
     return {
       ok: false,
       field: 'fee_link_email_template_id',

@@ -31,7 +31,7 @@ async function loadFeeLinkTemplate(client, tenantId, templateId) {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (!data || data.is_active === false) return null;
-    if (!/\{\{\s*payment_link\s*\}\}/i.test(data.body || '')) {
+    if (!/\{\{\s*payment_link\s*\}\}/.test(data.body || '')) {
       console.warn(
         `[FeeTokenEmail] Tier-configured template ${templateId} no longer contains {{payment_link}}; ` +
         `falling back to system default.`
