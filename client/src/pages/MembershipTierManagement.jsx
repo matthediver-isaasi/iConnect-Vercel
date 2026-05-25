@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown, Copy
+  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -73,7 +73,18 @@ const WIZARD_STEPS = [
   { number: 3, label: 'Period', subtitle: 'Set membership year settings' },
   { number: 4, label: 'Discounts', subtitle: 'Configure discounts and free periods' },
   { number: 5, label: 'Pricing', subtitle: 'Set currency and pricing details' },
-  { number: 6, label: 'Summary', subtitle: 'Review and save your configuration' },
+  { number: 6, label: 'Reminders', subtitle: 'Configure renewal email reminders' },
+  { number: 7, label: 'Summary', subtitle: 'Review and save your configuration' },
+];
+
+const REMINDER_OFFSET_UNITS = [
+  { value: 'days', label: 'Days' },
+  { value: 'weeks', label: 'Weeks' },
+];
+
+const REMINDER_DIRECTIONS = [
+  { value: 'before', label: 'Before renewal' },
+  { value: 'after', label: 'After renewal' },
 ];
 
 function StepIndicator({ currentStep, onStepClick }) {
@@ -260,13 +271,14 @@ export default function MembershipTierManagement() {
   const [bands, setBands] = useState([]);
   const [discounts, setDiscounts] = useState([]);
   const [vatOverrides, setVatOverrides] = useState([]);
+  const [reminders, setReminders] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [wizardStep, setWizardStep] = useState(6);
+  const [wizardStep, setWizardStep] = useState(7);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -325,6 +337,18 @@ export default function MembershipTierManagement() {
       if (!response.ok) return [];
       const result = await response.json();
       return result.data || [];
+    },
+  });
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['/api/entities/EmailTemplate'],
+    queryFn: async () => {
+      try {
+        const list = await base44.entities.EmailTemplate.list();
+        return Array.isArray(list) ? list.filter(t => t.is_active !== false) : [];
+      } catch {
+        return [];
+      }
     },
   });
 
@@ -426,13 +450,17 @@ export default function MembershipTierManagement() {
         discount_value: d.discount_value?.toString() || '0',
       })));
       setVatOverrides(historicalData.vatOverrides || []);
+      setReminders((historicalData.reminders || []).map(r => ({
+        ...r,
+        offset_value: r.offset_value?.toString() ?? '0',
+      })));
       setHasChanges(false);
       setIsCreatingNew(false);
-      setWizardStep(6);
+      setWizardStep(7);
     }
   }, [viewingHistorical, historicalData]);
 
-  const loadConfigIntoState = (c, configBands, configDiscounts, configVatOverrides) => {
+  const loadConfigIntoState = (c, configBands, configDiscounts, configVatOverrides, configReminders) => {
     const inferredPricingModel = c.pricing_model || 'tiered';
     const inferredStartMode = c.start_mode || 'fixed_date';
     const inferredFlatCost = c.flat_cost ?? null;
@@ -484,19 +512,24 @@ export default function MembershipTierManagement() {
       discount_value: d.discount_value?.toString() || '0',
     })));
     setVatOverrides(configVatOverrides || []);
+    setReminders((configReminders || []).map(r => ({
+      ...r,
+      offset_value: r.offset_value?.toString() ?? '0',
+    })));
     setHasChanges(false);
   };
 
   useEffect(() => {
     if (tierData && !viewingHistorical && !isCreatingNew) {
       if (tierData.config) {
-        loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts, tierData.vatOverrides);
+        loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts, tierData.vatOverrides, tierData.reminders);
         setSelectedActiveConfigId(tierData.config.id);
-        setWizardStep(6);
+        setWizardStep(7);
       } else {
         setBands([]);
         setDiscounts([]);
         setVatOverrides([]);
+        setReminders([]);
         setHasChanges(false);
       }
     }
@@ -662,6 +695,8 @@ export default function MembershipTierManagement() {
       case 4:
         return true;
       case 5:
+        return true;
+      case 6:
         if (config.pricing_model === 'tiered') {
           if (bands.length === 0) { toast.error('Please add at least one tier band'); return false; }
           if (isTextBasisField) {
@@ -691,7 +726,7 @@ export default function MembershipTierManagement() {
           }
         }
         return true;
-      case 6:
+      case 7:
         return true;
       default:
         return true;
@@ -700,7 +735,7 @@ export default function MembershipTierManagement() {
 
   const handleNext = () => {
     if (validateStep(wizardStep)) {
-      setWizardStep(prev => Math.min(prev + 1, 6));
+      setWizardStep(prev => Math.min(prev + 1, 7));
     }
   };
 
@@ -764,9 +799,54 @@ export default function MembershipTierManagement() {
         vat_rate: v.vat_rate || null,
         label: v.label || null,
       })),
+      reminders: reminders.map(r => ({
+        label: r.label || null,
+        offset_value: parseInt(r.offset_value, 10) || 0,
+        offset_unit: r.offset_unit === 'weeks' ? 'weeks' : 'days',
+        direction: r.direction === 'after' ? 'after' : 'before',
+        email_template_id: r.email_template_id || null,
+        recipient_role_ids: Array.isArray(r.recipient_role_ids) ? r.recipient_role_ids : [],
+        is_active: r.is_active !== false,
+      })),
     };
 
     saveMutation.mutate(payload);
+  };
+
+  const addReminder = () => {
+    setReminders(prev => [...prev, {
+      id: `new-${Date.now()}-${Math.random()}`,
+      label: '',
+      offset_value: '7',
+      offset_unit: 'days',
+      direction: 'before',
+      email_template_id: null,
+      recipient_role_ids: [],
+      is_active: true,
+    }]);
+    setHasChanges(true);
+  };
+
+  const updateReminder = (index, key, value) => {
+    setReminders(prev => prev.map((r, i) => i === index ? { ...r, [key]: value } : r));
+    setHasChanges(true);
+  };
+
+  const removeReminder = (index) => {
+    setReminders(prev => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+
+  const toggleReminderRole = (index, roleId, checked) => {
+    setReminders(prev => prev.map((r, i) => {
+      if (i !== index) return r;
+      const current = Array.isArray(r.recipient_role_ids) ? r.recipient_role_ids : [];
+      const updated = checked
+        ? Array.from(new Set([...current, roleId]))
+        : current.filter(id => id !== roleId);
+      return { ...r, recipient_role_ids: updated };
+    }));
+    setHasChanges(true);
   };
 
   const handleCreateNew = () => {
@@ -831,6 +911,15 @@ export default function MembershipTierManagement() {
       })));
     } else {
       setVatOverrides([]);
+    }
+    if (tierData?.reminders?.length > 0) {
+      setReminders(tierData.reminders.map(r => ({
+        ...r,
+        id: `new-${Date.now()}-${Math.random()}`,
+        offset_value: r.offset_value?.toString() ?? '0',
+      })));
+    } else {
+      setReminders([]);
     }
     setHasChanges(true);
     setShowHistory(false);
@@ -899,6 +988,11 @@ export default function MembershipTierManagement() {
         ...v,
         id: genId(),
       })));
+      setReminders((data.reminders || []).map(r => ({
+        ...r,
+        id: genId(),
+        offset_value: r.offset_value?.toString() ?? '0',
+      })));
       setHasChanges(true);
       setShowHistory(false);
       setShowPreview(false);
@@ -916,11 +1010,11 @@ export default function MembershipTierManagement() {
       if (!response.ok) throw new Error('Failed to fetch config');
       const data = await response.json();
       if (data.config) {
-        loadConfigIntoState(data.config, data.bands, data.discounts, data.vatOverrides);
+        loadConfigIntoState(data.config, data.bands, data.discounts, data.vatOverrides, data.reminders);
         setSelectedActiveConfigId(configId);
         setViewingHistorical(null);
         setIsCreatingNew(false);
-        setWizardStep(6);
+        setWizardStep(7);
       }
     } catch (err) {
       toast.error('Failed to load this tier structure');
@@ -932,14 +1026,14 @@ export default function MembershipTierManagement() {
     setIsCreatingNew(false);
     setShowHistory(false);
     setShowPreview(false);
-    setWizardStep(6);
+    setWizardStep(7);
   };
 
   const handleBackToCurrent = () => {
     setViewingHistorical(null);
     setIsCreatingNew(false);
     setHasChanges(false);
-    setWizardStep(6);
+    setWizardStep(7);
   };
 
   const selectedFieldKey = config.field_source === 'core'
@@ -2331,6 +2425,188 @@ export default function MembershipTierManagement() {
   const renderStep6 = () => (
     <Card>
       <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Bell className="w-5 h-5" />
+          Renewal Reminders
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Configure email reminders sent before or after each renewal date. Each reminder fires once per renewal cycle for every {config.structure_scope_type === 'member' ? 'eligible member' : 'organisation'}.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {reminders.length === 0 ? (
+          <div className="border border-dashed rounded-md p-6 text-center text-sm text-muted-foreground" data-testid="text-no-reminders">
+            <Mail className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p>No reminders configured yet.</p>
+            <p className="text-xs mt-1">Add a reminder to email members ahead of (or after) their renewal date.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {reminders.map((reminder, index) => {
+              const selectedRoles = Array.isArray(reminder.recipient_role_ids) ? reminder.recipient_role_ids : [];
+              return (
+                <Card key={reminder.id || index} className="p-4 space-y-3" data-testid={`card-reminder-${index}`}>
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[160px] space-y-1">
+                      <Label className="text-xs">Label (optional)</Label>
+                      <Input
+                        value={reminder.label || ''}
+                        onChange={(e) => updateReminder(index, 'label', e.target.value)}
+                        placeholder="e.g. 30-day renewal notice"
+                        disabled={!isEditable}
+                        data-testid={`input-reminder-label-${index}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 pt-5">
+                        <Switch
+                          checked={reminder.is_active !== false}
+                          onCheckedChange={(v) => updateReminder(index, 'is_active', v)}
+                          disabled={!isEditable}
+                          data-testid={`switch-reminder-active-${index}`}
+                        />
+                        <span className="text-xs text-muted-foreground">{reminder.is_active !== false ? 'Active' : 'Paused'}</span>
+                      </div>
+                      {isEditable && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeReminder(index)}
+                          className="mt-4"
+                          data-testid={`button-remove-reminder-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Offset</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={reminder.offset_value ?? ''}
+                        onChange={(e) => updateReminder(index, 'offset_value', e.target.value)}
+                        disabled={!isEditable}
+                        data-testid={`input-reminder-offset-${index}`}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Unit</Label>
+                      <Select
+                        value={reminder.offset_unit || 'days'}
+                        onValueChange={(v) => updateReminder(index, 'offset_unit', v)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid={`select-reminder-unit-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REMINDER_OFFSET_UNITS.map(u => (
+                            <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">When</Label>
+                      <Select
+                        value={reminder.direction || 'before'}
+                        onValueChange={(v) => updateReminder(index, 'direction', v)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid={`select-reminder-direction-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REMINDER_DIRECTIONS.map(d => (
+                            <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">Email Template</Label>
+                    <Select
+                      value={reminder.email_template_id || '__none'}
+                      onValueChange={(v) => updateReminder(index, 'email_template_id', v === '__none' ? null : v)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-reminder-template-${index}`}>
+                        <SelectValue placeholder="Select an email template" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">— Select template —</SelectItem>
+                        {emailTemplates.map(tpl => (
+                          <SelectItem key={tpl.id} value={tpl.id}>
+                            {tpl.name || tpl.subject || tpl.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {emailTemplates.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No email templates available. Create one in Email Templates first.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">Send to members with these roles</Label>
+                    <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
+                      {invoiceRecipientRoles.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No roles available</p>
+                      ) : (
+                        invoiceRecipientRoles.map(role => {
+                          const isChecked = selectedRoles.includes(role.id);
+                          return (
+                            <div key={role.id} className="flex items-center gap-2">
+                              <Checkbox
+                                id={`reminder-${index}-role-${role.id}`}
+                                checked={isChecked}
+                                onCheckedChange={(checked) => toggleReminderRole(index, role.id, !!checked)}
+                                disabled={!isEditable}
+                                data-testid={`checkbox-reminder-${index}-role-${role.id}`}
+                              />
+                              <label htmlFor={`reminder-${index}-role-${role.id}`} className="text-sm cursor-pointer">
+                                {role.name}
+                              </label>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {config.structure_scope_type === 'member'
+                        ? 'Only members assigned one of the selected roles will receive this reminder.'
+                        : 'Members within each organisation who have one of the selected roles will receive this reminder.'}
+                    </p>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {isEditable && (
+          <Button
+            variant="outline"
+            onClick={addReminder}
+            data-testid="button-add-reminder"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Reminder
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep7 = () => (
+    <Card>
+      <CardHeader>
         <CardTitle className="text-lg" data-testid="text-config-title">
           {isHistoricalView ? 'Historical Configuration' : 'Configuration Summary'}
         </CardTitle>
@@ -2515,6 +2791,19 @@ export default function MembershipTierManagement() {
           ))}
         </div>
 
+        <div className="pt-4">
+          {renderSummarySection('Reminders', 6, (
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Renewal Reminders</span>
+              <span className="font-medium" data-testid="text-summary-reminders">
+                {reminders.length === 0
+                  ? 'None'
+                  : `${reminders.length} reminder${reminders.length === 1 ? '' : 's'} (${reminders.filter(r => r.is_active !== false).length} active)`}
+              </span>
+            </div>
+          ))}
+        </div>
+
         {isEditable && (
           <div className="pt-6">
             <Button
@@ -2540,6 +2829,7 @@ export default function MembershipTierManagement() {
       case 4: return renderStep4();
       case 5: return renderStep5();
       case 6: return renderStep6();
+      case 7: return renderStep7();
       default: return null;
     }
   };
@@ -2717,7 +3007,7 @@ export default function MembershipTierManagement() {
           <>
             <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
             {renderWizardContent()}
-            {wizardStep < 6 && isEditable && (
+            {wizardStep < 7 && isEditable && (
               <div className="flex items-center justify-between gap-2 mt-6">
                 <Button
                   variant="outline"
@@ -2737,7 +3027,7 @@ export default function MembershipTierManagement() {
                 </Button>
               </div>
             )}
-            {wizardStep > 1 && wizardStep < 6 && !isEditable && (
+            {wizardStep > 1 && wizardStep < 7 && !isEditable && (
               <div className="flex items-center justify-between gap-2 mt-6">
                 <Button
                   variant="outline"
@@ -2748,7 +3038,7 @@ export default function MembershipTierManagement() {
                   Back
                 </Button>
                 <Button
-                  onClick={() => setWizardStep(prev => Math.min(prev + 1, 6))}
+                  onClick={() => setWizardStep(prev => Math.min(prev + 1, 7))}
                   data-testid="button-wizard-next"
                 >
                   Next

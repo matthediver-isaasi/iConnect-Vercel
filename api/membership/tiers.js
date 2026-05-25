@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
+import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -76,10 +77,12 @@ async function handleGet(req, res, tenantId) {
   let bands = [];
   let discounts = [];
   let vatOverrides = [];
+  let reminders = [];
   if (firstConfig) {
     bands = await getBandsForConfig(firstConfig.id, tenantId);
     discounts = await getDiscountsForConfig(firstConfig.id, tenantId);
     vatOverrides = await getVatOverridesForConfig(firstConfig.id, tenantId);
+    reminders = await getRemindersForConfig(firstConfig.id, tenantId);
   }
 
   const { data: allConfigs } = await supabase
@@ -93,6 +96,7 @@ async function handleGet(req, res, tenantId) {
     bands,
     discounts,
     vatOverrides,
+    reminders,
     activeConfigs: configs,
     history: allConfigs || []
   });
@@ -146,12 +150,14 @@ async function getConfigById(req, res, tenantId, configId) {
   const bands = await getBandsForConfig(config.id, tenantId);
   const discounts = await getDiscountsForConfig(config.id, tenantId);
   const vatOverrides = await getVatOverridesForConfig(config.id, tenantId);
+  const reminders = await getRemindersForConfig(config.id, tenantId);
 
   return res.json({
     config,
     bands,
     discounts,
     vatOverrides,
+    reminders,
     isHistorical: config.effective_to !== null
   });
 }
@@ -568,7 +574,7 @@ function validateBands(bands, basisField) {
 }
 
 async function handlePost(req, res, tenantId) {
-  let { config, bands, discounts, vatOverrides } = req.body;
+  let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
   if (!config) {
     return res.status(400).json({ error: 'Configuration is required' });
@@ -690,10 +696,15 @@ async function handlePost(req, res, tenantId) {
       await saveVatOverridesForConfig(data.id, tenantId, vatOverrides);
     }
 
+    if (reminders && Array.isArray(reminders)) {
+      await saveRemindersForConfig(data.id, tenantId, reminders);
+    }
+
     const savedBands = await getBandsForConfig(data.id, tenantId);
     const savedDiscounts = await getDiscountsForConfig(data.id, tenantId);
     const savedVatOverrides = await getVatOverridesForConfig(data.id, tenantId);
-    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts, vatOverrides: savedVatOverrides });
+    const savedReminders = await getRemindersForConfig(data.id, tenantId);
+    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts, vatOverrides: savedVatOverrides, reminders: savedReminders });
   }
 
   const structureFieldId = config.structure_field_id || null;
@@ -806,9 +817,14 @@ async function handlePost(req, res, tenantId) {
     await saveVatOverridesForConfig(newConfig.id, tenantId, vatOverrides);
   }
 
+  if (reminders && Array.isArray(reminders) && reminders.length > 0) {
+    await saveRemindersForConfig(newConfig.id, tenantId, reminders);
+  }
+
   const savedBands = await getBandsForConfig(newConfig.id, tenantId);
   const savedDiscounts = await getDiscountsForConfig(newConfig.id, tenantId);
   const savedVatOverrides = await getVatOverridesForConfig(newConfig.id, tenantId);
+  const savedReminders = await getRemindersForConfig(newConfig.id, tenantId);
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
@@ -821,6 +837,7 @@ async function handlePost(req, res, tenantId) {
     bands: savedBands,
     discounts: savedDiscounts,
     vatOverrides: savedVatOverrides,
+    reminders: savedReminders,
     history: allConfigs || []
   });
 }

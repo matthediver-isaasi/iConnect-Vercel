@@ -4,6 +4,7 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/m
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { processTenantReminders } from '../_lib/membershipReminders.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -73,6 +74,14 @@ export default async function handler(req, res) {
           console.error(`[cron/process-membership-renewals] Error processing member renewals for tenant ${tenantId}:`, memberErr);
           results.errors++;
           results.details.push({ tenantId, error: `Member renewals: ${memberErr.message}` });
+        }
+
+        try {
+          await processTenantReminders(tenantId, results);
+        } catch (reminderErr) {
+          console.error(`[cron/process-membership-renewals] Error processing reminders for tenant ${tenantId}:`, reminderErr);
+          results.errors++;
+          results.details.push({ tenantId, error: `Reminders: ${reminderErr.message}` });
         }
       }
     }
