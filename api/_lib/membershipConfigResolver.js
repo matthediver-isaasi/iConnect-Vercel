@@ -62,6 +62,65 @@ export async function getConfigForOrganisation(tenantId, organisationId, fieldOv
   return unscoped[0] || null;
 }
 
+function fallbackFieldLabel(config) {
+  if (!config) return 'Value';
+  if (config.field_source === 'core' && config.field_name === 'member_count') return 'Member Count';
+  return config.field_name || 'Value';
+}
+
+export async function resolveBasisFieldLabel(config, tenantId) {
+  if (!config) return 'Value';
+  if (config.field_source === 'custom' && config.field_id) {
+    try {
+      const { data } = await supabase
+        .from('preference_field')
+        .select('label, name')
+        .eq('id', config.field_id)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (data) return data.label || data.name || fallbackFieldLabel(config);
+    } catch (err) {
+      console.warn('[membershipConfigResolver] resolveBasisFieldLabel error:', err.message);
+    }
+  }
+  return fallbackFieldLabel(config);
+}
+
+export async function resolveBasisFieldLabels(configs, tenantId) {
+  const labels = new Map();
+  const fieldIds = [];
+  for (const config of configs || []) {
+    if (config?.field_source === 'custom' && config?.field_id) {
+      fieldIds.push(config.field_id);
+    }
+  }
+  const uniqueFieldIds = [...new Set(fieldIds)];
+  const fieldMap = new Map();
+  if (uniqueFieldIds.length > 0) {
+    try {
+      const { data } = await supabase
+        .from('preference_field')
+        .select('id, label, name')
+        .eq('tenant_id', tenantId)
+        .in('id', uniqueFieldIds);
+      (data || []).forEach(f => {
+        fieldMap.set(f.id, f.label || f.name);
+      });
+    } catch (err) {
+      console.warn('[membershipConfigResolver] resolveBasisFieldLabels error:', err.message);
+    }
+  }
+  for (const config of configs || []) {
+    if (!config?.id) continue;
+    if (config.field_source === 'custom' && config.field_id && fieldMap.has(config.field_id)) {
+      labels.set(config.id, fieldMap.get(config.field_id) || fallbackFieldLabel(config));
+    } else {
+      labels.set(config.id, fallbackFieldLabel(config));
+    }
+  }
+  return labels;
+}
+
 export async function getConfigByIdDirect(tenantId, configId) {
   const { data } = await supabase
     .from('membership_tier_config')

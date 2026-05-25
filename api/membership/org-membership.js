@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
+import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { matchBand } from '../_lib/tierBandMatcher.js';
 
@@ -429,9 +429,7 @@ async function handleGet(req, res, tenantId) {
     }
   }
 
-  const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
-    ? 'Member Count'
-    : config.field_name || 'Value';
+  const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
 
   let overrides = [];
   try {

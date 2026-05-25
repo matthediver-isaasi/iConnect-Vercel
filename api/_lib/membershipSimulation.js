@@ -1,7 +1,7 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
-import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect } from './membershipConfigResolver.js';
+import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect, resolveBasisFieldLabel } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
 
@@ -170,8 +170,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
 
     fieldValue = await getOrgFieldValue(organizationId, tenantId, config, fieldOverrides);
-    const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
-      ? 'Member Count' : (config.field_name || 'Value');
+    const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
     log('Get Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
 
     matchedBand = matchBand(fieldValue, bands);
@@ -1107,7 +1106,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
 
     fieldValue = await getMemberFieldValue(memberId, tenantId, config, fieldOverrides);
-    const fieldLabel = config.field_name || 'Value';
+    const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
     log('Get Member Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
 
     matchedBand = matchBand(fieldValue, bands);

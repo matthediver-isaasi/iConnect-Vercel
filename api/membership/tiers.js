@@ -595,13 +595,14 @@ async function handlePost(req, res, tenantId) {
   }
 
   let basisField = null;
+  let resolvedCustomFieldLabel = null;
   if (config.pricing_model !== 'flat' && bands && Array.isArray(bands) && bands.length > 0) {
     if (config.field_source === 'core' || (config.field_name === 'member_count' && !config.field_id)) {
       basisField = { id: null, name: config.field_name || 'member_count', field_type: 'number', options: null, is_core: true };
     } else if (config.field_id) {
       const { data: fld, error: fldErr } = await supabase
         .from('preference_field')
-        .select('id, name, field_type, options')
+        .select('id, name, label, field_type, options')
         .eq('id', config.field_id)
         .eq('tenant_id', tenantId)
         .maybeSingle();
@@ -612,6 +613,7 @@ async function handlePost(req, res, tenantId) {
         return res.status(400).json({ error: `Selected basis field type "${fld.field_type}" is not supported for tier bands` });
       }
       basisField = fld;
+      resolvedCustomFieldLabel = fld.label || fld.name || null;
     } else {
       return res.status(400).json({ error: 'A basis field is required for tiered pricing' });
     }
@@ -621,6 +623,23 @@ async function handlePost(req, res, tenantId) {
       return res.status(400).json({ error: validation.error });
     }
     bands = validation.sortedBands;
+  } else if (config.pricing_model !== 'flat' && config.field_source === 'custom' && config.field_id) {
+    const { data: fld } = await supabase
+      .from('preference_field')
+      .select('id, name, label')
+      .eq('id', config.field_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (fld) {
+      resolvedCustomFieldLabel = fld.label || fld.name || null;
+    }
+  }
+
+  function deriveFieldName(rawFieldName) {
+    if (config.field_source === 'custom' && config.field_id && resolvedCustomFieldLabel) {
+      return resolvedCustomFieldLabel;
+    }
+    return rawFieldName || null;
   }
 
   const configId = config.id || req.query.configId;
@@ -647,7 +666,7 @@ async function handlePost(req, res, tenantId) {
         name: config.name || 'Default',
         field_source: config.field_source || 'custom',
         field_id: config.field_id || null,
-        field_name: config.field_name || null,
+        field_name: deriveFieldName(config.field_name),
         currency: config.currency || 'GBP',
         billing_period: config.billing_period || 'annual',
         is_active: config.is_active !== false,
@@ -763,7 +782,7 @@ async function handlePost(req, res, tenantId) {
       name: config.name || 'Default',
       field_source: config.field_source || 'custom',
       field_id: config.field_id || null,
-      field_name: config.field_name || null,
+      field_name: deriveFieldName(config.field_name),
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',
       is_active: config.is_active !== false,
