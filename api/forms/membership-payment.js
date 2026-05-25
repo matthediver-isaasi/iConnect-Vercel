@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
+import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -536,13 +537,10 @@ async function handlePost(req, res, resolvedTenantId) {
           try {
             await supabase
               .from(historyTable)
-              .update({
-                xero_invoice_id: xeroInvoice.invoice_id,
-                xero_invoice_number: xeroInvoice.invoice_number,
-              })
+              .update(buildInvoiceColumnUpdate(xeroInvoice))
               .eq('stripe_payment_intent_id', paymentIntentId)
               .eq('tenant_id', tenantId);
-            console.log(`[FormPayment] Updated history record with Xero invoice ${xeroInvoice.invoice_number}`);
+            console.log(`[FormPayment] Updated history record with invoice ${xeroInvoice.invoice_number}`);
           } catch (updateErr) {
             console.error('[FormPayment] Failed to update history with Xero invoice (non-fatal):', updateErr.message);
           }

@@ -317,14 +317,20 @@ export default async function handler(req, res) {
 }
 
 async function updateXeroInvoiceDescription({ booking, originalFirstName, originalLastName, originalEmail, newFirstName, newLastName, newEmail, tenantId }) {
-  if (!booking.xero_invoice_id) {
-    console.log('[TransferXero] No Xero invoice linked to this booking — skipping');
+  const invoiceId = booking.accounting_invoice_id || booking.xero_invoice_id;
+  if (!invoiceId) {
+    console.log('[TransferInvoice] No accounting invoice linked to this booking — skipping');
     return;
   }
 
-  console.log(`[TransferXero] Updating invoice ${booking.xero_invoice_id} description for transfer`);
-
   const _provider = await getAccountingProvider(tenantId);
+  if (_provider?.name !== 'xero') {
+    console.log(`[TransferInvoice] Provider is ${_provider?.name || 'unknown'} — line-item description rewrite is Xero-only; skipping (transfer itself succeeded).`);
+    return;
+  }
+
+  console.log(`[TransferInvoice] Updating Xero invoice ${invoiceId} description for transfer`);
+
   const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
 
   if (!accessToken || !xeroTenantId) {
@@ -333,7 +339,7 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
   }
 
   const invoiceResponse = await fetch(
-    `https://api.xero.com/api.xro/2.0/Invoices/${booking.xero_invoice_id}`,
+    `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
     {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -396,7 +402,7 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
 
   const updatePayload = {
     Invoices: [{
-      InvoiceID: booking.xero_invoice_id,
+      InvoiceID: invoiceId,
       LineItems: updatedLineItems.map(li => ({
         LineItemID: li.LineItemID,
         Description: li.Description,
@@ -430,7 +436,7 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
 
   const updateData = await updateResponse.json();
   const updatedInvoice = updateData?.Invoices?.[0];
-  console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || booking.xero_invoice_id} description updated successfully`);
+  console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || invoiceId} description updated successfully`);
 }
 
 async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false, eventData = null, zoomJoinUrl = null }) {

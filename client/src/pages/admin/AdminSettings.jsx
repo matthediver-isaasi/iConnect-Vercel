@@ -78,6 +78,7 @@ export default function AdminSettings() {
   const [xeroTokens, setXeroTokens] = useState([]);
   const [vatSyncLoading, setVatSyncLoading] = useState(false);
   const [vatSyncResult, setVatSyncResult] = useState(null);
+  const [accountingProvider, setAccountingProvider] = useState('none');
   
   const [backfillDate, setBackfillDate] = useState(new Date());
   const [backfillLoading, setBackfillLoading] = useState(false);
@@ -165,9 +166,20 @@ export default function AdminSettings() {
       if (response.ok) {
         const data = await response.json();
         setXeroTokens(data.tokens || []);
+        const qb = data.accounting?.quickbooks || null;
+        const qbValid = !!(qb && (qb.connected || qb.realm_id));
+        const xeroValid = (data.tokens || []).some(t => t.tenant_id !== 'PENDING_SELECTION');
+        const activeProvider = data.accounting?.provider;
+        if (activeProvider === 'xero' || activeProvider === 'quickbooks') {
+          setAccountingProvider(activeProvider);
+        } else if (qbValid) {
+          setAccountingProvider('quickbooks');
+        } else if (xeroValid) {
+          setAccountingProvider('xero');
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch Xero status:', err);
+      console.error('Failed to fetch accounting status:', err);
     }
   };
 
@@ -342,18 +354,22 @@ export default function AdminSettings() {
   const handleSyncVatRates = async () => {
     setVatSyncLoading(true);
     setVatSyncResult(null);
+    const providerLabel = accountingProvider === 'quickbooks' ? 'QuickBooks' : 'Xero';
+    const url = accountingProvider === 'quickbooks'
+      ? '/api/quickbooks/sync-vat-rates'
+      : '/api/xero/sync-vat-rates';
     try {
-      const response = await fetch('/api/xero/sync-vat-rates', {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include'
       });
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to sync VAT rates');
-      
+
       setVatSyncResult({ success: true, count: data.count });
-      toast({ title: "Success", description: `Synced ${data.count} VAT rates from Xero` });
+      toast({ title: "Success", description: `Synced ${data.count} VAT rates from ${providerLabel}` });
     } catch (error) {
       setVatSyncResult({ success: false, error: error.message });
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -1068,7 +1084,7 @@ export default function AdminSettings() {
                 )}
               </Button>
 
-              {isXeroAuthenticated && (
+              {(isXeroAuthenticated || accountingProvider === 'quickbooks') && (
                 <>
                   <div className="pt-4 border-t border-slate-700">
                     <h4 className="text-sm font-medium text-slate-200 mb-3">VAT Rates</h4>
@@ -1107,7 +1123,7 @@ export default function AdminSettings() {
                       ) : (
                         <>
                           <RefreshCw className="w-4 h-4 mr-2" />
-                          Sync VAT Rates from Xero
+                          Sync VAT Rates from {accountingProvider === 'quickbooks' ? 'QuickBooks' : 'Xero'}
                         </>
                       )}
                     </Button>

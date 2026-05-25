@@ -306,14 +306,14 @@ async function handleGet(req, res) {
     if (regularBookingIds.length > 0) {
       const { data: bookings } = await supabase
         .from('booking')
-        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number')
         .in('id', regularBookingIds);
       for (const b of (bookings || [])) bookingsMap[b.id] = b;
     }
     if (complexBookingIds.length > 0) {
       const { data: cBookings } = await supabase
         .from('complex_event_booking')
-        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, voucher_id, discount_code, discount_code_id, discount_amount, stripe_payment_intent_id, account_balance_amount, total_paid, payment_method, organization_id, xero_invoice_id, xero_invoice_number')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, voucher_id, discount_code, discount_code_id, discount_amount, stripe_payment_intent_id, account_balance_amount, total_paid, payment_method, organization_id, xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number')
         .in('id', complexBookingIds)
         .eq('tenant_id', tenantId);
       for (const b of (cBookings || [])) bookingsMap[b.id] = normalizeComplexBooking(b);
@@ -440,8 +440,8 @@ async function handleGet(req, res) {
           accountAmount,
           totalCost,
           paymentMethod: booking.payment_method,
-          xeroInvoiceId: booking.xero_invoice_id || null,
-          xeroInvoiceNumber: booking.xero_invoice_number || null,
+          xeroInvoiceId: booking.accounting_invoice_id || booking.xero_invoice_id || null,
+          xeroInvoiceNumber: booking.accounting_invoice_number || booking.xero_invoice_number || null,
           invoicingEmail: booking.organization_id ? (orgsMap[booking.organization_id]?.invoicing_email || null) : null,
         };
       }

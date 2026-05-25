@@ -593,11 +593,16 @@ export default async function handler(req, res) {
           try {
             if (feeToken.xero_invoice_id) {
               // Cron-created invoice already exists (Task #990). Apply the
-              // Stripe payment to it instead of minting a duplicate.
-              const { applyStripePaymentToXeroInvoice } = await import('../../_lib/xero.js');
-              xeroInvoice = await applyStripePaymentToXeroInvoice({
+              // Stripe payment to it instead of minting a duplicate. Route
+              // through the provider facade so the same flow works for both
+              // Xero and QuickBooks (the column is named xero_invoice_id for
+              // legacy reasons, but holds whichever provider's invoice id
+              // was minted by the cron).
+              const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
+              const provider = await getAccountingProvider(feeToken.tenant_id);
+              xeroInvoice = await provider.applyStripePaymentToInvoice({
                 appTenantId: feeToken.tenant_id,
-                xeroInvoiceId: feeToken.xero_invoice_id,
+                invoiceId: feeToken.xero_invoice_id,
                 stripePaymentIntentId: paymentIntentId,
               });
               if (xeroInvoice?.online_invoice_url) {
@@ -608,14 +613,15 @@ export default async function handler(req, res) {
                     .eq('id', feeToken.id);
                 } catch {}
               }
-              if (historyRecord && !historyRecord.xero_invoice_id) {
+              if (historyRecord && !historyRecord.xero_invoice_id && !historyRecord.accounting_invoice_id) {
                 try {
                   await supabase
                     .from('organisation_membership_history')
-                    .update({
-                      xero_invoice_id: feeToken.xero_invoice_id,
-                      xero_invoice_number: feeToken.xero_invoice_number,
-                    })
+                    .update(buildInvoiceColumnUpdate({
+                      invoice_id: feeToken.xero_invoice_id,
+                      invoice_number: feeToken.xero_invoice_number,
+                      provider: provider.name,
+                    }))
                     .eq('id', historyRecord.id);
                 } catch {}
               }
