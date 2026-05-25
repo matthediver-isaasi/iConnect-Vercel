@@ -808,6 +808,101 @@ export async function updateQuickBooksInvoiceReference(appTenantId, invoiceId, r
 }
 
 // ---------------------------------------------------------------------------
+// Update invoice line description after an attendee transfer
+//
+// Finds line(s) whose Description contains the original attendee's name or
+// email (matched line-by-line, same heuristic as the Xero helper) and
+// rewrites those entries with the new attendee's name (falling back to
+// email). Amount, tax, and item refs are preserved — only Description
+// changes. Performs a QBO sparse Invoice update with the full Line array
+// (QBO requires every Line to be re-sent even on sparse updates).
+// ---------------------------------------------------------------------------
+
+export async function updateQuickBooksInvoiceLineDescription({
+  appTenantId,
+  invoiceId,
+  originalFirstName,
+  originalLastName,
+  originalEmail,
+  newFirstName,
+  newLastName,
+  newEmail,
+}) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const originalName = [originalFirstName, originalLastName].filter(Boolean).join(' ').trim();
+  const newName = [newFirstName, newLastName].filter(Boolean).join(' ').trim();
+  const replacement = newName || newEmail || '';
+
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const base = companyBase(apiBaseUrl, realmId);
+
+  const invResp = await qboFetch(
+    'invoice-retrieve',
+    accessToken,
+    'GET',
+    `${base}/invoice/${encodeURIComponent(invoiceId)}?minorversion=${MINOR_VERSION}`
+  );
+  const invoice = invResp?.Invoice;
+  if (!invoice?.Id) throw new Error(`QBO invoice ${invoiceId} not found`);
+
+  const lines = Array.isArray(invoice.Line) ? invoice.Line : [];
+  if (lines.length === 0) {
+    console.log(`[QBO TransferInvoice] Invoice ${invoiceId} has no lines — skipping`);
+    return { skipped: true, reason: 'no-lines' };
+  }
+
+  let descriptionUpdated = false;
+  const updatedLines = lines.map((line) => {
+    if (!line || typeof line.Description !== 'string' || !line.Description) return line;
+    const updatedDescription = line.Description.split('\n').map((entry) => {
+      const trimmed = entry.trim();
+      if (!trimmed) return entry;
+      if (originalName && trimmed === originalName) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      if (originalEmail && trimmed === originalEmail) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      return entry;
+    }).join('\n');
+    if (updatedDescription === line.Description) return line;
+    return { ...line, Description: updatedDescription };
+  });
+
+  if (!descriptionUpdated) {
+    console.log(`[QBO TransferInvoice] Original attendee not found in any line description — skipping`);
+    return { skipped: true, reason: 'no-match' };
+  }
+
+  console.log(
+    `[QBO TransferInvoice] Updating invoice ${invoiceId} line description: replacing "${originalName || originalEmail}" with "${replacement}"`
+  );
+
+  const payload = {
+    Id: invoice.Id,
+    SyncToken: invoice.SyncToken,
+    sparse: true,
+    Line: updatedLines,
+  };
+  const url = `${base}/invoice?minorversion=${MINOR_VERSION}`;
+  const updated = await qboFetch('invoice-update-line-description', accessToken, 'POST', url, payload);
+  const updatedInvoice = updated?.Invoice;
+  if (!updatedInvoice?.Id) {
+    throw new Error(`Failed to update QBO invoice line description: ${JSON.stringify(updated).substring(0, 500)}`);
+  }
+  return {
+    invoiceId: updatedInvoice.Id,
+    invoiceNumber: updatedInvoice.DocNumber || updatedInvoice.Id,
+    updated: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // PDF fetch
 // ---------------------------------------------------------------------------
 

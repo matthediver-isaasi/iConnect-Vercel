@@ -439,6 +439,130 @@ export async function updateXeroInvoiceReference(appTenantId, invoiceId, referen
 }
 
 /**
+ * Update a Xero invoice's line-item descriptions after an attendee transfer.
+ *
+ * Walks each LineItem.Description line-by-line and replaces any line whose
+ * trimmed text exactly matches the original attendee's full name or email
+ * with the new attendee's full name (falling back to their email).
+ *
+ * Skips silently (returns { skipped: true, reason }) when:
+ *   - the invoice has no line items
+ *   - the invoice is PAID or VOIDED (cannot be edited)
+ *   - no description line matches the original attendee
+ */
+export async function updateXeroInvoiceLineAttendeeDescription({
+  appTenantId,
+  invoiceId,
+  originalFirstName,
+  originalLastName,
+  originalEmail,
+  newFirstName,
+  newLastName,
+  newEmail,
+}) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+  if (!accessToken || !xeroTenantId) {
+    throw new Error('Missing Xero token or tenant ID');
+  }
+
+  const invoiceResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json',
+      },
+    },
+  );
+
+  if (!invoiceResponse.ok) {
+    const errText = await invoiceResponse.text();
+    throw new Error(`Failed to fetch Xero invoice ${invoiceId}: ${invoiceResponse.status} ${errText.substring(0, 300)}`);
+  }
+
+  const invoiceData = await invoiceResponse.json();
+  const invoice = invoiceData?.Invoices?.[0];
+
+  if (!invoice || !invoice.LineItems || invoice.LineItems.length === 0) {
+    return { skipped: true, reason: 'no-lines' };
+  }
+  if (invoice.Status === 'PAID' || invoice.Status === 'VOIDED') {
+    return { skipped: true, reason: `status-${invoice.Status}` };
+  }
+
+  const originalName = [originalFirstName, originalLastName].filter(Boolean).join(' ').trim();
+  const newName = [newFirstName, newLastName].filter(Boolean).join(' ').trim();
+  const replacement = newName || newEmail || '';
+
+  let descriptionUpdated = false;
+  const updatedLineItems = invoice.LineItems.map((item) => {
+    if (!item.Description) return item;
+    const updatedDescription = item.Description.split('\n').map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (originalName && trimmed === originalName) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      if (originalEmail && trimmed === originalEmail) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      return line;
+    }).join('\n');
+    if (updatedDescription === item.Description) return item;
+    return { ...item, Description: updatedDescription };
+  });
+
+  if (!descriptionUpdated) {
+    return { skipped: true, reason: 'no-match' };
+  }
+
+  const updatePayload = {
+    Invoices: [{
+      InvoiceID: invoiceId,
+      LineItems: updatedLineItems.map((li) => ({
+        LineItemID: li.LineItemID,
+        Description: li.Description,
+        Quantity: li.Quantity,
+        UnitAmount: li.UnitAmount,
+        AccountCode: li.AccountCode,
+        TaxType: li.TaxType,
+        Tracking: li.Tracking,
+      })),
+    }],
+  };
+
+  const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(updatePayload),
+  });
+
+  if (!updateResponse.ok) {
+    const errText = await updateResponse.text();
+    throw new Error(`Failed to update Xero invoice ${invoiceId}: ${updateResponse.status} ${errText.substring(0, 300)}`);
+  }
+
+  const updateData = await updateResponse.json();
+  const updatedInvoice = updateData?.Invoices?.[0];
+  return {
+    invoiceId: updatedInvoice?.InvoiceID || invoiceId,
+    invoiceNumber: updatedInvoice?.InvoiceNumber || null,
+    updated: true,
+  };
+}
+
+/**
  * Push a PO number into the matching Xero invoice's Reference field, swallow
  * any Xero failure (so the local database update is not undone), and return
  * a uniform shape every PO entry point can forward back to the client.

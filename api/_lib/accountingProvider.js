@@ -396,6 +396,10 @@ function makeXeroProvider() {
     async updateInvoiceReference(appTenantId, invoiceId, reference) {
       return xero.updateXeroInvoiceReference(appTenantId, invoiceId, reference);
     },
+
+    async updateInvoiceLineAttendeeDescription(args) {
+      return xero.updateXeroInvoiceLineAttendeeDescription(args);
+    },
   };
 }
 
@@ -481,6 +485,10 @@ function makeQuickBooksProvider() {
     async updateInvoiceReference(appTenantId, invoiceId, reference) {
       return qbo.updateQuickBooksInvoiceReference(appTenantId, invoiceId, reference);
     },
+
+    async updateInvoiceLineAttendeeDescription(args) {
+      return qbo.updateQuickBooksInvoiceLineDescription(args);
+    },
   };
 }
 
@@ -506,6 +514,7 @@ function makeNoneProvider() {
     async fetchInvoicePdf()            { throw notConnected('fetchInvoicePdf'); },
     async fetchCreditNotePdf()         { throw notConnected('fetchCreditNotePdf'); },
     async updateInvoiceReference()     { throw notConnected('updateInvoiceReference'); },
+    async updateInvoiceLineAttendeeDescription() { throw notConnected('updateInvoiceLineAttendeeDescription'); },
   };
 }
 
