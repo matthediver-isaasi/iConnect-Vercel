@@ -7,6 +7,7 @@ import {
   computeEffectiveLoginStatus,
   isMemberSoftDeleted,
 } from '../_lib/memberLoginResolver.js';
+import { evaluateOrganisationLoginGate } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -446,6 +447,30 @@ export default async function handler(req, res) {
         .eq('id', member.organization_id)
         .single();
       sessionTenantId = orgData?.tenant_id;
+    }
+
+    // Organisation Login Gate: tenant-configurable rule that requires a
+    // chosen organisation field to equal a chosen value. Applied uniformly
+    // with no role-based bypass. Members without an organisation are
+    // treated as failing the gate when it is enabled.
+    if (sessionTenantId) {
+      try {
+        const gateResult = await evaluateOrganisationLoginGate({
+          supabase,
+          tenantId: sessionTenantId,
+          organizationId: member.organization_id || null,
+        });
+        if (gateResult.blocked) {
+          console.log('[Auth Login] Organisation login gate blocked:', email, 'org:', member.organization_id);
+          return res.status(403).json({
+            success: false,
+            error: gateResult.message,
+            organisationLoginGateBlocked: true,
+          });
+        }
+      } catch (gateErr) {
+        console.error('[Auth Login] Organisation login gate evaluation failed:', gateErr);
+      }
     }
 
     // Create PostgreSQL-backed session with tenant context

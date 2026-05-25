@@ -3,8 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, User, Shield, Save, Pencil, Eye, EyeOff, GripVertical, Link2 } from "lucide-react";
+import { Loader2, User, Shield, Save, Pencil, Eye, EyeOff, GripVertical, Link2, ShieldAlert } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -25,6 +29,39 @@ const PROFILE_FIELDS = [
   { key: 'biography', label: 'Biography', description: 'Professional biography text' },
   { key: 'show_in_directory', label: 'Show in Directory', description: 'Whether member appears in the member directory' },
 ];
+
+const GATE_CORE_ORG_FIELDS = [
+  { key: 'is_active', label: 'Is Active', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }] },
+  { key: 'status', label: 'Status', options: null },
+  { key: 'country', label: 'Country', options: null },
+];
+
+const DEFAULT_GATE_BLOCKED_MESSAGE =
+  'Login is not currently available for your organisation. Please contact your administrator.';
+
+const EMPTY_GATE = {
+  enabled: false,
+  fieldSource: '',
+  fieldKey: '',
+  fieldLabel: '',
+  requiredValue: '',
+  blockedMessage: DEFAULT_GATE_BLOCKED_MESSAGE,
+};
+
+const SELECT_FIELD_TYPES = new Set(['select', 'picklist', 'dropdown', 'multiselect', 'multi-select']);
+
+function normalizeOption(opt) {
+  if (opt === null || opt === undefined) return null;
+  if (typeof opt === 'string' || typeof opt === 'number' || typeof opt === 'boolean') {
+    return { value: String(opt), label: String(opt) };
+  }
+  if (typeof opt === 'object') {
+    const value = opt.value !== undefined ? String(opt.value) : (opt.label !== undefined ? String(opt.label) : null);
+    if (value === null) return null;
+    return { value, label: String(opt.label ?? opt.value ?? value) };
+  }
+  return null;
+}
 
 export default function MemberPreferencesPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -164,6 +201,7 @@ export default function MemberPreferencesPage() {
 
   const [selectedJoinFormId, setSelectedJoinFormId] = useState('');
   const [joinFormsByOrgType, setJoinFormsByOrgType] = useState({});
+  const [gateDraft, setGateDraft] = useState(EMPTY_GATE);
 
   useEffect(() => {
     if (joinFormSetting?.value?.id) {
@@ -251,6 +289,145 @@ export default function MemberPreferencesPage() {
     }
     return false;
   }, [joinFormsByOrgTypeSetting, joinFormsByOrgType]);
+
+  const { data: gateSetting, isLoading: gateSettingLoading } = useQuery({
+    queryKey: ['organization-login-gate-setting'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'organization_login_gate' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          const parsed = JSON.parse(settings[0].setting_value);
+          return { id: settings[0].id, value: parsed && typeof parsed === 'object' ? parsed : null };
+        } catch {
+          return { id: settings[0].id, value: null };
+        }
+      }
+      return null;
+    },
+    enabled: accessChecked,
+  });
+
+  useEffect(() => {
+    if (gateSetting?.value && typeof gateSetting.value === 'object') {
+      setGateDraft({ ...EMPTY_GATE, ...gateSetting.value });
+    } else {
+      setGateDraft(EMPTY_GATE);
+    }
+  }, [gateSetting]);
+
+  const gateFieldChoices = useMemo(() => {
+    const core = GATE_CORE_ORG_FIELDS.map(f => ({
+      source: 'core',
+      key: f.key,
+      label: f.label,
+      options: f.options,
+      field_type: f.options ? 'select' : 'text',
+    }));
+    const custom = (orgScopedFields || []).map(f => ({
+      source: 'custom',
+      key: f.id,
+      label: f.label || f.name,
+      name: f.name,
+      field_type: f.field_type,
+      options: Array.isArray(f.options)
+        ? f.options.map(normalizeOption).filter(Boolean)
+        : null,
+    }));
+    return [...core, ...custom];
+  }, [orgScopedFields]);
+
+  const selectedGateField = useMemo(() => {
+    if (!gateDraft.fieldKey || !gateDraft.fieldSource) return null;
+    return gateFieldChoices.find(f => f.source === gateDraft.fieldSource && f.key === gateDraft.fieldKey) || null;
+  }, [gateDraft, gateFieldChoices]);
+
+  const gateValueOptions = useMemo(() => {
+    if (!selectedGateField) return null;
+    if (selectedGateField.source === 'core') {
+      return selectedGateField.options;
+    }
+    if (selectedGateField.field_type === 'boolean') {
+      return [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }];
+    }
+    if (SELECT_FIELD_TYPES.has(selectedGateField.field_type) && Array.isArray(selectedGateField.options) && selectedGateField.options.length > 0) {
+      return selectedGateField.options;
+    }
+    return null;
+  }, [selectedGateField]);
+
+  const gateDirty = useMemo(() => {
+    const persisted = gateSetting?.value ? { ...EMPTY_GATE, ...gateSetting.value } : EMPTY_GATE;
+    const keys = ['enabled', 'fieldSource', 'fieldKey', 'fieldLabel', 'requiredValue', 'blockedMessage'];
+    return keys.some(k => (persisted[k] || '') !== (gateDraft[k] || ''));
+  }, [gateSetting, gateDraft]);
+
+  const saveGateMutation = useMutation({
+    mutationFn: async (gate) => {
+      const value = JSON.stringify(gate);
+      if (gateSetting?.id) {
+        await base44.entities.SystemSettings.update(gateSetting.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'organization_login_gate',
+          setting_value: value,
+          description: 'Organisation Login Gate: requires a chosen organisation field to equal a chosen value before any member of that organisation can log in'
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Organisation login gate saved');
+      queryClient.invalidateQueries({ queryKey: ['organization-login-gate-setting'] });
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save organisation login gate');
+    }
+  });
+
+  const handleGateFieldChange = useCallback((compositeKey) => {
+    if (!compositeKey) {
+      setGateDraft(prev => ({ ...prev, fieldSource: '', fieldKey: '', fieldLabel: '', requiredValue: '' }));
+      return;
+    }
+    const [source, ...rest] = compositeKey.split(':');
+    const key = rest.join(':');
+    const field = gateFieldChoices.find(f => f.source === source && f.key === key);
+    if (!field) return;
+    setGateDraft(prev => ({
+      ...prev,
+      fieldSource: source,
+      fieldKey: key,
+      fieldLabel: field.label,
+      requiredValue: '',
+    }));
+  }, [gateFieldChoices]);
+
+  const handleSaveGate = useCallback(() => {
+    if (gateDraft.enabled) {
+      if (!gateDraft.fieldKey || !gateDraft.fieldSource) {
+        toast.error('Choose a field before enabling the gate');
+        return;
+      }
+      if (gateDraft.requiredValue === '' || gateDraft.requiredValue === null || gateDraft.requiredValue === undefined) {
+        toast.error('Set a required value before enabling the gate');
+        return;
+      }
+    }
+    const toSave = {
+      ...gateDraft,
+      blockedMessage: (gateDraft.blockedMessage || '').trim() || DEFAULT_GATE_BLOCKED_MESSAGE,
+    };
+    saveGateMutation.mutate(toSave);
+  }, [gateDraft, saveGateMutation]);
+
+  const handleResetGate = useCallback(() => {
+    if (gateSetting?.value && typeof gateSetting.value === 'object') {
+      setGateDraft({ ...EMPTY_GATE, ...gateSetting.value });
+    } else {
+      setGateDraft(EMPTY_GATE);
+    }
+  }, [gateSetting]);
 
   const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
     queryKey: ['bulk-member-field-permissions'],
@@ -763,6 +940,138 @@ export default function MemberPreferencesPage() {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6" data-testid="card-org-login-gate">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5" />
+                  Organisation Login Gate
+                </CardTitle>
+                <CardDescription>
+                  Require that a chosen organisation field equals a chosen value before any member of that organisation may log in. Applies to everyone with no exceptions (admins included). Members who don't belong to an organisation will also be blocked while the gate is enabled.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {gateSettingLoading || orgScopedFieldsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading...
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-4 max-w-xl">
+                      <div>
+                        <Label htmlFor="switch-gate-enabled" className="text-sm font-medium">Enable Organisation Login Gate</Label>
+                        <p className="text-xs text-muted-foreground">When enabled, logins are only allowed if the organisation's chosen field matches the required value.</p>
+                      </div>
+                      <Switch
+                        id="switch-gate-enabled"
+                        checked={!!gateDraft.enabled}
+                        onCheckedChange={(checked) => setGateDraft(prev => ({ ...prev, enabled: !!checked }))}
+                        data-testid="switch-org-login-gate-enabled"
+                      />
+                    </div>
+
+                    <div className="space-y-2 max-w-xl">
+                      <Label htmlFor="select-gate-field" className="text-sm font-medium">Organisation field</Label>
+                      <Select
+                        value={gateDraft.fieldSource && gateDraft.fieldKey ? `${gateDraft.fieldSource}:${gateDraft.fieldKey}` : ''}
+                        onValueChange={handleGateFieldChange}
+                      >
+                        <SelectTrigger id="select-gate-field" data-testid="select-org-login-gate-field">
+                          <SelectValue placeholder="Choose a field..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Core fields</div>
+                          {GATE_CORE_ORG_FIELDS.map(f => (
+                            <SelectItem key={`core:${f.key}`} value={`core:${f.key}`} data-testid={`option-gate-field-core-${f.key}`}>
+                              {f.label}
+                            </SelectItem>
+                          ))}
+                          {(orgScopedFields || []).length > 0 && (
+                            <>
+                              <div className="px-2 py-1 mt-1 text-xs font-semibold text-muted-foreground">Custom fields</div>
+                              {(orgScopedFields || []).map(f => (
+                                <SelectItem key={`custom:${f.id}`} value={`custom:${f.id}`} data-testid={`option-gate-field-custom-${f.id}`}>
+                                  {f.label || f.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 max-w-xl">
+                      <Label htmlFor="input-gate-value" className="text-sm font-medium">Required value</Label>
+                      {gateValueOptions ? (
+                        <Select
+                          value={gateDraft.requiredValue || ''}
+                          onValueChange={(val) => setGateDraft(prev => ({ ...prev, requiredValue: val }))}
+                          disabled={!selectedGateField}
+                        >
+                          <SelectTrigger id="input-gate-value" data-testid="select-org-login-gate-value">
+                            <SelectValue placeholder="Choose a value..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {gateValueOptions.map(opt => (
+                              <SelectItem key={opt.value} value={opt.value} data-testid={`option-gate-value-${opt.value}`}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id="input-gate-value"
+                          value={gateDraft.requiredValue || ''}
+                          onChange={(e) => setGateDraft(prev => ({ ...prev, requiredValue: e.target.value }))}
+                          placeholder={selectedGateField ? 'Enter required value...' : 'Choose a field first'}
+                          disabled={!selectedGateField}
+                          data-testid="input-org-login-gate-value"
+                        />
+                      )}
+                    </div>
+
+                    <div className="space-y-2 max-w-xl">
+                      <Label htmlFor="textarea-gate-message" className="text-sm font-medium">Blocked-login message</Label>
+                      <Textarea
+                        id="textarea-gate-message"
+                        value={gateDraft.blockedMessage || ''}
+                        onChange={(e) => setGateDraft(prev => ({ ...prev, blockedMessage: e.target.value }))}
+                        placeholder={DEFAULT_GATE_BLOCKED_MESSAGE}
+                        rows={3}
+                        data-testid="textarea-org-login-gate-message"
+                      />
+                      <p className="text-xs text-muted-foreground">Shown to members whose login is denied by the gate.</p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={handleSaveGate}
+                        disabled={!gateDirty || saveGateMutation.isPending}
+                        data-testid="button-save-org-login-gate"
+                      >
+                        {saveGateMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4 mr-2" />
+                        )}
+                        Save
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleResetGate}
+                        disabled={!gateDirty || saveGateMutation.isPending}
+                        data-testid="button-reset-org-login-gate"
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

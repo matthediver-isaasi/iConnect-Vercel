@@ -6,6 +6,7 @@ import {
   computeEffectiveLoginStatus,
   isMemberSoftDeleted,
 } from '../../_lib/memberLoginResolver.js';
+import { evaluateOrganisationLoginGate } from '../../_lib/organisationLoginGate.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -212,6 +213,26 @@ export default async function handler(req, res) {
         .eq('id', member.organization_id)
         .single();
       sessionTenantId = orgData?.tenant_id;
+    }
+
+    // Organisation Login Gate: tenant-configurable rule applied uniformly.
+    // The error message can't easily round-trip through a redirect, so
+    // surface a generic "login_disabled" reason — the email/password flow
+    // displays the admin-configured copy.
+    if (sessionTenantId) {
+      try {
+        const gateResult = await evaluateOrganisationLoginGate({
+          supabase,
+          tenantId: sessionTenantId,
+          organizationId: member.organization_id || null,
+        });
+        if (gateResult.blocked) {
+          console.log('[Google OAuth Callback] Organisation login gate blocked for member:', member.id);
+          return res.redirect(buildErrorRedirect(tenantSlug, 'organisation_login_gate', isProduction));
+        }
+      } catch (gateErr) {
+        console.error('[Google OAuth Callback] Organisation login gate evaluation failed:', gateErr);
+      }
     }
 
     // Look up or resolve identity for unified authentication

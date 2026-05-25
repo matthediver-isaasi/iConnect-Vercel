@@ -56,7 +56,8 @@ export default function LoginPage() {
         'invalid_state': 'Sign-in session expired. Please try again.',
         'csrf_error': 'Security check failed. Please try signing in again.',
         'missing_params': 'Sign-in was incomplete. Please try again.',
-        'google_disabled': 'Google sign-in is not available for this organization. Please use email and password.'
+        'google_disabled': 'Google sign-in is not available for this organization. Please use email and password.',
+        'organisation_login_gate': 'Login is not currently available for your organisation. Please contact your administrator.'
       };
       setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
       window.history.replaceState({}, '', '/login');
@@ -313,7 +314,7 @@ export default function LoginPage() {
                 {error && (
                   <div className="flex items-start gap-3 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
                     <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-                    <p className="text-sm text-red-700">{error}</p>
+                    <p className="text-sm text-red-700 whitespace-pre-line" data-testid="text-login-error">{error}</p>
                   </div>
                 )}
 
