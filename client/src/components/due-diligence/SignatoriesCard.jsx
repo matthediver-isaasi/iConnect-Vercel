@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { User, Clock, Check, FileSignature, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { extractContactFieldsWithContracts } from "@/lib/signatories";
 import SignatoryDetailModal from "./SignatoryDetailModal";
 
 const STATUS_CONFIG = {
@@ -118,60 +119,10 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
     return map;
   }, [contractTemplates]);
 
-  const contactFieldsWithContracts = useMemo(() => {
-    if (!formSchema || !submissionData) return [];
-    
-    const schema = formSchema.schema || formSchema;
-    if (!schema.fields && !schema.pages) return [];
-    
-    const contacts = [];
-    
-    const processFields = (fields) => {
-      if (!fields) return;
-      
-      fields.forEach(field => {
-        if (field.type === 'contact' && field.contract_form_id) {
-          const fieldKey = field.name || field.id;
-          const fieldValue = submissionData[fieldKey] || submissionData[field.id];
-          
-          if (fieldValue) {
-            let contactData = fieldValue;
-            if (typeof fieldValue === 'string') {
-              try {
-                contactData = JSON.parse(fieldValue);
-              } catch {
-                contactData = {};
-              }
-            }
-            
-            contacts.push({
-              fieldId: field.id,
-              fieldKey,
-              fieldLabel: field.label || fieldKey,
-              contractFormId: field.contract_form_id,
-              firstName: contactData.first_name || contactData.firstName || '',
-              lastName: contactData.last_name || contactData.lastName || '',
-              email: contactData.email || '',
-              jobTitle: contactData.job_title || contactData.jobTitle || '',
-              organisation: contactData.organisation || contactData.organization || ''
-            });
-          }
-        }
-      });
-    };
-    
-    if (schema.pages && schema.pages.length > 0) {
-      schema.pages.forEach(page => {
-        if (page.fields) processFields(page.fields);
-      });
-    }
-    
-    if (schema.fields) {
-      processFields(schema.fields);
-    }
-    
-    return contacts;
-  }, [formSchema, submissionData]);
+  const contactFieldsWithContracts = useMemo(
+    () => extractContactFieldsWithContracts(formSchema, submissionData),
+    [formSchema, submissionData]
+  );
 
   const signatories = useMemo(() => {
     const contracts = contractsData?.contracts || [];

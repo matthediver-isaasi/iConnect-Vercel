@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { cn } from "@/lib/utils";
+import { getContactFieldFulfillment } from "@/lib/signatories";
 import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
 import DocumentsCard from "@/components/due-diligence/DocumentsCard";
@@ -1967,21 +1968,20 @@ export default function ReviewSubmissionPage() {
       }
       
       // Check signatories received condition
-      // If enabled: block if there are no contracts OR if any contract is not received
+      // Mirror SignatoriesCard: a contact field is fulfilled when any signer on
+      // its contract instance has signed (and isn't demoted). Block if no
+      // contact-with-contract fields exist, or if any such field is unfulfilled.
       if (conditions.signatories_received) {
-        const contracts = contractsData?.contracts || [];
-        const hasContracts = contracts.length > 0;
-        
-        if (!hasContracts) {
-          // No contracts exist yet - block selection
+        const contactFields = getContactFieldFulfillment(
+          form,
+          ddSubmission?.form_submission?.submission_data,
+          contractsData?.contracts
+        );
+
+        if (contactFields.length === 0) {
           unmetReasons.push('No signatories to verify');
-        } else {
-          const allReceived = contracts.every(c => 
-            c.status === 'received' || c.status === 'completed' || c.status === 'signed'
-          );
-          if (!allReceived) {
-            unmetReasons.push('Not all signatories received');
-          }
+        } else if (contactFields.some(f => !f.isFulfilled)) {
+          unmetReasons.push('Not all signatories received');
         }
       }
       
@@ -2009,7 +2009,7 @@ export default function ReviewSubmissionPage() {
     }
     
     return status;
-  }, [ddConfig, ddSubmission, documentsData, contractsData, liveTrafficLightScore]);
+  }, [ddConfig, ddSubmission, documentsData, contractsData, liveTrafficLightScore, form]);
 
   if (!accessChecked || isLoading) {
     return (
