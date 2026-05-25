@@ -297,6 +297,7 @@ export default function MembershipTierManagement() {
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [wizardStep, setWizardStep] = useState(7);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (isAccessReady) {
@@ -563,7 +564,9 @@ export default function MembershipTierManagement() {
       });
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'Failed to save');
+        const e = new Error(err.error || 'Failed to save');
+        e.field = err.field || null;
+        throw e;
       }
       return response.json();
     },
@@ -573,12 +576,19 @@ export default function MembershipTierManagement() {
       setHasChanges(false);
       setIsCreatingNew(false);
       setViewingHistorical(null);
+      setFieldErrors({});
       if (data.config) {
         setConfig(prev => ({ ...prev, id: data.config.id }));
       }
       toast.success(isCreatingNew ? 'New tier structure created successfully' : 'Membership tier structure saved successfully');
     },
     onError: (error) => {
+      if (error.field) {
+        setFieldErrors((prev) => ({ ...prev, [error.field]: error.message }));
+        if (error.field === 'fee_link_email_template_id') {
+          setWizardStep(5);
+        }
+      }
       toast.error(error.message || 'Failed to save tier structure');
     },
   });
@@ -2447,12 +2457,21 @@ export default function MembershipTierManagement() {
           </p>
           <Select
             value={config.fee_link_email_template_id || '__default'}
-            onValueChange={(v) =>
-              handleConfigChange('fee_link_email_template_id', v === '__default' ? null : v)
-            }
+            onValueChange={(v) => {
+              handleConfigChange('fee_link_email_template_id', v === '__default' ? null : v);
+              if (fieldErrors.fee_link_email_template_id) {
+                setFieldErrors((prev) => {
+                  const { fee_link_email_template_id: _, ...rest } = prev;
+                  return rest;
+                });
+              }
+            }}
             disabled={!isEditable}
           >
-            <SelectTrigger data-testid="select-fee-link-template" className="max-w-md">
+            <SelectTrigger
+              data-testid="select-fee-link-template"
+              className={`max-w-md ${fieldErrors.fee_link_email_template_id ? 'border-destructive' : ''}`}
+            >
               <SelectValue placeholder="Use built-in default" />
             </SelectTrigger>
             <SelectContent>
@@ -2464,6 +2483,14 @@ export default function MembershipTierManagement() {
               ))}
             </SelectContent>
           </Select>
+          {fieldErrors.fee_link_email_template_id && (
+            <p
+              className="text-xs text-destructive"
+              data-testid="error-fee-link-template"
+            >
+              {fieldErrors.fee_link_email_template_id}
+            </p>
+          )}
           {emailTemplates.length === 0 && (
             <p className="text-xs text-muted-foreground">
               No email templates available. Create one in Email Templates first.

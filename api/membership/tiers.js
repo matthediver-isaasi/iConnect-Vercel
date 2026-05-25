@@ -585,11 +585,11 @@ async function validateFeeLinkEmailTemplate(tenantId, templateId) {
   if (error || !tpl) {
     return { ok: false, error: 'Selected fee-link email template could not be found for this tenant' };
   }
-  const haystack = `${tpl.subject || ''}\n${tpl.body || ''}`;
-  if (!/\{\{\s*payment_link\s*\}\}/i.test(haystack)) {
+  if (!/\{\{\s*payment_link\s*\}\}/i.test(tpl.body || '')) {
     return {
       ok: false,
-      error: `Fee-link email template "${tpl.name || tpl.subject || tpl.id}" must contain the {{payment_link}} placeholder — without it, the recipient has no way to pay.`,
+      field: 'fee_link_email_template_id',
+      error: `Fee-link email template "${tpl.name || tpl.subject || tpl.id}" must contain the {{payment_link}} placeholder in its body — without it, the recipient has no way to pay.`,
     };
   }
   return { ok: true };
@@ -608,7 +608,7 @@ async function handlePost(req, res, tenantId) {
 
   const feeLinkCheck = await validateFeeLinkEmailTemplate(tenantId, config.fee_link_email_template_id);
   if (!feeLinkCheck.ok) {
-    return res.status(400).json({ error: feeLinkCheck.error });
+    return res.status(400).json({ error: feeLinkCheck.error, field: feeLinkCheck.field });
   }
 
   const normalizedRecipients = normalizeInvoiceRecipients(config.invoice_recipients);
