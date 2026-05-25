@@ -47,6 +47,43 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+import { EMAIL_PLACEHOLDERS } from "@/lib/emailPlaceholders";
+
+// Friendly labels for Membership Fees tokens. Keyed by token so the picker
+// can show short, human-readable names instead of the long registry
+// descriptions. Any membership token not listed here falls back to a label
+// derived from the token name.
+const MEMBERSHIP_TOKEN_LABELS = {
+  '{{payment_link}}': 'Payment Link (HTML)',
+  '{{recipient_name}}': 'Recipient Name',
+  '{{organisation_name}}': 'Organisation Name',
+  '{{organization_name}}': 'Organisation Name (US spelling)',
+  '{{membership_year}}': 'Membership Year',
+  '{{tier_label}}': 'Tier Label',
+  '{{final_cost}}': 'Net Fee (formatted)',
+  '{{currency}}': 'Currency Code',
+  '{{vat_amount}}': 'VAT Amount (formatted)',
+  '{{total_with_vat}}': 'Total Including VAT (formatted)',
+  '{{po_number}}': 'PO Number',
+  '{{expires_at}}': 'Payment Link Expiry',
+  '{{xero_invoice_number}}': 'Xero Invoice Number',
+  '{{xero_online_invoice_url}}': 'Xero Online Invoice URL',
+  '{{tenant_name}}': 'Tenant / Organisation Name',
+};
+
+function buildMembershipPlaceholders() {
+  const seen = new Set();
+  const out = [];
+  for (const entry of EMAIL_PLACEHOLDERS) {
+    if (entry.category !== 'Membership Fees') continue;
+    if (seen.has(entry.token)) continue;
+    seen.add(entry.token);
+    const label = MEMBERSHIP_TOKEN_LABELS[entry.token]
+      || entry.token.replace(/[{}\[\]]/g, '').replace(/_/g, ' ');
+    out.push({ value: entry.token, label });
+  }
+  return out;
+}
 
 const TEMPLATE_CATEGORIES = [
   { value: 'workflow', label: 'Workflow Automation' },
@@ -145,6 +182,13 @@ const PLACEHOLDER_GROUPS = [
       { value: '{{tenant_name}}', label: 'Organisation Name' },
       { value: '{{attendee_notes}}', label: 'Attendee Notes' },
     ]
+  },
+  {
+    // Membership Fees group is derived from the centralized EMAIL_PLACEHOLDERS
+    // registry in client/src/lib/emailPlaceholders.js — add new membership
+    // tokens there and they will automatically appear here.
+    label: 'Membership Fees',
+    placeholders: buildMembershipPlaceholders(),
   },
   {
     label: 'System',
