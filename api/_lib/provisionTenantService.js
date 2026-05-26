@@ -511,6 +511,31 @@ export async function provisionTenant({
       } else {
         state.membershipId = membership.id;
       }
+
+      // Always create a tenant_membership_credentials shell for the
+      // (identity, tenant) pair so per-tenant password setup / reset can
+      // write to it. Carry the setup token here when one is being issued
+      // (instead of relying solely on the legacy tenant_identity.reset_token
+      // column) so the new per-tenant set-admin-password flow can find it.
+      const tenantCredsInsert = {
+        identity_id: identity.id,
+        tenant_id: tenant.id,
+      };
+      if (passwordHash) {
+        tenantCredsInsert.password_hash = passwordHash;
+      }
+      if (setupToken) {
+        tenantCredsInsert.reset_token = setupToken;
+        tenantCredsInsert.reset_token_expires = setupExpires.toISOString();
+      }
+      const { error: tenantCredsError } = await supabase
+        .from('tenant_membership_credentials')
+        .insert(tenantCredsInsert);
+      if (tenantCredsError) {
+        // Non-fatal: a missing credentials shell can be repaired later by the
+        // password-reset endpoint, which upserts this row on demand.
+        console.error('[Provision Tenant] Error creating tenant_membership_credentials shell:', tenantCredsError);
+      }
     }
 
     if (passwordHash && !identity) {

@@ -2,6 +2,18 @@ import crypto from 'crypto';
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 
+const PUBLIC_RESPONSE = {
+  success: true,
+  message: 'If an account exists, a reset link will be sent.',
+};
+
+function buildResponse(stage) {
+  if (process.env.ENABLE_RESET_DEBUG === 'true') {
+    return { ...PUBLIC_RESPONSE, debug: stage };
+  }
+  return PUBLIC_RESPONSE;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -40,10 +52,7 @@ export default async function handler(req, res) {
 
     if (identityError || !identity) {
       console.log('[Admin Password Reset] No identity found for:', normalizedEmail);
-      return res.json({ 
-        success: true, 
-        message: 'If an account exists, a reset link will be sent.' 
-      });
+      return res.json(buildResponse('no_identity'));
     }
 
     const { data: memberships } = await supabase
@@ -57,10 +66,7 @@ export default async function handler(req, res) {
 
     if (!memberships || memberships.length === 0) {
       console.log('[Admin Password Reset] No admin (owner type) memberships for:', normalizedEmail);
-      return res.json({ 
-        success: true, 
-        message: 'If an account exists, a reset link will be sent.' 
-      });
+      return res.json(buildResponse('no_owner_membership'));
     }
 
     const resetToken = crypto.randomUUID();
@@ -142,6 +148,7 @@ export default async function handler(req, res) {
     const adminHost = tenant?.admin_domain || (tenant?.slug ? `${tenant.slug}.iconn.app` : host);
     const resetUrl = `${protocol}://${adminHost}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
+    let emailSent = false;
     try {
       const emailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
@@ -165,14 +172,12 @@ export default async function handler(req, res) {
       });
 
       console.log(`[Admin Password Reset] Email sent to ${normalizedEmail}`);
+      emailSent = true;
     } catch (emailError) {
       console.error('[Admin Password Reset] Failed to send email:', emailError);
     }
 
-    return res.json({ 
-      success: true, 
-      message: 'If an account exists, a reset link will be sent.' 
-    });
+    return res.json(buildResponse(emailSent ? 'sent' : 'email_failed'));
   } catch (err) {
     console.error('[Admin Password Reset] Error:', err);
     return res.status(500).json({ 

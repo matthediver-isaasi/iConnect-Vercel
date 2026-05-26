@@ -15,6 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { provisionTenant, checkExistingIdentity } from '../api/_lib/provisionTenantService.js';
+import { ensureOwnerMembershipAndCredentials } from './repair-isaasi-admin-access.mjs';
 
 const SUPABASE_URL = process.env.DEST_SUPABASE_URL;
 const SUPABASE_KEY = process.env.DEST_SUPABASE_KEY;
@@ -693,13 +694,38 @@ async function main() {
     else console.log(`[ok] inserted public_home_page_slug = ${HOME_SLUG}`);
   }
 
+  // 6) Always verify the admin's owner membership + credentials shell exist
+  //    and mint a fresh setup URL — even when this run took the
+  //    "tenant already exists" path and provisionTenant didn't return a token.
+  const { data: adminIdentity } = await sb
+    .from('tenant_identity')
+    .select('id, email')
+    .ilike('email', ADMIN_EMAIL)
+    .maybeSingle();
+
+  let setupUrl = null;
+  if (!adminIdentity) {
+    console.error(`[fail] could not find tenant_identity for ${ADMIN_EMAIL} after provisioning`);
+  } else {
+    const repair = await ensureOwnerMembershipAndCredentials({
+      supabase: sb,
+      tenantId,
+      identityId: adminIdentity.id,
+      email: adminIdentity.email,
+    });
+    for (const change of repair.changes) {
+      console.log(`[ok] ${change}`);
+    }
+    setupUrl = repair.setupUrl;
+  }
+
   console.log('\n=== DONE ===');
   console.log(`Tenant ID:     ${tenantId}`);
   console.log(`Tenant slug:   ${TENANT_SLUG}`);
   console.log(`Domain:        ${TENANT_DOMAIN}`);
   console.log(`Admin email:   ${ADMIN_EMAIL}`);
-  if (setupToken) {
-    console.log(`Setup link:    https://${TENANT_SLUG}.iconn.app/setup-password?token=${setupToken}`);
+  if (setupUrl) {
+    console.log(`Setup URL:     ${setupUrl}`);
   }
   console.log(`Canvas page:   ${pageId} (slug=${HOME_SLUG}, builder=canvas, published)`);
 }
