@@ -798,6 +798,18 @@ export const EMAIL_PLACEHOLDERS = [
     'EmailTemplateManagement PLACEHOLDER_GROUPS',
     { prerequisites: 'Meeting type integrated with Microsoft Teams.' },
   ),
+  entry(
+    '{{meeting_join_details}}',
+    PLACEHOLDER_SYNTAX.CURLY,
+    'Meetings & Bookings',
+    'Smart "how to join" block resolved from the booking\'s meeting type. ' +
+      'Renders the Zoom link + passcode, Teams link, or a friendly phone / ' +
+      'in-person fallback message — so the template author does not need ' +
+      'conditional logic. Use this instead of {{zoom_join_url}} / ' +
+      '{{zoom_password}} / {{teams_join_url}} in DD booking confirmation emails.',
+    ['Booking Confirmations'],
+    'api/public/book/[slug].js (buildMeetingJoinDetails)',
+  ),
 
   // --- Event Confirmation & Reminder ---
   entry(

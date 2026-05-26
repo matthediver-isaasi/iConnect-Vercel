@@ -176,6 +176,7 @@ const PLACEHOLDER_GROUPS = [
       { value: '{{meeting_type}}', label: 'Meeting Type Name' },
       { value: '{{duration}}', label: 'Duration (e.g. 30 minutes)' },
       { value: '{{meeting_title}}', label: 'Meeting Title' },
+      { value: '{{meeting_join_details}}', label: 'Meeting Join Details (smart: Zoom / Teams / phone / in-person)' },
       { value: '{{zoom_join_url}}', label: 'Zoom Join URL' },
       { value: '{{zoom_password}}', label: 'Zoom Password' },
       { value: '{{teams_join_url}}', label: 'Teams Join URL' },

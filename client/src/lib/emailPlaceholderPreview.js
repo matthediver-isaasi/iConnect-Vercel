@@ -84,6 +84,8 @@ export const FIXTURE_SAMPLE_DATA = {
     zoom_join_url: 'https://zoom.us/j/9876543210',
     zoom_password: 'iConnect26',
     teams_join_url: 'https://teams.microsoft.com/l/meetup-join/preview',
+    meeting_join_details:
+      'Join Zoom Meeting: <a href="https://zoom.us/j/9876543210">https://zoom.us/j/9876543210</a><br>Passcode: iConnect26',
   },
   event: {
     id: 'evt_4490',
@@ -369,6 +371,7 @@ function buildResolverMap(s) {
     zoom_join_url: text(meet.zoom_join_url),
     zoom_password: text(meet.zoom_password),
     teams_join_url: text(meet.teams_join_url),
+    meeting_join_details: html(meet.meeting_join_details),
 
     // Event Confirmation & Reminder
     'attendee.first_name': text(at.first_name),

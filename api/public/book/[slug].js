@@ -5,6 +5,60 @@ import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
 import { sendEmail } from '../../_lib/emailService.js';
 
+/**
+ * Build a single human-readable "how to join" block for a booking confirmation
+ * email, based on the meeting type the host configured on the meeting template.
+ *
+ * Returns inline HTML (uses <a> and <br>) so it drops cleanly into the
+ * HTML-rendered email body and reads sensibly without conditional template
+ * logic. For meeting types where we don't actually store join details
+ * (phone, in_person, google_meet), it returns a friendly fallback message
+ * rather than an empty string.
+ */
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildMeetingJoinDetails({ meetingType, zoomJoinUrl, zoomPassword, teamsJoinUrl }) {
+  const type = (meetingType || '').toLowerCase();
+
+  if (type === 'zoom') {
+    if (!zoomJoinUrl) {
+      return 'Your host will be in touch shortly with the Zoom joining details.';
+    }
+    const url = escapeHtml(zoomJoinUrl);
+    const link = `Join Zoom Meeting: <a href="${url}">${url}</a>`;
+    return zoomPassword ? `${link}<br>Passcode: ${escapeHtml(zoomPassword)}` : link;
+  }
+
+  if (type === 'teams') {
+    if (!teamsJoinUrl) {
+      return 'Your host will be in touch shortly with the Microsoft Teams joining details.';
+    }
+    const url = escapeHtml(teamsJoinUrl);
+    return `Join Microsoft Teams Meeting: <a href="${url}">${url}</a>`;
+  }
+
+  if (type === 'phone') {
+    return 'This meeting will take place by phone. Your host will call you on the number you provided.';
+  }
+
+  if (type === 'in_person') {
+    return 'This is an in-person meeting. Your host will be in touch with the location details.';
+  }
+
+  if (type === 'google_meet') {
+    return 'This meeting will take place over Google Meet. Your host will be in touch with the joining link.';
+  }
+
+  return 'Your host will be in touch shortly with the joining details.';
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -516,6 +570,16 @@ export default async function handler(req, res) {
             const formattedTime = formatInTimeZone(startTime, agentTimezone, 'h:mm a');
             const formattedEndTime = formatInTimeZone(endTime, agentTimezone, 'h:mm a');
 
+            const zoomJoinUrl = zoomMeetingData?.join_url || '';
+            const zoomPassword = zoomMeetingData?.password || '';
+            const teamsJoinUrl = teamsMeetingData?.joinUrl || '';
+            const meetingJoinDetails = buildMeetingJoinDetails({
+              meetingType,
+              zoomJoinUrl,
+              zoomPassword,
+              teamsJoinUrl
+            });
+
             const bookingPlaceholders = {
               attendee_name: attendee_name || '',
               attendee_email: attendee_email || '',
@@ -527,9 +591,10 @@ export default async function handler(req, res) {
               meeting_type: selectedTemplate.name || '',
               duration: `${duration} minutes`,
               meeting_title: meetingTitle,
-              zoom_join_url: zoomMeetingData?.join_url || '',
-              zoom_password: zoomMeetingData?.password || '',
-              teams_join_url: teamsMeetingData?.joinUrl || '',
+              zoom_join_url: zoomJoinUrl,
+              zoom_password: zoomPassword,
+              teams_join_url: teamsJoinUrl,
+              meeting_join_details: meetingJoinDetails,
               tenant_name: tenant?.name || '',
               attendee_notes: attendee_notes || ''
             };
