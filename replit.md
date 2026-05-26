@@ -87,6 +87,7 @@ Preferred communication style: Simple, everyday language.
 -   The workflow runner resolves `dd_owner` / `dd_owner_email` placeholders via `resolveDdOwnerForSubmission` (in `api/_lib/ddOwner.js`) when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows` (e.g. the form processor in `api/forms/process-application.js` plumbs the originating DD `submission_id` for member/organization create triggers). When no submission context is available, placeholders collapse to empty strings, preventing raw `{{dd_owner}}` token leaks.
 -   Event deletion is a multi-step cancellation process; direct deletion of events is deprecated for UI flows.
 -   Server-side no length validation for `event.summary` and `complex_event.summary` - client-side `event_summary_max_length` (default 150) system setting is the primary control.
+-   `sendEmail()` in `api/_lib/emailService.js` **never throws** — it catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success when Mailgun rejects (missing key, 401, unverified domain). The reset flow at `api/auth/request-admin-password-reset.js` is the canonical pattern: check `sendResult.success` before flipping `emailSent=true`, and log `tenantId` + `sendResult.error` (which now includes the Mailgun status code prefix) on failure.
 
 ## Pointers
 -   **React Docs:** `https://react.dev/`

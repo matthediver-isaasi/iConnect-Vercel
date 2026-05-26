@@ -164,17 +164,38 @@ export default async function handler(req, res) {
         </div>
       `;
 
-      await sendEmail({
+      // NB: sendEmail() catches its own errors and returns { success, error }
+      // instead of throwing. Always inspect the return value — if we only relied
+      // on try/catch we would falsely report "sent" when Mailgun rejected the
+      // request (e.g. missing MAILGUN_API_KEY, 401, unverified domain).
+      const sendResult = await sendEmail({
         to: normalizedEmail,
         subject: 'Reset Your Admin Password',
         html: emailHtml,
         tenantId
       });
 
-      console.log(`[Admin Password Reset] Email sent to ${normalizedEmail}`);
-      emailSent = true;
+      if (sendResult?.success) {
+        emailSent = true;
+        console.log(
+          `[Admin Password Reset] Email sent to ${normalizedEmail} via ${sendResult.domain || 'unknown'}` +
+          (sendResult.fallback ? ' (fallback domain)' : '') +
+          (sendResult.messageId ? ` messageId=${sendResult.messageId}` : '')
+        );
+      } else {
+        console.error(
+          `[Admin Password Reset] Email NOT sent to ${normalizedEmail}. ` +
+          `tenantId=${tenantId} reason="${sendResult?.error || 'unknown'}"`
+        );
+      }
     } catch (emailError) {
-      console.error('[Admin Password Reset] Failed to send email:', emailError);
+      // Defensive: sendEmail shouldn't throw, but if anything does (e.g. a bug
+      // in footer rendering), surface the full error including status.
+      const status = emailError?.status || emailError?.statusCode;
+      console.error(
+        `[Admin Password Reset] sendEmail threw unexpectedly: ` +
+        `status=${status || 'n/a'} message="${emailError?.message || emailError}"`
+      );
     }
 
     return res.json(buildResponse(emailSent ? 'sent' : 'email_failed'));

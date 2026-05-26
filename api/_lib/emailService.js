@@ -345,10 +345,16 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       throw primaryError;
     }
   } catch (error) {
-    console.error('[Email Service] Failed to send email:', error.message || error);
+    const status = error?.status || error?.statusCode;
+    const errMsg = error?.message || String(error) || 'Unknown error sending email';
+    console.error(
+      `[Email Service] Failed to send email: status=${status || 'n/a'} domain=${domain} message="${errMsg}"`
+    );
     return {
       success: false,
-      error: error.message || 'Unknown error sending email',
+      error: status ? `${status}: ${errMsg}` : errMsg,
+      status: status || null,
+      domain,
     };
   }
 }
