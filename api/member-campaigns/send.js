@@ -101,9 +101,14 @@ export default async function handler(req, res) {
     return res.json(result);
   }
 
-  // ---- Send immediately ----
+  // ---- Send immediately ---- (plan quota enforced inside sendCampaign())
   const requestHost = getHostFromRequest(req);
   const result = await sendCampaign(campaignId, access.tenantContext.tenantId, requestHost);
-  if (!result.success) return res.status(500).json({ error: result.error });
+  if (!result.success) {
+    if (result.quota) {
+      return res.status(402).json({ error: result.error, code: 'PLAN_QUOTA_EXCEEDED', quota: result.quota });
+    }
+    return res.status(500).json({ error: result.error });
+  }
   return res.json(result);
 }

@@ -11,6 +11,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { checkStorageQuota } from '../_lib/planQuota.js';
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -259,6 +260,12 @@ export default async function handler(req, res) {
         maxSize,
         providedSize: file.size
       });
+    }
+
+    // Plan quota: per-file storage cap from the tenant's `plan.quotas.storage_mb`.
+    const storageCheck = await checkStorageQuota(tenantId, { fileSizeBytes: file.size });
+    if (!storageCheck.ok) {
+      return res.status(storageCheck.status).json(storageCheck.body);
     }
 
     // Build tenant-scoped storage path

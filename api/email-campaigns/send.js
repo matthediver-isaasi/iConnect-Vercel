@@ -103,11 +103,15 @@ export default async function handler(req, res) {
     return res.json(result);
   }
 
-  // Send immediately
+  // Send immediately. Plan quota enforcement lives inside sendCampaign() so
+  // this same gate also covers scheduled sends executed by the cron.
   const requestHost = getHostFromRequest(req);
   const result = await sendCampaign(campaignId, tenantId, requestHost);
 
   if (!result.success) {
+    if (result.quota) {
+      return res.status(402).json({ error: result.error, code: 'PLAN_QUOTA_EXCEEDED', quota: result.quota });
+    }
     return res.status(500).json({ error: result.error });
   }
 

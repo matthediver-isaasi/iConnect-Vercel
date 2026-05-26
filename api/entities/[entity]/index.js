@@ -7,6 +7,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, 
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -1262,6 +1263,22 @@ export default async function handler(req, res) {
             .limit(1);
           if (existingAssignment && existingAssignment.length > 0) {
             return res.status(409).json({ error: 'You are already a member of this group' });
+          }
+        }
+      }
+
+      // Plan quota enforcement (Task #1026): block member/event creation when
+      // the tenant has hit its plan limit. Skipped for sample seed rows so
+      // onboarding seeding is never blocked.
+      if (tenantCtx.isAuthenticated && !sanitizedBody.is_sample) {
+        const quotaTenantId = sanitizedBody.tenant_id || tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+        if (quotaTenantId) {
+          if (entityNorm === 'member') {
+            const check = await checkMemberQuota(quotaTenantId);
+            if (!check.ok) return res.status(check.status).json(check.body);
+          } else if (entityNorm === 'event' || entityNorm === 'complexevent') {
+            const check = await checkEventQuota(quotaTenantId);
+            if (!check.ok) return res.status(check.status).json(check.body);
           }
         }
       }

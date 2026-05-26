@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import { checkEmailQuota } from './planQuota.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -2369,6 +2370,17 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     if (recipients.length === 0) {
       await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
       return { success: false, error: 'No recipients found for this campaign' };
+    }
+
+    // Plan quota enforcement (Task #1026). Centralised here so both
+    // immediate sends AND scheduled sends executed by the cron go through
+    // the same gate. Fails closed: if usage cannot be computed the helper
+    // returns ok:false with a 503-shaped body and we abort the send.
+    const quotaCheck = await checkEmailQuota(tenantId, { addingCount: recipients.length });
+    if (!quotaCheck.ok) {
+      await updateCampaign(campaignId, { status: 'draft' }, tenantId).catch(() => {});
+      console.warn(`[Campaign Service] Plan quota blocked send for campaign ${campaignId}:`, quotaCheck.body?.code);
+      return { success: false, error: quotaCheck.body?.error || 'Plan email quota exceeded', quota: quotaCheck.body?.quota };
     }
 
     await updateCampaign(campaignId, {
