@@ -151,6 +151,8 @@ export const BLOCK_TYPES = {
   STAT: 'stat',
   LOGO_STRIP: 'logo-strip',
   MAP: 'map',
+  PRICING_TABLE: 'pricing-table',
+  TESTIMONIAL_GRID: 'testimonial-grid',
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
@@ -433,6 +435,120 @@ export const BLOCK_DEFAULTS = {
       ],
       gap: 32,
       grayscale: true,
+    },
+  },
+  [BLOCK_TYPES.PRICING_TABLE]: {
+    name: 'Pricing table',
+    geom: { w: 960, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      heading: 'Pricing',
+      headingLevel: 2,
+      subheading: 'Simple, transparent pricing that scales with you.',
+      billingToggle: false,
+      defaultBilling: 'monthly', // monthly | annual
+      monthlyLabel: 'Monthly',
+      annualLabel: 'Annual',
+      annualNote: 'Save 2 months',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      recommendedBadgeLabel: 'Most popular',
+      tiers: [
+        {
+          name: 'Starter',
+          monthlyPrice: '£0',
+          annualPrice: '£0',
+          period: '/month',
+          description: 'For trying things out.',
+          features: [
+            { text: 'Up to 25 members', included: true, tooltip: '' },
+            { text: 'Email support', included: true, tooltip: '' },
+            { text: 'Basic reporting', included: true, tooltip: '' },
+            { text: 'Custom domain', included: false, tooltip: 'Available on Growth and above' },
+          ],
+          ctaLabel: 'Get started',
+          ctaHref: '#',
+          ctaVariant: 'outline',
+          recommended: false,
+        },
+        {
+          name: 'Growth',
+          monthlyPrice: '£29',
+          annualPrice: '£290',
+          period: '/month',
+          description: 'For growing organisations.',
+          features: [
+            { text: 'Up to 500 members', included: true, tooltip: '' },
+            { text: 'Workflows & automations', included: true, tooltip: '' },
+            { text: 'Priority support', included: true, tooltip: '' },
+            { text: 'Custom domain', included: true, tooltip: '' },
+          ],
+          ctaLabel: 'Choose Growth',
+          ctaHref: '#',
+          ctaVariant: 'primary',
+          recommended: true,
+        },
+        {
+          name: 'Pro',
+          monthlyPrice: '£79',
+          annualPrice: '£790',
+          period: '/month',
+          description: 'For established teams.',
+          features: [
+            { text: 'Unlimited members', included: true, tooltip: '' },
+            { text: 'Custom domain', included: true, tooltip: '' },
+            { text: 'Dedicated success manager', included: true, tooltip: '' },
+            { text: 'SSO / SAML', included: true, tooltip: 'Single sign-on via SAML 2.0' },
+          ],
+          ctaLabel: 'Choose Pro',
+          ctaHref: '#',
+          ctaVariant: 'outline',
+          recommended: false,
+        },
+      ],
+    },
+  },
+  [BLOCK_TYPES.TESTIMONIAL_GRID]: {
+    name: 'Testimonial grid',
+    geom: { w: 960, h: 480 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      heading: 'What our customers say',
+      headingLevel: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      items: [
+        {
+          quote: 'Switching saved us hours every single week. The team is happier and our members notice the difference.',
+          author: 'Alex Morgan',
+          role: 'Operations Lead',
+          company: 'Acme Co.',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+        {
+          quote: 'The page builder is genuinely a joy to use. We launched our new site in an afternoon.',
+          author: 'Priya Shah',
+          role: 'Marketing Director',
+          company: 'Bright Foundation',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+        {
+          quote: 'Best investment we made this year. Support is fast and the product keeps getting better.',
+          author: 'Sam Okafor',
+          role: 'Membership Manager',
+          company: 'Northwind Society',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+      ],
     },
   },
   [BLOCK_TYPES.MAP]: {
@@ -1042,6 +1158,33 @@ export function validateBlock(block) {
     case BLOCK_TYPES.MEMBER_DIRECTORY_EMBED:
       if (!c.directorySlug) errors.push('Member directory embed requires a directory.');
       break;
+    case BLOCK_TYPES.PRICING_TABLE: {
+      const tiers = Array.isArray(c.tiers) ? c.tiers : [];
+      if (tiers.length < 2) errors.push('Pricing table needs at least 2 tiers.');
+      if (tiers.length > 4) errors.push('Pricing table supports a maximum of 4 tiers.');
+      tiers.forEach((t, i) => {
+        if (!t?.name || !String(t.name).trim()) errors.push(`Pricing tier #${i + 1} requires a name.`);
+        if (t?.ctaLabel && !t?.ctaHref) errors.push(`Pricing tier #${i + 1} CTA needs a link.`);
+      });
+      if (tiers.filter((t) => t?.recommended).length > 1) {
+        errors.push('Only one pricing tier can be marked recommended.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.TESTIMONIAL_GRID: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((t, i) => {
+        if (!t?.quote || !String(t.quote).trim()) errors.push(`Testimonial #${i + 1} requires a quote.`);
+        if (!t?.author || !String(t.author).trim()) errors.push(`Testimonial #${i + 1} requires an author name.`);
+        if (t?.avatarUrl && !String(t.avatarAlt || '').trim()) {
+          errors.push(`Testimonial #${i + 1} avatar requires alt text.`);
+        }
+        if (t?.companyLogoUrl && !String(t.companyLogoAlt || '').trim()) {
+          errors.push(`Testimonial #${i + 1} company logo requires alt text.`);
+        }
+      });
+      break;
+    }
     default:
       break;
   }

@@ -676,6 +676,70 @@ function renderCanvasBlockHtml(block, opts) {
       if (!v && !l) return '';
       return `<p>${v ? `<strong>${escapeHtml(v)}</strong>` : ''}${v && l ? ' — ' : ''}${l ? escapeHtml(l) : ''}</p>`;
     }
+    case 'pricing-table': {
+      const tiers = Array.isArray(c.tiers) ? c.tiers.slice(0, 4) : [];
+      if (!tiers.length) return '';
+      const headingLvl = clampHeadingLevel(c.headingLevel, 2);
+      const sectionParts = [];
+      if (c.heading) sectionParts.push(`<h${headingLvl}>${escapeHtml(stripHtml(c.heading))}</h${headingLvl}>`);
+      if (c.subheading) sectionParts.push(`<p>${escapeHtml(stripHtml(c.subheading))}</p>`);
+      const defaultBilling = c.defaultBilling === 'annual' ? 'annual' : 'monthly';
+      for (let i = 0; i < tiers.length; i++) {
+        const t = tiers[i] || {};
+        const name = stripHtml(t.name || '') || `Tier ${i + 1}`;
+        const price = stripHtml((defaultBilling === 'annual' ? t.annualPrice : t.monthlyPrice) || t.monthlyPrice || t.annualPrice || '');
+        const period = stripHtml(t.period || '');
+        const desc = stripHtml(t.description || '');
+        const features = Array.isArray(t.features) ? t.features.filter(Boolean) : [];
+        const cta = (t.ctaLabel && t.ctaHref)
+          ? `<a href="${escapeHtml(t.ctaHref)}">${escapeHtml(stripHtml(t.ctaLabel))}</a>`
+          : '';
+        const inner = [];
+        inner.push(`<h3>${escapeHtml(name)}</h3>`);
+        if (desc) inner.push(`<p>${escapeHtml(desc)}</p>`);
+        if (price) inner.push(`<p><strong>${escapeHtml(price)}</strong>${period ? ` ${escapeHtml(period)}` : ''}</p>`);
+        if (features.length) {
+          inner.push(`<ul>${features.map((f) => {
+            const feat = typeof f === 'string' ? { text: f, included: true } : (f || {});
+            const text = stripHtml(String(feat.text || ''));
+            if (!text) return '';
+            const included = feat.included !== false;
+            const prefix = included ? 'Included: ' : 'Not included: ';
+            const tip = feat.tooltip ? ` — ${escapeHtml(stripHtml(String(feat.tooltip)))}` : '';
+            return `<li data-included="${included ? 'true' : 'false'}">${escapeHtml(prefix)}${escapeHtml(text)}${tip}</li>`;
+          }).filter(Boolean).join('')}</ul>`);
+        }
+        if (cta) inner.push(cta);
+        const recAttr = t.recommended ? ' data-recommended="true"' : '';
+        sectionParts.push(`<article${recAttr}>${inner.join('')}</article>`);
+      }
+      return `<section>${sectionParts.join('')}</section>`;
+    }
+    case 'testimonial-grid': {
+      const items = Array.isArray(c.items) ? c.items : [];
+      const headingLvl = clampHeadingLevel(c.headingLevel, 2);
+      const parts = [];
+      if (c.heading) parts.push(`<h${headingLvl}>${escapeHtml(stripHtml(c.heading))}</h${headingLvl}>`);
+      for (const it of items) {
+        const q = stripHtml(it?.quote || '');
+        if (!q || isPlaceholderText(q)) continue;
+        const author = stripHtml(it?.author || '');
+        const roleCompany = stripHtml([it?.role, it?.company].filter(Boolean).join(', '));
+        const avatar = it?.avatarUrl
+          ? buildPrerenderImg(it.avatarUrl, it.avatarAlt || '', { sizes: '64px' })
+          : '';
+        const companyLogo = it?.companyLogoUrl
+          ? buildPrerenderImg(it.companyLogoUrl, it.companyLogoAlt || '', { sizes: '96px' })
+          : '';
+        const captionParts = [];
+        if (author) captionParts.push(`<cite>${escapeHtml(author)}</cite>`);
+        if (roleCompany) captionParts.push(escapeHtml(roleCompany));
+        if (companyLogo) captionParts.push(companyLogo);
+        const caption = captionParts.length ? `<figcaption>${captionParts.join(' — ')}</figcaption>` : '';
+        parts.push(`<figure>${avatar}<blockquote>${escapeHtml(q)}</blockquote>${caption}</figure>`);
+      }
+      return parts.length ? `<section>${parts.join('')}</section>` : '';
+    }
     case 'logo-strip': {
       const logos = Array.isArray(c.logos) ? c.logos : [];
       const cells = logos

@@ -24,6 +24,9 @@ import {
   Shield, Zap, ChevronDown,
   Component as ComponentIcon,
   RotateCcw,
+  Table as TableIcon,
+  MessageSquareQuote,
+  X,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -2679,6 +2682,528 @@ function MapInspector({ block, update }) {
   );
 }
 
+// PRICING TABLE --------------------------------------------------------------
+// Author-friendly pricing layout with 2-4 tiers. Each tier carries its own
+// monthly/annual price strings; when `billingToggle` is on, a small inline
+// toggle swaps which price is shown without re-rendering anything else on
+// the page. The recommended tier is highlighted via the semantic primary
+// token (not amber/yellow — see replit.md "Semantic `warning` Color Token"
+// rule). All colours route through `var(--cb-color-*)` so tenant branding
+// flows through automatically.
+
+function resolveColumns(value, breakpoint) {
+  if (typeof value === 'number') return value;
+  if (!value || typeof value !== 'object') return 3;
+  if (breakpoint === 'mobile') return Number(value.mobile ?? value.tablet ?? value.desktop ?? 1);
+  if (breakpoint === 'tablet') return Number(value.tablet ?? value.desktop ?? 2);
+  return Number(value.desktop ?? 3);
+}
+
+function buildResponsiveColumnsCss(blockId, columns, gap) {
+  if (!blockId) return null;
+  const safeId = String(blockId).replace(/["\\]/g, '');
+  const sel = `[data-cb="${safeId}"] [data-cb-grid="cols"]`;
+  const desk = resolveColumns(columns, 'desktop');
+  const tab = resolveColumns(columns, 'tablet');
+  const mob = resolveColumns(columns, 'mobile');
+  const g = Number.isFinite(Number(gap)) ? Number(gap) : 16;
+  const parts = [];
+  parts.push(`${sel}{display:grid;gap:${g}px;grid-template-columns:repeat(${Math.max(1, desk)},minmax(0,1fr));}`);
+  if (tab !== desk) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.tablet}px){${sel}{grid-template-columns:repeat(${Math.max(1, tab)},minmax(0,1fr));}}`);
+  }
+  if (mob !== (tab !== desk ? tab : desk)) {
+    parts.push(`@media (max-width:${BREAKPOINT_MAX_PX.mobile}px){${sel}{grid-template-columns:repeat(${Math.max(1, mob)},minmax(0,1fr));}}`);
+  }
+  return parts.join('');
+}
+
+function PricingTableRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const tiers = Array.isArray(c.tiers) ? c.tiers.slice(0, 4) : [];
+  const showToggle = !!c.billingToggle;
+  const [billing, setBilling] = useState(c.defaultBilling === 'annual' ? 'annual' : 'monthly');
+  const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
+  const Heading = `h${headingLevel}`;
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const responsiveCss = !isPreview ? buildResponsiveColumnsCss(block.id, c.columns, c.gap) : null;
+  const previewCols = isPreview ? resolveColumns(c.columns, breakpoint) : null;
+  const recommendedBadge = c.recommendedBadgeLabel || 'Most popular';
+
+  return (
+    <div className="w-full h-full overflow-auto">
+      {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
+      {(c.heading || c.subheading) && (
+        <div className="mb-4 text-center">
+          {c.heading && (
+            <Heading style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+              {c.heading}
+            </Heading>
+          )}
+          {c.subheading && (
+            <p className="mt-1 text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+              {c.subheading}
+            </p>
+          )}
+        </div>
+      )}
+      {showToggle && (
+        <div className="mb-4 flex items-center justify-center gap-2 text-sm" role="group" aria-label="Billing period">
+          <button
+            type="button"
+            onClick={() => { if (!asEditor) setBilling('monthly'); }}
+            aria-pressed={billing === 'monthly'}
+            className={`px-3 py-1 rounded-md border text-sm ${billing === 'monthly' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent border-slate-300 text-slate-700'}`}
+            data-testid="button-pricing-billing-monthly"
+          >
+            {c.monthlyLabel || 'Monthly'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { if (!asEditor) setBilling('annual'); }}
+            aria-pressed={billing === 'annual'}
+            className={`px-3 py-1 rounded-md border text-sm ${billing === 'annual' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent border-slate-300 text-slate-700'}`}
+            data-testid="button-pricing-billing-annual"
+          >
+            {c.annualLabel || 'Annual'}
+          </button>
+          {c.annualNote && (
+            <span className="ml-1 text-xs" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+              {c.annualNote}
+            </span>
+          )}
+        </div>
+      )}
+      <div
+        data-cb-grid="cols"
+        style={isPreview ? {
+          display: 'grid',
+          gap: `${Number(c.gap) || 16}px`,
+          gridTemplateColumns: `repeat(${Math.max(1, previewCols || 1)}, minmax(0, 1fr))`,
+        } : undefined}
+      >
+        {tiers.map((t, i) => {
+          const price = billing === 'annual' ? (t.annualPrice || t.monthlyPrice) : (t.monthlyPrice || t.annualPrice);
+          const tierStyle = t.recommended
+            ? {
+                background: 'var(--cb-color-surface, #ffffff)',
+                border: '2px solid var(--cb-color-primary, #0f172a)',
+                borderRadius: 8,
+                padding: 20,
+                boxShadow: '0 4px 12px rgba(15,23,42,0.08)',
+                position: 'relative',
+              }
+            : {
+                background: 'var(--cb-color-surface, #ffffff)',
+                border: '1px solid var(--cb-color-border, #e2e8f0)',
+                borderRadius: 8,
+                padding: 20,
+              };
+          return (
+            <article
+              key={i}
+              data-cb-pricing-tier={i}
+              data-cb-pricing-recommended={t.recommended ? 'true' : undefined}
+              style={tierStyle}
+              aria-label={`${t.name || `Tier ${i + 1}`} pricing tier`}
+            >
+              {t.recommended && (
+                <span
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 inline-block px-2 py-0.5 text-xs font-medium rounded-md"
+                  style={{
+                    background: 'var(--cb-color-primary, #0f172a)',
+                    color: 'var(--cb-color-on-primary, #ffffff)',
+                  }}
+                >
+                  {recommendedBadge}
+                </span>
+              )}
+              <h3 className="text-base font-semibold" style={{ margin: 0, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+                {t.name || `Tier ${i + 1}`}
+              </h3>
+              {t.description && (
+                <p className="mt-1 text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+                  {t.description}
+                </p>
+              )}
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-3xl font-bold" style={{ color: 'var(--cb-color-on-surface, #0f172a)' }}>
+                  {price || '—'}
+                </span>
+                {t.period && (
+                  <span className="text-sm" style={{ color: 'var(--cb-color-on-surface-muted, #475569)' }}>
+                    {t.period}
+                  </span>
+                )}
+              </div>
+              {Array.isArray(t.features) && t.features.length > 0 && (
+                <ul className="mt-4 space-y-1.5 text-sm" style={{ listStyle: 'none', padding: 0, margin: 0, color: 'var(--cb-color-on-surface, #0f172a)' }}>
+                  {t.features.filter(Boolean).map((f, fi) => {
+                    const feat = typeof f === 'string' ? { text: f, included: true, tooltip: '' } : (f || {});
+                    const included = feat.included !== false;
+                    const Glyph = included ? Check : X;
+                    const srPrefix = included ? 'Included: ' : 'Not included: ';
+                    return (
+                      <li
+                        key={fi}
+                        className="flex items-start gap-2"
+                        title={feat.tooltip || undefined}
+                        style={{ opacity: included ? 1 : 0.65 }}
+                      >
+                        <Glyph
+                          className="w-4 h-4 mt-0.5 shrink-0"
+                          style={{ color: included ? 'var(--cb-color-primary, #0f172a)' : 'var(--cb-color-on-surface-muted, #64748b)' }}
+                          aria-hidden="true"
+                        />
+                        <span>
+                          <span className="sr-only">{srPrefix}</span>
+                          <span style={{ textDecoration: included ? 'none' : 'line-through' }}>{feat.text || ''}</span>
+                          {feat.tooltip && (
+                            <span className="sr-only"> — {feat.tooltip}</span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {t.ctaLabel && (
+                <div className="mt-5">
+                  <a
+                    href={asEditor ? undefined : (t.ctaHref || '#')}
+                    onClick={(e) => { if (asEditor) e.preventDefault(); }}
+                    className={buttonClasses(t.ctaVariant || (t.recommended ? 'primary' : 'outline'), 'default')}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    aria-label={`${t.ctaLabel} — ${t.name || `Tier ${i + 1}`}`}
+                    data-testid={`link-pricing-cta-${i}`}
+                  >
+                    <span>{t.ctaLabel}</span>
+                  </a>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PricingTableInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const setColumns = (bp, val) => set({ columns: { ...(c.columns || {}), [bp]: Math.max(1, Math.min(4, Number(val) || 1)) } });
+  const tiers = Array.isArray(c.tiers) ? c.tiers : [];
+  return (
+    <>
+      <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-pricing-heading" />
+      <SelectField
+        label="Heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(v) => set({ headingLevel: Number(v) })}
+        options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
+        testId="select-pricing-heading-level"
+      />
+      <TextField label="Subheading" multiline value={c.subheading} onChange={(v) => set({ subheading: v })} testId="input-pricing-subheading" />
+      <ToggleField
+        label="Show monthly / annual toggle"
+        value={c.billingToggle}
+        onChange={(v) => set({ billingToggle: v })}
+        testId="toggle-pricing-billing"
+      />
+      {c.billingToggle && (
+        <>
+          <SelectField
+            label="Default billing period"
+            value={c.defaultBilling || 'monthly'}
+            onChange={(v) => set({ defaultBilling: v })}
+            options={[
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'annual', label: 'Annual' },
+            ]}
+            testId="select-pricing-default-billing"
+          />
+          <TextField label="Monthly label" value={c.monthlyLabel} onChange={(v) => set({ monthlyLabel: v })} testId="input-pricing-monthly-label" />
+          <TextField label="Annual label" value={c.annualLabel} onChange={(v) => set({ annualLabel: v })} testId="input-pricing-annual-label" />
+          <TextField label="Annual note" value={c.annualNote} onChange={(v) => set({ annualNote: v })} testId="input-pricing-annual-note" />
+        </>
+      )}
+      <TextField
+        label="Recommended badge label"
+        value={c.recommendedBadgeLabel}
+        onChange={(v) => set({ recommendedBadgeLabel: v })}
+        testId="input-pricing-recommended-label"
+      />
+      <div className="grid grid-cols-3 gap-2">
+        <NumberField label="Cols (desktop)" min={1} max={4} value={resolveColumns(c.columns, 'desktop')} onChange={(v) => setColumns('desktop', v)} testId="input-pricing-cols-desktop" />
+        <NumberField label="Cols (tablet)" min={1} max={4} value={resolveColumns(c.columns, 'tablet')} onChange={(v) => setColumns('tablet', v)} testId="input-pricing-cols-tablet" />
+        <NumberField label="Cols (mobile)" min={1} max={4} value={resolveColumns(c.columns, 'mobile')} onChange={(v) => setColumns('mobile', v)} testId="input-pricing-cols-mobile" />
+      </div>
+      <NumberField label="Gap (px)" min={0} max={64} value={c.gap || 16} onChange={(v) => set({ gap: Number(v) || 0 })} testId="input-pricing-gap" />
+      <SelectField
+        label="Recommended tier (highlighted)"
+        value={(() => {
+          const idx = tiers.findIndex((t) => t?.recommended);
+          return idx >= 0 ? String(idx) : 'none';
+        })()}
+        onChange={(v) => {
+          const target = v === 'none' ? -1 : Number(v);
+          set({ tiers: tiers.map((t, i) => ({ ...t, recommended: i === target })) });
+        }}
+        options={[
+          { value: 'none', label: 'No tier highlighted' },
+          ...tiers.map((t, i) => ({ value: String(i), label: t?.name || `Tier ${i + 1}` })),
+        ]}
+        testId="select-pricing-recommended"
+      />
+      <Field label="Tiers (2–4)">
+        <ArrayList
+          items={tiers}
+          onChange={(next) => set({ tiers: next.slice(0, 4) })}
+          makeNew={() => ({
+            name: 'New tier', monthlyPrice: '£0', annualPrice: '£0', period: '/month',
+            description: '', features: [{ text: 'Feature one', included: true, tooltip: '' }],
+            ctaLabel: 'Choose', ctaHref: '#', ctaVariant: 'outline', recommended: false,
+          })}
+          addLabel={tiers.length >= 4 ? 'Maximum 4 tiers' : 'Add tier'}
+          testIdPrefix="pricing-tier"
+          renderItem={(item, idx, patch) => {
+            const features = Array.isArray(item.features)
+              ? item.features.map((f) => (typeof f === 'string' ? { text: f, included: true, tooltip: '' } : { text: '', included: true, tooltip: '', ...(f || {}) }))
+              : [];
+            const patchFeatures = (next) => patch({ features: next });
+            return (
+              <>
+                <TextField label="Name" value={item.name} onChange={(v) => patch({ name: v })} testId={`pricing-tier-${idx}-name`} />
+                <TextField label="Description" value={item.description} onChange={(v) => patch({ description: v })} testId={`pricing-tier-${idx}-desc`} />
+                <div className="grid grid-cols-2 gap-2">
+                  <TextField label="Monthly price" value={item.monthlyPrice} onChange={(v) => patch({ monthlyPrice: v })} testId={`pricing-tier-${idx}-monthly`} />
+                  <TextField label="Annual price" value={item.annualPrice} onChange={(v) => patch({ annualPrice: v })} testId={`pricing-tier-${idx}-annual`} />
+                </div>
+                <TextField label="Period suffix" value={item.period} onChange={(v) => patch({ period: v })} testId={`pricing-tier-${idx}-period`} />
+                <Field label="Features">
+                  <ArrayList
+                    items={features}
+                    onChange={patchFeatures}
+                    makeNew={() => ({ text: 'New feature', included: true, tooltip: '' })}
+                    addLabel="Add feature"
+                    testIdPrefix={`pricing-tier-${idx}-feature`}
+                    renderItem={(feat, fi, patchFeat) => (
+                      <>
+                        <TextField
+                          label="Text"
+                          value={feat.text}
+                          onChange={(v) => patchFeat({ text: v })}
+                          testId={`pricing-tier-${idx}-feature-${fi}-text`}
+                        />
+                        <ToggleField
+                          label="Included in this tier"
+                          value={feat.included !== false}
+                          onChange={(v) => patchFeat({ included: v })}
+                          testId={`pricing-tier-${idx}-feature-${fi}-included`}
+                        />
+                        <TextField
+                          label="Tooltip (optional)"
+                          value={feat.tooltip}
+                          onChange={(v) => patchFeat({ tooltip: v })}
+                          testId={`pricing-tier-${idx}-feature-${fi}-tooltip`}
+                        />
+                      </>
+                    )}
+                  />
+                </Field>
+                <TextField label="CTA label" value={item.ctaLabel} onChange={(v) => patch({ ctaLabel: v })} testId={`pricing-tier-${idx}-cta-label`} />
+                <TextField label="CTA link" value={item.ctaHref} onChange={(v) => patch({ ctaHref: v })} testId={`pricing-tier-${idx}-cta-href`} />
+                <SelectField
+                  label="CTA variant"
+                  value={item.ctaVariant || 'outline'}
+                  onChange={(v) => patch({ ctaVariant: v })}
+                  options={[
+                    { value: 'primary', label: 'Primary' },
+                    { value: 'default', label: 'Default' },
+                    { value: 'outline', label: 'Outline' },
+                    { value: 'ghost', label: 'Ghost' },
+                  ]}
+                  testId={`pricing-tier-${idx}-cta-variant`}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use the "Recommended tier" picker above the list to highlight one tier (mutually exclusive).
+                </p>
+              </>
+            );
+          }}
+        />
+        {tiers.length > 4 && (
+          <p className="text-xs text-warning mt-1">Only the first 4 tiers will render.</p>
+        )}
+      </Field>
+    </>
+  );
+}
+
+// TESTIMONIAL GRID -----------------------------------------------------------
+// Grid layout of testimonial cards. Each item renders as a <figure> with a
+// <blockquote> and a <figcaption>/<cite> for the author. Distinct from the
+// older "Testimonials" block (single/carousel/grid layouts mixed together)
+// — this one is grid-only with per-device column control and optional
+// avatar images. Uses tenant branding tokens for colours.
+
+function TestimonialGridRender({ block, breakpoint }) {
+  const c = block.content || {};
+  const items = Array.isArray(c.items) ? c.items : [];
+  const headingLevel = Math.max(1, Math.min(6, Number(c.headingLevel) || 2));
+  const Heading = `h${headingLevel}`;
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const responsiveCss = !isPreview ? buildResponsiveColumnsCss(block.id, c.columns, c.gap) : null;
+  const previewCols = isPreview ? resolveColumns(c.columns, breakpoint) : null;
+  return (
+    <div className="w-full h-full overflow-auto">
+      {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
+      {c.heading && (
+        <Heading
+          className="mb-4 text-center"
+          style={{ margin: '0 0 1rem', fontSize: '1.5rem', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)' }}
+        >
+          {c.heading}
+        </Heading>
+      )}
+      <div
+        data-cb-grid="cols"
+        style={isPreview ? {
+          display: 'grid',
+          gap: `${Number(c.gap) || 16}px`,
+          gridTemplateColumns: `repeat(${Math.max(1, previewCols || 1)}, minmax(0, 1fr))`,
+        } : undefined}
+      >
+        {items.map((t, i) => (
+          <figure
+            key={i}
+            style={{
+              background: 'var(--cb-color-surface, #ffffff)',
+              border: '1px solid var(--cb-color-border, #e2e8f0)',
+              borderRadius: 8,
+              padding: 20,
+              margin: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <MessageSquareQuote
+              className="w-5 h-5"
+              style={{ color: 'var(--cb-color-primary, #0f172a)' }}
+              aria-hidden="true"
+            />
+            <blockquote
+              style={{
+                margin: 0,
+                fontSize: '0.95rem',
+                lineHeight: 1.5,
+                color: 'var(--cb-color-on-surface, #0f172a)',
+              }}
+            >
+              {t.quote}
+            </blockquote>
+            <figcaption
+              className="flex items-center gap-3 mt-auto"
+              style={{ color: 'var(--cb-color-on-surface-muted, #475569)', fontSize: '0.875rem' }}
+            >
+              {t.avatarUrl ? (
+                <img
+                  src={t.avatarUrl}
+                  alt={t.avatarAlt || ''}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-10 h-10 rounded-full object-cover shrink-0"
+                />
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <cite style={{ fontStyle: 'normal', fontWeight: 600, color: 'var(--cb-color-on-surface, #0f172a)', display: 'block' }}>
+                  {t.author}
+                </cite>
+                {(t.role || t.company) && (
+                  <div className="truncate">
+                    {[t.role, t.company].filter(Boolean).join(', ')}
+                  </div>
+                )}
+              </div>
+              {t.companyLogoUrl ? (
+                <img
+                  src={t.companyLogoUrl}
+                  alt={t.companyLogoAlt || ''}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-6 w-auto object-contain shrink-0 ml-auto opacity-80"
+                  style={{ maxWidth: 96 }}
+                />
+              ) : null}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TestimonialGridInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const setColumns = (bp, val) => set({ columns: { ...(c.columns || {}), [bp]: Math.max(1, Math.min(4, Number(val) || 1)) } });
+  return (
+    <>
+      <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-testimonial-grid-heading" />
+      <SelectField
+        label="Heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(v) => set({ headingLevel: Number(v) })}
+        options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `H${n}` }))}
+        testId="select-testimonial-grid-heading-level"
+      />
+      <div className="grid grid-cols-3 gap-2">
+        <NumberField label="Cols (desktop)" min={1} max={4} value={resolveColumns(c.columns, 'desktop')} onChange={(v) => setColumns('desktop', v)} testId="input-testimonial-grid-cols-desktop" />
+        <NumberField label="Cols (tablet)" min={1} max={4} value={resolveColumns(c.columns, 'tablet')} onChange={(v) => setColumns('tablet', v)} testId="input-testimonial-grid-cols-tablet" />
+        <NumberField label="Cols (mobile)" min={1} max={4} value={resolveColumns(c.columns, 'mobile')} onChange={(v) => setColumns('mobile', v)} testId="input-testimonial-grid-cols-mobile" />
+      </div>
+      <NumberField label="Gap (px)" min={0} max={64} value={c.gap || 16} onChange={(v) => set({ gap: Number(v) || 0 })} testId="input-testimonial-grid-gap" />
+      <Field label="Testimonials">
+        <ArrayList
+          items={c.items || []}
+          onChange={(next) => set({ items: next })}
+          makeNew={() => ({ quote: 'A short, punchy quote.', author: 'Name', role: '', company: '', avatarUrl: '', avatarAlt: '', companyLogoUrl: '', companyLogoAlt: '' })}
+          addLabel="Add testimonial"
+          testIdPrefix="testimonial-grid"
+          renderItem={(item, idx, patch) => (
+            <>
+              <TextField label="Quote" multiline value={item.quote} onChange={(v) => patch({ quote: v })} testId={`testimonial-grid-${idx}-quote`} />
+              <TextField label="Author" value={item.author} onChange={(v) => patch({ author: v })} testId={`testimonial-grid-${idx}-author`} />
+              <div className="grid grid-cols-2 gap-2">
+                <TextField label="Role" value={item.role} onChange={(v) => patch({ role: v })} testId={`testimonial-grid-${idx}-role`} />
+                <TextField label="Company" value={item.company} onChange={(v) => patch({ company: v })} testId={`testimonial-grid-${idx}-company`} />
+              </div>
+              <ImageField
+                label="Avatar (optional)"
+                value={item.avatarUrl}
+                alt={item.avatarAlt}
+                onChangeSrc={(v) => patch({ avatarUrl: v })}
+                onChangeAlt={(v) => patch({ avatarAlt: v })}
+                testId={`testimonial-grid-${idx}-avatar`}
+              />
+              <ImageField
+                label="Company logo (optional)"
+                value={item.companyLogoUrl}
+                alt={item.companyLogoAlt}
+                onChangeSrc={(v) => patch({ companyLogoUrl: v })}
+                onChangeAlt={(v) => patch({ companyLogoAlt: v })}
+                testId={`testimonial-grid-${idx}-company-logo`}
+              />
+            </>
+          )}
+        />
+      </Field>
+    </>
+  );
+}
+
 // SECTION --------------------------------------------------------------------
 // A visual grouping primitive. The canvas itself is flat (absolute
 // positioning), so Section acts as a styled background "band" / container
@@ -3195,6 +3720,8 @@ const REGISTRY = {
   [BLOCK_TYPES.STAT]:         { label: 'Stat',           icon: Hash,           category: 'ui',       Editor: StatRender,         Renderer: StatRender,         Inspector: StatInspector },
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
+  [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
+  [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,

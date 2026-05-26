@@ -294,6 +294,66 @@ function auditBlock(block, ctx) {
       'Positive tabindex values override natural reading order. Use 0 or -1.'));
   }
 
+  // --- Pricing table tier CTAs / recommended exclusivity
+  if (block.type === BLOCK_TYPES.PRICING_TABLE) {
+    const tiers = Array.isArray(c.tiers) ? c.tiers : [];
+    tiers.forEach((t, i) => {
+      const label = String(t?.ctaLabel || '').trim();
+      const href = String(t?.ctaHref || '').trim();
+      if (label && !href) {
+        out.push(issue(block.id, name, 'button-no-accessible-name', SEVERITY.ERROR,
+          `Pricing tier #${i + 1} CTA "${label}" has no link target.`));
+      }
+      if (href && !label) {
+        out.push(issue(block.id, name, 'link-image-no-accessible-name', SEVERITY.ERROR,
+          `Pricing tier #${i + 1} CTA link has no visible label.`));
+      }
+    });
+    if (tiers.filter((t) => t?.recommended).length > 1) {
+      out.push(issue(block.id, name, 'pricing-multiple-recommended', SEVERITY.WARNING,
+        'More than one pricing tier is marked recommended — highlight only one to guide the eye.'));
+    }
+    // Tier name required for the article aria-label to be meaningful.
+    tiers.forEach((t, i) => {
+      if (!String(t?.name || '').trim()) {
+        out.push(issue(block.id, name, 'pricing-tier-missing-name', SEVERITY.ERROR,
+          `Pricing tier #${i + 1} has no name — screen readers will only hear "Tier ${i + 1} pricing tier".`));
+      }
+    });
+    // Recommended badge contrast: the badge paints primary-on-on-primary.
+    // We don't know the tenant's resolved tokens at audit time, so we check
+    // the design-system fallback pair (#0f172a on #ffffff in the renderer).
+    // This catches the common case where an author overrides the badge label
+    // but never the colour pair.
+    const recIdx = tiers.findIndex((t) => t?.recommended);
+    if (recIdx >= 0) {
+      const ratio = contrastRatio('#ffffff', '#0f172a');
+      if (!meetsAA(ratio, { isLargeText: false })) {
+        out.push(issue(block.id, name, 'contrast-below-aa', SEVERITY.WARNING,
+          `Recommended-tier badge contrast ${ratio?.toFixed(2)}:1 may fail WCAG AA against your branding tokens.`));
+      }
+    }
+  }
+
+  // --- Testimonial grid avatar alt
+  if (block.type === BLOCK_TYPES.TESTIMONIAL_GRID) {
+    const items = Array.isArray(c.items) ? c.items : [];
+    items.forEach((t, i) => {
+      if (t?.avatarUrl && !String(t.avatarAlt || '').trim()) {
+        out.push(issue(block.id, name, 'image-alt-missing', SEVERITY.ERROR,
+          `Testimonial #${i + 1} avatar is missing alt text. Add alt text or remove the image.`));
+      }
+      if (t?.companyLogoUrl && !String(t.companyLogoAlt || '').trim()) {
+        out.push(issue(block.id, name, 'image-alt-missing', SEVERITY.ERROR,
+          `Testimonial #${i + 1} company logo is missing alt text.`));
+      }
+      if (!String(t?.quote || '').trim()) {
+        out.push(issue(block.id, name, 'testimonial-missing-quote', SEVERITY.WARNING,
+          `Testimonial #${i + 1} has no quote text.`));
+      }
+    });
+  }
+
   // --- Custom HTML — soft warning, can't audit content
   if (block.type === BLOCK_TYPES.CUSTOM_HTML) {
     out.push(issue(block.id, name, 'custom-html-unscanned', SEVERITY.INFO,
