@@ -17,6 +17,8 @@ import {
   ChevronUp,
   Eye,
   EyeOff,
+  Lock,
+  LockOpen,
   LayoutGrid
 } from "lucide-react";
 import { MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
@@ -235,7 +237,7 @@ export default function MemberFieldVisibilityRulesEditor({
             Member Field Visibility Rules
           </DialogTitle>
           <DialogDescription>
-            Define rules to show or hide member fields based on other field values
+            Define rules to show, hide, or lock (make read-only) member fields and cards based on other field values. Locking is a UI guard for admins editing in this view; it is not enforced server-side.
           </DialogDescription>
         </DialogHeader>
 
@@ -496,6 +498,16 @@ export default function MemberFieldVisibilityRulesEditor({
                                     <SelectItem value="show">
                                       <span className="flex items-center gap-1">
                                         <Eye className="w-3 h-3" /> Show
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="lock">
+                                      <span className="flex items-center gap-1">
+                                        <Lock className="w-3 h-3" /> Lock
+                                      </span>
+                                    </SelectItem>
+                                    <SelectItem value="unlock">
+                                      <span className="flex items-center gap-1">
+                                        <LockOpen className="w-3 h-3" /> Unlock
                                       </span>
                                     </SelectItem>
                                   </SelectContent>

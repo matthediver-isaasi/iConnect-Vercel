@@ -1004,25 +1004,26 @@ export default function MemberDetail() {
     setIsEditing(false);
   };
 
-  const renderMemberCustomFieldEditor = (field) => {
+  const renderMemberCustomFieldEditor = (field, isLocked = false) => {
     const value = customFieldValues[field.id];
+    const disabledOverride = !isEditing || isLocked;
     switch (field.field_type) {
       case 'text':
         return isEditing ? (
-          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
       case 'number':
       case 'decimal':
         return isEditing ? (
-          <Input type="number" step={field.field_type === 'decimal' ? '0.01' : '1'} value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+          <Input type="number" step={field.field_type === 'decimal' ? '0.01' : '1'} value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
       case 'dropdown':
         return isEditing ? (
-          <Select value={value || ''} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}>
+          <Select value={value || ''} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))} disabled={isLocked}>
             <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
               {(field.options || []).map((opt, idx) => (
@@ -1042,9 +1043,11 @@ export default function MemberDetail() {
                 <Checkbox
                   checked={selectedValues.includes(opt.value)}
                   onCheckedChange={(checked) => {
+                    if (isLocked) return;
                     const newValues = checked ? [...selectedValues, opt.value] : selectedValues.filter(v => v !== opt.value);
                     setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
                   }}
+                  disabled={isLocked}
                   data-testid={`checkbox-member-custom-${field.id}-${opt.value}`}
                 />
                 <span className="text-sm">{opt.label || opt.value}</span>
@@ -1057,19 +1060,19 @@ export default function MemberDetail() {
       }
       case 'date':
         return isEditing ? (
-          <Input type="date" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-date-${field.id}`} />
+          <Input type="date" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-date-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? formatDate(value) : '-'}</p>
         );
       case 'email':
         return isEditing ? (
-          <Input type="email" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-email-${field.id}`} />
+          <Input type="email" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-email-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a> : '-'}</p>
         );
       case 'url':
         return isEditing ? (
-          <Input type="url" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} placeholder="https://" data-testid={`input-member-custom-url-${field.id}`} />
+          <Input type="url" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} placeholder="https://" disabled={isLocked} data-testid={`input-member-custom-url-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>
         );
@@ -1087,6 +1090,7 @@ export default function MemberDetail() {
               onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
               rows={3}
               maxLength={taMaxLen || undefined}
+              disabled={isLocked}
               className={taOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
               data-testid={`textarea-member-custom-${field.id}`}
             />
@@ -1115,7 +1119,7 @@ export default function MemberDetail() {
             <Switch
               checked={value === 'true' || value === true}
               onCheckedChange={(checked) => setCustomFieldValues(prev => ({ ...prev, [field.id]: checked ? 'true' : 'false' }))}
-              disabled={!isEditing}
+              disabled={disabledOverride}
               data-testid={`switch-member-custom-${field.id}`}
             />
             <span className="text-sm">{value === 'true' || value === true ? 'Yes' : 'No'}</span>
@@ -1134,7 +1138,7 @@ export default function MemberDetail() {
           return byCode ? byCode.name : value;
         })();
         return isEditing ? (
-          <Select value={resolvedValue} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}>
+          <Select value={resolvedValue} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))} disabled={isLocked}>
             <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
               {availableCountries.map((country) => (
@@ -1168,22 +1172,26 @@ export default function MemberDetail() {
             availableCountries={availableCountriesList}
             onChange={(newValues) => setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }))}
             label={field.label}
+            disabled={isLocked}
           />
         );
       }
       default:
         return isEditing ? (
-          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
     }
   };
 
-  const renderMemberCoreField = (fieldKey) => {
+  const renderMemberCoreField = (fieldKey, isLocked = false) => {
     const coreFieldDef = MEMBER_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!coreFieldDef) return null;
     const label = coreFieldDef.label;
+    const lockBadge = isLocked && isEditing ? (
+      <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-member-${fieldKey}`} />
+    ) : null;
 
     switch (fieldKey) {
       case 'first_name':
@@ -1193,9 +1201,9 @@ export default function MemberDetail() {
       case 'job_title':
         return (
           <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
+            <Label className="text-xs text-slate-500 flex items-center gap-1">{label}{lockBadge}</Label>
             {isEditing ? (
-              <Input value={formData[fieldKey] || ''} onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} data-testid={`input-member-${fieldKey}`} />
+              <Input value={formData[fieldKey] || ''} onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-member-${fieldKey}`} />
             ) : (
               <p className="text-sm font-medium">{member[fieldKey] || '-'}</p>
             )}
@@ -1204,9 +1212,9 @@ export default function MemberDetail() {
       case 'email':
         return (
           <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
+            <Label className="text-xs text-slate-500 flex items-center gap-1">{label}{lockBadge}</Label>
             {isEditing ? (
-              <Input type="email" value={formData.email || ''} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} data-testid="input-member-email" />
+              <Input type="email" value={formData.email || ''} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} disabled={isLocked} data-testid="input-member-email" />
             ) : (
               <p className="text-sm">{member.email ? <a href={`mailto:${member.email}`} className="text-blue-600 hover:underline">{member.email}</a> : '-'}</p>
             )}
@@ -1215,9 +1223,9 @@ export default function MemberDetail() {
       case 'biography':
         return (
           <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
+            <Label className="text-xs text-slate-500 flex items-center gap-1">{label}{lockBadge}</Label>
             {isEditing ? (
-              <Textarea value={formData.biography || ''} onChange={(e) => setFormData(prev => ({ ...prev, biography: e.target.value }))} rows={4} data-testid="textarea-member-biography" />
+              <Textarea value={formData.biography || ''} onChange={(e) => setFormData(prev => ({ ...prev, biography: e.target.value }))} rows={4} disabled={isLocked} data-testid="textarea-member-biography" />
             ) : (
               <p className="text-sm whitespace-pre-wrap">{member.biography || '-'}</p>
             )}
@@ -1228,7 +1236,7 @@ export default function MemberDetail() {
     }
   };
 
-  const { hiddenFields, hiddenCards } = evaluateVisibilityRules(
+  const { hiddenFields, hiddenCards, lockedFields, lockedCards } = evaluateVisibilityRules(
     rulesConfig,
     { ...formData, custom_field_values: customFieldValues },
     memberCustomFields
@@ -1239,18 +1247,25 @@ export default function MemberDetail() {
     if (hiddenCards.has(card.id)) return null;
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
     const isCollapsed = collapsedSections[card.id];
+    const isCardLocked = lockedCards.has(card.id);
 
     const renderField = (field) => {
       if (hiddenFields.has(field.id)) return null;
+      const isFieldLocked = isCardLocked || lockedFields.has(field.id);
       if (field.type === 'core') {
-        return <div key={field.id}>{renderMemberCoreField(field.fieldKey)}</div>;
+        return <div key={field.id}>{renderMemberCoreField(field.fieldKey, isFieldLocked)}</div>;
       } else {
         const customField = memberCustomFields.find(cf => cf.id === field.fieldId);
         if (!customField) return null;
         return (
           <div key={field.id} className="space-y-1">
-            <Label className="text-xs text-slate-500">{customField.label}</Label>
-            {renderMemberCustomFieldEditor(customField)}
+            <Label className="text-xs text-slate-500 flex items-center gap-1">
+              {customField.label}
+              {isFieldLocked && isEditing && (
+                <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-member-custom-${customField.id}`} />
+              )}
+            </Label>
+            {renderMemberCustomFieldEditor(customField, isFieldLocked)}
           </div>
         );
       }
