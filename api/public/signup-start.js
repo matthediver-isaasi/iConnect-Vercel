@@ -88,6 +88,8 @@ export default async function handler(req, res) {
 
   const verifyUrl = `${appBaseUrl()}/signup-verify?token=${encodeURIComponent(verificationToken)}&email=${encodeURIComponent(adminEmail.toLowerCase())}`;
   try {
+    // Signup verification is a platform→prospective-owner system message —
+    // there isn't even a tenant yet — so always send from mail.iconn.app.
     await sendEmail({
       to: adminEmail,
       subject: `Verify your email to finish creating ${tenantName}`,
@@ -100,6 +102,7 @@ export default async function handler(req, res) {
       `,
       text: `Verify your email to finish creating ${tenantName}: ${verifyUrl}\n\nThis link expires in 1 hour.`,
       skipFooter: true,
+      systemEmail: true,
     });
   } catch (err) {
     console.error('[signup-start] email send error:', err.message);

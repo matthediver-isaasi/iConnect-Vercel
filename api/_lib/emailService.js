@@ -205,7 +205,14 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false }) {
+// Architectural rule: platform→tenant-owner system messages (admin password
+// reset, signup verification, admin invites, billing notifications) MUST come
+// from `mail.iconn.app`, NOT a tenant's own verified sending domain. Pass
+// `systemEmail: true` (or use `sendSystemEmail()`) to force the platform
+// domain and skip tenant-domain resolution entirely, regardless of tenantId.
+// Tenant→member messages (welcomes, reminders, campaigns, form notifications)
+// continue to resolve off tenantId as before.
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false, systemEmail = false }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -223,21 +230,27 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   }
 
   // Log tenantId for debugging email domain resolution
-  console.log(`[Email Service] tenantId provided: ${tenantId || 'none'}`);
-  
-  const tenantConfig = await getTenantEmailConfig(tenantId);
-  
+  console.log(`[Email Service] tenantId provided: ${tenantId || 'none'}${systemEmail ? ' (systemEmail=true, forcing platform domain)' : ''}`);
+
   let domain = DEFAULT_DOMAIN;
   let fromAddress = from || DEFAULT_FROM;
-  
-  if (tenantConfig) {
-    domain = tenantConfig.domain;
-    if (!from) {
-      fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
-    }
-    console.log(`[Email Service] Using tenant domain: ${domain} (tenantId: ${tenantId})`);
+
+  if (systemEmail) {
+    // System (platform→tenant-owner) messages: always send from the platform
+    // domain, never from a tenant's verified sending domain. Do not even look
+    // up the tenant config — the rule is mechanical, not heuristic.
+    console.log(`[Email Service] systemEmail=true → forcing platform domain: ${domain}`);
   } else {
-    console.log(`[Email Service] Using fallback domain: ${domain} (tenantId: ${tenantId || 'not provided'})`);
+    const tenantConfig = await getTenantEmailConfig(tenantId);
+    if (tenantConfig) {
+      domain = tenantConfig.domain;
+      if (!from) {
+        fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
+      }
+      console.log(`[Email Service] Using tenant domain: ${domain} (tenantId: ${tenantId})`);
+    } else {
+      console.log(`[Email Service] Using fallback domain: ${domain} (tenantId: ${tenantId || 'not provided'})`);
+    }
   }
 
   try {
@@ -357,6 +370,17 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       domain,
     };
   }
+}
+
+/**
+ * Convenience wrapper for platform→tenant-owner system messages (admin
+ * password reset, signup verification, admin invites, billing notifications).
+ * Forces sending from `mail.iconn.app` regardless of tenantId. Use this at
+ * any call site where the recipient is a tenant owner/admin acting in their
+ * capacity as our customer, not their tenant's members.
+ */
+export async function sendSystemEmail(opts) {
+  return sendEmail({ ...opts, systemEmail: true });
 }
 
 export async function getEmailFooterForPreview(tenantId) {

@@ -230,11 +230,14 @@ export default async function handler(req, res) {
           </div>
         `;
 
+        // Admin/team invitation — platform→tenant-owner system message,
+        // must come from mail.iconn.app.
         await sendEmail({
           to: normalizedEmail,
           subject: emailSubject,
           html: emailHtml,
-          tenantId
+          tenantId,
+          systemEmail: true,
         });
 
         console.log(`[Tenant Team] Invitation email sent to ${normalizedEmail} (isNewUser: ${isNewUser})`);

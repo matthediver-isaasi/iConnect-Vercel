@@ -180,11 +180,14 @@ export default async function handler(req, res) {
       // instead of throwing. Always inspect the return value — if we only relied
       // on try/catch we would falsely report "sent" when Mailgun rejected the
       // request (e.g. missing MAILGUN_API_KEY, 401, unverified domain).
+      // Admin password reset is a platform→tenant-owner system message and
+      // MUST come from mail.iconn.app, not the tenant's own sending domain.
       const sendResult = await sendEmail({
         to: normalizedEmail,
         subject: 'Reset Your Admin Password',
         html: emailHtml,
-        tenantId
+        tenantId,
+        systemEmail: true,
       });
 
       if (sendResult?.success) {
