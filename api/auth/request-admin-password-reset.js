@@ -15,6 +15,18 @@ function buildResponse(stage) {
 }
 
 export default async function handler(req, res) {
+  // Unconditional landing log — first line on every invocation regardless of
+  // method, body, or DB state. Lets us answer "did the click actually reach
+  // Vercel?" by grepping for `[AdminReset] HIT` in function logs without
+  // depending on any downstream success/failure path.
+  console.log(
+    `[AdminReset] HIT method=${req.method} ` +
+    `host=${req.headers.host || 'n/a'} ` +
+    `xfh=${req.headers['x-forwarded-host'] || 'n/a'} ` +
+    `origin=${req.headers.origin || 'n/a'} ` +
+    `ua="${(req.headers['user-agent'] || 'n/a').slice(0, 120)}"`
+  );
+
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
