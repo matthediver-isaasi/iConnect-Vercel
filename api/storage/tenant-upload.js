@@ -142,6 +142,28 @@ async function getGalleryMaxUploadBytes(tenantId) {
 }
 
 /**
+ * Look up the tenant's configured resource max upload size (MB).
+ * Resource uploads flow through `type: 'upload'` from FileManagement.
+ * Defaults to 25MB when unset or invalid (matches the legacy bucket cap).
+ */
+async function getResourceMaxUploadBytes(tenantId) {
+  const DEFAULT_MB = 25;
+  try {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', 'resource_max_upload_mb')
+      .maybeSingle();
+    const num = data ? Number(data.setting_value) : NaN;
+    const mb = Number.isFinite(num) && num > 0 ? num : DEFAULT_MB;
+    return mb * 1024 * 1024;
+  } catch {
+    return DEFAULT_MB * 1024 * 1024;
+  }
+}
+
+/**
  * Build the storage path with tenant scoping
  */
 function buildStoragePath(tenantId, uploadType, entityId, fileName) {
@@ -222,10 +244,15 @@ export default async function handler(req, res) {
     // Select bucket based on upload type
     const bucket = isPrivate ? BUCKETS.PRIVATE : BUCKETS.PUBLIC;
 
-    // Check file size — gallery uploads use a tenant-configurable cap
-    const maxSize = uploadType === 'gallery-photo'
-      ? await getGalleryMaxUploadBytes(tenantId)
-      : MAX_FILE_SIZE[bucket];
+    // Check file size — gallery and resource uploads use tenant-configurable caps
+    let maxSize;
+    if (uploadType === 'gallery-photo') {
+      maxSize = await getGalleryMaxUploadBytes(tenantId);
+    } else if (uploadType === 'upload') {
+      maxSize = await getResourceMaxUploadBytes(tenantId);
+    } else {
+      maxSize = MAX_FILE_SIZE[bucket];
+    }
     if (file.size > maxSize) {
       return res.status(400).json({ 
         error: `File size exceeds maximum allowed size of ${maxSize / (1024 * 1024)}MB`,

@@ -16,10 +16,27 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
+const DEFAULT_RESOURCE_MAX_MB = 25;
 
 export default function FileManagementPage() {
   const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
+  const maxUploadMbQuery = useQuery({
+    queryKey: ["system-setting", "resource_max_upload_mb"],
+    queryFn: async () => {
+      try {
+        const list = await base44.entities.SystemSettings.filter({
+          setting_key: "resource_max_upload_mb",
+        });
+        const setting = Array.isArray(list) && list.length > 0 ? list[0] : null;
+        const num = setting ? Number(setting.setting_value) : NaN;
+        return Number.isFinite(num) && num > 0 ? num : DEFAULT_RESOURCE_MAX_MB;
+      } catch {
+        return DEFAULT_RESOURCE_MAX_MB;
+      }
+    },
+  });
+  const maxUploadMb = maxUploadMbQuery.data ?? DEFAULT_RESOURCE_MAX_MB;
+  const MAX_FILE_SIZE = maxUploadMb * 1024 * 1024;
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [editingFile, setEditingFile] = useState(null);
@@ -388,7 +405,7 @@ export default function FileManagementPage() {
 
     // Check file size before uploading
     if (file.size > MAX_FILE_SIZE) {
-      toast.error(`File size exceeds maximum allowed size of 25MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
+      toast.error(`File size exceeds maximum allowed size of ${maxUploadMb}MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
       event.target.value = '';
       return;
     }
@@ -812,7 +829,7 @@ export default function FileManagementPage() {
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Upload className="w-4 h-4 mr-2" />
-              {uploadingFile ? 'Uploading...' : 'Upload File (max 25MB)'}
+              {uploadingFile ? 'Uploading...' : `Upload File (max ${maxUploadMb}MB)`}
             </Button>
           </div>
         </div>

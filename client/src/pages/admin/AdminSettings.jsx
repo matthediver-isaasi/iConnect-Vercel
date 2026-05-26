@@ -94,6 +94,8 @@ export default function AdminSettings() {
 
   const [photoGalleryMaxMb, setPhotoGalleryMaxMb] = useState(5);
   const [photoGalleryMaxMbSettingId, setPhotoGalleryMaxMbSettingId] = useState(null);
+  const [resourceMaxMb, setResourceMaxMb] = useState(25);
+  const [resourceMaxMbSettingId, setResourceMaxMbSettingId] = useState(null);
   
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
@@ -129,6 +131,7 @@ export default function AdminSettings() {
             
             fetchXeroTokens(data.tenant?.id);
             fetchPhotoGalleryMaxMb();
+            fetchResourceMaxMb();
           } else {
             navigate('/admin/login');
           }
@@ -157,6 +160,22 @@ export default function AdminSettings() {
       }
     } catch (err) {
       console.error('Failed to fetch photo gallery max upload setting:', err);
+    }
+  };
+
+  const fetchResourceMaxMb = async () => {
+    try {
+      const list = await base44.entities.SystemSettings.filter({
+        setting_key: 'resource_max_upload_mb',
+      });
+      const setting = Array.isArray(list) && list.length > 0 ? list[0] : null;
+      if (setting) {
+        setResourceMaxMbSettingId(setting.id);
+        const num = Number(setting.setting_value);
+        if (Number.isFinite(num) && num > 0) setResourceMaxMb(num);
+      }
+    } catch (err) {
+      console.error('Failed to fetch resource max upload setting:', err);
     }
   };
 
@@ -276,7 +295,7 @@ export default function AdminSettings() {
         }
 
         // Persist photo gallery max upload size in system_settings
-        let settingError = null;
+        let galleryError = null;
         try {
           const mb = Math.max(1, Math.min(500, Number(photoGalleryMaxMb) || 5));
           if (photoGalleryMaxMbSettingId) {
@@ -295,13 +314,39 @@ export default function AdminSettings() {
           }
         } catch (settingErr) {
           console.error('Failed to save photo gallery max upload setting:', settingErr);
-          settingError = settingErr;
+          galleryError = settingErr;
         }
 
-        if (settingError) {
+        // Persist resource max upload size in system_settings
+        let resourceError = null;
+        try {
+          const mb = Math.max(1, Math.min(500, Number(resourceMaxMb) || 25));
+          if (resourceMaxMbSettingId) {
+            await base44.entities.SystemSettings.update(resourceMaxMbSettingId, {
+              setting_value: String(mb),
+              setting_type: 'number',
+            });
+          } else {
+            const created = await base44.entities.SystemSettings.create({
+              setting_key: 'resource_max_upload_mb',
+              setting_value: String(mb),
+              setting_type: 'number',
+              description: 'Maximum upload size in MB for resource file uploads',
+            });
+            if (created?.id) setResourceMaxMbSettingId(created.id);
+          }
+        } catch (settingErr) {
+          console.error('Failed to save resource max upload setting:', settingErr);
+          resourceError = settingErr;
+        }
+
+        if (galleryError || resourceError) {
+          const parts = [];
+          if (galleryError) parts.push(`photo gallery limit (${galleryError.message || 'Unknown error'})`);
+          if (resourceError) parts.push(`resource limit (${resourceError.message || 'Unknown error'})`);
           toast({
-            title: "Photo gallery limit not saved",
-            description: `Other settings were saved, but the photo gallery upload limit could not be updated: ${settingError.message || 'Unknown error'}`,
+            title: "Upload limits not saved",
+            description: `Other settings were saved, but the following could not be updated: ${parts.join('; ')}`,
             variant: "destructive",
           });
         } else {
@@ -814,31 +859,52 @@ export default function AdminSettings() {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Image className="w-5 h-5" />
-                Photo Galleries
+                Photo Galleries & Resources
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Configure upload limits for the photo gallery module
+                Configure upload limits for the photo gallery and resources modules
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="photo-gallery-max-mb" className="text-slate-200">
-                  Photo gallery max upload size (MB)
-                </Label>
-                <Input
-                  id="photo-gallery-max-mb"
-                  type="number"
-                  min={1}
-                  max={500}
-                  step={1}
-                  value={photoGalleryMaxMb}
-                  onChange={(e) => setPhotoGalleryMaxMb(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="bg-slate-900/50 border-slate-600 text-white max-w-xs"
-                  data-testid="input-photo-gallery-max-mb"
-                />
-                <p className="text-xs text-slate-400">
-                  Applies to both public and members-only galleries. Defaults to 5MB.
-                </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="photo-gallery-max-mb" className="text-slate-200">
+                    Photo gallery max upload size (MB)
+                  </Label>
+                  <Input
+                    id="photo-gallery-max-mb"
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={photoGalleryMaxMb}
+                    onChange={(e) => setPhotoGalleryMaxMb(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="bg-slate-900/50 border-slate-600 text-white max-w-xs"
+                    data-testid="input-photo-gallery-max-mb"
+                  />
+                  <p className="text-xs text-slate-400">
+                    Applies to both public and members-only galleries. Defaults to 5MB.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="resource-max-mb" className="text-slate-200">
+                    Resource max upload size (MB)
+                  </Label>
+                  <Input
+                    id="resource-max-mb"
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={resourceMaxMb}
+                    onChange={(e) => setResourceMaxMb(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="bg-slate-900/50 border-slate-600 text-white max-w-xs"
+                    data-testid="input-resource-max-mb"
+                  />
+                  <p className="text-xs text-slate-400">
+                    Applies to files uploaded via Resources / File Management. Defaults to 25MB.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>

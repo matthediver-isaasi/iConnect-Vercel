@@ -46,6 +46,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'featured_events_background',
   'email_preferences_blank_page',
   'photo_gallery_max_upload_mb',
+  'resource_max_upload_mb',
 ];
 
 export default async function handler(req, res) {
