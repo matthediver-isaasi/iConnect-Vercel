@@ -69,7 +69,7 @@ export default async function handler(req, res) {
 
     const { data: memberships } = await supabase
       .from('tenant_membership')
-      .select('id, tenant_id, membership_type, tenant:tenant_id(name, slug, admin_domain)')
+      .select('id, tenant_id, membership_type, tenant:tenant_id(name, slug)')
       .eq('identity_id', identity.id)
       .eq('membership_type', 'owner')
       .eq('status', 'active')
@@ -157,7 +157,7 @@ export default async function handler(req, res) {
     const tenant = memberships[0]?.tenant;
     const host = req.headers.host || 'iconn.app';
     const protocol = host.includes('localhost') ? 'http' : 'https';
-    const adminHost = tenant?.admin_domain || (tenant?.slug ? `${tenant.slug}.iconn.app` : host);
+    const adminHost = tenant?.slug ? `${tenant.slug}.iconn.app` : host;
     const resetUrl = `${protocol}://${adminHost}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
     let emailSent = false;

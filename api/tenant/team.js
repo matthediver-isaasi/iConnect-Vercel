@@ -175,7 +175,7 @@ export default async function handler(req, res) {
 
       const { data: tenant } = await supabase
         .from('tenant')
-        .select('name, slug, admin_domain')
+        .select('name, slug')
         .eq('id', tenantId)
         .single();
 
@@ -184,7 +184,7 @@ export default async function handler(req, res) {
 
       const host = req.headers.host || 'iconn.app';
       const protocol = host.includes('localhost') ? 'http' : 'https';
-      const adminHost = tenant?.admin_domain || (tenantSlug ? `${tenantSlug}.iconn.app` : host);
+      const adminHost = tenantSlug ? `${tenantSlug}.iconn.app` : host;
       const setPasswordUrl = `${protocol}://${adminHost}/admin/login?setup=${identity.reset_token}&email=${encodeURIComponent(normalizedEmail)}`;
 
       const inviterName = tenantUser.first_name && tenantUser.last_name 
