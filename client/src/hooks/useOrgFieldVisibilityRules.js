@@ -71,9 +71,15 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
   const hiddenCards = new Set();
   const shownCards = new Set();
   const cardsWithShowRules = new Set();
+  const lockedFields = new Set();
+  const unlockedFields = new Set();
+  const fieldsWithUnlockRules = new Set();
+  const lockedCards = new Set();
+  const unlockedCards = new Set();
+  const cardsWithUnlockRules = new Set();
   
   if (!rules || !rules.rules || rules.rules.length === 0) {
-    return { hiddenFields, hiddenCards };
+    return { hiddenFields, hiddenCards, lockedFields, lockedCards };
   }
   
   for (const rule of rules.rules) {
@@ -84,6 +90,12 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
           cardsWithShowRules.add(action.target_card_id);
         } else if (action.target_field_id) {
           fieldsWithShowRules.add(action.target_field_id);
+        }
+      } else if (action.action_type === 'unlock') {
+        if (action.target_type === 'card' && action.target_card_id) {
+          cardsWithUnlockRules.add(action.target_card_id);
+        } else if (action.target_field_id) {
+          fieldsWithUnlockRules.add(action.target_field_id);
         }
       }
     }
@@ -112,12 +124,20 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
             hiddenCards.add(action.target_card_id);
           } else if (action.action_type === 'show') {
             shownCards.add(action.target_card_id);
+          } else if (action.action_type === 'lock') {
+            lockedCards.add(action.target_card_id);
+          } else if (action.action_type === 'unlock') {
+            unlockedCards.add(action.target_card_id);
           }
         } else {
           if (action.action_type === 'hide') {
             hiddenFields.add(action.target_field_id);
           } else if (action.action_type === 'show') {
             shownFields.add(action.target_field_id);
+          } else if (action.action_type === 'lock') {
+            lockedFields.add(action.target_field_id);
+          } else if (action.action_type === 'unlock') {
+            unlockedFields.add(action.target_field_id);
           }
         }
       }
@@ -136,7 +156,19 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
     }
   }
   
-  return { hiddenFields, hiddenCards };
+  for (const fieldId of fieldsWithUnlockRules) {
+    if (!unlockedFields.has(fieldId)) {
+      lockedFields.add(fieldId);
+    }
+  }
+  
+  for (const cardId of cardsWithUnlockRules) {
+    if (!unlockedCards.has(cardId)) {
+      lockedCards.add(cardId);
+    }
+  }
+  
+  return { hiddenFields, hiddenCards, lockedFields, lockedCards };
 }
 
 const BOOLEAN_TRUE_STRINGS = new Set(['true', 'yes', '1']);

@@ -71,7 +71,8 @@ import {
   AlertCircle,
   Eye,
   Settings2,
-  Tag
+  Tag,
+  Lock
 } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
@@ -907,8 +908,9 @@ export default function OrganisationDetailView({
     setPdfPreview({ isOpen: false, url: null, fileName: null, isLoading: false });
   };
 
-  const renderFieldEditor = (field) => {
+  const renderFieldEditor = (field, isLocked = false) => {
     const value = customFieldValues[field.id];
+    const disabledOverride = !isEditing || isLocked;
     
     switch (field.field_type) {
       case 'text':
@@ -916,7 +918,7 @@ export default function OrganisationDetailView({
           <Input
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-            disabled={!isEditing}
+            disabled={disabledOverride}
             data-testid={`input-custom-${field.id}`}
           />
         );
@@ -932,7 +934,7 @@ export default function OrganisationDetailView({
             <Textarea
               value={value || ''}
               onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-              disabled={!isEditing}
+              disabled={disabledOverride}
               rows={3}
               maxLength={taMaxLen || undefined}
               className={taOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
@@ -963,7 +965,7 @@ export default function OrganisationDetailView({
             step={field.field_type === 'decimal' ? '0.01' : '1'}
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-            disabled={!isEditing}
+            disabled={disabledOverride}
             data-testid={`input-custom-${field.id}`}
           />
         );
@@ -972,7 +974,7 @@ export default function OrganisationDetailView({
           <Select
             value={value || ''}
             onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}
-            disabled={!isEditing}
+            disabled={disabledOverride}
           >
             <SelectTrigger data-testid={`select-custom-${field.id}`}>
               <SelectValue placeholder={`Select ${field.label}`} />
@@ -993,13 +995,13 @@ export default function OrganisationDetailView({
                 <Checkbox
                   checked={selectedValues.includes(opt.value)}
                   onCheckedChange={(checked) => {
-                    if (!isEditing) return;
+                    if (disabledOverride) return;
                     const newValues = checked 
                       ? [...selectedValues, opt.value]
                       : selectedValues.filter(v => v !== opt.value);
                     setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
                   }}
-                  disabled={!isEditing}
+                  disabled={disabledOverride}
                   data-testid={`checkbox-custom-${field.id}-${opt.value}`}
                 />
                 <span className="text-sm">{opt.label || opt.value}</span>
@@ -1015,7 +1017,7 @@ export default function OrganisationDetailView({
             onChange={(newValues) => {
               setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
             }}
-            disabled={!isEditing}
+            disabled={disabledOverride}
             placeholder={`Add ${field.label.toLowerCase()}...`}
           />
         );
@@ -1028,6 +1030,7 @@ export default function OrganisationDetailView({
               id={`custom-bool-${field.id}`}
               checked={isChecked}
               onCheckedChange={(checked) => setCustomFieldValues(prev => ({ ...prev, [field.id]: checked ? 'true' : 'false' }))}
+              disabled={isLocked}
               data-testid={`checkbox-custom-${field.id}`}
             />
             <Label htmlFor={`custom-bool-${field.id}`} className="text-sm font-normal cursor-pointer">
@@ -1046,6 +1049,7 @@ export default function OrganisationDetailView({
             type="date"
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+            disabled={isLocked}
             data-testid={`input-custom-date-${field.id}`}
           />
         ) : (
@@ -1059,6 +1063,7 @@ export default function OrganisationDetailView({
             type="email"
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+            disabled={isLocked}
             data-testid={`input-custom-email-${field.id}`}
           />
         ) : (
@@ -1075,6 +1080,7 @@ export default function OrganisationDetailView({
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
             placeholder="https://"
+            disabled={isLocked}
             data-testid={`input-custom-url-${field.id}`}
           />
         ) : (
@@ -1091,28 +1097,32 @@ export default function OrganisationDetailView({
           <Input
             value={value || ''}
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-            disabled={!isEditing}
+            disabled={disabledOverride}
           />
         );
     }
   };
 
-  const renderCoreField = (fieldKey) => {
+  const renderCoreField = (fieldKey, isLocked = false) => {
     const coreFieldDef = CORE_FIELDS.find(f => f.fieldKey === fieldKey);
     if (!coreFieldDef) return null;
     
     const value = formData[fieldKey];
     const label = coreFieldDef.label;
+    const lockBadge = isLocked && isEditing ? (
+      <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-${fieldKey}`} />
+    ) : null;
     
     if (fieldKey === 'description') {
       return (
         <div className="space-y-2">
-          <Label className="text-slate-500 min-h-5 flex items-center">{label}</Label>
+          <Label className="text-slate-500 min-h-5 flex items-center gap-1">{label}{lockBadge}</Label>
           {isEditing ? (
             <Textarea
               value={value || ''}
               onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
               rows={3}
+              disabled={isLocked}
               data-testid={`textarea-${fieldKey}`}
             />
           ) : (
@@ -1128,13 +1138,14 @@ export default function OrganisationDetailView({
       return (
         <div className="space-y-2">
           <Label className="text-slate-500 flex items-center gap-1">
-            <MapPin className="w-3 h-3" /> {label}
+            <MapPin className="w-3 h-3" /> {label}{lockBadge}
           </Label>
           {isEditing ? (
             <Textarea
               value={value || ''}
               onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
               rows={2}
+              disabled={isLocked}
               data-testid={`textarea-${fieldKey}`}
             />
           ) : (
@@ -1150,12 +1161,13 @@ export default function OrganisationDetailView({
       return (
         <div className="space-y-2">
           <Label className="text-slate-500 flex items-center gap-1">
-            <Globe className="w-3 h-3" /> {label}
+            <Globe className="w-3 h-3" /> {label}{lockBadge}
           </Label>
           {isEditing ? (
             <Input
               value={value || ''}
               onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+              disabled={isLocked}
               data-testid={`input-${fieldKey}`}
             />
           ) : (
@@ -1195,13 +1207,14 @@ export default function OrganisationDetailView({
     return (
       <div className="space-y-2">
         <Label className="text-slate-500 flex items-center gap-1">
-          {iconMap[fieldKey]} {label}
+          {iconMap[fieldKey]} {label}{lockBadge}
         </Label>
         {isEditing ? (
           <Input
             type={fieldKey === 'invoicing_email' ? 'email' : 'text'}
             value={value || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+            disabled={isLocked}
             data-testid={`input-${fieldKey}`}
           />
         ) : (
@@ -1213,7 +1226,7 @@ export default function OrganisationDetailView({
     );
   };
 
-  const { hiddenFields, hiddenCards } = evaluateVisibilityRules(
+  const { hiddenFields, hiddenCards, lockedFields, lockedCards } = evaluateVisibilityRules(
     rulesConfig, 
     { ...formData, custom_field_values: customFieldValues }, 
     orgCustomFields
@@ -1224,16 +1237,19 @@ export default function OrganisationDetailView({
     if (hiddenCards.has(card.id)) return null;
     
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
+    const isCardLocked = lockedCards.has(card.id);
     
     const renderField = (field) => {
       if (hiddenFields.has(field.id)) {
         return null;
       }
       
+      const isFieldLocked = isCardLocked || lockedFields.has(field.id);
+      
       if (field.type === 'core') {
         return (
           <div key={field.id}>
-            {renderCoreField(field.fieldKey)}
+            {renderCoreField(field.fieldKey, isFieldLocked)}
           </div>
         );
       } else {
@@ -1241,8 +1257,13 @@ export default function OrganisationDetailView({
         if (!customField) return null;
         return (
           <div key={field.id} className="space-y-2">
-            <Label className="text-slate-500 min-h-5 flex items-center">{customField.label}</Label>
-            {renderFieldEditor(customField)}
+            <Label className="text-slate-500 min-h-5 flex items-center gap-1">
+              {customField.label}
+              {isFieldLocked && isEditing && (
+                <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-custom-${customField.id}`} />
+              )}
+            </Label>
+            {renderFieldEditor(customField, isFieldLocked)}
           </div>
         );
       }
