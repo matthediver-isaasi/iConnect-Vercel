@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign } from '@/components/email-builder/types';
@@ -430,6 +431,7 @@ export default function EmailCampaignEdit() {
       const result = await response.json();
 
       if (!response.ok) {
+        maybeEmitPlanQuotaFromBody(result);
         throw new Error(result.error || 'Failed to send campaign');
       }
 

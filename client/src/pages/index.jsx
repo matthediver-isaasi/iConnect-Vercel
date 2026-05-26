@@ -366,6 +366,7 @@ import PhotoGalleries from "./PhotoGalleries";
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
+import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
 
 // ScrollToTop component - scrolls to top on pathname changes, preserves anchor navigation
@@ -1223,6 +1224,7 @@ export default function Pages() {
         <Router>
             <LayoutProvider>
                 <AppRoutes />
+                <PlanQuotaDialog />
             </LayoutProvider>
         </Router>
     );

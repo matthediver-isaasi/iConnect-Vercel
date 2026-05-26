@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -315,7 +316,10 @@ export default function GroupEmailPage() {
         body: JSON.stringify({ campaignId: saved.id }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to send");
+      if (!res.ok) {
+        maybeEmitPlanQuotaFromBody(data);
+        throw new Error(data.error || "Failed to send");
+      }
       toast.success(data.message || "Campaign sending");
       setComposeOpen(false);
       refetchCampaigns();
@@ -342,7 +346,10 @@ export default function GroupEmailPage() {
         body: JSON.stringify({ campaignId: saved.id, scheduledAt: new Date(scheduledAt).toISOString() }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to schedule");
+      if (!res.ok) {
+        maybeEmitPlanQuotaFromBody(data);
+        throw new Error(data.error || "Failed to schedule");
+      }
       toast.success("Scheduled");
       setComposeOpen(false);
       refetchCampaigns();

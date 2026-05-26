@@ -88,12 +88,28 @@ export async function uploadFileWithProgress(file, options = {}) {
 
   if (!signedUrlResponse.ok) {
     const errorData = await signedUrlResponse.json().catch(() => ({}));
-    
+
     if (signedUrlResponse.status === 401) {
       throw new Error('You must be logged in to upload files');
     }
-    
-    throw new Error(errorData.error || 'Failed to get upload URL');
+
+    const message = errorData.error || 'Failed to get upload URL';
+    if (errorData.code === 'PLAN_QUOTA_EXCEEDED') {
+      try {
+        const { emitPlanQuotaExceeded } = await import('./queryClient.js');
+        emitPlanQuotaExceeded(errorData.quota, message);
+      } catch {
+        // no-op
+      }
+      const err = new Error(message);
+      err.status = signedUrlResponse.status;
+      err.code = 'PLAN_QUOTA_EXCEEDED';
+      err.quota = errorData.quota;
+      err.body = errorData;
+      throw err;
+    }
+
+    throw new Error(message);
   }
 
   const { signedUrl, fileUrl, path: storagePath, bucket } = await signedUrlResponse.json();

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import { maybeEmitPlanQuotaFromBody } from "@/lib/queryClient";
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign } from '@/components/email-builder/types';
 import DOMPurify from 'dompurify';
@@ -410,7 +411,8 @@ export default function EmailCampaigns() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
+        maybeEmitPlanQuotaFromBody(error);
         throw new Error(error.error || 'Failed to send campaign');
       }
 
@@ -444,7 +446,8 @@ export default function EmailCampaigns() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
+        maybeEmitPlanQuotaFromBody(error);
         throw new Error(error.error || 'Failed to schedule campaign');
       }
 

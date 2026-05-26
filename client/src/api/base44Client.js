@@ -508,11 +508,26 @@ class Base44Client {
       if (!response.ok) {
         const errorBody = await response.text();
         let errorMessage;
+        let errorJson = null;
         try {
-          const errorJson = JSON.parse(errorBody);
+          errorJson = JSON.parse(errorBody);
           errorMessage = errorJson.message || errorJson.error || response.statusText;
         } catch {
           errorMessage = errorBody || response.statusText;
+        }
+        if (errorJson && errorJson.code === 'PLAN_QUOTA_EXCEEDED') {
+          try {
+            const { emitPlanQuotaExceeded } = await import('../lib/queryClient.js');
+            emitPlanQuotaExceeded(errorJson.quota, errorJson.error || errorMessage);
+          } catch {
+            // no-op
+          }
+          const err = new Error(`API Error (${response.status}): ${errorMessage}`);
+          err.status = response.status;
+          err.code = 'PLAN_QUOTA_EXCEEDED';
+          err.quota = errorJson.quota;
+          err.body = errorJson;
+          throw err;
         }
         throw new Error(`API Error (${response.status}): ${errorMessage}`);
       }
