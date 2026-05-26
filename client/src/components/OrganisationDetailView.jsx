@@ -1018,6 +1018,27 @@ export default function OrganisationDetailView({
             placeholder={`Add ${field.label.toLowerCase()}...`}
           />
         );
+      case 'boolean':
+      case 'checkbox': {
+        const isChecked = value === 'true' || value === true;
+        return isEditing ? (
+          <div className="flex items-center gap-2 min-h-9">
+            <Checkbox
+              id={`custom-bool-${field.id}`}
+              checked={isChecked}
+              onCheckedChange={(checked) => setCustomFieldValues(prev => ({ ...prev, [field.id]: checked ? 'true' : 'false' }))}
+              data-testid={`checkbox-custom-${field.id}`}
+            />
+            <Label htmlFor={`custom-bool-${field.id}`} className="text-sm font-normal cursor-pointer">
+              {isChecked ? 'Yes' : 'No'}
+            </Label>
+          </div>
+        ) : (
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center" data-testid={`text-custom-${field.id}`}>
+            {isChecked ? 'Yes' : 'No'}
+          </div>
+        );
+      }
       case 'date':
         return isEditing ? (
           <Input
