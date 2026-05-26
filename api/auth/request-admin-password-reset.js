@@ -154,11 +154,14 @@ export default async function handler(req, res) {
       console.error('[Admin Password Reset] Identity update error (non-critical):', updateError);
     }
 
-    const tenant = memberships[0]?.tenant;
+    // System (platform→tenant-owner) reset: link must point at the platform
+    // host (iconn.app), NOT the tenant subdomain. The email itself comes from
+    // mail.iconn.app via systemEmail=true, so the link domain has to match
+    // that platform identity. Tenant subdomains are for tenant→member flows.
     const host = req.headers.host || 'iconn.app';
     const protocol = host.includes('localhost') ? 'http' : 'https';
-    const adminHost = tenant?.slug ? `${tenant.slug}.iconn.app` : host;
-    const resetUrl = `${protocol}://${adminHost}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
+    const platformHost = process.env.APP_DOMAIN || 'iconn.app';
+    const resetUrl = `${protocol}://${platformHost}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
     let emailSent = false;
     try {
