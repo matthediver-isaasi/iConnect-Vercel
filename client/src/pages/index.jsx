@@ -328,12 +328,15 @@ import PublicComplexEvents from "./PublicComplexEvents";
 import ComplexEventDetail from "./ComplexEventDetail";
 
 import TenantSignup from "./TenantSignup";
+import SignupVerify from "./SignupVerify";
 
 import DomainSettings from "./DomainSettings";
 
 import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
+import OnboardingWizard from "./admin/OnboardingWizard";
+import PlanUsage from "./admin/PlanUsage";
 import AdminBranding from "./admin/AdminBranding";
 import AdminLmicCountries from "./admin/AdminLmicCountries";
 import AdminDomains from "./admin/AdminDomains";
@@ -1072,6 +1075,7 @@ function StandaloneRoutes() {
             <Route path="/signup" element={<TenantSignup />} />
             <Route path="/Signup" element={<TenantSignup />} />
             <Route path="/register" element={<TenantSignup />} />
+            <Route path="/signup-verify" element={<SignupVerify />} />
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
             <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
             <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
@@ -1111,6 +1115,8 @@ function AdminRoutes() {
             <Route path="/admin/scheduled-tasks" element={<AdminScheduledTasks />} />
             <Route path="/admin/integrations" element={<AdminIntegrations />} />
             <Route path="/admin/zoho-crm-sync" element={<AdminZohoCrmSync />} />
+            <Route path="/admin/onboarding" element={<OnboardingWizard />} />
+            <Route path="/admin/plan-usage" element={<PlanUsage />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
     );
@@ -1157,6 +1163,9 @@ function SaasRoutes() {
             <Route path="/platform" element={<PlatformAdmin />} />
             <Route path="/signup" element={<TenantSignup />} />
             <Route path="/register" element={<TenantSignup />} />
+            <Route path="/signup-verify" element={<SignupVerify />} />
+            <Route path="/admin/onboarding" element={<OnboardingWizard />} />
+            <Route path="/admin/plan-usage" element={<PlanUsage />} />
             <Route path="*" element={<SaasLanding />} />
         </Routes>
     );
@@ -1169,7 +1178,7 @@ function AppRoutes() {
         return <SaasRoutes />;
     }
     
-    const standalonePages = ['/signup', '/register', '/email-preferences', '/casestudyupload'];
+    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload'];
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );

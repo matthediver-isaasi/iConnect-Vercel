@@ -346,7 +346,9 @@ export async function provisionTenant({
   linkExistingAccount = false,
   isPlatformProvision = false,
   generateSetupToken = false,
-  existingIdentity = null
+  existingIdentity = null,
+  planCode = 'free',
+  onboardingStatus = 'complete'
 }) {
   const state = {
     tenantId: null,
@@ -372,7 +374,10 @@ export async function provisionTenant({
         subscription_plan: 'trial',
         subscription_status: 'active',
         billing_email: adminEmail.toLowerCase(),
-        settings: {}
+        settings: {},
+        plan_code: planCode,
+        onboarding_status: onboardingStatus,
+        onboarding_completed_at: onboardingStatus === 'complete' ? new Date().toISOString() : null
       })
       .select()
       .single();

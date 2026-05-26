@@ -28,8 +28,10 @@ import {
   Plus,
   Mail,
   Clock,
-  Plug
+  Plug,
+  BarChart3
 } from "lucide-react";
+import OnboardingChecklist from "@/components/dashboard/OnboardingChecklist";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -50,6 +52,14 @@ export default function AdminDashboard() {
         if (response.ok) {
           const data = await response.json();
           if (data.authenticated && data.tenantUser) {
+            // Blocking onboarding wizard: if the tenant hasn't finished
+            // self-serve onboarding yet, force them through it before they
+            // see the dashboard. Legacy tenants are backfilled to
+            // 'complete' so this only fires for new self-serve signups.
+            if (data.tenant?.onboarding_status === 'pending') {
+              navigate('/admin/onboarding');
+              return;
+            }
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
             
@@ -237,6 +247,13 @@ export default function AdminDashboard() {
       color: "text-warning"
     },
     {
+      title: "Plan & usage",
+      description: "Current plan, quotas, and how much you've used",
+      icon: BarChart3,
+      href: "/admin/plan-usage",
+      color: "text-indigo-400"
+    },
+    {
       title: "LMIC Country List",
       description: "Curate countries flagged as low/middle income for dashboard filtering",
       icon: Globe,
@@ -376,6 +393,10 @@ export default function AdminDashboard() {
           <p className="text-slate-400 mt-1">
             Manage your tenant settings and configuration
           </p>
+        </div>
+
+        <div className="mb-6">
+          <OnboardingChecklist />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

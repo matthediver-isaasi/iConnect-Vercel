@@ -31,7 +31,12 @@ export default async function handler(req, res) {
         role: tenantUser.role,
         status: tenantUser.status
       },
-      tenant: tenantUser.tenant
+      tenant: tenantUser.tenant ? {
+        ...tenantUser.tenant,
+        // Surface onboarding lifecycle so the dashboard can gate access
+        onboarding_status: tenantUser.tenant.onboarding_status || 'complete',
+        plan_code: tenantUser.tenant.plan_code || 'free',
+      } : null
     });
   } catch (error) {
     console.error('[Tenant Auth] Me error:', error);
