@@ -1,6 +1,7 @@
 import { supabase } from '../../../_lib/database.js';
 import { getTenantContext } from '../../../_lib/tenantContext.js';
 import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
+import { addTenantStorageBytes } from '../../../_lib/tenantStorageUsage.js';
 
 async function getRoleExcludedFeatures(tenantCtx) {
   if (!tenantCtx.roleId || !supabase) return [];
@@ -47,7 +48,7 @@ export default async function handler(req, res) {
   try {
     const { data: upload, error: fetchError } = await supabase
       .from('article_brief_case_study_upload')
-      .select('id, article_brief_id, tenant_id, version_number, source, file_name, storage_path')
+      .select('id, article_brief_id, tenant_id, version_number, source, file_name, storage_path, file_size')
       .eq('id', uploadId)
       .eq('article_brief_id', briefId)
       .eq('tenant_id', tenantCtx.tenantId)
@@ -71,6 +72,9 @@ export default async function handler(req, res) {
     if (upload.storage_path) {
       try {
         await supabase.storage.from('private-uploads').remove([upload.storage_path]);
+        if (Number.isFinite(Number(upload.file_size)) && Number(upload.file_size) > 0) {
+          addTenantStorageBytes(upload.tenant_id, -Number(upload.file_size)).catch(() => {});
+        }
       } catch (storageErr) {
         console.warn('[CaseStudyUploads Delete] Storage cleanup failed:', storageErr);
       }

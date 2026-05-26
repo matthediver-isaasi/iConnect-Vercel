@@ -13,6 +13,8 @@
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { checkStorageQuota } from '../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 /**
  * Look up tenant from form record for public form submissions
@@ -225,6 +227,12 @@ export default async function handler(req, res) {
       });
     }
 
+    // Plan quota: cumulative tenant storage cap (plan.quotas.storage_mb).
+    const storageCheck = await checkStorageQuota(tenantId, { fileSizeBytes: fileSize });
+    if (!storageCheck.ok) {
+      return res.status(storageCheck.status).json(storageCheck.body);
+    }
+
     // Build tenant-scoped storage path
     const storagePath = buildStoragePath(tenantId, uploadType || 'upload', entityId, fileName);
 
@@ -245,6 +253,11 @@ export default async function handler(req, res) {
       console.error('[SignedUpload] Supabase signed URL error:', error);
       return res.status(500).json({ error: 'Failed to generate upload URL: ' + error.message });
     }
+
+    // Optimistically attribute the claimed fileSize to the tenant's cumulative
+    // usage. The client may abort the actual PUT, in which case the counter
+    // drifts upward — re-baselined by scripts/recompute-tenant-storage.mjs.
+    addTenantStorageBytes(tenantId, fileSize).catch(() => {});
 
     // Determine the final URL format
     let finalUrl;

@@ -1,4 +1,6 @@
 import { supabase } from '../../_lib/database.js';
+import { checkStorageQuota } from '../../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../../_lib/tenantStorageUsage.js';
 
 const PRIVATE_BUCKET = 'private-uploads';
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -61,6 +63,11 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'This link is no longer valid' });
     }
 
+    const storageCheck = await checkStorageQuota(brief.tenant_id, { fileSizeBytes: fileSize });
+    if (!storageCheck.ok) {
+      return res.status(storageCheck.status).json(storageCheck.body);
+    }
+
     const sanitized = sanitizeFileName(fileName);
     const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const storagePath = `${brief.tenant_id}/article-briefs/${brief.id}/case-study-uploads/${uniqueId}-${sanitized}`;
@@ -73,6 +80,8 @@ export default async function handler(req, res) {
       console.error('[CaseStudyUpload SignedUrl] Supabase signed URL error:', error);
       return res.status(500).json({ error: 'Failed to generate upload URL' });
     }
+
+    addTenantStorageBytes(brief.tenant_id, fileSize).catch(() => {});
 
     const fileUrl = `/api/storage/secure-url?bucket=${PRIVATE_BUCKET}&path=${encodeURIComponent(storagePath)}&redirect=true`;
 

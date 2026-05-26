@@ -12,6 +12,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { checkStorageQuota } from '../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -292,6 +293,9 @@ export default async function handler(req, res) {
       console.error('[TenantUpload] Supabase upload error:', error);
       return res.status(500).json({ error: 'Failed to upload file: ' + error.message });
     }
+
+    // Track cumulative tenant storage usage for plan-quota enforcement.
+    addTenantStorageBytes(tenantId, file.size).catch(() => {});
 
     // Generate URL based on bucket type
     let fileUrl;

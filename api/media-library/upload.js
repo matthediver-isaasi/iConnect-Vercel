@@ -1,6 +1,8 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { supabase as dbSupabase } from '../_lib/database.js';
 import { createClient } from '@supabase/supabase-js';
+import { checkStorageQuota } from '../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 export const config = { api: { bodyParser: false } };
 
@@ -98,12 +100,16 @@ export default async function handler(req, res) {
   const cap = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
   if (file.size > cap) return res.status(400).json({ error: `File too large (max ${isVideo ? '100MB' : '10MB'})` });
 
+  const storageCheck = await checkStorageQuota(context.tenantId, { fileSizeBytes: file.size });
+  if (!storageCheck.ok) return res.status(storageCheck.status).json(storageCheck.body);
+
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const path = `${context.tenantId}/canvas-media/${id}-${sanitizeFileName(file.originalname)}`;
   const up = await storage.storage.from('public-assets').upload(path, file.buffer, {
     contentType: file.mimetype, cacheControl: '3600', upsert: false,
   });
   if (up.error) return res.status(500).json({ error: 'Upload failed' });
+  addTenantStorageBytes(context.tenantId, file.size).catch(() => {});
   const { data: pub } = storage.storage.from('public-assets').getPublicUrl(path);
   const url = pub?.publicUrl;
 

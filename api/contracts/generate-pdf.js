@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
 import { getSessionTenantUser } from '../_lib/session.js';
+import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -207,6 +208,14 @@ export default async function handler(req, res) {
     if (uploadError) {
       console.error('[contracts/generate-pdf] Upload error:', uploadError);
       return res.status(500).json({ error: 'Failed to upload PDF', details: uploadError.message });
+    }
+
+    // Track cumulative tenant storage usage. NB: `upsert: true` means a
+    // regenerated PDF for the same submission overwrites the previous file
+    // rather than adding bytes, so we may over-count on regeneration —
+    // re-baselined by scripts/recompute-tenant-storage.mjs.
+    if (tenantId) {
+      addTenantStorageBytes(tenantId, pdfBuffer.length).catch(() => {});
     }
 
     const { error: updateError } = await supabase

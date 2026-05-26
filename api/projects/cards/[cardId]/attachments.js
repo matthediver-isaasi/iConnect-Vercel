@@ -1,5 +1,7 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import { checkStorageQuota } from '../../../_lib/planQuota.js';
+import { addTenantStorageBytes } from '../../../_lib/tenantStorageUsage.js';
 import crypto from 'crypto';
 
 const STORAGE_BUCKET = 'file-repository';
@@ -125,6 +127,11 @@ export default async function handler(req, res) {
         });
       }
 
+      const storageCheck = await checkStorageQuota(access.board.tenant_id, { fileSizeBytes: fileSize });
+      if (!storageCheck.ok) {
+        return res.status(storageCheck.status).json(storageCheck.body);
+      }
+
       const sanitizedName = sanitizeFileName(fileName);
       const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const storagePath = `project-attachments/${access.board.tenant_id}/${access.card.board_id}/${cardId}/${uniqueId}-${sanitizedName}`;
@@ -137,6 +144,8 @@ export default async function handler(req, res) {
         console.error('[Attachments] Signed URL error:', signedError);
         return res.status(500).json({ error: 'Failed to generate upload URL: ' + signedError.message });
       }
+
+      addTenantStorageBytes(access.board.tenant_id, fileSize).catch(() => {});
 
       const { data: publicUrlData } = supabase.storage
         .from(STORAGE_BUCKET)

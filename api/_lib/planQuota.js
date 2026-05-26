@@ -17,6 +17,7 @@
  */
 
 import { supabase } from './database.js';
+import { getTenantStorageBytes } from './tenantStorageUsage.js';
 
 const UPGRADE_PATH = '/admin/plan-usage';
 
@@ -181,10 +182,13 @@ export async function checkEmailQuota(tenantId, { addingCount = 0 } = {}) {
 }
 
 /**
- * Storage check. We do not yet track cumulative tenant storage, so v1
- * enforces a per-upload cap: a single file must not exceed the tenant's
- * total storage quota (a 500MB-plan tenant uploading a 1GB file is rejected).
- * Cumulative metering is left for a follow-up.
+ * Storage check. Compares (current cumulative tenant usage + this file's
+ * size) against the plan's `storage_mb` limit. Cumulative usage is read
+ * from `tenant.storage_used_bytes`, maintained by upload/delete endpoints
+ * via `addTenantStorageBytes` (see `api/_lib/tenantStorageUsage.js`).
+ *
+ * The single-file ceiling is also enforced: a tenant on a 500MB plan
+ * cannot upload a 1GB file even when currently at zero usage.
  */
 export async function checkStorageQuota(tenantId, { fileSizeBytes = 0 } = {}) {
   const plan = await getTenantPlan(tenantId);
@@ -192,16 +196,24 @@ export async function checkStorageQuota(tenantId, { fileSizeBytes = 0 } = {}) {
   if (limitMb === null) return { ok: true };
   const limitBytes = limitMb * 1024 * 1024;
 
-  if (fileSizeBytes > limitBytes) {
+  const currentBytes = await getTenantStorageBytes(tenantId);
+  const projectedBytes = currentBytes + Math.max(0, Number(fileSizeBytes) || 0);
+
+  if (projectedBytes > limitBytes) {
+    const currentMb = Math.round((currentBytes / (1024 * 1024)) * 10) / 10;
     return {
       ok: false,
       status: 402,
       body: buildOverLimitBody(
         'storage_mb',
         plan,
-        null,
+        currentMb,
         limitMb,
-        { attempted_bytes: fileSizeBytes, limit_bytes: limitBytes }
+        {
+          attempted_bytes: fileSizeBytes,
+          current_bytes: currentBytes,
+          limit_bytes: limitBytes,
+        }
       ),
     };
   }

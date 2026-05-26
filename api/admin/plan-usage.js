@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   const tenantId = ctx.tenantId;
 
   const { data: tenant } = await supabase
-    .from('tenant').select('id, name, plan_code').eq('id', tenantId).single();
+    .from('tenant').select('id, name, plan_code, storage_used_bytes').eq('id', tenantId).single();
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
   const { data: plan } = await supabase
@@ -43,11 +43,16 @@ export default async function handler(req, res) {
     countRows(tenantId, 'event', q => q.gte('created_at', monthStart.toISOString())),
   ]);
 
+  const storageBytes = Number(tenant.storage_used_bytes || 0);
+  const storageMb = Number.isFinite(storageBytes)
+    ? Math.round((storageBytes / (1024 * 1024)) * 10) / 10
+    : 0;
+
   const usage = {
     members,
     events_per_month: eventsThisMonth,
-    storage_mb: null,        // Not tracked yet — surface as "—" in UI
-    emails_per_month: null,  // Same
+    storage_mb: storageMb,
+    emails_per_month: null,  // Not metered in plan-usage yet
   };
 
   return res.status(200).json({
