@@ -9,6 +9,11 @@ const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 const MAILGUN_FALLBACK_DOMAIN = `mail.${APP_DOMAIN}`;
 const DEFAULT_DOMAIN = MAILGUN_FALLBACK_DOMAIN;
 const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
+// Platform-pinned From for systemEmail=true. Intentionally ignores
+// MAILGUN_FROM_EMAIL so a misconfigured/legacy env var can never make a
+// system message (admin reset, signup verification, team invite, billing)
+// appear to come from a tenant domain like noreply@mail.graduatefutures.org.
+const PLATFORM_SYSTEM_FROM = `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 let mailgunClient = null;
@@ -237,9 +242,13 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
 
   if (systemEmail) {
     // System (platform→tenant-owner) messages: always send from the platform
-    // domain, never from a tenant's verified sending domain. Do not even look
-    // up the tenant config — the rule is mechanical, not heuristic.
-    console.log(`[Email Service] systemEmail=true → forcing platform domain: ${domain}`);
+    // domain AND the platform From identity, never from a tenant's verified
+    // sending domain and never from MAILGUN_FROM_EMAIL (which may legitimately
+    // be a per-deployment tenant address for non-system sends). Do not look
+    // up the tenant config — the rule is mechanical, not heuristic. Any
+    // caller-provided `from` is also ignored for system emails.
+    fromAddress = PLATFORM_SYSTEM_FROM;
+    console.log(`[Email Service] systemEmail=true → forcing platform domain: ${domain}, from: ${fromAddress}`);
   } else {
     const tenantConfig = await getTenantEmailConfig(tenantId);
     if (tenantConfig) {
