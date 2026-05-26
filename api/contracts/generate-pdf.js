@@ -227,6 +227,8 @@ export default async function handler(req, res) {
     if (updateError) {
       console.error('[contracts/generate-pdf] Failed to update submission with PDF path:', updateError);
       await supabase.storage.from('private-uploads').remove([storagePath]);
+      // Roll back the storage counter increment we made above so the tenant
+      // isn't charged for bytes that were just removed.
       if (tenantId) {
         addTenantStorageBytes(tenantId, -pdfBuffer.length).catch(() => {});
       }

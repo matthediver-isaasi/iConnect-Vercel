@@ -68,6 +68,16 @@ export default async function handler(req, res) {
       .eq('card_id', cardId)
       .single();
 
+    let boardTenantId = null;
+    if (access.card?.board_id) {
+      const { data: board } = await supabase
+        .from('project_board')
+        .select('tenant_id')
+        .eq('id', access.card.board_id)
+        .maybeSingle();
+      boardTenantId = board?.tenant_id || null;
+    }
+
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found' });
     }
@@ -170,6 +180,11 @@ export default async function handler(req, res) {
       if (deleteError) {
         console.error('[Attachments] Delete error:', deleteError);
         return res.status(500).json({ error: 'Failed to delete attachment' });
+      }
+
+      const size = Number(attachment.file_size);
+      if (boardTenantId && Number.isFinite(size) && size > 0) {
+        addTenantStorageBytes(boardTenantId, -size).catch(() => {});
       }
 
       await supabase.from('project_card_activity').insert({
