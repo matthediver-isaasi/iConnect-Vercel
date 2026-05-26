@@ -182,7 +182,8 @@ export default function OrganisationDetailView({
   isNew = false,
   onCreated 
 }) {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
+  const hideTrainingFundCard = isFeatureExcluded('crm.organisations.fund');
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
 
@@ -1508,22 +1509,24 @@ export default function OrganisationDetailView({
 
             {!isNew && (
               <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-green-600" />
-                      Training Fund
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-center py-4">
-                      <p className="text-3xl font-bold text-green-600">
-                        £{(formData.training_fund_balance || 0).toFixed(2)}
-                      </p>
-                      <p className="text-sm text-slate-500 mt-1">Available Balance</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {!hideTrainingFundCard && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-green-600" />
+                        Training Fund
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-center py-4">
+                        <p className="text-3xl font-bold text-green-600">
+                          £{(formData.training_fund_balance || 0).toFixed(2)}
+                        </p>
+                        <p className="text-sm text-slate-500 mt-1">Available Balance</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <Card>
                   <CardHeader>

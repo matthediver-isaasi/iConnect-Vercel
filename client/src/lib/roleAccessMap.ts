@@ -696,7 +696,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     pages: [
       {
         id: "crm.organisations",
-        label: "Organisations"
+        label: "Organisations",
+        features: [
+          { id: "crm.organisations.fund", label: "Training Fund" }
+        ]
       },
       {
         id: "crm.members",
