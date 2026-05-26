@@ -4,6 +4,10 @@
  * Read-only Plan & Usage payload for the admin "Plan & usage" page.
  * Returns the tenant's current plan + quotas + live counts so the page can
  * render progress bars without doing N round-trips of its own.
+ *
+ * Also returns the list of self-serve paid plans available for upgrade
+ * (so the page can render the upgrade selector) and the active subscription
+ * row if one exists.
  */
 
 import { supabase } from '../_lib/database.js';
@@ -31,7 +35,29 @@ export default async function handler(req, res) {
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
   const { data: plan } = await supabase
-    .from('plan').select('code, name, quotas').eq('code', tenant.plan_code || 'free').single();
+    .from('plan').select('code, name, quotas, display_price, description').eq('code', tenant.plan_code || 'free').single();
+
+  const { data: allPlans } = await supabase
+    .from('plan')
+    .select('code, name, quotas, display_price, description, stripe_price_id, is_self_serve, display_order')
+    .order('display_order', { ascending: true });
+
+  const availablePlans = (allPlans || []).map((p) => ({
+    code: p.code,
+    name: p.name,
+    quotas: p.quotas || {},
+    display_price: p.display_price,
+    description: p.description,
+    is_current: p.code === (tenant.plan_code || 'free'),
+    is_self_serve: !!p.is_self_serve,
+    can_checkout: !!p.is_self_serve && !!p.stripe_price_id && p.code !== (tenant.plan_code || 'free'),
+  }));
+
+  const { data: subscription } = await supabase
+    .from('tenant_subscription')
+    .select('plan_code, status, current_period_end, cancel_at_period_end')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
 
   // Live usage counters
   const monthStart = new Date();
@@ -59,5 +85,7 @@ export default async function handler(req, res) {
     tenant: { id: tenant.id, name: tenant.name },
     plan: plan || { code: tenant.plan_code, name: tenant.plan_code, quotas: {} },
     usage,
+    available_plans: availablePlans,
+    subscription: subscription || null,
   });
 }
