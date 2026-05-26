@@ -34,7 +34,7 @@ export default async function handler(req, res) {
 
     const { data: submission, error: subError } = await supabase
       .from('form_submission')
-      .select('*, form:form_id(id, name, fields, tenant_id)')
+      .select('*, pdf_path, form:form_id(id, name, fields, tenant_id)')
       .eq('id', submissionId)
       .single();
 
@@ -44,6 +44,7 @@ export default async function handler(req, res) {
     }
 
     const tenantId = submission.tenant_id;
+    const previousPdfPath = submission.pdf_path || null;
     
     if (!isInternalCall && submission.tenant_id !== sessionTenantId) {
       console.error('[contracts/generate-pdf] Tenant mismatch:', { submissionTenant: submission.tenant_id, sessionTenant: sessionTenantId });
@@ -226,7 +227,41 @@ export default async function handler(req, res) {
     if (updateError) {
       console.error('[contracts/generate-pdf] Failed to update submission with PDF path:', updateError);
       await supabase.storage.from('private-uploads').remove([storagePath]);
+      if (tenantId) {
+        addTenantStorageBytes(tenantId, -pdfBuffer.length).catch(() => {});
+      }
       return res.status(500).json({ error: 'Failed to save PDF reference', details: updateError.message });
+    }
+
+    // Regeneration cleanup: the previous PDF lives at a different path (filename
+    // includes Date.now()), so the new upload doesn't overwrite it. Delete the
+    // old object now that pdf_path has been swapped, and decrement the tenant
+    // storage counter by its actual size.
+    if (previousPdfPath && previousPdfPath !== storagePath) {
+      try {
+        const lastSlash = previousPdfPath.lastIndexOf('/');
+        const dir = lastSlash >= 0 ? previousPdfPath.slice(0, lastSlash) : '';
+        const name = lastSlash >= 0 ? previousPdfPath.slice(lastSlash + 1) : previousPdfPath;
+        let previousSize = 0;
+        try {
+          const { data: listed } = await supabase.storage
+            .from('private-uploads')
+            .list(dir, { search: name, limit: 1 });
+          const entry = Array.isArray(listed) ? listed.find((e) => e.name === name) : null;
+          const n = Number(entry?.metadata?.size);
+          if (Number.isFinite(n) && n > 0) previousSize = n;
+        } catch {}
+        const { error: oldRemoveErr } = await supabase.storage
+          .from('private-uploads')
+          .remove([previousPdfPath]);
+        if (oldRemoveErr) {
+          console.warn('[contracts/generate-pdf] Failed to remove previous PDF:', oldRemoveErr.message || oldRemoveErr);
+        } else if (tenantId && previousSize > 0) {
+          addTenantStorageBytes(tenantId, -previousSize).catch(() => {});
+        }
+      } catch (cleanupErr) {
+        console.warn('[contracts/generate-pdf] Previous PDF cleanup failed:', cleanupErr?.message || cleanupErr);
+      }
     }
 
     return res.status(200).json({

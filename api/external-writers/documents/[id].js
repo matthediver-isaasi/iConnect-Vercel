@@ -1,5 +1,21 @@
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { supabase } from '../../_lib/database.js';
+import { addTenantStorageBytes } from '../../_lib/tenantStorageUsage.js';
+
+async function getStorageObjectSize(bucket, storagePath) {
+  if (!bucket || !storagePath) return 0;
+  try {
+    const lastSlash = storagePath.lastIndexOf('/');
+    const dir = lastSlash >= 0 ? storagePath.slice(0, lastSlash) : '';
+    const name = lastSlash >= 0 ? storagePath.slice(lastSlash + 1) : storagePath;
+    const { data } = await supabase.storage.from(bucket).list(dir, { search: name, limit: 1 });
+    const entry = Array.isArray(data) ? data.find((e) => e.name === name) : null;
+    const size = Number(entry?.metadata?.size);
+    return Number.isFinite(size) && size > 0 ? size : 0;
+  } catch {
+    return 0;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'DELETE') {
@@ -32,12 +48,16 @@ export default async function handler(req, res) {
     }
 
     if (doc.storage_path && doc.bucket) {
+      const objectSize = await getStorageObjectSize(doc.bucket, doc.storage_path);
+
       const { error: storageError } = await supabase.storage
         .from(doc.bucket)
         .remove([doc.storage_path]);
 
       if (storageError) {
         console.error('[Document Delete] Storage removal error:', storageError);
+      } else if (objectSize > 0) {
+        addTenantStorageBytes(tenantId, -objectSize).catch(() => {});
       }
     }
 

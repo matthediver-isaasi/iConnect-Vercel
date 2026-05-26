@@ -1,5 +1,6 @@
 import { supabase } from '../../../../_lib/database.js';
 import { getSession } from '../../../../_lib/session.js';
+import { addTenantStorageBytes } from '../../../../_lib/tenantStorageUsage.js';
 
 const STORAGE_BUCKET = 'file-repository';
 
@@ -19,7 +20,13 @@ async function getBoardMembershipForCard(cardId, identityId) {
     .eq('identity_id', identityId)
     .single();
 
-  return { card, membership };
+  const { data: board } = await supabase
+    .from('project_board')
+    .select('tenant_id')
+    .eq('id', card.board_id)
+    .single();
+
+  return { card, membership, board };
 }
 
 export default async function handler(req, res) {
@@ -140,6 +147,11 @@ export default async function handler(req, res) {
 
         if (storageError) {
           console.error('[Attachments] Storage delete error:', storageError);
+        } else {
+          const size = Number(attachment.file_size);
+          if (access.board?.tenant_id && Number.isFinite(size) && size > 0) {
+            addTenantStorageBytes(access.board.tenant_id, -size).catch(() => {});
+          }
         }
       }
 
