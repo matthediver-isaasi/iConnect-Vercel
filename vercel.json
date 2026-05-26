@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/run-form-submission-export-jobs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/recompute-tenant-storage",
+      "schedule": "0 3 * * *"
     }
   ],
   "rewrites": [
