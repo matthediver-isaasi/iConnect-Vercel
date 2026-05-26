@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
+import StorageUsageBanner from "@/components/StorageUsageBanner";
 
 const DEFAULT_RESOURCE_MAX_MB = 25;
 
@@ -833,7 +834,11 @@ export default function FileManagementPage() {
             </Button>
           </div>
         </div>
-        
+
+        <div className="mb-6">
+          <StorageUsageBanner />
+        </div>
+
         {/* Upload Progress Bar */}
         {uploadingFile && (
           <div className="mb-6">

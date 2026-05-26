@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { throwUploadHttpError, showUploadErrorToast } from '@/lib/planQuotaError';
+import StorageUsageBanner from '@/components/StorageUsageBanner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -581,6 +582,7 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
           <DialogTitle>Media library</DialogTitle>
           <DialogDescription>Search saved images and videos, upload new files, or register a URL.</DialogDescription>
         </DialogHeader>
+        <StorageUsageBanner compact className="mb-1" />
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Search className="w-4 h-4 text-slate-500" />
