@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -132,7 +133,7 @@ export default function AdminSetupPage() {
       toast.success('Logo uploaded successfully');
     } catch (error) {
       console.error('Logo upload error:', error);
-      toast.error('Failed to upload logo');
+      showUploadErrorToast(error, 'Failed to upload logo');
     } finally {
       setLogoUploading(false);
     }
@@ -196,7 +197,7 @@ export default function AdminSetupPage() {
       toast.success('Favicon uploaded successfully');
     } catch (error) {
       console.error('Favicon upload error:', error);
-      toast.error('Failed to upload favicon');
+      showUploadErrorToast(error, 'Failed to upload favicon');
     } finally {
       setFaviconUploading(false);
     }

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, X, FileText, FileImage, FileSpreadsheet, File, Loader2, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useSecureFileUrl, isSecureReference } from "@/hooks/useSecureFileUrl";
+import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 
 const ALLOWED_FILE_TYPES = {
   pdf: { extension: '.pdf', mimeTypes: ['application/pdf'], icon: FileText },
@@ -155,11 +156,7 @@ export default function CustomFieldFileUpload({
       });
       
       if (!signedUrlResponse.ok) {
-        const errorData = await signedUrlResponse.json().catch(() => ({}));
-        if (signedUrlResponse.status === 401) {
-          throw new Error('You must be logged in to upload files');
-        }
-        throw new Error(errorData.error || 'Failed to get upload URL');
+        await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
       }
       
       const { signedUrl, fileUrl, path: storagePath, bucket } = await signedUrlResponse.json();
@@ -189,7 +186,7 @@ export default function CustomFieldFileUpload({
       toast.success('File uploaded successfully');
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error.message || 'Failed to upload file');
+      showUploadErrorToast(error, 'Failed to upload file');
     } finally {
       setIsUploading(false);
       event.target.value = '';

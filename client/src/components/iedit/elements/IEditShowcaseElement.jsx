@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
@@ -310,7 +311,7 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
       updateContent('backgroundImage', response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      showUploadErrorToast(error, 'Upload failed');
     } finally {
       setIsUploadingBg(false);
     }

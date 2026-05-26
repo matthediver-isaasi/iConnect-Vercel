@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { 
   Upload, 
   Loader2, 
@@ -287,7 +288,7 @@ function ImageBlockEditor({ block, onChange, isChild }) {
       update('src', response.file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }

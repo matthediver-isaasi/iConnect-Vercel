@@ -74,6 +74,7 @@ import {
   Tag
 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { showZohoCrmSyncToast } from "@/lib/zohoCrmSyncToast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
@@ -711,7 +712,7 @@ export default function OrganisationDetailView({
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       toast.success('Logo updated');
     } catch (error) {
-      toast.error('Failed to update logo: ' + (error?.message || 'Unknown error'));
+      showUploadErrorToast(error, 'Failed to update logo');
     } finally {
       setIsUploadingLogo(false);
     }

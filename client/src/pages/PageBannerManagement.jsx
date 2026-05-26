@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Image, Plus, Pencil, Trash2, Upload, Loader2, AlertCircle, Eye, Sparkles, Copy, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import TypographyStyleSelector, { applyTypographyStyle } from "@/components/iedit/TypographyStyleSelector";
@@ -317,7 +318,7 @@ export default function PageBannerManagementPage() {
       }));
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingImage(false);
     }

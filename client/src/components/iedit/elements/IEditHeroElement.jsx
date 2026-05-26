@@ -1,4 +1,5 @@
 import { useState, useEffect, useId } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
@@ -882,7 +883,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
       const response = await base44.integrations.Core.UploadFile({ file });
       updateContent('image_url', response.file_url);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }
@@ -908,7 +909,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
       const response = await base44.integrations.Core.UploadFile({ file });
       updateContent('mobile_image_url', response.file_url);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsMobileUploading(false);
     }

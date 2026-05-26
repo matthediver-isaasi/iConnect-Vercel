@@ -2,6 +2,8 @@
 // This adapter provides the same interface as the Base44 SDK but uses
 // our Express backend which communicates with Supabase directly
 
+import { throwUploadHttpError } from '@/lib/planQuotaError.js';
+
 class EntityProxy {
   constructor(entityName, apiRequest) {
     this.entityName = entityName;
@@ -343,11 +345,7 @@ class CoreIntegration {
     });
     
     if (!signedUrlResponse.ok) {
-      const errorData = await signedUrlResponse.json().catch(() => ({}));
-      if (signedUrlResponse.status === 401) {
-        throw new Error('You must be logged in to upload files');
-      }
-      throw new Error(errorData.error || 'Failed to get upload URL');
+      await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
     }
     
     const { signedUrl, fileUrl, path: storagePath, bucket, isPrivate: resultPrivate } = await signedUrlResponse.json();

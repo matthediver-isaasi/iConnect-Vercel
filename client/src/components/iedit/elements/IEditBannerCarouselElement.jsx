@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Plus, Trash2, Upload, Loader2, GripVertical, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 export function IEditBannerCarouselElementEditor({ element, onChange }) {
@@ -70,7 +71,7 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
       updateBanner(index, 'backgroundImage', response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      showUploadErrorToast(error, 'Upload failed');
     } finally {
       setUploadingIndex(null);
     }

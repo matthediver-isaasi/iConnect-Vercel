@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { 
   Upload, 
   Link as LinkIcon, 
@@ -55,7 +56,7 @@ export default function EventImageUpload({
       toast.success('Image uploaded successfully');
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {

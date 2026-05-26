@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { Plus, Pencil, Trash2, Loader2, Globe, Image, GripVertical, Handshake } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 
@@ -121,7 +122,7 @@ export default function SponsorManagement() {
       setSponsorForm(prev => ({ ...prev, logo_url: result.file_url }));
       toast.success("Logo uploaded");
     } catch (err) {
-      toast.error(err.message || "Failed to upload logo");
+      showUploadErrorToast(err, "Failed to upload logo");
     } finally {
       setUploadingLogo(false);
     }

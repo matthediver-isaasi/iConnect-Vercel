@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, MessageSquare, Bug, Lightbulb, HelpCircle, Mail, Clock, CheckCircle, AlertCircle, Upload, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -114,7 +115,7 @@ export default function SupportPage() {
       setNewTicket({ ...newTicket, attachments: [...newTicket.attachments, file_url] });
       toast.success('File uploaded');
     } catch (error) {
-      toast.error('Failed to upload file');
+      showUploadErrorToast(error, 'Failed to upload file');
     } finally {
       setUploadingFile(false);
     }

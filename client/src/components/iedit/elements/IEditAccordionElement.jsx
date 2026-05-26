@@ -1,4 +1,5 @@
 import React, { useState, useId, useMemo, useRef, useCallback } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { base44 } from "@/api/base44Client";
@@ -296,7 +297,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
       const response = await base44.integrations.Core.UploadFile({ file });
       updateContent('background_image_url', response.file_url);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { FileText, FileIcon, Upload, X, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 
@@ -57,7 +58,7 @@ export default function EventDocumentsManager({
       toast.success("Document uploaded");
     } catch (err) {
       console.error("[EventDocumentsManager] upload error:", err);
-      toast.error(err.message || "Failed to upload document");
+      showUploadErrorToast(err, "Failed to upload document");
     } finally {
       setUploading(false);
       setProgress(0);

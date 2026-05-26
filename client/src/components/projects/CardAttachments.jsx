@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
+import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 
 const FILE_TYPE_ICONS = {
   'image': Image,
@@ -73,8 +74,7 @@ export function CardAttachments({
       });
 
       if (!getUploadUrlResponse.ok) {
-        const error = await getUploadUrlResponse.json();
-        throw new Error(error.error || 'Failed to get upload URL');
+        await throwUploadHttpError(getUploadUrlResponse, 'Failed to get upload URL');
       }
 
       const { signedUrl, uploadToken } = await getUploadUrlResponse.json();
@@ -112,7 +112,7 @@ export function CardAttachments({
       queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error.message || 'Failed to upload file');
+      showUploadErrorToast(error, 'Failed to upload file');
     } finally {
       setIsUploading(false);
       setUploadProgress(0);

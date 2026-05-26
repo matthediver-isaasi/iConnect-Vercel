@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import ReactQuill from "react-quill";
 
 export function IEditTableElementEditor({ element, onChange }) {
@@ -74,7 +75,7 @@ export function IEditTableElementEditor({ element, onChange }) {
       updateCell(rowIndex, colIndex, response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      showUploadErrorToast(error, 'Upload failed');
     } finally {
       setUploadingCells(prev => ({ ...prev, [cellKey]: false }));
     }

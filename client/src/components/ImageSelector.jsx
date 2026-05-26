@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 
 const FILES_PER_PAGE = 12;
 
@@ -70,7 +71,7 @@ export default function ImageSelector({
       toast.success('Image uploaded successfully');
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {

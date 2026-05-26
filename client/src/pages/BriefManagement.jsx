@@ -39,6 +39,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import {
   Search,
   Plus,
@@ -986,7 +987,7 @@ export default function BriefManagementPage() {
       }));
       toast.success("File attached");
     } catch (err) {
-      toast.error(err.message || "Failed to upload attachment");
+      showUploadErrorToast(err, "Failed to upload attachment");
     } finally {
       setAttachmentUploading(false);
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";

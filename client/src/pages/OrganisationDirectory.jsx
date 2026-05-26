@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue } from "@/utils/directorySettings";
 
@@ -507,7 +508,7 @@ export default function OrganisationDirectoryPage() {
         toast.error('Upload failed: No file URL returned');
       }
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }

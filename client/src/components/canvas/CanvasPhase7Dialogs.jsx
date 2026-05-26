@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { throwUploadHttpError, showUploadErrorToast } from '@/lib/planQuotaError';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -561,12 +562,12 @@ export function MediaLibraryDialog({ open, onOpenChange, onPick, kind }) {
       const r = await fetch('/api/media-library/upload', {
         method: 'POST', credentials: 'include', body: fd,
       });
-      if (!r.ok) throw new Error('Upload failed');
+      if (!r.ok) await throwUploadHttpError(r, 'Upload failed');
       await r.json();
       queryClient.invalidateQueries({ queryKey: ['media-library'] });
       toast.success('Image uploaded');
     } catch (e) {
-      toast.error(e.message);
+      showUploadErrorToast(e, 'Upload failed');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

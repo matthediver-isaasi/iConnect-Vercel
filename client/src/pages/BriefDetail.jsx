@@ -439,7 +439,7 @@ export default function BriefDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
     },
     onError: (err) => {
-      toast.error(err?.message || "Upload failed");
+      showUploadErrorToast(err, "Upload failed");
     },
   });
 
@@ -755,7 +755,7 @@ export default function BriefDetailPage() {
       }));
       toast.success("File attached");
     } catch (err) {
-      toast.error(err.message || "Failed to upload attachment");
+      showUploadErrorToast(err, "Failed to upload attachment");
     } finally {
       setAttachmentUploading(false);
       if (editAttachmentRef.current) editAttachmentRef.current.value = "";
@@ -826,7 +826,7 @@ export default function BriefDetailPage() {
       setUploadProgress(0);
       toast.success("Version uploaded successfully");
     } catch (err) {
-      toast.error(err.message || "Failed to upload version");
+      showUploadErrorToast(err, "Failed to upload version");
     } finally {
       setIsUploading(false);
     }

@@ -8,6 +8,8 @@
  * via the new /api/storage/ endpoints.
  */
 
+import { throwUploadHttpError } from './planQuotaError.js';
+
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
 
 export async function uploadFileWithProgress(file, onProgress, options = {}) {
@@ -40,11 +42,7 @@ export async function uploadFileWithProgress(file, onProgress, options = {}) {
   });
   
   if (!signedUrlResponse.ok) {
-    const errorData = await signedUrlResponse.json().catch(() => ({}));
-    if (signedUrlResponse.status === 401) {
-      throw new Error('You must be logged in to upload files');
-    }
-    throw new Error(errorData.error || 'Failed to get upload URL');
+    await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
   }
   
   const { signedUrl, fileUrl, path: storagePath, bucket, isPrivate: resultPrivate } = await signedUrlResponse.json();

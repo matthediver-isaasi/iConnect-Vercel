@@ -27,6 +27,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 
 const logoGridQuillModules = {
   toolbar: [
@@ -501,7 +502,7 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
       const response = await base44.integrations.Core.UploadFile({ file });
       updateContent(field, response.file_url);
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(prev => ({ ...prev, [field]: false }));
     }

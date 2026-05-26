@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useId } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -806,7 +807,7 @@ export function IEditQuoteElementEditor({ element, onChange }) {
         updateContent(field, response.file_url);
       }
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(prev => ({ ...prev, [uploadKey]: false }));
     }

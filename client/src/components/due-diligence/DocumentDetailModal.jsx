@@ -14,6 +14,7 @@ import {
   MessageSquare, History, Copy, Globe
 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from 'date-fns';
 import { uploadFileWithProgress } from "@/lib/uploadFile";
 
@@ -489,7 +490,7 @@ export default function DocumentDetailModal({
       
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error.message || 'Failed to upload new version');
+      showUploadErrorToast(error, 'Failed to upload new version');
     } finally {
       setIsUploading(false);
       setUploadProgress(0);

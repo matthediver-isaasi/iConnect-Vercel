@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -370,7 +371,7 @@ export function IEditImageElementEditor({ element, onChange }) {
       updateContent('imageUrl', response.file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }

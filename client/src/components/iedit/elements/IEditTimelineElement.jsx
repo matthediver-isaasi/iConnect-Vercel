@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useId } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -2508,7 +2509,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       const response = await base44.integrations.Core.UploadFile({ file });
       updateItemHighlight(index, 'bg_image', response.file_url);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsHighlightBgUploading(prev => ({ ...prev, [index]: false }));
     }
@@ -2586,7 +2587,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       const current = getColumnMediaItems(items[itemIndex].column_content[colIndex]);
       updateColumnMediaItems(itemIndex, colIndex, [...current, { src: response.file_url, alt: '' }]);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(prev => ({ ...prev, [uploadKey]: false }));
     }
@@ -2765,7 +2766,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         }
       });
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsBgUploading(false);
     }
@@ -2845,7 +2846,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         }
       });
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsRailBgUploading(false);
     }
@@ -3112,7 +3113,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
       updateItemMediaItems(index, updated);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(prev => ({ ...prev, [index]: false }));
     }
@@ -3135,7 +3136,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
       updateSubItemMediaItems(parentIndex, subIndex, updated);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsSubUploading(prev => ({ ...prev, [uploadKey]: false }));
     }
@@ -3157,7 +3158,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
       updateColSubItemMediaItems(parentIndex, colIndex, subIndex, updated);
     } catch (error) {
-      alert('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsSubUploading(prev => ({ ...prev, [uploadKey]: false }));
     }

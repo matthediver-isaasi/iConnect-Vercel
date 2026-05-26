@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -287,7 +288,7 @@ export default function NewsEditorPage() {
       setFeatureImage(file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingImage(false);
     }
@@ -310,7 +311,7 @@ export default function NewsEditorPage() {
         }
         toast.success('Image inserted');
       } catch (error) {
-        toast.error('Failed to upload image');
+        showUploadErrorToast(error, 'Failed to upload image');
       }
     };
     input.click();

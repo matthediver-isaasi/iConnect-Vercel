@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -143,7 +144,7 @@ export default function SupportManagementPage() {
       setResponseAttachments(prev => [...prev, ...urls]);
       toast.success(`Uploaded ${urls.length} image(s)`);
     } catch (error) {
-      toast.error('Failed to upload images: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload images');
     } finally {
       setUploadingImages(false);
     }

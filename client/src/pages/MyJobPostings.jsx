@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -187,7 +188,7 @@ export default function MyJobPostingsPage() {
 
       toast.success(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded successfully`);
     } catch (error) {
-      toast.error('Failed to upload files. Please try again.');
+      showUploadErrorToast(error, 'Failed to upload files. Please try again.');
     } finally {
       setUploadingFiles(false);
     }

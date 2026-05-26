@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
@@ -732,7 +733,7 @@ export default function DynamicDirectoryView() {
         toast.error('Upload failed: No file URL returned');
       }
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }

@@ -16,6 +16,7 @@ import {
   ImagePlus
 } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSearchParams, useNavigate } from "react-router-dom";
@@ -577,7 +578,7 @@ Respond with a JSON object containing exactly two fields:
       }
       return urls;
     } catch (err) {
-      toast.error('Failed to upload image: ' + err.message);
+      showUploadErrorToast(err, 'Failed to upload image');
       throw err;
     } finally {
       setIsUploadingImages(false);

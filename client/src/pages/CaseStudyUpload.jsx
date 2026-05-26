@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Upload, FileText, ImageIcon, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
@@ -84,8 +85,7 @@ export default function CaseStudyUpload() {
       }),
     });
     if (!signedRes.ok) {
-      const data = await signedRes.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to start upload");
+      await throwUploadHttpError(signedRes, "Failed to start upload");
     }
     const signedData = await signedRes.json();
 
@@ -150,7 +150,7 @@ export default function CaseStudyUpload() {
         }, 1500);
       } catch (err) {
         setUploadingItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "error", error: err.message } : it)));
-        toast.error(err.message || `Failed to upload ${item.file.name}`);
+        showUploadErrorToast(err, `Failed to upload ${item.file.name}`);
       }
     }
   };

@@ -10,6 +10,7 @@ import { ArrowLeft, Save, Eye, EyeOff, Trash2, Upload, X, Loader2, CheckCircle2,
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { format } from "date-fns";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -664,7 +665,7 @@ export default function ArticleEditorPage() {
       setFeatureImage(file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingImage(false);
     }
@@ -687,7 +688,7 @@ export default function ArticleEditorPage() {
         }
         toast.success('Image inserted');
       } catch (error) {
-        toast.error('Failed to upload image');
+        showUploadErrorToast(error, 'Failed to upload image');
       }
     };
     input.click();

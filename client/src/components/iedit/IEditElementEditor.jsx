@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { X, Save, Upload, Loader2, Trash2, Eye, Monitor, Smartphone } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { IEditWallOfFameElementEditor } from "./elements/IEditWallOfFameElement";
 import { IEditTextOverlayImageElementEditor } from "./elements/IEditTextOverlayImageElement";
 import { IEditTableElementEditor } from "./elements/IEditTableElement";
@@ -140,7 +141,7 @@ export default function IEditElementEditor({ element, onClose, onSave, onSaveOnl
       updateContent(key, response.file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingFiles({ ...uploadingFiles, [key]: false });
     }

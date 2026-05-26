@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
 
 const DEFAULT_RESOURCE_MAX_MB = 25;
 
@@ -429,8 +430,7 @@ export default function FileManagementPage() {
       });
       
       if (!signedUrlResponse.ok) {
-        const errorData = await signedUrlResponse.json();
-        throw new Error(errorData.error || 'Failed to get upload URL');
+        await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
       }
       
       const { signedUrl, fileUrl, path, bucket } = await signedUrlResponse.json();
@@ -485,7 +485,7 @@ export default function FileManagementPage() {
       toast.success('File uploaded successfully');
       event.target.value = '';
     } catch (error) {
-      toast.error('Failed to upload file: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload file');
     } finally {
       setUploadingFile(false);
       setUploadProgress(0);

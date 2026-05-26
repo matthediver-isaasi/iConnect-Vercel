@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Plus, Pencil, Trash2, Users, Folder, User, Upload, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
@@ -204,7 +205,7 @@ export default function WallOfFameManagementPage() {
       setEditingPerson({ ...editingPerson, profile_photo_url: result.file_url });
       toast.success('Photo uploaded');
     } catch (error) {
-      toast.error('Failed to upload photo');
+      showUploadErrorToast(error, 'Failed to upload photo');
     } finally {
       setIsUploadingPhoto(false);
     }

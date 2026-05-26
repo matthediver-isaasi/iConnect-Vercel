@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -240,7 +241,7 @@ export default function FloaterManagementPage() {
       setFormData(prev => ({ ...prev, image_url: result.file_url }));
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploadingImage(false);
     }

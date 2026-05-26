@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
@@ -376,7 +377,7 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
       updateContent(field, response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploading(prev => ({ ...prev, [field]: false }));
     }

@@ -14,6 +14,7 @@ import { Loader2, Briefcase, CheckCircle, ArrowRight, Mail, ExternalLink, Upload
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -498,7 +499,7 @@ export default function PostJobPage() {
       }));
       toast.success('Logo uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload logo. Please try again.');
+      showUploadErrorToast(error, 'Failed to upload logo. Please try again.');
     } finally {
       setUploadingLogo(false);
     }

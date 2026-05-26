@@ -36,6 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -1024,7 +1025,7 @@ export default function AwardManagementPage() {
       }
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploadingImage(false);
     }
@@ -3442,8 +3443,8 @@ export default function AwardManagementPage() {
                         base44.integrations.Core.UploadFile({ file }).then(result => {
                           setSublevelFormData(prev => ({ ...prev, image_url: result.file_url }));
                           toast.success('Image uploaded');
-                        }).catch(() => {
-                          toast.error('Failed to upload image');
+                        }).catch((error) => {
+                          showUploadErrorToast(error, 'Failed to upload image');
                         }).finally(() => {
                           setIsUploadingImage(false);
                         });

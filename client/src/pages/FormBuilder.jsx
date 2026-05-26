@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -3994,7 +3995,7 @@ function FieldCard({
                               updateField(originalIndex, { image_url: result.file_url });
                               toast.success('Image uploaded successfully');
                             } catch (err) {
-                              toast.error(err.message || 'Failed to upload image');
+                              showUploadErrorToast(err, 'Failed to upload image');
                             }
                           }}
                         />
@@ -4121,7 +4122,7 @@ function FieldCard({
                                   updateField(originalIndex, { image_options: newOptions });
                                   toast.success('Image uploaded successfully');
                                 } catch (err) {
-                                  toast.error(err.message || 'Failed to upload image');
+                                  showUploadErrorToast(err, 'Failed to upload image');
                                 }
                               }}
                             />
