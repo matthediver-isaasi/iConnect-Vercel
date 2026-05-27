@@ -216,16 +216,22 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
     staleTime: 5 * 60 * 1000
   });
 
+  const allowedIds = Array.isArray(field.allowed_category_ids) ? field.allowed_category_ids : [];
+  const allowedIdsKey = allowedIds.join(',');
+
   const categories = useMemo(() => {
     const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
-    return allCategories.filter(cat => {
+    const roleFiltered = allCategories.filter(cat => {
       const hasRoleScope = cat.role_ids && cat.role_ids.length > 0;
       if (!hasRoleScope) return true;
       if (cat.is_public === true) return true;
       if (!effectiveRoleId) return false;
       return cat.role_ids.includes(effectiveRoleId);
     });
-  }, [allCategories, formMemberRoleId, memberInfo?.role_id]);
+    if (allowedIds.length === 0) return roleFiltered;
+    const allowed = new Set(allowedIds);
+    return roleFiltered.filter(cat => allowed.has(cat.id));
+  }, [allCategories, formMemberRoleId, memberInfo?.role_id, allowedIdsKey]);
 
   useEffect(() => {
     if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
