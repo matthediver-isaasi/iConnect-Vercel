@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -71,12 +71,83 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'This form requires authentication' });
     }
 
+    // Extract the submitter's email from the submission_data by walking the
+    // form's fields and picking the first email-typed field (or any field
+    // whose id/label looks email-ish) whose value parses as an email.
+    // Returns null if no usable email is present.
+    const extractSubmitterEmail = () => {
+      const data = submission_data || {};
+      const fields = form.fields || [];
+      const isEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+      // Prefer fields explicitly typed as email or named like email.
+      for (const field of fields) {
+        if (!field || !field.id) continue;
+        const idLower = (field.id || '').toLowerCase();
+        const labelLower = (field.label || '').toLowerCase();
+        const looksLikeEmail =
+          field.type === 'email' ||
+          idLower.includes('email') || idLower.includes('e-mail') ||
+          labelLower.includes('email') || labelLower.includes('e-mail');
+        if (!looksLikeEmail) continue;
+        const val = data[field.id];
+        if (isEmail(val)) return val.trim();
+      }
+      // Fallback: any string value that parses as an email.
+      for (const value of Object.values(data)) {
+        if (isEmail(value)) return value.trim();
+      }
+      return null;
+    };
+
+    // Resolve the submitter's canonical email ONCE. We use this both for the
+    // duplicate-check below (when the toggle is on) and as the value we
+    // persist on the new form_submission row, so future duplicate checks
+    // compare against a single canonical column instead of re-scanning
+    // arbitrary JSON blobs.
+    const resolvedSubmitterEmail = extractSubmitterEmail();
+    const canonicalSubmitterEmail = resolvedSubmitterEmail
+      ? resolvedSubmitterEmail.trim().toLowerCase()
+      : null;
+
+    // Enforce "one submission per email" if the form opts in. The check runs
+    // BEFORE inserting the submission row and BEFORE any pipeline / DD /
+    // contract / email side effects, so a duplicate produces no partial state.
+    // If we can't extract an email from the submission, the setting silently
+    // does not apply (documented behaviour — submissions without an email
+    // cannot be deduplicated).
+    if (form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+      // Compare against the canonical submitted_by_email column only.
+      // .ilike() escapes nothing, but our regex above only accepts strings
+      // matching ^[^\s@]+@[^\s@]+\.[^\s@]+$ so SQL LIKE metacharacters
+      // (%, _) can never appear in canonicalSubmitterEmail.
+      const { data: candidates, error: dupErr } = await supabase
+        .from('form_submission')
+        .select('id')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantData.id)
+        .ilike('submitted_by_email', canonicalSubmitterEmail)
+        .limit(1);
+      if (dupErr) {
+        console.error('[Public Form Submission] Duplicate-email check failed:', dupErr);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+      if (candidates && candidates.length > 0) {
+        console.log('[Public Form Submission] Rejecting duplicate-email submission for form', form_id);
+        return res.status(409).json({
+          error: 'This form has already been submitted using this email address.',
+        });
+      }
+    }
+
     // Create the form submission - match FormView structure exactly
     // SECURITY: Include tenant_id for proper multi-tenant isolation
+    // Persist the resolved submitter email (lowercased) on the row so
+    // future duplicate-email checks (and the per-row admin views) have a
+    // canonical column to read instead of re-deriving from submission_data.
     const submissionRecord = {
       form_id,
       form_name,
-      submitted_by_email: null,
+      submitted_by_email: canonicalSubmitterEmail,
       submitted_by_name: null,
       submission_data: submission_data || {},
       created_date: new Date().toISOString(),

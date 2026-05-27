@@ -4624,6 +4624,7 @@ export default function FormBuilderPage() {
     is_active: true,
     due_diligence_required: false,
     allow_submitter_email_copy: false,
+    prevent_duplicate_email_submission: false,
     is_application_form: false,
     application_level: "member",
     uniqueness_checks: [],
@@ -5065,6 +5066,7 @@ export default function FormBuilderPage() {
         is_active: existingForm.is_active ?? true,
         due_diligence_required: existingForm.due_diligence_required ?? false,
         allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
+        prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
@@ -6228,6 +6230,31 @@ export default function FormBuilderPage() {
 
         {/* Submission Settings Tab */}
           <TabsContent value="submission">
+            {/* Submission Rules */}
+            <Card className="border-slate-200 mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Submission Rules</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start gap-3">
+                  <Switch
+                    id="prevent_duplicate_email_submission"
+                    checked={formData.prevent_duplicate_email_submission}
+                    onCheckedChange={(checked) => setFormData({ ...formData, prevent_duplicate_email_submission: checked })}
+                    data-testid="switch-prevent-duplicate-email-submission"
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="prevent_duplicate_email_submission" className="text-sm">
+                      Limit to one submission per email address
+                    </Label>
+                    <p className="text-xs text-slate-500">
+                      Block repeat submissions when the same email address has already been used on this form. Case-insensitive; submissions without an email are unaffected.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Record Creation - Unified Member and Organisation Pipelines */}
             <Card className="border-slate-200 mb-6">
               <CardHeader className="pb-4">
