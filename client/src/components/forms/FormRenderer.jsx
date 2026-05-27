@@ -219,7 +219,9 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   const categories = useMemo(() => {
     const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
     return allCategories.filter(cat => {
-      if (!cat.role_ids || cat.role_ids.length === 0) return true;
+      const hasRoleScope = cat.role_ids && cat.role_ids.length > 0;
+      if (!hasRoleScope) return true;
+      if (cat.is_public === true) return true;
       if (!effectiveRoleId) return false;
       return cat.role_ids.includes(effectiveRoleId);
     });

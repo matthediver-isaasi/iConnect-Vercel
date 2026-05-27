@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('communication_category')
-      .select('id, name, description')
+      .select('id, name, description, is_public')
       .eq('is_active', true)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
