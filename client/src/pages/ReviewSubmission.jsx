@@ -215,9 +215,11 @@ function ReviewFieldEditor({
   }
 
   // Regular submission fields: two columns with approve/amend toggle
-  // Lock the field if it's the linked organisation (cannot be amended)
-  const isLocked = isLinkedOrganisation;
-  
+  // Lock the field if it's the linked organisation OR the form definition marks it as locked
+  const isFormBuilderLocked = field.locked === true;
+  const isLocked = isLinkedOrganisation || isFormBuilderLocked;
+  const lockedBadgeLabel = isLinkedOrganisation ? 'Linked Organisation' : 'Locked';
+
   return (
     <div 
       className={cn(
@@ -235,7 +237,7 @@ function ReviewFieldEditor({
           {isLocked && (
             <Badge variant="outline" className="text-xs bg-slate-100 text-slate-600 border-slate-300">
               <Lock className="w-3 h-3 mr-1" />
-              Linked Organisation
+              {lockedBadgeLabel}
             </Badge>
           )}
         </div>
@@ -1264,15 +1266,22 @@ export default function ReviewSubmissionPage() {
       // Initialize field review status with default from config for unreviewed fields
       const existingStatus = ddSubmission.field_review_status || {};
       const defaultState = ddConfig?.default_review_state || 'amended';
-      
+      const originalValues = ddSubmission.original_form_values || {};
+      const linkedOrgId = organization?.id;
+
       // Apply default state to any field lacking an explicit status
       // Use field.id as the unique identifier (not field.name which may be duplicated)
+      // Locked fields (form-builder `locked: true` or the linked-organisation
+      // dropdown) default to 'approved' instead of the config default so a
+      // locked field never starts life as `amended`.
       const mergedStatus = { ...existingStatus };
       fields.forEach(field => {
         const fieldKey = field.id || field.name;
-        if (!mergedStatus[fieldKey]) {
-          mergedStatus[fieldKey] = defaultState;
-        }
+        if (mergedStatus[fieldKey]) return;
+        const originalValue = originalValues[fieldKey] ?? originalValues[field.name];
+        const locked = field.locked === true
+          || (field.type === 'organisation_dropdown' && originalValue === linkedOrgId);
+        mergedStatus[fieldKey] = locked ? 'approved' : defaultState;
       });
       setFieldReviewStatus(mergedStatus);
       
@@ -1301,6 +1310,28 @@ export default function ReviewSubmissionPage() {
     });
     return mapping;
   }, [form]);
+
+  // Set of field keys that are locked from amendment in the review screen,
+  // either because the form builder marked them `locked: true` or because they
+  // are the organisation dropdown showing the linked organisation. Kept in
+  // lockstep with the `isLocked` derivation inside ReviewFieldEditor.
+  const lockedFieldKeys = useMemo(() => {
+    const keys = new Set();
+    const fields = form?.fields?.filter(f => f.visible !== false) || [];
+    const originalValues = ddSubmission?.original_form_values || {};
+    const linkedOrgId = organization?.id;
+    fields.forEach(field => {
+      const fieldKey = field.id || field.name;
+      const originalValue = originalValues[fieldKey] ?? originalValues[field.name];
+      if (
+        field.locked === true ||
+        (field.type === 'organisation_dropdown' && originalValue === linkedOrgId)
+      ) {
+        keys.add(fieldKey);
+      }
+    });
+    return keys;
+  }, [form, ddSubmission, organization]);
 
   const handleFieldStatusChange = useCallback((fieldKey, status) => {
     setFieldReviewStatus(prev => ({ ...prev, [fieldKey]: status }));
@@ -1440,10 +1471,20 @@ export default function ReviewSubmissionPage() {
   });
 
   const handleSave = () => {
+    // Normalize locked fields on save: a field that is locked in the UI must
+    // never persist as `amended`, even if it was previously stored that way or
+    // somehow toggled before the lock applied. We force the status to
+    // `approved`. Existing reviewed values are left untouched so any
+    // historical data is preserved on disk.
+    const normalizedStatus = { ...fieldReviewStatus };
+    lockedFieldKeys.forEach(key => {
+      normalizedStatus[key] = 'approved';
+    });
+
     saveMutation.mutate({
       submissionId: submissionId,
       reviewedFormValues,
-      fieldReviewStatus,
+      fieldReviewStatus: normalizedStatus,
       fieldNotes,
       staticQuestionResponses,
       staticQuestionNotes,
