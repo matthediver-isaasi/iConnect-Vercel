@@ -121,6 +121,12 @@ export default function FormSubmissionsPage() {
     return map;
   }, [forms]);
 
+  const sortedForms = useMemo(() => {
+    return [...forms].sort((a, b) =>
+      (a?.name || '').localeCompare(b?.name || '', undefined, { sensitivity: 'base' })
+    );
+  }, [forms]);
+
   // Used by CSV export to resolve organisation_dropdown UUIDs to names.
   const { data: organisationsForExport = [] } = useQuery({
     queryKey: ['organizations-for-form-submissions-export'],
@@ -1218,7 +1224,7 @@ export default function FormSubmissionsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Forms</SelectItem>
-                  {forms.map(form => (
+                  {sortedForms.map(form => (
                     <SelectItem key={form.id} value={form.id}>
                       {form.name}
                     </SelectItem>
