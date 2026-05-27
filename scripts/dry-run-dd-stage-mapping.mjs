@@ -299,11 +299,15 @@ async function run() {
   console.log('  FIELD MAPPING ACTIONS  → /organisations  (stage_field_mapping_action)');
   console.log('================================================================');
 
+  // Mirror live executor: scope to this submission's own form_id so other
+  // forms' "<stage>"-stage field-mapping rows on the same tenant don't get
+  // dragged into the trace.
   const { data: fmaList } = await supabase
     .from('stage_field_mapping_action')
     .select('*')
     .eq('due_diligence_stage_id', stage.id)
     .eq('tenant_id', tenantId)
+    .eq('form_id', formId)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
 

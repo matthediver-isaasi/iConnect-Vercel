@@ -1856,32 +1856,45 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
   const results = [];
   
   try {
-    // Fetch field mapping actions for this stage
-    const { data: fieldMappingActions, error: fmaError } = await supabase
-      .from('stage_field_mapping_action')
-      .select('*')
-      .eq('due_diligence_stage_id', stageId)
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true });
-    
-    if (fmaError || !fieldMappingActions || fieldMappingActions.length === 0) {
-      return results;
-    }
-    
-    // Get form submission data
+    // Get form submission data FIRST so we can scope the field-mapping query
+    // to this submission's own form. Without that scoping, every DD form's
+    // "<stage>"-stage field mapping rows on this tenant would run for every
+    // submission (because stage ids like "approved" are shared across configs),
+    // causing cross-form writes to clobber each other when more than one form
+    // targets the same custom/core field. This mirrors the explicit
+    // form-scoping guard already in place for executeMemberCreationActions.
     const { data: formSubmission, error: fsError } = await supabase
       .from('form_submission')
       .select('form_id, submission_data, organization_id')
       .eq('id', ddSubmission.form_submission_id)
       .eq('tenant_id', tenantId)
       .single();
-    
+
     if (fsError || !formSubmission) {
       console.error('[DD Field Mapping] Form submission not found:', fsError);
       return results;
     }
-    
+
+    if (!formSubmission.form_id) {
+      console.error('[DD Field Mapping] form_submission has no form_id — refusing to run field-mapping actions to prevent cross-form execution');
+      return results;
+    }
+
+    // Fetch field mapping actions for this stage, scoped to this submission's form.
+    const { data: fieldMappingActions, error: fmaError } = await supabase
+      .from('stage_field_mapping_action')
+      .select('*')
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('form_id', formSubmission.form_id)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (fmaError || !fieldMappingActions || fieldMappingActions.length === 0) {
+      return results;
+    }
+    console.log(`[DD Field Mapping] Loaded ${fieldMappingActions.length} field-mapping action(s) scoped to form ${formSubmission.form_id} stage ${stageId}`);
+
     const organizationId = formSubmission.organization_id;
     if (!organizationId) {
       console.log('[DD Field Mapping] No organization_id on form submission, skipping field mappings');
