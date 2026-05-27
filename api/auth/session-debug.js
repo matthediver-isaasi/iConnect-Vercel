@@ -113,10 +113,10 @@ export default async function handler(req, res) {
       if (targetTenantId) {
         const { data: membership, error } = await supabase
           .from('tenant_membership')
-          .select('id, membership_type, tenant_user_id, status')
+          .select('id, membership_type, role, tenant_user_id, status')
           .eq('identity_id', session.data.identityId)
           .eq('tenant_id', targetTenantId)
-          .eq('membership_type', 'owner')
+          .or('membership_type.eq.owner,role.in.(owner,admin)')
           .single();
         
         debug.ownerMembership = membership || null;

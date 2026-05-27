@@ -69,9 +69,9 @@ export default async function handler(req, res) {
 
     const { data: memberships } = await supabase
       .from('tenant_membership')
-      .select('id, tenant_id, membership_type, tenant:tenant_id(name, slug)')
+      .select('id, tenant_id, membership_type, role, tenant:tenant_id(name, slug)')
       .eq('identity_id', identity.id)
-      .eq('membership_type', 'owner')
+      .or('membership_type.eq.owner,role.in.(owner,admin)')
       .eq('status', 'active')
       .order('is_default', { ascending: false })
       .limit(1);

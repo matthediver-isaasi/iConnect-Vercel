@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       .from('tenant_membership')
       .select('*, tenant:tenant_id(*)')
       .eq('identity_id', identity.id)
-      .eq('membership_type', 'owner')
+      .or('membership_type.eq.owner,role.in.(owner,admin)')
       .eq('status', 'active')
       .order('is_default', { ascending: false })
       .limit(1)
