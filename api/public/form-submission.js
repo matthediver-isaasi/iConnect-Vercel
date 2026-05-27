@@ -443,6 +443,143 @@ export default async function handler(req, res) {
       await processSubscription();
     }
 
+    // Multi-category communication_preferences fields (anonymous-safe).
+    // The entity-pipeline branch only writes member_communication_preference
+    // rows when a member is created, so anonymous submitters' ticks would
+    // otherwise be dropped. Route them to email_subscriber, mirroring the
+    // legacy single-category newsletter block above.
+    const commPrefFields = (form.fields || []).filter(f => f && f.type === 'communication_preferences');
+    if (commPrefFields.length > 0) {
+      const processCommPrefs = async (attempt = 1) => {
+        try {
+          // Collect (category_id, is_subscribed) selections across every
+          // communication_preferences field on the form. Dedupe by
+          // category_id, last-write-wins, so a form with two such fields
+          // touching the same category can't fight itself.
+          const selections = new Map();
+          for (const field of commPrefFields) {
+            const prefValues = submission_data?.[field.id];
+            if (!prefValues || typeof prefValues !== 'object') continue;
+            for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
+              if (!categoryId) continue;
+              selections.set(categoryId, Boolean(isSubscribed));
+            }
+          }
+
+          if (selections.size === 0) {
+            console.log('[Public Form Submission] No communication preference selections in submission, skipping');
+            return;
+          }
+
+          // Validate every category_id belongs to this tenant — a crafted
+          // submission could otherwise insert junk category references.
+          const categoryIds = Array.from(selections.keys());
+          const { data: validCategories, error: catError } = await supabase
+            .from('communication_category')
+            .select('id')
+            .eq('tenant_id', tenantData.id)
+            .in('id', categoryIds);
+          if (catError) throw catError;
+
+          const validIds = new Set((validCategories || []).map(c => c.id));
+          const validSelections = Array.from(selections.entries()).filter(([id]) => validIds.has(id));
+          if (validSelections.length === 0) {
+            console.log('[Public Form Submission] No communication preference selections matched tenant categories, skipping');
+            return;
+          }
+
+          const submitterEmail = extractSubmitterEmail();
+          if (!submitterEmail) {
+            console.log('[Public Form Submission] No submitter email for communication preferences, skipping');
+            return;
+          }
+          const emailLower = submitterEmail.toLowerCase();
+
+          // Extract first/last name from the same fields the legacy block uses.
+          let submitterFirstName = null;
+          let submitterLastName = null;
+          for (const field of (form.fields || [])) {
+            const value = submission_data?.[field.id];
+            if (!value || typeof value !== 'string') continue;
+            const idLower = (field.id || '').toLowerCase();
+            const labelLower = (field.label || '').toLowerCase();
+            if (field.type === 'text' && (idLower.includes('first_name') || labelLower.includes('first name'))) {
+              if (!submitterFirstName) submitterFirstName = value;
+            }
+            if (field.type === 'text' && (idLower.includes('last_name') || labelLower.includes('last name'))) {
+              if (!submitterLastName) submitterLastName = value;
+            }
+          }
+
+          // If the submitter is an existing member in this tenant, write to
+          // member_communication_preference (matching what the entity-pipeline
+          // branch would do); otherwise upsert email_subscriber rows.
+          // PGRST116 = no rows; that's the anonymous path. Any other error
+          // is a real DB problem and must throw so the retry wrapper runs —
+          // otherwise we'd silently misroute a known member into email_subscriber.
+          const { data: member, error: memberLookupError } = await supabase
+            .from('member')
+            .select('id, communications_opted_out_all')
+            .eq('tenant_id', tenantData.id)
+            .eq('email', emailLower)
+            .maybeSingle();
+          if (memberLookupError) throw memberLookupError;
+
+          if (member) {
+            console.log('[Public Form Submission] Comm prefs: submitter is member', member.id, '— writing', validSelections.length, 'preferences');
+            const anySubscribed = validSelections.some(([, isSub]) => isSub);
+            if (anySubscribed && member.communications_opted_out_all) {
+              await supabase
+                .from('member')
+                .update({ communications_opted_out_all: false })
+                .eq('id', member.id);
+            }
+            for (const [categoryId, isSubscribed] of validSelections) {
+              const { error: prefError } = await supabase
+                .from('member_communication_preference')
+                .upsert({
+                  member_id: member.id,
+                  category_id: categoryId,
+                  is_subscribed: isSubscribed,
+                  tenant_id: tenantData.id
+                }, { onConflict: 'member_id,category_id' });
+              if (prefError) throw prefError;
+            }
+          } else {
+            console.log('[Public Form Submission] Comm prefs: anonymous submitter', emailLower, '— writing', validSelections.length, 'email_subscriber rows');
+            const nowIso = new Date().toISOString();
+            for (const [categoryId, isSubscribed] of validSelections) {
+              const row = {
+                tenant_id: tenantData.id,
+                email: emailLower,
+                first_name: submitterFirstName || null,
+                last_name: submitterLastName || null,
+                form_id: form.id,
+                communication_category_id: categoryId,
+                opted_out: !isSubscribed,
+                subscribed_at: nowIso,
+                opted_out_at: isSubscribed ? null : nowIso,
+                updated_at: nowIso
+              };
+              const { error: subError } = await supabase
+                .from('email_subscriber')
+                .upsert(row, { onConflict: 'tenant_id,email,communication_category_id' });
+              if (subError) throw subError;
+            }
+          }
+        } catch (commPrefError) {
+          console.error('[Public Form Submission] Communication preferences error (attempt ' + attempt + '):', commPrefError.message || commPrefError);
+          if (attempt < 2) {
+            console.log('[Public Form Submission] Retrying communication preferences...');
+            await processCommPrefs(attempt + 1);
+          } else {
+            console.error('[Public Form Submission] Communication preferences FAILED after 2 attempts for submission:', submission.id, 'form:', form.id);
+          }
+        }
+      };
+      await processCommPrefs();
+    }
+
     const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
 
     // Process entity pipelines if configured (members/organisations creation)
