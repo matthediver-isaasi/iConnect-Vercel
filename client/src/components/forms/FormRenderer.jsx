@@ -402,6 +402,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
     // Helper: when an org is selected and that org accepts guests, the domain
     // restriction is bypassed with a friendly info message instead of an error.
+    // Mirrors the backend (resolveGuestStampForNewMember) which falls back to
+    // the tenant default period when the org has no override — so we must not
+    // block here just because period_days is missing.
     const tryGuestBypass = () => {
       if (!selectedOrgGuestAccess?.accepts_guests) return false;
       let msg;
@@ -409,8 +412,11 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         msg = "Your email isn't on this organisation's verified domain list — a guest account will be created with permanent access.";
       } else {
         const days = Number(selectedOrgGuestAccess.default_period_days);
-        if (!Number.isFinite(days) || days <= 0) return false;
-        msg = `Your email isn't on this organisation's verified domain list — a guest account will be created with ${days} day${days === 1 ? '' : 's'} of access.`;
+        if (Number.isFinite(days) && days > 0) {
+          msg = `Your email isn't on this organisation's verified domain list — a guest account will be created with ${days} day${days === 1 ? '' : 's'} of access.`;
+        } else {
+          msg = "Your email isn't on this organisation's verified domain list — a guest account will be created for this organisation.";
+        }
       }
       setDomainError('');
       setDomainInfoMessage(msg);
@@ -418,10 +424,12 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       onValidityChange?.(field.id, !emailFormatErrorRef.current);
       return true;
     };
-    
+
+    const orgLabel = organizationInfo?.name ? `${organizationInfo.name}` : 'the selected organisation';
+
     if (allowedDomains.length === 0) {
       if (tryGuestBypass()) return;
-      const err = 'No allowed domains configured for your organisation.';
+      const err = `${orgLabel} isn't currently accepting registrations through this form.`;
       setDomainError(err);
       setDomainInfoMessage('');
       domainErrorRef.current = err;
@@ -432,7 +440,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     if (!allowedDomains.includes(emailDomain)) {
       if (tryGuestBypass()) return;
       const domainList = allowedDomains.join(', ');
-      const err = `Email domain must be one of: ${domainList}`;
+      const err = `Email domain must be one of the verified domains for ${orgLabel}: ${domainList}`;
       setDomainError(err);
       setDomainInfoMessage('');
       domainErrorRef.current = err;
@@ -526,7 +534,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     if (field.type === 'email') {
       validateEmailDomain(value);
     }
-  }, [field.validate_org_domain, organizationInfo?.verified_domains, value, field.type, selectedOrgGuestAccess?.accepts_guests, selectedOrgGuestAccess?.unlimited, selectedOrgGuestAccess?.default_period_days]);
+  }, [field.validate_org_domain, organizationInfo?.verified_domains, organizationInfo?.name, value, field.type, selectedOrgGuestAccess?.accepts_guests, selectedOrgGuestAccess?.unlimited, selectedOrgGuestAccess?.default_period_days]);
 
   const renderField = () => {
     // Handle auto-populated user fields
