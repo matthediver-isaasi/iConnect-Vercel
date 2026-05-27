@@ -201,10 +201,14 @@ async function main() {
 
   const toProcess = LIMIT ? candidates.slice(0, LIMIT) : candidates;
   log(`\nProcessing ${toProcess.length} candidate row(s)...`);
+  log(`(each row does ~4 lookups via the auth resolver; expect ~1.2s/row → roughly ${Math.ceil(toProcess.length * 1.2)}s total. Progress logs every 25 rows.)`);
 
   let inserted = 0;
   let failed = 0;
   let skipped = 0;
+  let processed = 0;
+  const t0 = Date.now();
+  const PROGRESS_EVERY = 25;
 
   for (const m of toProcess) {
     try {
@@ -301,6 +305,14 @@ async function main() {
     } catch (err) {
       failed++;
       console.error(`  [error] member=${m.id}: ${err.message}`);
+    } finally {
+      processed++;
+      if (processed % PROGRESS_EVERY === 0 || processed === toProcess.length) {
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        const rate = processed / Math.max(0.001, (Date.now() - t0) / 1000);
+        const remaining = Math.ceil((toProcess.length - processed) / Math.max(0.001, rate));
+        log(`  [progress] ${processed}/${toProcess.length}  inserted=${inserted}  skipped=${skipped}  failed=${failed}  elapsed=${elapsed}s  eta=${remaining}s`);
+      }
     }
   }
 
