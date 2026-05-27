@@ -320,6 +320,28 @@ async function run() {
 
   const wouldOrgPayload = {}; // accumulated would-be update
 
+  // Live executor re-queries organization_preference_value per mapping, so
+  // earlier writes within the same stage are visible to later mappings (last
+  // writer wins when multiple FMAs target the same custom field). The dry-run
+  // simulates that by caching the current value on first lookup and mutating
+  // the cache after each predicted UPDATE/INSERT. Without this, every mapping
+  // would compare against the unchanged initial DB value and silently hide
+  // multi-writer collisions like two FMAs writing different statics to the
+  // same custom org field.
+  const currentPrefValues = new Map(); // field_id -> { id|null, value }
+  async function loadPrefValue(fieldId) {
+    if (currentPrefValues.has(fieldId)) return currentPrefValues.get(fieldId);
+    const { data: existing } = await supabase
+      .from('organization_preference_value')
+      .select('id, value')
+      .eq('organization_id', organizationId)
+      .eq('field_id', fieldId)
+      .maybeSingle();
+    const entry = existing ? { id: existing.id, value: existing.value } : { id: null, value: undefined };
+    currentPrefValues.set(fieldId, entry);
+    return entry;
+  }
+
   if (!fmaList || fmaList.length === 0) {
     console.log('(no active stage_field_mapping_action rows for this stage)\n');
   }
@@ -505,23 +527,26 @@ async function run() {
           console.log('    SKIP: prefFieldMap miss (preference_field not found / inactive / wrong scope)');
           continue;
         }
-        // Check existing org pref value
-        const { data: existing } = await supabase
-          .from('organization_preference_value')
-          .select('id, value')
-          .eq('organization_id', organizationId)
-          .eq('field_id', target_field)
-          .maybeSingle();
-        if (existing) {
-          if (existing.value === storedValue) {
+        // Use accumulated-state cache so multi-writer collisions inside the
+        // same stage produce the same final value the live executor would
+        // (last writer wins). loadPrefValue seeds from the DB once per field,
+        // and we mutate the cache after each predicted write below.
+        const cached = await loadPrefValue(target_field);
+        if (cached.id !== null) {
+          if (cached.value === storedValue) {
             console.log(`    NO-OP (custom "${customField.label}" already equals incoming)`);
             continue;
           }
-          wouldMap.push({ section: 'field_mapping', entry: `${header} → organization_preference_value UPDATE (label="${customField.label}", ${previewValue(existing.value)} → ${previewValue(storedValue)})` });
-          console.log(`    WOULD UPDATE organization_preference_value (label="${customField.label}", from=${previewValue(existing.value)} to=${previewValue(storedValue)})`);
+          wouldMap.push({ section: 'field_mapping', entry: `${header} → organization_preference_value UPDATE (label="${customField.label}", ${previewValue(cached.value)} → ${previewValue(storedValue)})` });
+          console.log(`    WOULD UPDATE organization_preference_value (label="${customField.label}", from=${previewValue(cached.value)} to=${previewValue(storedValue)})`);
+          cached.value = storedValue;
         } else {
           wouldMap.push({ section: 'field_mapping', entry: `${header} → organization_preference_value INSERT (label="${customField.label}", value=${previewValue(storedValue)})` });
           console.log(`    WOULD INSERT organization_preference_value (label="${customField.label}", value=${previewValue(storedValue)})`);
+          // Synthetic id marker so subsequent mappings to the same field see
+          // it as "existing" (matching what live would observe after the insert).
+          cached.id = '(simulated-insert)';
+          cached.value = storedValue;
         }
       } else {
         wouldFail.push({ section: 'field_mapping', entry: header, reason: `unknown target_type: ${target_type}` });
