@@ -121,6 +121,37 @@ function previewFieldValue(value) {
   return s.length > 80 ? `${s.slice(0, 80)}…` : s;
 }
 
+// Coerce arbitrary form-submitted values (Yes/No radios, checkboxes, real
+// booleans, 1/0, on/off, single-element arrays, { value } wrappers, etc.)
+// into the canonical 'true' / 'false' strings that boolean preference
+// fields are read as (value === true || value === 'true'). Returns null
+// when the input doesn't clearly map to true or false — callers should
+// treat that the same as an empty source value and skip the write rather
+// than silently storing false.
+function coerceBooleanPreferenceValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') {
+    if (value === 1) return 'true';
+    if (value === 0) return 'false';
+    return null;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    if (value.length === 1) return coerceBooleanPreferenceValue(value[0]);
+    return null;
+  }
+  if (typeof value === 'object') {
+    if ('value' in value) return coerceBooleanPreferenceValue(value.value);
+    if ('checked' in value) return coerceBooleanPreferenceValue(value.checked);
+    return null;
+  }
+  const s = String(value).trim().toLowerCase();
+  if (['true', 'yes', 'y', 'on', '1'].includes(s)) return 'true';
+  if (['false', 'no', 'n', 'off', '0'].includes(s)) return 'false';
+  return null;
+}
+
 // Replace [[placeholder]] style placeholders with actual values
 function replaceDoubleBracketPlaceholders(text, placeholders) {
   if (!text) return text;
@@ -1621,7 +1652,26 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       // Process custom field mappings (preference values)
       const customMappings = fieldMappings.custom || {};
       const customFieldErrors = [];
-      
+
+      // Batch-fetch preference_field definitions for every mapped target so we
+      // know each field's field_type before writing. Needed in particular to
+      // coerce Yes/No (or equivalent) source values into the canonical
+      // 'true' / 'false' strings boolean preference fields are read as.
+      const customFieldIds = Object.keys(customMappings).filter(Boolean);
+      const customPrefFieldMap = new Map();
+      if (customFieldIds.length > 0) {
+        const { data: customPrefFields, error: prefFieldsError } = await supabase
+          .from('preference_field')
+          .select('id, field_type, label')
+          .in('id', customFieldIds);
+        if (prefFieldsError) {
+          console.error('[DD Member Action] Failed to load preference_field defs:', prefFieldsError);
+        }
+        for (const pf of customPrefFields || []) {
+          customPrefFieldMap.set(pf.id, pf);
+        }
+      }
+
       for (const [prefFieldId, mapping] of Object.entries(customMappings)) {
         if (!mapping || !mapping.source) continue;
 
@@ -1635,22 +1685,40 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           );
         }
 
-        if (value !== undefined && value !== null && value !== '') {
-          // Store as string (preference values are stored as text)
-          const storedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-          
-          const { error: prefError } = await supabase
-            .from('member_preference_value')
-            .insert({
-              member_id: newMember.id,
-              field_id: prefFieldId,
-              value: storedValue
-            });
-          
-          if (prefError) {
-            console.error(`[DD Member Action] Failed to set custom field ${prefFieldId}:`, prefError);
-            customFieldErrors.push(prefFieldId);
+        if (value === undefined || value === null || value === '') continue;
+
+        const prefField = customPrefFieldMap.get(prefFieldId);
+        const fieldType = prefField?.field_type || 'unknown';
+
+        let storedValue;
+        if (fieldType === 'boolean') {
+          const coerced = coerceBooleanPreferenceValue(value);
+          if (coerced === null) {
+            console.log(
+              `[DD Member Action] custom:${prefFieldId} field_type=boolean rawValue=${previewFieldValue(value)} storedValue=<skipped: value does not map to true/false>`
+            );
+            continue;
           }
+          storedValue = coerced;
+        } else {
+          storedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        }
+
+        console.log(
+          `[DD Member Action] custom:${prefFieldId} field_type=${fieldType} rawValue=${previewFieldValue(value)} storedValue=${previewFieldValue(storedValue)}`
+        );
+
+        const { error: prefError } = await supabase
+          .from('member_preference_value')
+          .insert({
+            member_id: newMember.id,
+            field_id: prefFieldId,
+            value: storedValue
+          });
+
+        if (prefError) {
+          console.error(`[DD Member Action] Failed to set custom field ${prefFieldId}:`, prefError);
+          customFieldErrors.push(prefFieldId);
         }
       }
 
