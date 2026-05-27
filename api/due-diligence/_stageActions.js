@@ -2046,13 +2046,20 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             }
           } else {
             // Update simple core organization field
+            // NOTE: The organization table has two website columns — legacy `website_url`
+            // (used by every other read/write path: org list, org detail, FormBuilder,
+            // Zoho sync, replay scripts) and a newer `website` (added by
+            // add-org-email-address-fields.sql but never adopted elsewhere). The user-
+            // facing target key stays 'website' so existing saved mappings keep working,
+            // but we route the actual column write to the canonical `website_url`.
+            const columnName = target_field === 'website' ? 'website_url' : target_field;
             const updateData = {};
-            updateData[target_field] = storedValue;
+            updateData[columnName] = storedValue;
 
             const previewValue = typeof storedValue === 'string' && storedValue.length > 120
               ? `${storedValue.slice(0, 120)}…`
               : storedValue;
-            console.log(`[DD Field Mapping] Updating organization ${organizationId} core field ${target_field} = ${JSON.stringify(previewValue)}`);
+            console.log(`[DD Field Mapping] Updating organization ${organizationId} core field ${target_field} (column ${columnName}) = ${JSON.stringify(previewValue)}`);
 
             const { error: updateError } = await supabase
               .from('organization')
