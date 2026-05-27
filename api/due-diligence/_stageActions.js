@@ -16,6 +16,111 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Build the set of candidate keys a value might be stored under for a given
+// source field identifier. Looks up the form field definition (if provided) so
+// id/name/key aliases all resolve to the same value. Only exact matches +
+// the standard `field_<id>` prefix are considered — no substring matching.
+function buildFieldKeyCandidates(sourceKey, sourceFormFields = []) {
+  if (!sourceKey) return [];
+  const candidates = new Set();
+  candidates.add(String(sourceKey));
+  candidates.add(`field_${sourceKey}`);
+  const field = (sourceFormFields || []).find(
+    (f) => f && (f.id === sourceKey || f.name === sourceKey || f.key === sourceKey)
+  );
+  if (field) {
+    if (field.id) {
+      candidates.add(String(field.id));
+      candidates.add(`field_${field.id}`);
+    }
+    if (field.name) candidates.add(String(field.name));
+    if (field.key) candidates.add(String(field.key));
+  }
+  return Array.from(candidates);
+}
+
+function lookupValueByCandidates(data, candidates) {
+  if (!data) return { found: false, value: undefined, key: null };
+  for (const k of candidates) {
+    if (Object.prototype.hasOwnProperty.call(data, k) && data[k] !== undefined) {
+      return { found: true, value: data[k], key: k };
+    }
+  }
+  return { found: false, value: undefined, key: null };
+}
+
+// Shared merge helper used by create-member, field-mapping, and Zoho-CRM
+// stage actions. Picks the correct value to use for a mapped source field:
+//   - status === 'amended'  -> reviewed value (even if cleared/empty), so
+//                              clearing a field via reviewer amendment is
+//                              honoured.
+//   - otherwise             -> original submission value, falling back to a
+//                              reviewed value only when there is no original
+//                              entry at all (covers due-diligence-only fields
+//                              that never appear in the original submission).
+// Returns { value, source, key } where source ∈
+//   'amended' | 'original' | 'reviewed_fallback' | 'missing'.
+export function resolveReviewedFieldValue({
+  sourceFieldId,
+  originalData = {},
+  reviewedData = {},
+  fieldReviewStatus = {},
+  sourceFormFields = [],
+}) {
+  const candidates = buildFieldKeyCandidates(sourceFieldId, sourceFormFields);
+  if (candidates.length === 0) {
+    return { value: null, source: 'missing', key: null };
+  }
+
+  // Find a per-field review status entry across any candidate key
+  let status = null;
+  for (const k of candidates) {
+    const s = fieldReviewStatus?.[k];
+    if (s) {
+      status = s;
+      break;
+    }
+  }
+
+  if (status === 'amended') {
+    const r = lookupValueByCandidates(reviewedData, candidates);
+    return {
+      value: r.found ? r.value : null,
+      source: 'amended',
+      key: r.key || candidates[0],
+    };
+  }
+
+  const o = lookupValueByCandidates(originalData, candidates);
+  if (o.found) {
+    return { value: o.value, source: 'original', key: o.key };
+  }
+
+  // No original entry — fall back to reviewed (e.g. due_diligence-only fields)
+  const r = lookupValueByCandidates(reviewedData, candidates);
+  if (r.found) {
+    return { value: r.value, source: 'reviewed_fallback', key: r.key };
+  }
+
+  return { value: null, source: 'missing', key: candidates[0] };
+}
+
+// Short, log-safe preview of a resolved value (for per-field source logging)
+function previewFieldValue(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'object') {
+    try {
+      const s = JSON.stringify(value);
+      return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+    } catch {
+      return '[object]';
+    }
+  }
+  const s = String(value);
+  return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+}
+
 // Replace [[placeholder]] style placeholders with actual values
 function replaceDoubleBracketPlaceholders(text, placeholders) {
   if (!text) return text;
@@ -1290,46 +1395,45 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       return results;
     }
 
-    // Helper function to get field value with fallback patterns
-    const getFieldValue = (formValues, fieldKey) => {
+    // Load source form fields so we can resolve id/name/key aliases when
+    // looking up values in original / reviewed submission data.
+    let sourceFormFields = [];
+    if (formSubmission.form_id) {
+      const { data: sourceForm } = await supabase
+        .from('form')
+        .select('fields')
+        .eq('id', formSubmission.form_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      sourceFormFields = sourceForm?.fields || [];
+    }
+
+    const originalData = formSubmission.submission_data || {};
+    const reviewedData = ddSubmission.reviewed_form_values || {};
+    const fieldReviewStatus = ddSubmission.field_review_status || {};
+
+    // Resolve a mapped field using the shared amended-vs-original merge rules
+    // and log which source supplied the value.
+    const resolveMappedField = (fieldKey, role) => {
       if (!fieldKey) return null;
-      
-      let value = formValues[fieldKey] || formValues[`field_${fieldKey}`];
-      
-      if (value === undefined) {
-        const matchKey = Object.keys(formValues).find(key => 
-          key === fieldKey || 
-          key.includes(fieldKey) ||
-          key.endsWith(`_${fieldKey}`)
-        );
-        if (matchKey) {
-          value = formValues[matchKey];
-        }
-      }
-      
-      // Handle contact field type (value might be nested)
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        return value;
-      }
-      
+      const { value, source, key } = resolveReviewedFieldValue({
+        sourceFieldId: fieldKey,
+        originalData,
+        reviewedData,
+        fieldReviewStatus,
+        sourceFormFields,
+      });
+      console.log(
+        `[DD Member Action] field=${fieldKey}${role ? ` (${role})` : ''} resolvedKey=${key} source=${source} value=${previewFieldValue(value)}`
+      );
       return value;
     };
 
     for (const ma of memberActions) {
-      const originalData = formSubmission.submission_data || {};
-      const reviewedData = ddSubmission.reviewed_form_values || {};
-      const formValues = { ...originalData };
-      for (const [key, val] of Object.entries(reviewedData)) {
-        if (val !== undefined && val !== null && val !== '') {
-          formValues[key] = val;
-        }
-      }
-      console.log('[DD Member Action] Using merged form values (reviewed preferred over original)');
-      
       // Get mandatory fields
-      let firstName = getFieldValue(formValues, ma.first_name_field);
-      let lastName = getFieldValue(formValues, ma.last_name_field);
-      let email = getFieldValue(formValues, ma.email_field);
+      let firstName = resolveMappedField(ma.first_name_field, 'first_name');
+      let lastName = resolveMappedField(ma.last_name_field, 'last_name');
+      let email = resolveMappedField(ma.email_field, 'email');
       
       // Handle if email comes from contact field
       if (typeof email === 'object' && email !== null) {
@@ -1414,14 +1518,17 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       
       for (const [coreField, mapping] of Object.entries(coreMappings)) {
         if (!mapping || !mapping.source) continue;
-        
+
         let value;
         if (mapping.source === 'form_field') {
-          value = getFieldValue(formValues, mapping.value);
+          value = resolveMappedField(mapping.value, `core:${coreField}`);
         } else if (mapping.source === 'manual') {
           value = mapping.value;
+          console.log(
+            `[DD Member Action] field=${mapping.value} (core:${coreField}) source=manual value=${previewFieldValue(value)}`
+          );
         }
-        
+
         if (value !== undefined && value !== null && value !== '') {
           // Skip fields already set (first_name, last_name, email)
           if (['first_name', 'last_name', 'email'].includes(coreField)) continue;
@@ -1517,14 +1624,17 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       
       for (const [prefFieldId, mapping] of Object.entries(customMappings)) {
         if (!mapping || !mapping.source) continue;
-        
+
         let value;
         if (mapping.source === 'form_field') {
-          value = getFieldValue(formValues, mapping.value);
+          value = resolveMappedField(mapping.value, `custom:${prefFieldId}`);
         } else if (mapping.source === 'manual') {
           value = mapping.value;
+          console.log(
+            `[DD Member Action] field=${mapping.value} (custom:${prefFieldId}) source=manual value=${previewFieldValue(value)}`
+          );
         }
-        
+
         if (value !== undefined && value !== null && value !== '') {
           // Store as string (preference values are stored as text)
           const storedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
@@ -1744,8 +1854,9 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
     
     // Original submission data (fallback)
     const originalData = formSubmission.submission_data || {};
-    // Reviewed values from due diligence review (preferred when available)
+    // Reviewed values from due diligence review (preferred when amended)
     const reviewedData = ddSubmission.reviewed_form_values || {};
+    const fieldReviewStatus = ddSubmission.field_review_status || {};
 
     // Load source form fields so we can look up values by id, name, or key (mirrors
     // what the contract-sending action does). The Field Mapping config saves
@@ -1766,20 +1877,6 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         sourceFormFields = sourceForm?.fields || [];
       }
     }
-
-    // Resolve a value out of submission/reviewed data given any of: field id, name, or key.
-    const resolveValueByKey = (data, sourceKey) => {
-      if (!data || !sourceKey) return undefined;
-      if (data[sourceKey] !== undefined) return data[sourceKey];
-      const field = sourceFormFields.find(f => f.id === sourceKey || f.name === sourceKey || f.key === sourceKey);
-      if (field) {
-        if (field.id && data[field.id] !== undefined) return data[field.id];
-        if (field.name && data[field.name] !== undefined) return data[field.name];
-        if (field.key && data[field.key] !== undefined) return data[field.key];
-        if (field.id && data[`field_${field.id}`] !== undefined) return data[`field_${field.id}`];
-      }
-      return undefined;
-    };
 
     // Some form field types submit wrapper objects (e.g. URL pickers, text inputs that
     // serialize { url, value, href }). For simple text targets we want a plain string.
@@ -1901,26 +1998,26 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           
           console.log(`[DD Field Mapping] Target ${target_field}: using static value "${sourceValue}"`);
         } else {
-          // Get the value: prefer REVIEWED value, fall back to ORIGINAL
-          // Note: 0 and false are valid values; only undefined/null/empty-string means "not set"
-          // Use the field-aware resolver so that source_field_id stored as the field's id,
-          // name, or legacy key all work against the submission/reviewed data.
-          const reviewedValue = resolveValueByKey(reviewedData, source_field_id);
-          const originalValue = resolveValueByKey(originalData, source_field_id);
-          
-          // Check if reviewed value is truly present (0/false are valid, empty string is not)
-          const hasReviewedValue = reviewedValue !== undefined && reviewedValue !== null && reviewedValue !== '';
-          sourceValue = hasReviewedValue ? reviewedValue : originalValue;
-          valueSource = hasReviewedValue ? 'reviewed' : 'original';
-          
-          // Check if source value is usable (0/false are valid, empty string is not)
+          // Use shared amended-vs-original merge: an 'amended' status wins
+          // (even when cleared), otherwise fall back to the original value.
+          const resolved = resolveReviewedFieldValue({
+            sourceFieldId: source_field_id,
+            originalData,
+            reviewedData,
+            fieldReviewStatus,
+            sourceFormFields,
+          });
+          sourceValue = resolved.value;
+          valueSource = resolved.source;
+
+          // Note: 0 and false are valid values; only undefined/null/empty-string means "not set".
           const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
           if (isValueEmpty) {
-            console.log(`[DD Field Mapping] Field ${source_field_id}: no value in reviewed or original data (keys checked: id/name/key), skipping`);
+            console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} source=${valueSource} value=empty, skipping`);
             continue;
           }
-          
-          console.log(`[DD Field Mapping] Field ${source_field_id}: using ${valueSource} value (raw type: ${typeof sourceValue})`);
+
+          console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} resolvedKey=${resolved.key} source=${valueSource} value=${previewFieldValue(sourceValue)}`);
         }
         
         
@@ -2280,46 +2377,6 @@ function findFieldByLabel(fields, labelPattern) {
   });
 }
 
-// Helper to get field value from submission data
-function getFieldValue(formValues, field) {
-  if (!field || !formValues) return null;
-  
-  // Try field.id first (most common)
-  if (field.id && formValues[field.id] !== undefined) {
-    return formValues[field.id];
-  }
-  
-  // Try field.name
-  if (field.name && formValues[field.name] !== undefined) {
-    return formValues[field.name];
-  }
-  
-  // Try field.key (some forms use key)
-  if (field.key && formValues[field.key] !== undefined) {
-    return formValues[field.key];
-  }
-  
-  // Try prefixed versions
-  if (field.id && formValues[`field_${field.id}`] !== undefined) {
-    return formValues[`field_${field.id}`];
-  }
-  
-  // Try partial key match as fallback
-  const fieldId = field.id || field.name || field.key;
-  if (fieldId) {
-    const matchKey = Object.keys(formValues).find(key => 
-      key === fieldId || 
-      key.includes(fieldId) ||
-      key.endsWith(`_${fieldId}`)
-    );
-    if (matchKey) {
-      return formValues[matchKey];
-    }
-  }
-  
-  return null;
-}
-
 // Transform education levels based on schooling selection
 function transformEducationLevels(schoolingValues) {
   if (!schoolingValues || !Array.isArray(schoolingValues)) return [];
@@ -2464,29 +2521,38 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     const formFields = form.fields || [];
     const originalData = formSubmission.submission_data || {};
     const reviewedData = ddSubmission.reviewed_form_values || {};
-    const formValues = { ...originalData };
-    for (const [key, val] of Object.entries(reviewedData)) {
-      if (val !== undefined && val !== null && val !== '') {
-        formValues[key] = val;
-      }
-    }
-    console.log('[DD Zoho CRM] Using merged form values (reviewed preferred over original)');
-    
+    const fieldReviewStatus = ddSubmission.field_review_status || {};
+
     // Helper to find field by label (case-insensitive partial match)
     const findFieldByLabel = (fields, labelSearch) => {
       if (!fields || !labelSearch) return null;
       const searchLower = labelSearch.toLowerCase();
-      const field = fields.find(f => 
+      const field = fields.find(f =>
         f.label && f.label.toLowerCase().includes(searchLower)
       );
       return field?.id || field?.key || null;
     };
-    
-    // Helper to get field value from form submission
-    const getFieldValue = (values, fieldKey) => {
-      if (!fieldKey || !values) return null;
-      return values[fieldKey] || values[`field_${fieldKey}`] || null;
+
+    // Resolve a mapped source field using the shared amended-vs-original
+    // merge helper and log which source supplied the value.
+    const getFieldValue = (_values, fieldKey, role) => {
+      if (!fieldKey) return null;
+      const { value, source, key } = resolveReviewedFieldValue({
+        sourceFieldId: fieldKey,
+        originalData,
+        reviewedData,
+        fieldReviewStatus,
+        sourceFormFields: formFields,
+      });
+      console.log(
+        `[DD Zoho CRM] field=${fieldKey}${role ? ` (${role})` : ''} resolvedKey=${key} source=${source} value=${previewFieldValue(value)}`
+      );
+      return value === undefined ? null : value;
     };
+
+    // Kept for callers that pass merged formValues (none after this refactor),
+    // mirrors the legacy signature `(formValues, fieldKey)`.
+    const formValues = originalData;
     
     // Extract logo URL from File Upload field
     const logoField = findFieldByLabel(formFields, 'logo');
