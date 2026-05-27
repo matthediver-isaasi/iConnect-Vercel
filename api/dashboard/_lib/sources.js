@@ -37,6 +37,58 @@ export const DASHBOARD_SOURCES = {
       { name: 'purchase_order_enabled', label: 'Purchase order enabled', type: 'boolean' },
     ],
   },
+  dd_submission: {
+    id: 'dd_submission',
+    label: 'Due Diligence Submissions',
+    table: 'form_submission_due_diligence',
+    timestampField: 'created_at',
+    // DD submissions have no preference store of their own — custom
+    // fields are not surfaced here. All filtering/grouping uses the
+    // built-in systemFields below, which the aggregation engine
+    // resolves via a dedicated DD code path (joins form_submission +
+    // organization_preference_value for org_type).
+    isDd: true,
+    systemFields: [
+      { name: 'id', label: 'ID', type: 'id' },
+      {
+        name: 'workflow_status',
+        label: 'Status',
+        type: 'enum',
+        // The 7 canonical DD statuses. The aggregation engine
+        // canonicalises each stored workflow_status (stage UUID OR
+        // label string) before grouping/filtering, so picking any of
+        // these as a filter/group value matches consistently across
+        // forms.
+        // Includes Approved alongside the 7 canonical statuses so the
+        // builder dropdown exactly matches what the aggregator can emit
+        // — DD forms that pass Verified into an explicit Approved stage
+        // (e.g. gsf) would otherwise have rows showing in pies under a
+        // bucket the builder couldn't filter on.
+        options: [
+          { value: 'New', label: 'New' },
+          { value: 'In Review', label: 'In Review' },
+          { value: 'Verified', label: 'Verified' },
+          { value: 'DD Meet Attended', label: 'DD Meet Attended' },
+          { value: 'Held', label: 'Held' },
+          { value: 'Approved', label: 'Approved' },
+          { value: 'Rejected', label: 'Rejected' },
+          { value: 'Incomplete', label: 'Incomplete' },
+        ],
+      },
+      { name: 'organization_id', label: 'Organisation', type: 'reference', referenceTable: 'organization' },
+      { name: 'form_id', label: 'Form', type: 'reference' },
+      {
+        name: 'org_type',
+        label: 'Organisation type',
+        type: 'enum',
+        // Joined from organization_preference_value; values are
+        // whatever the tenant's org_type dropdown defines.
+        options: null,
+      },
+      { name: 'submitted_at', label: 'Submitted at', type: 'date' },
+      { name: 'created_at', label: 'Created at', type: 'date' },
+    ],
+  },
   member: {
     id: 'member',
     label: 'Members',
@@ -87,6 +139,9 @@ export async function getCustomFieldsForSource(sourceOrDef, tenantId) {
     ? DASHBOARD_SOURCES[sourceOrDef]
     : sourceOrDef;
   if (!def || !supabase) return [];
+  // Sources without a preference store (e.g. DD Submissions) have no
+  // tenant-defined custom fields to enumerate.
+  if (!def.preferenceTable || !def.preferenceScope) return [];
   try {
     const baseQuery = supabase
       .from('preference_field')

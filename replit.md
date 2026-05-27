@@ -10,6 +10,7 @@ A multi-tenant SaaS platform unifying member, event, booking, resource, and blog
 -   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
 -   **Storage usage baseline / reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`. Run after the storage-usage migration, after any drift incident, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
 -   **Membership payment status backfill (one-off, BEFORE enabling reconciliation cron):** `node scripts/backfill-membership-payment-status.mjs [--dry-run] [--tenant=<uuid>] [--table=…] [--limit=N]`. Silently flips paid/voided rows without firing workflows. Idempotent.
+-   **Seed DD-by-status pie widgets (gsf only, idempotent):** `node scripts/seed-dd-status-widgets.mjs`. Hard-pinned to tenant `21296ad6-1350-483a-a90c-1b06ece70501`; refuses other `TENANT_ID`s.
 
 ## Env vars (current canonical set)
 Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.

@@ -2,6 +2,12 @@ import { supabase } from '../../_lib/database.js';
 import { tenantFilter } from './permissions.js';
 import { getSourceDef, getCustomFieldsForSource } from './sources.js';
 import { resolveCountryToIso2 } from '../../../shared/countries.js';
+import {
+  buildStageMaps,
+  mkMatchers,
+  canonicalizeKey,
+  CANONICAL,
+} from '../../reports/_ddReportHelpers.js';
 
 const MAX_BUCKETS = 50;
 const MAX_GROUPS = 20;
@@ -29,6 +35,13 @@ export async function runWidgetConfig(config, tenantId) {
   const source = getSourceDef(config.source);
   if (!source) {
     throw new Error(`Unknown source: ${config.source}`);
+  }
+
+  // DD Submissions has a bespoke shape (canonicalised workflow_status,
+  // joined organisation org_type preference) so it routes through its
+  // own aggregator instead of the generic preference-store path.
+  if (source.isDd) {
+    return runDdWidgetConfig(config, tenantId, source);
   }
 
   const measure = normaliseMeasure(config.measure);
@@ -721,4 +734,261 @@ function bucketTimestamp(raw, granularity) {
     default:
       return d.toISOString().slice(0, 10);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Due Diligence Submissions aggregator
+//
+// DD rows live in `form_submission_due_diligence` keyed by tenant_id, but the
+// useful filter/group dimensions are spread across multiple tables and need
+// canonicalisation per-form:
+//   - workflow_status is stored as either a stage UUID or a stage label,
+//     varying by form. The 7 canonical buckets (New / In Review / Verified /
+//     DD Meet Attended / Held / Rejected / Incomplete, plus Approved when
+//     present) come from the shared DD report helpers (canonicalizeKey +
+//     buildStageMaps + mkMatchers), including Held disambiguation
+//     (meeting-outcome vs decision-pending) so this widget stays consistent
+//     with the DD reports page.
+//   - form_id / submitted_at / organization_id are joined off form_submission.
+//   - org_type is the tenant's `org_type` preference on `organization`
+//     (a dropdown custom field), loaded only when the widget references it.
+// All filtering/grouping then happens in JS on the flattened rows so we
+// can reuse the existing matchFilter / aggregate / bucketTimestamp /
+// normaliseKey helpers without surfacing DD quirks back into the generic
+// engine.
+const DD_STATUS_BUCKETS = [
+  { label: 'New', isMatch: (m, _maps, s) => m.isNew(s) },
+  { label: 'In Review', isMatch: (m, _maps, s) => m.isInReview(s) },
+  { label: 'Verified', isMatch: (m, _maps, s) => m.isVerified(s) },
+  { label: 'DD Meet Attended', isMatch: (m, _maps, s) => m.isDDMeetAttended(s) },
+  { label: 'Approved', isMatch: (m, _maps, s) => m.isApproved(s) },
+  { label: 'Rejected', isMatch: (m, _maps, s) => m.isRejected(s) },
+  {
+    label: 'Incomplete',
+    // mkMatchers() doesn't expose an isIncomplete helper, so we
+    // combine the canonical-key match (handles label strings like
+    // "Incomplete") with the per-form stage-UUID set built by
+    // buildStageMaps (handles stored stage ids).
+    isMatch: (_m, maps, s) => canonicalizeKey(s) === CANONICAL.incomplete
+      || (maps?.incomplete && maps.incomplete.has(String(s))),
+  },
+];
+
+function canonicaliseDdStatus(rawStatus, formId, matchers, isHeldDecisionForForm, stageMaps) {
+  if (rawStatus === null || rawStatus === undefined || rawStatus === '') return null;
+  // Held is its own bucket regardless of meeting-outcome vs
+  // decision-pending semantics — both flavours roll up under "Held"
+  // for grouping. We still call isHeldDecisionForForm so the per-form
+  // disambiguation is consulted (matches DD report behaviour) even
+  // though the resulting label is identical.
+  if (matchers.isHeld(rawStatus)) {
+    // Reading the form's stage order keeps this in lock-step with the
+    // DD reports page; future widgets could surface the distinction.
+    isHeldDecisionForForm?.(formId);
+    return 'Held';
+  }
+  for (const bucket of DD_STATUS_BUCKETS) {
+    if (bucket.isMatch(matchers, stageMaps, rawStatus)) return bucket.label;
+  }
+  // Unknown / non-canonical status — pass through so admins can spot it.
+  return String(rawStatus);
+}
+
+function ddFieldUsed(config, fieldName) {
+  if (!config) return false;
+  const matchRef = (ref) => ref && ref.fieldKind === 'system' && ref.field === fieldName;
+  if (matchRef(config.measure)) return true;
+  if (config.groupBy?.kind === 'system' && config.groupBy.field === fieldName) return true;
+  if (config.timeBucket?.fieldKind !== 'custom' && config.timeBucket?.field === fieldName) return true;
+  return (config.filters || []).some(matchRef);
+}
+
+async function runDdWidgetConfig(config, tenantId, source) {
+  const measure = normaliseMeasure(config.measure);
+  const groupBy = config.groupBy || null;
+  const timeBucket = config.timeBucket || null;
+
+  if (!measure) throw new Error('Measure is required');
+  if (groupBy && timeBucket) throw new Error('Choose either group-by or time-bucket, not both');
+
+  // Numeric aggregators are not meaningful over the current DD field
+  // set (id / status / ids / dates / org_type) — reject so users get a
+  // clear error instead of NaN/0.
+  if (NUMERIC_AGGREGATORS.has(measure.aggregator)) {
+    throw new Error(
+      `${measure.aggregator} is not supported on Due Diligence Submissions — only count / count_distinct.`,
+    );
+  }
+  if (measure.fieldKind === 'custom' || groupBy?.kind === 'custom' || timeBucket?.fieldKind === 'custom') {
+    throw new Error('Due Diligence Submissions does not expose custom fields');
+  }
+
+  // Load DD configs first so we can build stage maps + restrict the
+  // submissions set to forms that have a DD config (matches DD reports).
+  const { data: ddConfigs, error: cfgErr } = await supabase
+    .from('form_due_diligence_config')
+    .select('form_id, workflow_stages')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true);
+  if (cfgErr) throw new Error(`DD config query failed: ${cfgErr.message}`);
+  const ddFormIds = new Set((ddConfigs || []).map(c => c.form_id));
+  const { stageMaps, isHeldDecisionForForm } = buildStageMaps(ddConfigs || []);
+  const matchers = mkMatchers(stageMaps);
+
+  // Paginate the DD rows. We join form_submission to pull form_id /
+  // submitted_at / organization_id in one round-trip. Filters by
+  // form_id / organization_id can't be pushed down through the join
+  // shape that PostgREST returns, so we apply them in JS post-fetch.
+  let rawRows = [];
+  for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
+    const to = Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1);
+    const { data: page, error } = await supabase
+      .from('form_submission_due_diligence')
+      .select(`
+        id,
+        workflow_status,
+        created_at,
+        form_submission:form_submission_id(id, form_id, organization_id, created_date)
+      `)
+      .eq('tenant_id', tenantId)
+      .is('archived_at', null)
+      .range(from, to);
+    if (error) throw new Error(`DD source query failed: ${error.message}`);
+    if (!page || page.length === 0) break;
+    rawRows = rawRows.concat(page);
+    if (page.length < PAGE_SIZE) break;
+    if (rawRows.length >= MAX_TOTAL_ROWS) {
+      throw new Error(
+        `Widget would scan more than ${MAX_TOTAL_ROWS} rows. Add filters to narrow the dataset.`,
+      );
+    }
+  }
+
+  // Flatten + canonicalise.
+  const flat = [];
+  for (const r of rawRows) {
+    const fs = r.form_submission || null;
+    const formId = fs?.form_id || null;
+    if (!formId || !ddFormIds.has(formId)) continue;
+    flat.push({
+      id: r.id,
+      workflow_status: canonicaliseDdStatus(r.workflow_status, formId, matchers, isHeldDecisionForForm, stageMaps),
+      organization_id: fs?.organization_id || null,
+      form_id: formId,
+      submitted_at: fs?.created_date || null,
+      created_at: r.created_at,
+      org_type: null,
+    });
+  }
+
+  // Hydrate org_type only if the widget actually references it.
+  if (ddFieldUsed(config, 'org_type')) {
+    const orgIds = Array.from(new Set(flat.map(r => r.organization_id).filter(Boolean)));
+    if (orgIds.length > 0) {
+      const { data: orgTypeField } = await supabase
+        .from('preference_field')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('entity_scope', 'organization')
+        .eq('name', 'org_type')
+        .maybeSingle();
+      if (orgTypeField?.id) {
+        const orgTypeMap = new Map();
+        const chunk = 500;
+        for (let i = 0; i < orgIds.length; i += chunk) {
+          const slice = orgIds.slice(i, i + chunk);
+          const { data: prefs, error: prefErr } = await supabase
+            .from('organization_preference_value')
+            .select('organization_id, value')
+            .in('organization_id', slice)
+            .eq('field_id', orgTypeField.id);
+          if (prefErr) {
+            console.error('[Dashboard DD] org_type fetch failed:', prefErr.message);
+            continue;
+          }
+          (prefs || []).forEach(p => {
+            orgTypeMap.set(p.organization_id, extractPrimitive(parsePreferenceValue(p.value)));
+          });
+        }
+        flat.forEach(r => { r.org_type = orgTypeMap.get(r.organization_id) ?? null; });
+      }
+    }
+  }
+
+  // Apply all filters in JS (system filters become row-level matchers
+  // against the flat row shape; no LMIC support on DD).
+  const filters = (config.filters || []).filter(f => f.fieldKind === 'system' && f.field);
+  const workingRows = flat.filter(row => filters.every(f => matchFilter(row[f.field], f, null, false)));
+
+  const measureValueOf = row => {
+    if (!measure.field) return null;
+    if (measure.fieldKind === 'system') return row[measure.field];
+    return null;
+  };
+  const pushMeasureValues = (target, row) => target.push(measureValueOf(row));
+
+  const groupKeyOf = groupBy && groupBy.field
+    ? row => normaliseKey(row[groupBy.field])
+    : null;
+  const timeKeyOf = timeBucket && timeBucket.field
+    ? row => bucketTimestamp(row[timeBucket.field], timeBucket.granularity)
+    : null;
+
+  if (!groupBy && !timeBucket) {
+    const values = [];
+    for (const row of workingRows) pushMeasureValues(values, row);
+    const value = aggregate(values, measure.aggregator);
+    return {
+      type: 'scalar',
+      total: workingRows.length,
+      value,
+      rows: [{ key: 'total', value }],
+    };
+  }
+
+  if (groupBy) {
+    const buckets = new Map();
+    workingRows.forEach(row => {
+      const key = groupKeyOf(row);
+      if (!buckets.has(key)) buckets.set(key, []);
+      pushMeasureValues(buckets.get(key), row);
+    });
+    const grouped = Array.from(buckets.entries())
+      .map(([key, values]) => ({ key, value: aggregate(values, measure.aggregator) }))
+      .sort((a, b) => b.value - a.value);
+    if (grouped.length > MAX_GROUPS) {
+      throw new Error(
+        `Group-by produced ${grouped.length} groups (max ${MAX_GROUPS}). ` +
+        `Add a filter or pick a less granular field.`,
+      );
+    }
+    return {
+      type: 'group',
+      total: workingRows.length,
+      categories: ['value'],
+      rows: grouped,
+    };
+  }
+
+  const buckets = new Map();
+  workingRows.forEach(row => {
+    const key = timeKeyOf(row);
+    if (!key) return;
+    if (!buckets.has(key)) buckets.set(key, []);
+    pushMeasureValues(buckets.get(key), row);
+  });
+  const sortedKeys = Array.from(buckets.keys()).sort();
+  if (sortedKeys.length > MAX_BUCKETS) {
+    throw new Error(
+      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
+      `Use a coarser granularity or add a date filter.`,
+    );
+  }
+  return {
+    type: 'time',
+    total: workingRows.length,
+    categories: ['value'],
+    rows: sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) })),
+    granularity: timeBucket.granularity,
+  };
 }
