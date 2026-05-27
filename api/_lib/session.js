@@ -391,7 +391,12 @@ async function tryPromoteMemberToTenantUser(session, req) {
     }
     
     // Fallback: Check tenant_membership table if direct lookup fails
-    // This supports the newer membership-based access model
+    // This supports the newer membership-based access model.
+    // NOTE: admin-level access is conveyed via membership.role ('owner'/'admin'),
+    // NOT via membership_type. Most admin rows are stored as
+    // membership_type='member' with role='owner', so filtering on
+    // membership_type='owner' alone would (and did) reject legitimate admins
+    // and silently 401 every /api/admin/* call for that session.
     if (!tenantUser) {
       try {
         const { data: membership } = await supabase
@@ -399,8 +404,9 @@ async function tryPromoteMemberToTenantUser(session, req) {
           .select('*, tenant_user:tenant_user_id(*)')
           .eq('identity_id', identityId)
           .eq('tenant_id', targetTenantId)
-          .eq('membership_type', 'owner')
-          .single();
+          .eq('status', 'active')
+          .or('membership_type.eq.owner,role.eq.owner,role.eq.admin')
+          .maybeSingle();
         
         if (membership?.tenant_user) {
           tenantUser = membership.tenant_user;
@@ -633,15 +639,20 @@ export async function getSessionTenantUser(req) {
         .single();
       
       if (identity) {
-        // Found in unified identity system - verify membership
+        // Found in unified identity system - verify membership.
+        // Admin access is conveyed via membership.role ('owner'/'admin'),
+        // not via membership_type. Most admin rows are stored as
+        // membership_type='member' with role='owner', so filtering on
+        // membership_type='owner' alone would 401 every legitimate admin
+        // request on /api/admin/*.
         const { data: membership, error: membershipError } = await supabase
           .from('tenant_membership')
           .select('*, tenant:tenant_id(*)')
           .eq('identity_id', identity.id)
           .eq('tenant_id', session.data.tenantId)
-          .eq('membership_type', 'owner')
           .eq('status', 'active')
-          .single();
+          .or('membership_type.eq.owner,role.eq.owner,role.eq.admin')
+          .maybeSingle();
         
         if (membership && !membershipError) {
           console.log('[Session] Verified via unified identity system:', identity.email);
