@@ -3,6 +3,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
+import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
 import { 
   isZohoCrmConnected,
   lookupCountryInZoho,
@@ -1708,6 +1709,38 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
       console.log('[DD Field Mapping] No organization_id on form submission, skipping field mappings');
       return results;
     }
+
+    // Snapshot the org row BEFORE any writes so we can fire workflow triggers with
+    // a consistent { before, after } payload matching the entity-API path.
+    // currentOrg is mutated in-place as successive mappings apply, so composite
+    // writes and trigger evaluation see the latest accumulated state.
+    let beforeOrg = null;
+    let currentOrg = null;
+    let coreFieldChanged = false;
+    try {
+      const { data: orgRow, error: orgRowErr } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('id', organizationId)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (orgRowErr) {
+        console.warn('[DD Field Mapping] Could not snapshot org row for workflow triggers:', orgRowErr.message);
+      } else if (orgRow) {
+        beforeOrg = { ...orgRow };
+        currentOrg = { ...orgRow };
+      }
+    } catch (snapErr) {
+      console.warn('[DD Field Mapping] Error snapshotting org row:', snapErr.message);
+    }
+
+    // Track per-preference-field changes so we can fire triggerPreferenceWorkflows
+    // once per affected custom field after all writes are committed.
+    const prefChanges = []; // [{ field_id, previousValue, newValue }]
+
+    // Derive baseUrl for workflow email placeholders (set_password_url etc).
+    // Workflows themselves don't strictly need it; passing what's available.
+    const baseUrl = options.baseUrl || process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
     
     // Original submission data (fallback)
     const originalData = formSubmission.submission_data || {};
@@ -1943,22 +1976,16 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           }
           
           if (isCompositeField) {
-            // Handle composite field - fetch existing, merge, and update
-            const { data: existingOrg, error: fetchError } = await supabase
-              .from('organization')
-              .select(parentField)
-              .eq('id', organizationId)
-              .eq('tenant_id', tenantId)
-              .single();
-            
-            if (fetchError) {
-              console.error(`[DD Field Mapping] Error fetching org for composite field ${target_field}:`, fetchError);
-              mappingResults.push({ field: target_field, status: 'error', error: fetchError.message });
+            // Handle composite field - use latest accumulated state, merge, and update.
+            // Skip the write (and trigger) entirely when the sub-field already equals
+            // the incoming value, matching the entity-API no-op behaviour.
+            const existingValue = (currentOrg && currentOrg[parentField]) || {};
+            const existingSub = existingValue?.[subField];
+            if (existingSub === storedValue || (existingSub == null && storedValue == null)) {
+              console.log(`[DD Field Mapping] Composite ${target_field} already equals incoming value, skipping no-op`);
+              mappingResults.push({ field: target_field, status: 'noop', type: 'core', composite: true });
               continue;
             }
-            
-            // Merge the new value into the existing JSON object
-            const existingValue = existingOrg?.[parentField] || {};
             const mergedValue = { ...existingValue, [subField]: storedValue };
             
             const updateData = {};
@@ -1974,6 +2001,8 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating composite core field ${target_field}:`, updateError);
               mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
             } else {
+              if (currentOrg) currentOrg[parentField] = mergedValue;
+              coreFieldChanged = true;
               mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
             }
           } else if (target_field === 'logo_url') {
@@ -2031,6 +2060,13 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               continue;
             }
 
+            // Skip no-op
+            if (currentOrg && currentOrg.logo_url === resolvedLogoUrl) {
+              console.log(`[DD Field Mapping] logo_url already equals incoming value, skipping no-op`);
+              mappingResults.push({ field: target_field, status: 'noop', type: 'core' });
+              continue;
+            }
+
             console.log(`[DD Field Mapping] Resolved logo_url: ${resolvedLogoUrl.substring(0, 80)}...`);
             const { error: updateError } = await supabase
               .from('organization')
@@ -2042,6 +2078,8 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating logo_url:`, updateError);
               mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
             } else {
+              if (currentOrg) currentOrg.logo_url = resolvedLogoUrl;
+              coreFieldChanged = true;
               mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
             }
           } else {
@@ -2053,6 +2091,14 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             // facing target key stays 'website' so existing saved mappings keep working,
             // but we route the actual column write to the canonical `website_url`.
             const columnName = target_field === 'website' ? 'website_url' : target_field;
+
+            // Skip no-op write/trigger when current value already matches
+            if (currentOrg && currentOrg[columnName] === storedValue) {
+              console.log(`[DD Field Mapping] Core field ${columnName} already equals incoming value, skipping no-op`);
+              mappingResults.push({ field: target_field, status: 'noop', type: 'core' });
+              continue;
+            }
+
             const updateData = {};
             updateData[columnName] = storedValue;
 
@@ -2071,6 +2117,8 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
               mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
             } else {
+              if (currentOrg) currentOrg[columnName] = storedValue;
+              coreFieldChanged = true;
               console.log(`[DD Field Mapping] Successfully updated organization ${organizationId} field ${target_field}`);
               mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
             }
@@ -2084,15 +2132,21 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
             continue;
           }
           
-          // Check if value already exists
+          // Check if value already exists and capture previous value for workflow trigger
           const { data: existing } = await supabase
             .from('organization_preference_value')
-            .select('id')
+            .select('id, value')
             .eq('organization_id', organizationId)
             .eq('field_id', target_field)
             .maybeSingle();
           
           if (existing) {
+            // Skip no-op
+            if (existing.value === storedValue) {
+              console.log(`[DD Field Mapping] Custom field ${customField.label} already equals incoming value, skipping no-op`);
+              mappingResults.push({ field: customField.label, status: 'noop', type: 'custom' });
+              continue;
+            }
             const { error: updateError } = await supabase
               .from('organization_preference_value')
               .update({ value: storedValue, updated_at: new Date().toISOString() })
@@ -2102,6 +2156,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error updating custom field ${customField.label}:`, updateError);
               mappingResults.push({ field: customField.label, status: 'error', error: updateError.message });
             } else {
+              prefChanges.push({ field_id: target_field, previousValue: existing.value, newValue: storedValue });
               mappingResults.push({ field: customField.label, status: 'updated', type: 'custom' });
             }
           } else {
@@ -2117,6 +2172,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
               console.error(`[DD Field Mapping] Error creating custom field ${customField.label}:`, insertError);
               mappingResults.push({ field: customField.label, status: 'error', error: insertError.message });
             } else {
+              prefChanges.push({ field_id: target_field, previousValue: undefined, newValue: storedValue });
               mappingResults.push({ field: customField.label, status: 'created', type: 'custom' });
             }
           }
@@ -2134,6 +2190,73 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         mappings_count: mappingResults.filter(r => r.status !== 'error').length,
         organization_id: organizationId
       });
+    }
+
+    // ============================================================
+    // Fan out to workflow triggers so that workflows watching
+    // "organisation field changed" / "field changed to X" (core or
+    // custom/preference) fire identically to the entity-API path.
+    // Failures here MUST NOT roll back DD writes or block subsequent
+    // mappings — they are logged and recorded in the DD history.
+    // ============================================================
+    if (coreFieldChanged && beforeOrg && currentOrg) {
+      try {
+        console.log(`[DD Field Mapping] Firing organisation workflow trigger for org ${organizationId}`);
+        await triggerWorkflows(
+          'organization',
+          organizationId,
+          beforeOrg,
+          currentOrg,
+          'field_change',
+          baseUrl
+        );
+      } catch (wfErr) {
+        console.error('[DD Field Mapping] triggerWorkflows (organization) failed:', wfErr);
+        try {
+          await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_workflow_trigger_failed', triggeredBy, {
+            scope: 'organization_core',
+            organization_id: organizationId,
+            error: wfErr.message
+          });
+        } catch {}
+        results.push({
+          action: 'field_mapping_workflow_trigger',
+          scope: 'organization_core',
+          status: 'error',
+          error: wfErr.message
+        });
+      }
+    }
+
+    for (const change of prefChanges) {
+      try {
+        console.log(`[DD Field Mapping] Firing preference workflow trigger for org ${organizationId}, field ${change.field_id}`);
+        await triggerPreferenceWorkflows(
+          'organization',
+          organizationId,
+          change.field_id,
+          change.newValue,
+          baseUrl,
+          change.previousValue
+        );
+      } catch (prefErr) {
+        console.error('[DD Field Mapping] triggerPreferenceWorkflows failed:', prefErr);
+        try {
+          await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_workflow_trigger_failed', triggeredBy, {
+            scope: 'organization_preference',
+            organization_id: organizationId,
+            field_id: change.field_id,
+            error: prefErr.message
+          });
+        } catch {}
+        results.push({
+          action: 'field_mapping_workflow_trigger',
+          scope: 'organization_preference',
+          field_id: change.field_id,
+          status: 'error',
+          error: prefErr.message
+        });
+      }
     }
   } catch (error) {
     console.error('[DD Field Mapping] Error executing field mapping actions:', error);

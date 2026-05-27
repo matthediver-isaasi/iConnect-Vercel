@@ -122,13 +122,19 @@ export default async function handler(req, res) {
       }
     }
 
+    // Derive baseUrl for any downstream workflow-trigger placeholders
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    if (!host && process.env.VERCEL_URL) host = process.env.VERCEL_URL;
+    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+
     // Execute stage actions (e.g., send contracts, meeting requests) using shared utility
     const actionResults = await executeStageActions(
       newStatus,
       ddSubmission,
       tenantCtx.tenantId,
       member.email,
-      { selectedAgentId, customMessage }
+      { selectedAgentId, customMessage, baseUrl }
     );
     const stageActionsResults = actionResults.stage_actions_results || [];
 
