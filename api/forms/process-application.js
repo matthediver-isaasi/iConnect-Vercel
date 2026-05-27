@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 import { calculateMembershipYearWindow } from '../_lib/membershipYear.js';
+import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -337,12 +338,80 @@ const extractEmailDomain = (email) => {
   return parts[1].trim().toLowerCase();
 };
 
-// Helper function to compute the guest-stamp fields for a brand-new member.
-// Returns { is_guest, guest_expires_at } when the org has guest access on
-// AND the member's email domain isn't on the org's verified domain list.
-// Returns null when no guest stamping should be applied (domain matches,
-// guest access disabled, or org/email missing).
-const resolveGuestStampForNewMember = async (supabaseClient, organizationId, email) => {
+// Determine whether the form's email field (the one mapped to member.email)
+// opted into the "Restrict to Organisation Domain" check. Mirrors how
+// FormBuilder surfaces `validate_org_domain` on email fields and how the
+// frontend's FormRenderer enforces it — so the server only rejects on
+// domain mismatch for forms that actually configured the restriction.
+const formHasMemberEmailDomainRestriction = (fields, fieldMappings, memberPipelines) => {
+  if (!Array.isArray(fields) || fields.length === 0) return false;
+
+  const sourceFieldIds = new Set();
+
+  // 1. Modern field_mappings array (preferred).
+  if (Array.isArray(fieldMappings)) {
+    for (const m of fieldMappings) {
+      if (
+        m &&
+        m.target_type === 'core' &&
+        m.target_entity === 'member' &&
+        m.target_field === 'email' &&
+        m.source_field_id
+      ) {
+        sourceFieldIds.add(m.source_field_id);
+      }
+    }
+  }
+
+  // 2. entity_pipelines: primary member pipeline's mappings array.
+  if (Array.isArray(memberPipelines) && memberPipelines.length > 0) {
+    const primary = memberPipelines.find(p => p && (p.isPrimary || p.is_primary)) || memberPipelines[0];
+    if (primary && Array.isArray(primary.mappings)) {
+      for (const m of primary.mappings) {
+        if (
+          m &&
+          m.target_type === 'core' &&
+          m.target_field === 'email' &&
+          m.source_field_id
+        ) {
+          sourceFieldIds.add(m.source_field_id);
+        }
+      }
+    }
+  }
+
+  // 3. Legacy fallback: fields[].core_field_mapping === 'email'.
+  if (sourceFieldIds.size === 0) {
+    for (const f of fields) {
+      if (f && f.core_field_mapping === 'email' && f.id) {
+        sourceFieldIds.add(f.id);
+      }
+    }
+  }
+
+  if (sourceFieldIds.size === 0) return false;
+
+  for (const f of fields) {
+    if (f && sourceFieldIds.has(f.id) && f.validate_org_domain === true) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// Resolve domain-vs-guest context for a brand-new member. Returns
+//   {
+//     emailDomain,         // lowercase domain or '' when unparseable
+//     verifiedDomains,     // array of lowercase domains, possibly empty
+//     domainMatches,       // bool: emailDomain is in verifiedDomains
+//     guestStamp,          // { is_guest, guest_expires_at } | null
+//     hasOrgContext,       // bool: org row was loaded successfully
+//   }
+// or null when there's no organisationId / email to evaluate. The
+// guest_access decision is gated by the tenant master switch (via the
+// shared resolveEffectiveOrgGuestAccess helper) so this can never disagree
+// with the public /domains endpoint that the frontend consults.
+const resolveDomainGuestContext = async (supabaseClient, organizationId, email) => {
   if (!organizationId || !email) return null;
   const emailDomain = extractEmailDomain(email);
   if (!emailDomain) return null;
@@ -360,34 +429,51 @@ const resolveGuestStampForNewMember = async (supabaseClient, organizationId, ema
       .single();
     if (error) {
       if (error.code === '42703') {
-        // Guest access columns aren't on this database — nothing to stamp.
+        // Guest access columns aren't on this database — fall back to a
+        // basic select so domain enforcement still works.
+        const { data: basicData, error: basicErr } = await supabaseClient
+          .from('organization')
+          .select('id, tenant_id')
+          .eq('id', organizationId)
+          .single();
+        if (basicErr) {
+          console.error('[AppProcessor] Failed to load org (basic) for guest check:', basicErr);
+          return null;
+        }
+        org = basicData;
+      } else {
+        console.error('[AppProcessor] Failed to load org for guest check:', error);
         return null;
       }
-      console.error('[AppProcessor] Failed to load org for guest check:', error);
-      return null;
+    } else {
+      org = data;
     }
-    org = data;
   }
-
-  if (!org?.guest_access_enabled) return null;
 
   const verifiedDomains = await loadOrgVerifiedDomains(supabaseClient, organizationId, org.tenant_id);
-  if (verifiedDomains.includes(emailDomain)) return null;
+  const domainMatches = verifiedDomains.includes(emailDomain);
 
-  if (org.guest_access_unlimited) {
-    return { is_guest: true, guest_expires_at: null };
+  let guestStamp = null;
+  if (!domainMatches) {
+    const effective = await resolveEffectiveOrgGuestAccess(supabaseClient, org);
+    if (effective.enabled) {
+      if (effective.unlimited || effective.period_days == null) {
+        guestStamp = { is_guest: true, guest_expires_at: null };
+      } else {
+        const expires = new Date();
+        expires.setUTCDate(expires.getUTCDate() + Number(effective.period_days));
+        guestStamp = { is_guest: true, guest_expires_at: expires.toISOString() };
+      }
+    }
   }
 
-  const days = Number(org.guest_access_period_days);
-  if (!Number.isFinite(days) || days <= 0) {
-    // Guest access is enabled but no period is configured — fall back to a
-    // permanent guest so the member is still flagged correctly.
-    return { is_guest: true, guest_expires_at: null };
-  }
-
-  const expires = new Date();
-  expires.setUTCDate(expires.getUTCDate() + days);
-  return { is_guest: true, guest_expires_at: expires.toISOString() };
+  return {
+    emailDomain,
+    verifiedDomains,
+    domainMatches,
+    guestStamp,
+    hasOrgContext: true,
+  };
 };
 
 // Helper function to check role capacity for per-organization limits
@@ -1793,19 +1879,38 @@ export default async function handler(req, res) {
           // Domain bypass guest flag: when the member's email domain doesn't
           // match the org's verified domains AND the org has Guest Access on,
           // stamp is_guest + guest_expires_at so the team card surfaces this
-          // member under Guest Access. No-op for matching domains or when
-          // guest access is disabled — preserving existing behaviour.
-          const guestStamp = await resolveGuestStampForNewMember(
+          // member under Guest Access. When the email field opted into
+          // `validate_org_domain` and guest fallback isn't available (tenant
+          // master switch off, or org has guest access off), reject the
+          // submission instead of silently creating a non-guest member.
+          const domainCtx = await resolveDomainGuestContext(
             supabase,
             orgIdForNewMember,
             memberData.email
           );
-          if (guestStamp) {
-            memberInsertData.is_guest = guestStamp.is_guest;
-            memberInsertData.guest_expires_at = guestStamp.guest_expires_at;
+          if (domainCtx?.guestStamp) {
+            memberInsertData.is_guest = domainCtx.guestStamp.is_guest;
+            memberInsertData.guest_expires_at = domainCtx.guestStamp.guest_expires_at;
             console.log('[AppProcessor] Domain mismatch with guest access enabled — stamping member as guest:', {
               organization_id: orgIdForNewMember,
-              guest_expires_at: guestStamp.guest_expires_at,
+              guest_expires_at: domainCtx.guestStamp.guest_expires_at,
+            });
+          } else if (
+            domainCtx &&
+            !domainCtx.domainMatches &&
+            domainCtx.verifiedDomains.length > 0 &&
+            formHasMemberEmailDomainRestriction(fields, field_mappings, memberPipelines)
+          ) {
+            const domainList = domainCtx.verifiedDomains.join(', ');
+            const message = `Email domain must be one of: ${domainList}`;
+            console.warn('[AppProcessor] Rejecting new member: email domain not in verified list and guest fallback unavailable:', {
+              organization_id: orgIdForNewMember,
+              email_domain: domainCtx.emailDomain,
+              verified_domains: domainCtx.verifiedDomains,
+            });
+            return res.status(400).json({
+              error: message,
+              code: 'EMAIL_DOMAIN_NOT_ALLOWED',
             });
           }
           

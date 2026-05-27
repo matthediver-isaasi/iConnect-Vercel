@@ -475,7 +475,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
   }, [form?.fields]);
 
-  // Get the selected org ID from either URL prefill or form dropdown selection
+  // Get the selected org ID from form dropdown, URL prefill, or the
+  // logged-in user's own organisation. The third path matters so that a
+  // logged-in member submitting a form with a domain-restricted email field
+  // also sees the friendly "a guest account will be created…" message when
+  // their org accepts guests, instead of an outright domain error.
   const selectedOrgId = useMemo(() => {
     // First priority: org selected in the organisation_dropdown field
     if (orgDropdownField && formValues[orgDropdownField.id]) {
@@ -485,8 +489,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (prefillOrgId) {
       return prefillOrgId;
     }
+    // Third priority: the logged-in user's own organisation
+    if (organizationInfo?.id) {
+      return organizationInfo.id;
+    }
     return null;
-  }, [orgDropdownField, formValues, prefillOrgId]);
+  }, [orgDropdownField, formValues, prefillOrgId, organizationInfo?.id]);
 
   // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
