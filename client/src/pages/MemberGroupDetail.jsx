@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   AlertDialog,
@@ -24,6 +25,9 @@ import {
   Check,
   LogOut,
   ArrowLeft,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -35,6 +39,21 @@ function getInitials(name) {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const MEMBERS_PER_PAGE = 24;
+
+function getMemberDisplay(member) {
+  const first = (member.first_name || "").trim();
+  const last = (member.last_name || "").trim();
+  const anonymise = member.show_in_directory === false;
+  if (anonymise) {
+    const lastInitial = last ? `${last[0].toUpperCase()}.` : "";
+    const displayName = [first, lastInitial].filter(Boolean).join(" ") || "Anonymous member";
+    return { displayName, showAvatarImage: false, anonymised: true };
+  }
+  const displayName = [first, last].filter(Boolean).join(" ") || "Unknown member";
+  return { displayName, showAvatarImage: true, anonymised: false };
 }
 
 export default function MemberGroupDetailPage() {
@@ -162,13 +181,33 @@ export default function MemberGroupDetailPage() {
     [myAssignments, groupId]
   );
 
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberPage, setMemberPage] = useState(1);
+
   const sortedMembers = useMemo(() => {
-    return [...members].sort((a, b) => {
-      const an = `${a.first_name || ""} ${a.last_name || ""}`.trim();
-      const bn = `${b.first_name || ""} ${b.last_name || ""}`.trim();
-      return an.localeCompare(bn);
-    });
+    return members
+      .map((m) => ({ ...m, __display: getMemberDisplay(m) }))
+      .sort((a, b) => a.__display.displayName.localeCompare(b.__display.displayName));
   }, [members]);
+
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return sortedMembers;
+    return sortedMembers.filter((m) =>
+      m.__display.displayName.toLowerCase().includes(q)
+    );
+  }, [sortedMembers, memberSearch]);
+
+  useEffect(() => {
+    setMemberPage(1);
+  }, [memberSearch, groupId]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PER_PAGE));
+  const currentPage = Math.min(memberPage, totalPages);
+  const pagedMembers = useMemo(() => {
+    const start = (currentPage - 1) * MEMBERS_PER_PAGE;
+    return filteredMembers.slice(start, start + MEMBERS_PER_PAGE);
+  }, [filteredMembers, currentPage]);
 
   const isLoading =
     !accessChecked || loadingGroup || loadingAssignments || loadingMembers;
@@ -345,33 +384,92 @@ export default function MemberGroupDetailPage() {
                 No members have joined this group yet.
               </div>
             ) : (
-              <ul className="divide-y divide-slate-200">
-                {sortedMembers.map((m) => {
-                  const fullName = `${m.first_name || ""} ${m.last_name || ""}`.trim() || "Unknown member";
-                  return (
-                    <li
-                      key={m.id}
-                      className="flex items-center gap-3 py-3"
-                      data-testid={`row-member-${m.id}`}
-                    >
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={m.profile_photo_url} alt={fullName} />
-                        <AvatarFallback className="bg-blue-100 text-blue-700">
-                          {getInitials(fullName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className="font-medium text-slate-900 truncate"
-                          data-testid={`text-member-name-${m.id}`}
+              <>
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <Input
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    placeholder="Search members..."
+                    className="pl-9"
+                    data-testid="input-search-members"
+                  />
+                </div>
+
+                {filteredMembers.length === 0 ? (
+                  <div
+                    className="text-center py-8 text-slate-500"
+                    data-testid="text-no-members-matching"
+                  >
+                    No members match your search.
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {pagedMembers.map((m) => {
+                        const { displayName, showAvatarImage } = m.__display;
+                        return (
+                          <Card
+                            key={m.id}
+                            className="overflow-hidden"
+                            data-testid={`card-member-${m.id}`}
+                          >
+                            <CardContent className="p-3 flex items-center gap-3">
+                              <Avatar className="h-10 w-10 flex-shrink-0">
+                                {showAvatarImage && m.profile_photo_url ? (
+                                  <AvatarImage src={m.profile_photo_url} alt={displayName} />
+                                ) : null}
+                                <AvatarFallback className="bg-blue-100 text-blue-700">
+                                  {getInitials(displayName)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div
+                                className="font-medium text-sm text-slate-900 truncate"
+                                data-testid={`text-member-name-${m.id}`}
+                                title={displayName}
+                              >
+                                {displayName}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div
+                        className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-200"
+                        data-testid="pagination-members"
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMemberPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          data-testid="button-members-prev"
                         >
-                          {fullName}
+                          <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+                        </Button>
+                        <div
+                          className="text-sm text-slate-600"
+                          data-testid="text-members-page-indicator"
+                        >
+                          Page {currentPage} of {totalPages}
                         </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMemberPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage >= totalPages}
+                          data-testid="button-members-next"
+                        >
+                          Next <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
