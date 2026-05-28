@@ -161,11 +161,15 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      if (feeToken.status === 'paid') {
+      const { action } = req.body;
+
+      // Task #1112 — confirm_payment must be able to recover a stuck-paid
+      // token (status='paid' but no history row). Skip the "already paid"
+      // short-circuit for that action and let its own idempotency probe
+      // (further down) decide whether to return success or surface a 409.
+      if (feeToken.status === 'paid' && action !== 'confirm_payment') {
         return res.status(400).json({ error: 'This membership fee has already been paid' });
       }
-
-      const { action } = req.body;
 
       if (action === 'submit_po') {
         const { poNumber } = req.body;
@@ -408,12 +412,42 @@ export default async function handler(req, res) {
       }
 
       if (action === 'confirm_payment') {
+        // -----------------------------------------------------------------
+        // Task #1112 — Hardened confirm_payment flow.
+        //
+        // Failure-mode policy (documented per task spec): on any error
+        // between Stripe capture and history-row insert, the system AUTO-
+        // REFUNDS the Stripe payment and resets the fee token so the user
+        // can retry from scratch. We deliberately do NOT leave a paid
+        // token without a backing history row.
+        //
+        // Sequencing (was: token→paid, then sim, then insert):
+        //   1. Verify Stripe PI succeeded + amount matches.
+        //   2. Stamp the PI onto the token (status still pending) so a
+        //      refund/cron can recover even if this process dies mid-flow.
+        //   3. Run the simulator. If success=false → log full error+steps
+        //      at error level, auto-refund, clear PI, return 500.
+        //   4. Insert the history row.
+        //   5. Only NOW flip the token to status='paid'.
+        //   6. Attempt to create/apply the accounting invoice. Failures
+        //      here are NOT silently swallowed — the history row is
+        //      flagged with accounting_sync_status='failed' +
+        //      accounting_sync_error and the API response carries a
+        //      warning so the admin UI can show a retry affordance.
+        //
+        // Idempotency (was: only checked history_history.stripe_payment_intent_id):
+        //   The new probe consults BOTH the history table AND the fee
+        //   token. A stuck-paid token (status='paid', PI set, no history
+        //   row) returns 409 with a recovery hint instead of silently
+        //   re-running the entire flow.
+        // -----------------------------------------------------------------
+
         const { paymentIntentId } = req.body;
         if (!paymentIntentId) {
           return res.status(400).json({ error: 'paymentIntentId is required' });
         }
 
-        // Idempotency: check if a membership record already exists for this PaymentIntent
+        // Idempotency probe — by history row first (the original path).
         const { data: existingByPI } = await supabase
           .from('organisation_membership_history')
           .select('id')
@@ -421,11 +455,23 @@ export default async function handler(req, res) {
           .maybeSingle();
 
         if (existingByPI) {
-          console.log(`[Public Fee] Idempotent return: record already exists for PI ${paymentIntentId}`);
+          console.log(`[Public Fee] Idempotent return: history row already exists for PI ${paymentIntentId}`);
           if (feeToken.status !== 'paid') {
             await supabase.from('membership_fee_token').update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', feeToken.id);
           }
           return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
+        }
+
+        // Idempotency probe — token already paid with this PI but no
+        // history row. This is the stuck-token state. Surface it loudly
+        // instead of silently re-driving Stripe verification + simulator
+        // on every retry.
+        if (feeToken.status === 'paid' && feeToken.stripe_payment_intent_id === paymentIntentId) {
+          console.error(`[Public Fee] STUCK TOKEN: token ${feeToken.id} is paid with PI ${paymentIntentId} but no history row exists. Manual recovery required (admin can run scripts/backfill-stuck-membership-fee-tokens.mjs).`);
+          return res.status(409).json({
+            error: 'This payment was received but the membership record was not created. The administrator has been notified and will resolve this within one business day; please do not retry.',
+            stuckTokenId: feeToken.id,
+          });
         }
 
         try {
@@ -478,12 +524,14 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Payment amount does not match expected fee' });
         }
 
+        // Task #1112 — stamp the PI on the token (status still pending) so
+        // any subsequent failure path can locate this payment for refund/
+        // recovery. DO NOT flip status to 'paid' yet — that only happens
+        // after the history row has been successfully inserted below.
         await supabase
           .from('membership_fee_token')
           .update({
-            status: 'paid',
             stripe_payment_intent_id: paymentIntentId,
-            paid_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
           .eq('id', feeToken.id);
@@ -494,6 +542,40 @@ export default async function handler(req, res) {
           mode: 'manual',
           targetYear: feeToken.membership_year,
         });
+
+        // Task #1112 — explicit handling of simResult.success === false.
+        // Previously this dropped through to the (recordCreated=false)
+        // branch which returned success:true with no history row + no
+        // invoice — silent loss. We now auto-refund (consistent with the
+        // history-insert failure path further down) and surface a 500.
+        if (!simResult.success) {
+          console.error('[Public Fee] simulateMembershipForOrg returned success=false during confirm_payment:', {
+            tokenId: feeToken.id,
+            paymentIntentId,
+            tenantId: feeToken.tenant_id,
+            organizationId: feeToken.organization_id,
+            membershipYear: feeToken.membership_year,
+            error: simResult.error,
+            steps: simResult.steps,
+          });
+          try {
+            await stripe.refunds.create({
+              payment_intent: paymentIntentId,
+              reason: 'requested_by_customer',
+              metadata: { reason: 'membership_simulation_failed', token_id: feeToken.id },
+            });
+            console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after simulation failure`);
+            await supabase
+              .from('membership_fee_token')
+              .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
+              .eq('id', feeToken.id);
+          } catch (refundErr) {
+            console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId} after sim failure:`, refundErr.message);
+          }
+          return res.status(500).json({
+            error: 'Could not create your membership record because the fee structure could not be re-verified. A refund has been initiated. Please contact your administrator if you do not see it within 5-10 business days.',
+          });
+        }
 
         let recordCreated = false;
         let historyRecord = null;
@@ -572,7 +654,10 @@ export default async function handler(req, res) {
             recordCreated = true;
           } else {
             console.error('[Public Fee] Error creating history record:', insertError);
-            // Auto-refund: record creation failed after payment succeeded
+            // Auto-refund: record creation failed after payment succeeded.
+            // Task #1112 — also clear the PI off the token so the token is
+            // back to a clean 'pending' state (token status was never
+            // flipped to 'paid' in this revised sequence).
             try {
               await stripe.refunds.create({
                 payment_intent: paymentIntentId,
@@ -580,7 +665,10 @@ export default async function handler(req, res) {
                 metadata: { reason: 'membership_record_creation_failed', token_id: feeToken.id }
               });
               console.log(`[Public Fee] Auto-refund issued for PI ${paymentIntentId} after record creation failure`);
-              await supabase.from('membership_fee_token').update({ status: 'pending', updated_at: new Date().toISOString() }).eq('id', feeToken.id);
+              await supabase
+                .from('membership_fee_token')
+                .update({ stripe_payment_intent_id: null, updated_at: new Date().toISOString() })
+                .eq('id', feeToken.id);
             } catch (refundErr) {
               console.error(`[Public Fee] Auto-refund FAILED for PI ${paymentIntentId}:`, refundErr.message);
             }
@@ -588,7 +676,23 @@ export default async function handler(req, res) {
           }
         }
 
+        // Task #1112 — history row is now safely persisted (or already
+        // existed). NOW we can flip the token to 'paid'. Doing this
+        // earlier would have left the token in a misleading state if any
+        // of the steps above failed.
+        if (recordCreated && feeToken.status !== 'paid') {
+          await supabase
+            .from('membership_fee_token')
+            .update({
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', feeToken.id);
+        }
+
         let xeroInvoice = null;
+        let accountingSyncError = null;
         if (recordCreated) {
           try {
             if (feeToken.xero_invoice_id) {
@@ -670,7 +774,26 @@ export default async function handler(req, res) {
               }
             }
           } catch (xeroErr) {
-            console.error('[Public Fee] Xero invoice failed (non-fatal):', xeroErr.message);
+            // Task #1112 — was previously logged and silently swallowed.
+            // The membership payment is captured AND the history row is
+            // persisted; only the accounting-side invoice failed. Flag
+            // the history row so the admin UI can show a warning + retry
+            // button instead of pretending everything succeeded.
+            console.error('[Public Fee] Accounting invoice failed for PI ' + paymentIntentId + ':', xeroErr);
+            accountingSyncError = xeroErr?.message || String(xeroErr) || 'Unknown accounting provider error';
+            if (historyRecord?.id) {
+              try {
+                await supabase
+                  .from('organisation_membership_history')
+                  .update({
+                    accounting_sync_status: 'failed',
+                    accounting_sync_error: accountingSyncError.slice(0, 1000),
+                  })
+                  .eq('id', historyRecord.id);
+              } catch (flagErr) {
+                console.error('[Public Fee] Failed to flag accounting_sync_status on history row:', flagErr.message);
+              }
+            }
           }
 
           // Task #1017 — fire workflow immediately for both the pre-created
@@ -724,7 +847,7 @@ export default async function handler(req, res) {
         try {
           const invoiceNote = xeroInvoice
             ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-            : recordCreated ? ' Xero invoice could not be created.' : '';
+            : recordCreated ? ` Accounting invoice could not be created${accountingSyncError ? ` (${accountingSyncError})` : ''}; flagged for admin retry.` : '';
           await supabase.from('organization_note').insert({
             organization_id: feeToken.organization_id,
             member_id: null,
@@ -739,6 +862,10 @@ export default async function handler(req, res) {
           xeroInvoice: xeroInvoice ? { invoice_number: xeroInvoice.invoice_number } : null,
           xeroInvoiceNumber: xeroInvoice?.invoice_number || feeToken.xero_invoice_number || null,
           xeroOnlineInvoiceUrl: xeroInvoice?.online_invoice_url || feeToken.xero_online_invoice_url || null,
+          accountingSyncError: accountingSyncError || null,
+          warning: accountingSyncError
+            ? 'Your payment was received and your membership is recorded, but the accounting invoice could not be generated automatically. The administrator has been notified and will issue it manually.'
+            : null,
           message: 'Payment confirmed successfully',
         });
       }

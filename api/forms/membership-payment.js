@@ -494,6 +494,7 @@ async function handlePost(req, res, resolvedTenantId) {
     }
 
     let xeroInvoice = null;
+    let accountingSyncError = null;
     if (recordCreated) {
       try {
         const { getAccountingProvider } = await import('../_lib/accountingProvider.js');
@@ -546,7 +547,23 @@ async function handlePost(req, res, resolvedTenantId) {
           }
         }
       } catch (xeroErr) {
-        console.error('[FormPayment] Xero invoice failed (non-fatal):', xeroErr.message);
+        // Task #1112 — was silently swallowed. Flag the history row so the
+        // admin UI shows a retry affordance and the warning surfaces in the
+        // API response.
+        console.error('[FormPayment] Accounting invoice failed for PI ' + paymentIntentId + ':', xeroErr);
+        accountingSyncError = xeroErr?.message || String(xeroErr) || 'Unknown accounting provider error';
+        try {
+          await supabase
+            .from(historyTable)
+            .update({
+              accounting_sync_status: 'failed',
+              accounting_sync_error: accountingSyncError.slice(0, 1000),
+            })
+            .eq('stripe_payment_intent_id', paymentIntentId)
+            .eq('tenant_id', tenantId);
+        } catch (flagErr) {
+          console.error('[FormPayment] Failed to flag accounting_sync_status on history row:', flagErr.message);
+        }
       }
     }
 
@@ -556,7 +573,7 @@ async function handlePost(req, res, resolvedTenantId) {
       const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
       const invoiceNote = xeroInvoice
         ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-        : recordCreated ? ' Xero invoice could not be created.' : '';
+        : recordCreated ? ` Accounting invoice could not be created${accountingSyncError ? ` (${accountingSyncError})` : ''}; flagged for admin retry.` : '';
       const noteData = {
         [noteIdCol]: isMemberScoped ? member.id : organizationId,
         content: `[Membership Fee - Form Payment] Payment received for ${targetYear}. Amount: ${simResult.currency || 'GBP'} ${confirmChargeTotal.toFixed(2)}${simResult.vatAmount > 0 ? ` (incl. VAT ${simResult.vatAmount.toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
@@ -575,6 +592,10 @@ async function handlePost(req, res, resolvedTenantId) {
       recordCreated,
       historyRecordId: existingByPI?.id || null,
       xeroInvoice: xeroInvoice ? { invoice_number: xeroInvoice.invoice_number } : null,
+      accountingSyncError: accountingSyncError || null,
+      warning: accountingSyncError
+        ? 'Your payment was received and your membership is recorded, but the accounting invoice could not be generated automatically. The administrator has been notified and will issue it manually.'
+        : null,
       message: 'Payment confirmed successfully',
     });
   }

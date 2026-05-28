@@ -573,6 +573,33 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
   const [reconcilingRecordId, setReconcilingRecordId] = useState(null);
+  const [retryingInvoiceRecordId, setRetryingInvoiceRecordId] = useState(null);
+
+  // Task #1112 — retry accounting-invoice creation when the original
+  // post-payment mint failed and the row was flagged with
+  // accounting_sync_status='failed'.
+  const handleRetryInvoice = async (recordId) => {
+    setRetryingInvoiceRecordId(recordId);
+    try {
+      const response = await fetch('/api/admin/membership-invoice-retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ recordId, table: 'organisation_membership_history' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(data?.error || 'Invoice retry failed');
+      }
+      toast.success(`Invoice ${data.invoice_number || ''} created`);
+      if (queryClient) queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+    } catch (err) {
+      console.error('[OrgMembershipTab] retry invoice failed:', err);
+      toast.error(err.message || 'Could not create invoice');
+    } finally {
+      setRetryingInvoiceRecordId(null);
+    }
+  };
 
   const handleReconcilePayment = async (recordId) => {
     setReconcilingRecordId(recordId);
@@ -1524,7 +1551,27 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                         </div>
                       </td>
                       <td className="p-3">
-                        {invoiceId ? (
+                        {!invoiceId && record.accounting_sync_status === 'failed' ? (
+                          <div className="flex items-center justify-center gap-2" data-testid={`cell-invoice-failed-${record.id}`}>
+                            <Badge variant="warning" title={record.accounting_sync_error || 'Invoice creation failed'}>
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              Invoice failed
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRetryInvoice(record.id)}
+                              disabled={retryingInvoiceRecordId === record.id}
+                              data-testid={`button-retry-invoice-${record.id}`}
+                            >
+                              {retryingInvoiceRecordId === record.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                'Retry'
+                              )}
+                            </Button>
+                          </div>
+                        ) : invoiceId ? (
                           <div className="flex items-center justify-center gap-1">
                             {loadingInvoiceRecordId === record.id ? (
                               <Loader2
