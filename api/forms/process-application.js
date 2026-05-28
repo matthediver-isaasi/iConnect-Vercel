@@ -916,6 +916,23 @@ export default async function handler(req, res) {
       return false;
     };
 
+    // Lookup form-field metadata by id so mapping handlers can introspect the
+    // source field's type. Used to guard against writing an
+    // organisation_dropdown's stored UUID into an organisation core column
+    // (which would rename the org to its own id).
+    const fieldsById = new Map((fields || []).filter(f => f && f.id).map(f => [f.id, f]));
+    const isOrgDropdownSourceField = (sourceFieldId) => {
+      if (!sourceFieldId) return false;
+      const f = fieldsById.get(sourceFieldId);
+      return !!f && f.type === 'organisation_dropdown';
+    };
+    // Captures the organisation id selected via an organisation_dropdown form
+    // field, when that field was mapped to an organisation core column. We
+    // never write the UUID into the core column; instead we feed it into the
+    // existing org-resolution chain as a synthetic prefill_organization_id so
+    // the right organisation row is updated.
+    let dropdownSelectedOrgId = null;
+
     const { data: preferenceFields } = await supabase
       .from('preference_field')
       .select('*')
@@ -1077,6 +1094,18 @@ export default async function handler(req, res) {
               memberData[target_field] = coerceCoreFieldValue('member', target_field, value);
             }
           } else if (target_entity === 'organization') {
+            // Guard: an organisation_dropdown stores the selected org's UUID
+            // as its value. Writing that into orgData.name (or any other org
+            // core column) would rename the org to its own id. Instead,
+            // capture the selected id for the org-resolution chain and skip
+            // the assignment.
+            if (isOrgDropdownSourceField(source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = value;
+              }
+              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: value });
+              continue;
+            }
             orgData[target_field] = coerceCoreFieldValue('organization', target_field, value);
           }
         } else if (target_type === 'custom') {
@@ -1117,7 +1146,17 @@ export default async function handler(req, res) {
               memberData[fieldName] = coerceCoreFieldValue('member', fieldName, value);
             }
           } else if (entity === 'organization') {
-            orgData[fieldName] = coerceCoreFieldValue('organization', fieldName, value);
+            // Guard: an organisation_dropdown stores the org's UUID. Writing
+            // it into an org core column would rename the org to its own id.
+            // Capture the id for the org-resolution chain and skip.
+            if (field.type === 'organisation_dropdown') {
+              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = value;
+              }
+              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: value });
+            } else {
+              orgData[fieldName] = coerceCoreFieldValue('organization', fieldName, value);
+            }
           }
         }
 
@@ -1225,6 +1264,18 @@ export default async function handler(req, res) {
           if (mapping.target_type === 'core') {
             // Map to database field name using config
             const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+            // Guard: an organisation_dropdown stores the selected org's UUID
+            // as its value. Writing that into an organisation core column
+            // (e.g. name) would rename the org to its own id. Capture the
+            // selected id so the existing org-resolution chain picks up the
+            // right row, and skip the assignment.
+            if (targetEntity === 'organization' && isOrgDropdownSourceField(mapping.source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = value;
+              }
+              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: value });
+              continue;
+            }
             // Use hasAssignableValue to allow boolean false/empty through for boolean fields
             if (hasAssignableValue(dbKey, value)) {
               // Coerce boolean fields for member entities; for org address-like
@@ -1425,7 +1476,28 @@ export default async function handler(req, res) {
 
     // Process organization based on orgAction (none/create/update/upsert)
     if (shouldProcessOrganization) {
-      console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', prefill_organization_id);
+      // If an organisation_dropdown selection was captured but no explicit
+      // prefill_organization_id was supplied, use the dropdown's id as the
+      // synthetic prefill so the existing resolution chain targets the right
+      // org. When the request already carries an explicit prefill that
+      // disagrees, prefer the explicit one and leave a processing note.
+      let effectivePrefillOrgId = prefill_organization_id || null;
+      if (dropdownSelectedOrgId) {
+        if (!effectivePrefillOrgId) {
+          effectivePrefillOrgId = dropdownSelectedOrgId;
+          console.log('[AppProcessor] Using organisation_dropdown selection as effective prefill_organization_id:', dropdownSelectedOrgId);
+        } else if (effectivePrefillOrgId !== dropdownSelectedOrgId) {
+          addProcessingNote({
+            level: 'info',
+            stage: 'organization_resolve',
+            message: 'organisation_dropdown selection ignored: explicit prefill_organization_id takes precedence.',
+            dropdown_org_id: dropdownSelectedOrgId,
+            prefill_organization_id: effectivePrefillOrgId,
+          });
+          console.warn('[AppProcessor] Dropdown org id disagrees with explicit prefill_organization_id; using explicit:', { dropdown: dropdownSelectedOrgId, prefill: effectivePrefillOrgId });
+        }
+      }
+      console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', effectivePrefillOrgId);
       
       // Find existing organisation. Resolution order — first match wins:
       //   1. prefill_organization_id (URL-prefilled / passed by caller)
@@ -1442,15 +1514,17 @@ export default async function handler(req, res) {
       let existingOrg = null;
       let orgResolutionMethod = null;
       
-      if (prefill_organization_id) {
+      if (effectivePrefillOrgId) {
         const { data: foundOrg } = await supabase
           .from('organization')
           .select('*')
-          .eq('id', prefill_organization_id)
+          .eq('id', effectivePrefillOrgId)
           .maybeSingle();
         if (foundOrg) {
           existingOrg = foundOrg;
-          orgResolutionMethod = 'prefill_organization_id';
+          orgResolutionMethod = effectivePrefillOrgId === dropdownSelectedOrgId && !prefill_organization_id
+            ? 'organisation_dropdown_selection'
+            : 'prefill_organization_id';
         }
         console.log('[AppProcessor] Found org by prefill ID:', existingOrg?.id);
       }
@@ -1587,12 +1661,14 @@ export default async function handler(req, res) {
             form_id: form_id || null,
             tenant_id: tenant_id || null,
             prefill_organization_id: prefill_organization_id || null,
+            effective_prefill_organization_id: effectivePrefillOrgId || null,
+            dropdown_selected_org_id: dropdownSelectedOrgId || null,
             prefill_member_id: prefill_member_id || null,
             member_email_for_lookup: memberData?.email || null,
             org_data_name: orgData.name || null,
             org_data_keys: Object.keys(orgData),
           });
-          createdOrganizationId = prefill_organization_id || null;
+          createdOrganizationId = effectivePrefillOrgId || null;
         } else if (orgAction === 'create' || orgAction === 'upsert') {
           // Create new organization - require name
           if (!orgData.name) {
