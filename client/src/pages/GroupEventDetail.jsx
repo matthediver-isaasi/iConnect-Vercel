@@ -8,6 +8,7 @@ import { Loader2, Calendar, MapPin, Video, ArrowLeft, Pencil, Trash2 } from "luc
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import GroupEventForm from "@/components/group-events/GroupEventForm";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 
 export default function GroupEventDetail() {
   const { eventId } = useParams();
@@ -164,6 +165,16 @@ export default function GroupEventDetail() {
             )}
           </CardHeader>
           <CardContent className="space-y-4">
+            {ev.image_url && (
+              <div className="rounded-xl overflow-hidden shadow-sm aspect-video max-h-[28rem] w-full bg-muted">
+                <img
+                  src={ev.image_url}
+                  alt={ev.title}
+                  className="w-full h-full object-cover"
+                  style={getFocalPointStyle(ev.image_focal_point)}
+                />
+              </div>
+            )}
             {ev.start_date && (
               <div className="text-sm flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-muted-foreground" />

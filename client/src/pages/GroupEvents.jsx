@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Plus, Loader2, MapPin, Video, Users } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 
 export default function GroupEventsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -115,9 +116,20 @@ function EventGrid({ title, events, onOpen, canCreate, muted }) {
           <button
             key={ev.id}
             onClick={() => onOpen(ev.id)}
-            className={`text-left rounded-md border border-border p-3 hover-elevate active-elevate-2 space-y-2 ${muted ? "opacity-80" : ""}`}
+            className={`text-left rounded-md border border-border overflow-hidden hover-elevate active-elevate-2 ${muted ? "opacity-80" : ""}`}
             data-testid={`button-open-event-${ev.id}`}
           >
+            {ev.image_url && (
+              <div className="h-32 overflow-hidden bg-muted">
+                <img
+                  src={ev.image_url}
+                  alt={ev.title}
+                  className="w-full h-full object-cover"
+                  style={getFocalPointStyle(ev.image_focal_point)}
+                />
+              </div>
+            )}
+            <div className="p-3 space-y-2">
             <div className="font-medium truncate">{ev.title}</div>
             {ev.start_date && (
               <div className="text-xs text-muted-foreground">
@@ -140,6 +152,7 @@ function EventGrid({ title, events, onOpen, canCreate, muted }) {
                   <Users className="w-3 h-3" /> {ev.rsvp_counts?.going || 0} going
                 </Badge>
               )}
+            </div>
             </div>
           </button>
         ))}
