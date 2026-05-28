@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Users, UserPlus, Loader2, ImageIcon, Check, LogOut } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
@@ -25,6 +26,7 @@ export default function MemberGroupsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [leavingGroup, setLeavingGroup] = useState(null);
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -180,7 +182,16 @@ export default function MemberGroupsPage() {
               return (
                 <Card
                   key={group.id}
-                  className="overflow-hidden flex flex-col"
+                  className="overflow-hidden flex flex-col cursor-pointer hover-elevate"
+                  onClick={() => navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`)}
+                  role="link"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
+                    }
+                  }}
                   data-testid={`card-group-${group.id}`}
                 >
                   <div className="relative w-full h-40 bg-slate-100">
@@ -221,7 +232,7 @@ export default function MemberGroupsPage() {
                         </Badge>
                       </div>
                     )}
-                    <div className="mt-auto pt-3">
+                    <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
                       {alreadyJoined ? (
                         <div className="flex flex-col gap-2">
                           <div
@@ -234,7 +245,10 @@ export default function MemberGroupsPage() {
                           <Button
                             variant="outline"
                             className="w-full"
-                            onClick={() => setLeavingGroup(group)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLeavingGroup(group);
+                            }}
                             data-testid={`button-leave-${group.id}`}
                           >
                             <LogOut className="w-4 h-4 mr-2" />
@@ -244,7 +258,10 @@ export default function MemberGroupsPage() {
                       ) : (
                         <Button
                           className="w-full bg-blue-600 hover:bg-blue-700"
-                          onClick={() => joinMutation.mutate(group)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            joinMutation.mutate(group);
+                          }}
                           disabled={isPending || !memberInfo?.id || !group.default_self_join_role}
                           data-testid={`button-join-${group.id}`}
                         >

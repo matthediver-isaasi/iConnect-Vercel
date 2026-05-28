@@ -82,6 +82,8 @@ export const PAGE_NAMES = [
   "PortalNavigationManagement",
   "CategoryManagement",
   "MemberGroupManagement",
+  "MemberGroups",
+  "MemberGroupDetail",
   "ArticlesSettings",
   "GuestWriterManagement",
   "OrganisationDirectorySettings",

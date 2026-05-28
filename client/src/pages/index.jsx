@@ -222,6 +222,8 @@ import MemberGroupManagement from "./MemberGroupManagement";
 
 import MemberGroups from "./MemberGroups";
 
+import MemberGroupDetail from "./MemberGroupDetail";
+
 import GroupEmail from "./GroupEmail";
 
 import GroupProjects from "./GroupProjects";
@@ -609,6 +611,8 @@ const PAGES = {
     
     MemberGroups: MemberGroups,
     
+    MemberGroupDetail: MemberGroupDetail,
+    
     GroupEmail: GroupEmail,
     
     GroupProjects: GroupProjects,
@@ -985,6 +989,8 @@ function PagesContent() {
                 <Route path="/MemberGroupManagement" element={<MemberGroupManagement />} />
                 
                 <Route path="/MemberGroups" element={<MemberGroups />} />
+                
+                <Route path="/MemberGroupDetail" element={<MemberGroupDetail />} />
                 
                 <Route path="/GroupEmail" element={<GroupEmail />} />
                 
