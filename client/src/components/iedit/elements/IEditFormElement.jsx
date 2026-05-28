@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useIsMobile } from "@/hooks/use-mobile";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { isFieldValueFilled, parseCustomFieldValue } from "@/lib/formFieldPrefill";
 
 const formQuillModules = {
   toolbar: [
@@ -47,49 +48,6 @@ const fontWeights = [
   { value: 700, label: 'Bold' },
   { value: 800, label: 'Extra Bold' }
 ];
-
-// Helper to check if a field value is considered "filled" for validation purposes
-const isFieldValueFilled = (field, value) => {
-  if (!value) return false;
-
-  if (field.type === 'countries') {
-    return Array.isArray(value) && value.length > 0;
-  }
-
-  if (field.type === 'contact') {
-    if (typeof value !== 'object') return false;
-    if (!field.required) return Object.values(value).some(v => typeof v === 'string' && v.trim());
-    const subDefaults = { firstName: { visible: true, required: true }, lastName: { visible: true, required: true }, jobTitle: { visible: true, required: false }, organisation: { visible: true, required: false }, email: { visible: true, required: true } };
-    const subFields = field.contact_sub_fields || subDefaults;
-    const requiredKeys = Object.keys(subDefaults).filter(k => {
-      const cfg = subFields[k] || subDefaults[k];
-      return cfg.visible !== false && cfg.required === true;
-    });
-    return requiredKeys.every(k => !!value[k]?.trim());
-  }
-  
-  // For arrays (checkbox, list, etc.)
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  
-  // For strings
-  if (typeof value === 'string') {
-    return value.length > 0;
-  }
-  
-  // For booleans (boolean, terms_conditions) - consider any value as "filled"
-  if (typeof value === 'boolean') {
-    return true;
-  }
-  
-  // For other objects
-  if (typeof value === 'object') {
-    return Object.keys(value).length > 0;
-  }
-  
-  return true;
-};
 
 const safeHexColor = (color, fallback = '#000000') => {
   if (!color || typeof color !== 'string') return fallback;
@@ -603,26 +561,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
     if (!primaryEntity) return;
 
-    const parseCustomFieldValue = (cfv, fieldType) => {
-      if (!cfv || cfv.value === undefined || cfv.value === null) return null;
-      let parsedValue = cfv.value;
-      if (fieldType === 'list' || fieldType === 'countries') {
-        if (Array.isArray(cfv.value)) {
-          parsedValue = cfv.value;
-        } else if (typeof cfv.value === 'string') {
-          try {
-            const parsed = JSON.parse(cfv.value);
-            parsedValue = Array.isArray(parsed) ? parsed : (cfv.value ? [cfv.value] : []);
-          } catch {
-            parsedValue = cfv.value ? [cfv.value] : [];
-          }
-        } else {
-          parsedValue = [];
-        }
-      }
-      return parsedValue;
-    };
-    
     const newValues = {};
     for (const field of (form.fields || [])) {
       if (field.type === 'organisation_dropdown') {
