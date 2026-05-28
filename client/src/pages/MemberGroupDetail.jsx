@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,12 +42,13 @@ export default function MemberGroupDetailPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [, navigate] = useLocation();
+  const search = useSearch();
   const queryClient = useQueryClient();
 
   const groupId = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     return params.get("id");
-  }, []);
+  }, [search]);
 
   useEffect(() => {
     if (isAccessReady) {
