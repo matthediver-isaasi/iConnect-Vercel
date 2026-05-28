@@ -225,6 +225,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Group Projects"
       },
       {
+        id: "membership.member-group-events",
+        label: "Group Events"
+      },
+      {
         id: "membership.member-group-assignment-report",
         label: "Member Group Assignment Report"
       },

@@ -226,6 +226,9 @@ import GroupEmail from "./GroupEmail";
 
 import GroupProjects from "./GroupProjects";
 
+import GroupEvents from "./GroupEvents";
+import GroupEventDetail from "./GroupEventDetail";
+
 import ArticlesSettings from "./ArticlesSettings";
 
 import GuestWriterManagement from "./GuestWriterManagement";
@@ -610,6 +613,9 @@ const PAGES = {
     
     GroupProjects: GroupProjects,
     
+    GroupEvents: GroupEvents,
+    GroupEventDetail: GroupEventDetail,
+    
     ArticlesSettings: ArticlesSettings,
     
     GuestWriterManagement: GuestWriterManagement,
@@ -983,6 +989,9 @@ function PagesContent() {
                 <Route path="/GroupEmail" element={<GroupEmail />} />
                 
                 <Route path="/GroupProjects" element={<GroupProjects />} />
+                
+                <Route path="/GroupEvents" element={<GroupEvents />} />
+                <Route path="/GroupEvents/:eventId" element={<GroupEventDetail />} />
                 
                 <Route path="/ArticlesSettings" element={<ArticlesSettings />} />
                 

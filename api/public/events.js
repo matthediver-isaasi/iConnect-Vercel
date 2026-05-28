@@ -59,6 +59,7 @@ export default async function handler(req, res) {
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
+      .is('member_group_id', null)
       .order('start_date', { ascending: true });
 
     const events = (rawEvents || []).map(event => {

@@ -76,6 +76,7 @@ async function resolveEvent(tenantId, { id, slug }) {
     .from('event')
     .select('id, title, slug, summary, description, image_url, start_date, location, status, tenant_id, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
+    .is('member_group_id', null)
     .in('status', ['published', 'tbc']);
   if (slug) q = q.eq('slug', slug);
   else q = q.eq('id', id);
@@ -84,6 +85,7 @@ async function resolveEvent(tenantId, { id, slug }) {
     let fb = supabase
       .from('event')
       .select('id, title, slug, summary, description, image_url, start_date, location, status, seo_title, seo_description, og_image_url')
+      .is('member_group_id', null)
       .in('status', ['published', 'tbc']);
     if (slug) fb = fb.eq('slug', slug);
     else fb = fb.eq('id', id);
@@ -93,6 +95,7 @@ async function resolveEvent(tenantId, { id, slug }) {
       let fb2 = supabase
         .from('event')
         .select('id, title, slug, summary, description, image_url, start_date, location, status')
+        .is('member_group_id', null)
         .in('status', ['published', 'tbc']);
       if (slug) fb2 = fb2.eq('slug', slug);
       else fb2 = fb2.eq('id', id);

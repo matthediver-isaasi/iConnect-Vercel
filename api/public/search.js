@@ -54,6 +54,7 @@ export default async function handler(req, res) {
         .from('event')
         .select('id, title, description, start_date, end_date, image_url, status, search_text')
         .eq('tenant_id', tenant.id)
+        .is('member_group_id', null)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
         .gte('start_date', new Date().toISOString())
         .limit(limitNum),

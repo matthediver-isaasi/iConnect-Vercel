@@ -202,7 +202,7 @@ export default function EventsPage({
     data: simpleEvents = [],
     isLoading: isLoadingSimple,
     error: eventsError,
-  } = useEventsData();
+  } = useEventsData({ includeGroupEvents: true });
 
   const { data: complexEvents = [], isLoading: isLoadingComplex } = useQuery({
     queryKey: ['complex-events-for-listing', !!memberInfo],

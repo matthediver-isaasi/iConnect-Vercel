@@ -672,7 +672,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   // Check if any badges should be shown
   const parsedEventTypes = parseEventTypes(event.event_type);
-  const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || parsedEventTypes.length > 0 || event.program_tag;
+  const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || parsedEventTypes.length > 0 || event.program_tag || event.member_group_id;
 
   return (
     <>
@@ -734,6 +734,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.program_tag && (
                 <Badge variant="secondary" className="bg-purple-100/95 text-purple-700 border-purple-200 shadow-sm">
                   {event.program_tag}
+                </Badge>
+              )}
+              {event.member_group_id && (
+                <Badge
+                  variant="secondary"
+                  className="bg-indigo-100/95 text-indigo-700 border-indigo-200 shadow-sm"
+                  data-testid={`badge-group-event-${event.id}`}
+                >
+                  Group event
                 </Badge>
               )}
             </div>

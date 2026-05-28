@@ -98,6 +98,7 @@ const builtInPages = [
   { value: "DueDiligenceConfig", label: "Due Diligence Configuration" },
   { value: "ReviewSubmission", label: "Review Submission" },
   { value: "GroupEmail", label: "Group Email" },
+  { value: "GroupEvents", label: "Group Events" },
   { value: "GroupProjects", label: "Group Projects" },
   { value: "GuestWriterManagement", label: "Guest Writer Management" },
   { value: "History", label: "History" },

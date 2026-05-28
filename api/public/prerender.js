@@ -110,7 +110,8 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
   let query = supabaseClient
     .from('event')
     .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status')
-    .eq('tenant_id', tenant.id);
+    .eq('tenant_id', tenant.id)
+    .is('member_group_id', null);
 
   if (slug) {
     query = query.eq('slug', slug);
@@ -127,7 +128,8 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
   if (error?.code === '42703') {
     let fallbackQuery = supabaseClient
       .from('event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status');
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status')
+      .is('member_group_id', null);
     if (slug) fallbackQuery = fallbackQuery.eq('slug', slug);
     else if (eventId) fallbackQuery = fallbackQuery.eq('id', eventId);
     fallbackQuery = fallbackQuery.in('status', ['published', 'tbc']);
@@ -909,6 +911,7 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
         .from('event')
         .select('id, title, slug, summary, description, start_date, location, image_url, is_featured')
         .eq('tenant_id', tenant.id)
+        .is('member_group_id', null)
         .eq('status', 'published');
       const filter = c.filter || 'upcoming';
       const nowIso = new Date().toISOString();
@@ -1150,6 +1153,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
           .select('id, title, slug, start_date, location, summary')
           .eq('tenant_id', tenant.id)
           .in('status', ['published', 'tbc'])
+          .is('member_group_id', null)
           .order('start_date', { ascending: true })
           .limit(50);
         if (result.error?.code === '42703') {
@@ -1157,6 +1161,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
             .from('event')
             .select('id, title, slug, start_date, location, summary')
             .in('status', ['published', 'tbc'])
+            .is('member_group_id', null)
             .order('start_date', { ascending: true })
             .limit(50);
         }

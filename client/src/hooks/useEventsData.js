@@ -18,7 +18,7 @@ import { useLayoutContext } from '../contexts/LayoutContext';
  * @param {boolean} options.forcePublic - Force using public API even if authenticated
  * @returns {Object} Query result with events data
  */
-export function useEventsData({ forcePublic = false } = {}) {
+export function useEventsData({ forcePublic = false, includeGroupEvents = false } = {}) {
   const { memberInfo, forcePublicLayout, sessionValidated } = useLayoutContext();
   
   // SECURITY: Require BOTH memberInfo AND sessionValidated to treat as authenticated.
@@ -26,18 +26,25 @@ export function useEventsData({ forcePublic = false } = {}) {
   // This prevents using stale localStorage data before server validation completes.
   const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
   
+  // Group events (member_group_id set) are private to a specific member group and
+  // must never appear in generic event lists. Only the admin /Events page opts in
+  // by passing includeGroupEvents=true; everywhere else strips them client-side.
+  const stripGroupEvents = (list) => includeGroupEvents
+    ? list
+    : (list || []).filter((e) => !e?.member_group_id);
+
   return useQuery({
-    queryKey: ['events', isAuthenticated ? 'authenticated' : 'public'],
+    queryKey: ['events', isAuthenticated ? 'authenticated' : 'public', includeGroupEvents ? 'with-group' : 'no-group'],
     queryFn: async () => {
       try {
         if (isAuthenticated) {
           // Authenticated path: use base44 entity API (session-scoped, full data)
           const data = await base44.entities.Event.list({ sort: { start_date: 'asc' } });
-          return data || [];
+          return stripGroupEvents(data);
         } else {
           // Public path: use publicClient (tenant-scoped, filtered data)
           const data = await publicClient.listEvents();
-          return data || [];
+          return stripGroupEvents(data);
         }
       } catch (error) {
         console.error('[useEventsData] Error loading events:', error);
@@ -46,7 +53,7 @@ export function useEventsData({ forcePublic = false } = {}) {
           console.log('[useEventsData] Falling back to public API');
           try {
             const publicData = await publicClient.listEvents();
-            return publicData || [];
+            return stripGroupEvents(publicData);
           } catch (fallbackError) {
             console.error('[useEventsData] Fallback also failed:', fallbackError);
             throw fallbackError;

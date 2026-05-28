@@ -32,6 +32,8 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('event')
+      // Exclude private group events from public single-event lookup.
+      .is('member_group_id', null)
       .select(`
         id,
         title,

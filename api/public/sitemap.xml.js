@@ -105,6 +105,7 @@ export default async function handler(req, res) {
       .select('id, slug, start_date')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
+      .is('member_group_id', null)
       .order('start_date', { ascending: false });
 
     if (eventsResult.error?.code === '42703') {
@@ -113,6 +114,7 @@ export default async function handler(req, res) {
         .from('event')
         .select('id, slug, start_date')
         .in('status', ['published', 'tbc'])
+        .is('member_group_id', null)
         .order('start_date', { ascending: false });
     }
 
