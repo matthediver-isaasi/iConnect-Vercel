@@ -28,7 +28,6 @@ export default function GroupProjectsPage() {
   const [createGroupId, setCreateGroupId] = useState(null);
   const [newBoardName, setNewBoardName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [autoRedirected, setAutoRedirected] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -69,17 +68,6 @@ export default function GroupProjectsPage() {
       return () => clearTimeout(t);
     }
   }, [accessChecked, loadingGroups, groupsError, qualifying.length]);
-
-  // Auto-redirect when there is exactly one group with exactly one board.
-  useEffect(() => {
-    if (autoRedirected) return;
-    if (loadingGroups || qualifying.length !== 1) return;
-    const onlyGroup = qualifying[0];
-    if ((onlyGroup.boards || []).length === 1) {
-      setAutoRedirected(true);
-      navigate(`/ProjectBoard/${onlyGroup.boards[0].id}`);
-    }
-  }, [qualifying, loadingGroups, autoRedirected, navigate]);
 
   const openCreate = (groupId) => {
     setCreateGroupId(groupId);
