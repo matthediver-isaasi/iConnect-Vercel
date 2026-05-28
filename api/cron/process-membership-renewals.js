@@ -1013,6 +1013,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         tierLabel,
         xeroInvoiceNumber: xeroInvoice.invoice_number,
         xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: record.id,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
       });
     } catch (emailErr) {
@@ -1150,6 +1151,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
         tierLabel: record.tier_label,
         xeroInvoiceNumber: xeroInvoice.invoice_number,
         xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: existingRecord.id,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
       });
     } catch (emailErr) {
@@ -1200,9 +1202,30 @@ async function sendMemberInvoiceEmailFromCron({
   tierLabel,
   xeroInvoiceNumber,
   xeroInvoiceId,
+  historyRecordId,
   onlineInvoiceUrl,
 }) {
   if (!xeroInvoiceId || !memberEmail) return;
+
+  // Fallback to public PDF token when no provider-hosted invoice link exists.
+  let viewInvoiceUrl = onlineInvoiceUrl || null;
+  if (!viewInvoiceUrl && historyRecordId) {
+    try {
+      const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../_lib/invoicePdfToken.js');
+      const pdfToken = await getOrCreateInvoicePdfToken({
+        client: supabase,
+        tenantId,
+        historyTable: 'member_membership_history',
+        recordId: historyRecordId,
+      });
+      if (pdfToken) {
+        const { data: t } = await supabase.from('tenant').select('slug').eq('id', tenantId).maybeSingle();
+        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, t?.slug || null);
+      }
+    } catch (tokenErr) {
+      console.warn('[cron/process-membership-renewals] Member PDF token fallback failed (non-fatal):', tokenErr.message);
+    }
+  }
 
   // QBO may legitimately return no DocNumber when "Custom transaction numbers"
   // is enabled. Send the email anyway but omit the invoice-number row and drop
@@ -1237,7 +1260,7 @@ async function sendMemberInvoiceEmailFromCron({
         .replace(/\{finalCost\}/gi, formattedCost)
         .replace(/\{currency\}/gi, currency)
         .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
-        .replace(/\{onlineInvoiceUrl\}/gi, onlineInvoiceUrl || '');
+        .replace(/\{onlineInvoiceUrl\}/gi, viewInvoiceUrl || '');
     } else {
       body = `
         <p>Dear ${memberName},</p>
@@ -1248,7 +1271,7 @@ async function sendMemberInvoiceEmailFromCron({
           <tr><td style="padding: 4px 12px; font-weight: bold;">Tier</td><td style="padding: 4px 12px;">${tierLabel || 'Standard'}</td></tr>
           <tr><td style="padding: 4px 12px; font-weight: bold;">Fee</td><td style="padding: 4px 12px;">${currency} ${formattedCost}</td></tr>
         </table>
-        ${onlineInvoiceUrl ? `<p><a href="${onlineInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
+        ${viewInvoiceUrl ? `<p><a href="${viewInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
         <p>Thank you for your membership.</p>
       `;
     }

@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { resolveTierRecipients } from './membershipRecipientResolver.js';
+import { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } from './invoicePdfToken.js';
 
 export async function sendMembershipInvoiceEmail({
   tenantId,
@@ -13,6 +14,7 @@ export async function sendMembershipInvoiceEmail({
   xeroInvoiceNumber,
   xeroInvoiceId,
   historyRecordId,
+  historyTable = 'organisation_membership_history',
   vatAmount,
   totalWithVat,
   onlineInvoiceUrl,
@@ -60,6 +62,21 @@ export async function sendMembershipInvoiceEmail({
       .select('name, slug, logo_url, primary_color')
       .eq('id', tenantId)
       .single();
+
+    // Fallback to public PDF token when no provider-hosted invoice link is
+    // available (e.g. QBO with online invoicing disabled).
+    let viewInvoiceUrl = onlineInvoiceUrl || null;
+    if (!viewInvoiceUrl && historyRecordId) {
+      const pdfToken = await getOrCreateInvoicePdfToken({
+        client: supabase,
+        tenantId,
+        historyTable,
+        recordId: historyRecordId,
+      });
+      if (pdfToken) {
+        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, tenant?.slug || null);
+      }
+    }
 
     const tenantName = tenant?.name || 'Organisation';
     const primaryColor = tenant?.primary_color || '#5C0085';
@@ -110,10 +127,10 @@ export async function sendMembershipInvoiceEmail({
               </tr>
             </table>
           </div>
-          ${onlineInvoiceUrl ? `
+          ${viewInvoiceUrl ? `
           <p>You can view and download your invoice using the link below:</p>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${onlineInvoiceUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View Invoice</a>
+            <a href="${viewInvoiceUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View Invoice</a>
           </div>
           ` : ''}
           <p style="color: #666; font-size: 13px;">If you have any questions about this invoice, please contact us.</p>

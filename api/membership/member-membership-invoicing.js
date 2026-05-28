@@ -342,6 +342,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         tierLabel,
         xeroInvoiceNumber: xeroInvoice.invoice_number,
         xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: record.id,
         vatAmount: simResult.vatAmount || 0,
         totalWithVat: simResult.totalWithVat || finalCost,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
@@ -386,6 +387,7 @@ async function sendMemberInvoiceEmail({
   tierLabel,
   xeroInvoiceNumber,
   xeroInvoiceId,
+  historyRecordId,
   vatAmount,
   totalWithVat,
   onlineInvoiceUrl,
@@ -425,6 +427,22 @@ async function sendMemberInvoiceEmail({
     const formattedVat = parseFloat(vatAmount || 0).toFixed(2);
     const formattedTotal = parseFloat(totalWithVat || finalCost).toFixed(2);
 
+    // Fallback to public PDF token if no provider-hosted invoice link exists.
+    let viewInvoiceUrl = onlineInvoiceUrl || null;
+    if (!viewInvoiceUrl && historyRecordId) {
+      const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../_lib/invoicePdfToken.js');
+      const pdfToken = await getOrCreateInvoicePdfToken({
+        client: supabase,
+        tenantId,
+        historyTable: 'member_membership_history',
+        recordId: historyRecordId,
+      });
+      if (pdfToken) {
+        const { data: t } = await supabase.from('tenant').select('slug').eq('id', tenantId).maybeSingle();
+        viewInvoiceUrl = buildInvoicePdfUrl(pdfToken, t?.slug || null);
+      }
+    }
+
     let body;
     if (template?.body) {
       body = template.body
@@ -437,7 +455,7 @@ async function sendMemberInvoiceEmail({
         .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
         .replace(/\{vatAmount\}/gi, formattedVat)
         .replace(/\{totalWithVat\}/gi, formattedTotal)
-        .replace(/\{onlineInvoiceUrl\}/gi, onlineInvoiceUrl || '');
+        .replace(/\{onlineInvoiceUrl\}/gi, viewInvoiceUrl || '');
     } else {
       body = `
         <p>Dear ${memberName},</p>
@@ -450,7 +468,7 @@ async function sendMemberInvoiceEmail({
           ${vatAmount > 0 ? `<tr><td style="padding: 4px 12px; font-weight: bold;">VAT</td><td style="padding: 4px 12px;">${currency} ${formattedVat}</td></tr>` : ''}
           ${vatAmount > 0 ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Total (incl. VAT)</td><td style="padding: 4px 12px;">${currency} ${formattedTotal}</td></tr>` : ''}
         </table>
-        ${onlineInvoiceUrl ? `<p><a href="${onlineInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
+        ${viewInvoiceUrl ? `<p><a href="${viewInvoiceUrl}">View and pay your invoice online</a></p>` : ''}
         <p>Thank you for your membership.</p>
       `;
     }
