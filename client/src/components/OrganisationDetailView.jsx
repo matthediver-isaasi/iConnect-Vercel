@@ -73,7 +73,9 @@ import {
   Eye,
   Settings2,
   Tag,
-  Lock
+  Lock,
+  UserCheck,
+  Infinity as InfinityIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
@@ -261,7 +263,13 @@ export default function OrganisationDetailView({
     training_fund_balance: 0
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
-  
+
+  const [orgGuestForm, setOrgGuestForm] = useState({
+    enabled: false,
+    period_days: 30,
+    unlimited: false,
+  });
+
   // Collapsible card sections state
   const [collapsedSections, setCollapsedSections] = useState({});
   
@@ -319,6 +327,71 @@ export default function OrganisationDetailView({
       }
     }
   });
+
+  const { data: tenantGuestAccess = null } = useQuery({
+    queryKey: ['tenant-guest-access-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'guest_access');
+      let value = { enabled: false, default_period_days: 30, unlimited: false };
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          const days = Number(parsed.default_period_days);
+          value = {
+            enabled: !!parsed.enabled,
+            default_period_days: Number.isFinite(days) && days > 0 ? days : 30,
+            unlimited: parsed.default_period_days === null || parsed.unlimited === true,
+          };
+        } catch {
+          // ignore
+        }
+      }
+      return value;
+    }
+  });
+
+  useEffect(() => {
+    if (!organization) return;
+    const orgDays = Number(organization.guest_access_period_days);
+    const orgUnlimited = !!organization.guest_access_unlimited;
+    const orgHasOverride = orgUnlimited || (Number.isFinite(orgDays) && orgDays > 0);
+    setOrgGuestForm({
+      enabled: !!organization.guest_access_enabled,
+      period_days: orgHasOverride && Number.isFinite(orgDays) && orgDays > 0
+        ? orgDays
+        : (tenantGuestAccess?.default_period_days || 30),
+      unlimited: orgHasOverride
+        ? orgUnlimited
+        : !!tenantGuestAccess?.unlimited,
+    });
+  }, [organization, tenantGuestAccess?.default_period_days, tenantGuestAccess?.unlimited]);
+
+  const updateOrgGuestAccessMutation = useMutation({
+    mutationFn: async (next) => {
+      if (!organization?.id) throw new Error('No organisation');
+      const payload = {
+        guest_access_enabled: !!next.enabled,
+        guest_access_unlimited: !!next.unlimited,
+        guest_access_period_days: next.unlimited ? null : Number(next.period_days),
+      };
+      return await base44.entities.Organization.update(organization.id, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      toast.success('Guest Access updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update Guest Access: ' + (error?.message || ''));
+    }
+  });
+
+  const persistOrgGuestAccess = (next) => {
+    setOrgGuestForm(next);
+    updateOrgGuestAccessMutation.mutate(next);
+  };
 
   const { data: orgBookings = [], isLoading: bookingsLoading } = useQuery({
     queryKey: ['org-detail-bookings', organization?.id, orgMembers.length],
@@ -1618,6 +1691,88 @@ export default function OrganisationDetailView({
                         <>
                           <Separator />
                           <MemberJoinLinkSection organizationId={organization.id} />
+                        </>
+                      )}
+                      {tenantGuestAccess?.enabled && organization?.id && (
+                        <>
+                          <Separator />
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <UserCheck className="w-4 h-4 text-slate-500" />
+                              <h4 className="text-sm font-semibold text-slate-700">Guest Access</h4>
+                            </div>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <Label htmlFor="org_detail_guest_access_enabled" className="text-sm font-medium cursor-pointer">
+                                  Allow guests to join this organisation
+                                </Label>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                  Anyone signing up via the guest sign-up link can be added to this organisation, even if their email domain isn't on the verified list.
+                                </p>
+                              </div>
+                              <Switch
+                                id="org_detail_guest_access_enabled"
+                                checked={orgGuestForm.enabled}
+                                onCheckedChange={(checked) => persistOrgGuestAccess({ ...orgGuestForm, enabled: checked })}
+                                disabled={updateOrgGuestAccessMutation.isPending}
+                                data-testid="toggle-org-detail-guest-access-enabled"
+                              />
+                            </div>
+                            {orgGuestForm.enabled && (
+                              <div className="space-y-2 border-t border-slate-100 pt-3">
+                                <Label className="text-xs font-medium text-slate-700">
+                                  Default access period for new guests
+                                </Label>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={orgGuestForm.unlimited ? '' : orgGuestForm.period_days}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value, 10);
+                                        setOrgGuestForm(prev => ({
+                                          ...prev,
+                                          period_days: Number.isFinite(val) && val > 0 ? val : 1,
+                                        }));
+                                      }}
+                                      onBlur={() => {
+                                        if (!orgGuestForm.unlimited) {
+                                          persistOrgGuestAccess(orgGuestForm);
+                                        }
+                                      }}
+                                      disabled={orgGuestForm.unlimited || updateOrgGuestAccessMutation.isPending}
+                                      className="w-24"
+                                      data-testid="input-org-detail-guest-default-days"
+                                    />
+                                    <span className="text-xs text-slate-600">days</span>
+                                  </div>
+                                  <label className="flex items-center gap-2 p-1.5 rounded-md hover-elevate cursor-pointer">
+                                    <Checkbox
+                                      checked={orgGuestForm.unlimited}
+                                      onCheckedChange={(checked) => {
+                                        persistOrgGuestAccess({ ...orgGuestForm, unlimited: !!checked });
+                                      }}
+                                      disabled={updateOrgGuestAccessMutation.isPending}
+                                      data-testid="checkbox-org-detail-guest-unlimited"
+                                    />
+                                    <span className="text-xs text-slate-700 inline-flex items-center gap-1">
+                                      <InfinityIcon className="w-3.5 h-3.5 text-slate-500" />
+                                      Unlimited (Permanent)
+                                    </span>
+                                  </label>
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  Pre-filled from the tenant default
+                                  ({tenantGuestAccess?.unlimited
+                                    ? 'Unlimited'
+                                    : `${tenantGuestAccess?.default_period_days || 30} days`}).
+                                  Override it here for this organisation only.
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
