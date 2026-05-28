@@ -162,12 +162,20 @@ async function getOrgGoLiveDate(orgId, goLiveFieldId) {
 function determineMembershipYearNumber(goLiveDate, targetYear, config) {
   if (!goLiveDate) return 99;
 
-  if (config?.start_mode === 'immediate') {
-    return 1;
-  }
-
   const goLive = new Date(goLiveDate);
   if (isNaN(goLive.getTime())) return 99;
+
+  if (config?.start_mode === 'immediate') {
+    const targetStart = new Date(targetYear.start);
+    targetStart.setHours(0, 0, 0, 0);
+    const glMid = new Date(goLive);
+    glMid.setHours(0, 0, 0, 0);
+    if (targetStart <= glMid) return 1;
+    let elapsed = targetStart.getFullYear() - glMid.getFullYear();
+    const anniv = new Date(glMid.getFullYear() + elapsed, glMid.getMonth(), glMid.getDate());
+    if (targetStart < anniv) elapsed -= 1;
+    return Math.max(1, elapsed + 1);
+  }
 
   const startMonth = config.membership_start_month || 1;
   const startDay = config.membership_start_day || 1;
