@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useSearch } from "wouter";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,14 +41,11 @@ export default function MemberGroupDetailPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const [, navigate] = useLocation();
-  const search = useSearch();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
-  const groupId = useMemo(() => {
-    const params = new URLSearchParams(search);
-    return params.get("id");
-  }, [search]);
+  const groupId = searchParams.get("id");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -186,7 +183,7 @@ export default function MemberGroupDetailPage() {
               Group not specified
             </h3>
             <p className="text-slate-600 mb-4">No group id was provided.</p>
-            <Link href={createPageUrl("MemberGroups")}>
+            <Link to={createPageUrl("MemberGroups")}>
               <Button variant="outline" data-testid="link-back-groups">
                 <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
               </Button>
@@ -226,7 +223,7 @@ export default function MemberGroupDetailPage() {
               This group cannot be viewed. It may have been removed or is not open
               for self-join.
             </p>
-            <Link href={createPageUrl("MemberGroups")}>
+            <Link to={createPageUrl("MemberGroups")}>
               <Button variant="outline" data-testid="link-back-groups">
                 <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
               </Button>

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Users, UserPlus, Loader2, ImageIcon, Check, LogOut } from "lucide-react";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
@@ -26,7 +26,7 @@ export default function MemberGroupsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [leavingGroup, setLeavingGroup] = useState(null);
-  const [, navigate] = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   useEffect(() => {

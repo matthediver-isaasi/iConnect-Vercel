@@ -1,0 +1,1 @@
+- [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
