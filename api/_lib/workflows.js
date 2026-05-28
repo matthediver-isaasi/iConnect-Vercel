@@ -3,6 +3,7 @@ import { applyDdOwnerPlaceholders, resolveDdOwnerForSubmission } from './ddOwner
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { simulateMembershipForOrg } from './membershipSimulation.js';
+import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
@@ -619,6 +620,39 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           resolvedValue = new Date().toISOString().split('T')[0];
         } else if (resolvedValue === '{{current_datetime}}') {
           resolvedValue = new Date().toISOString();
+        }
+
+        // Look up the target custom field's type so boolean/checkbox writes
+        // are normalised to the canonical 'true'/'false' string that the UI
+        // (and the rest of the system) reads. Without this, workflow-written
+        // values like "1"/"yes"/"on"/"True" render as off in the new Switch
+        // toggle on the organisation detail view.
+        let prefFieldType = null;
+        try {
+          const { data: prefField } = await supabase
+            .from('preference_field')
+            .select('field_type')
+            .eq('id', fieldId)
+            .maybeSingle();
+          prefFieldType = prefField?.field_type || null;
+        } catch (e) {
+          // Non-fatal: fall through with prefFieldType=null and write verbatim
+          // (matches prior behaviour for unknown field types).
+        }
+
+        if (prefFieldType === 'boolean' || prefFieldType === 'checkbox') {
+          const coerced = coerceBooleanPreferenceValue(resolvedValue);
+          if (coerced === null) {
+            console.warn(`[Workflows] update_field (custom): boolean value did not coerce for field ${fieldId}: ${JSON.stringify(resolvedValue)}`);
+            results.push({
+              action_type: 'update_field',
+              field_type: 'custom',
+              status: 'failed',
+              error: `Boolean custom field value ${JSON.stringify(resolvedValue)} could not be coerced to true/false`,
+            });
+            continue;
+          }
+          resolvedValue = coerced;
         }
 
         console.log(`[Workflows] update_field (custom): ${prefTable}.${fieldId} = "${resolvedValue}" for ${entityType}:${entityId}`);
