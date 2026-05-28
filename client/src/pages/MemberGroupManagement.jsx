@@ -49,7 +49,9 @@ export default function MemberGroupManagementPage() {
     header_image_url: '',
     allow_self_join: false,
     default_self_join_role: '',
-    ems_enabled_roles: []
+    ems_enabled_roles: [],
+    projects_enabled: false,
+    projects_enabled_roles: []
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -213,7 +215,9 @@ export default function MemberGroupManagementPage() {
       header_image_url: '',
       allow_self_join: false,
       default_self_join_role: '',
-      ems_enabled_roles: []
+      ems_enabled_roles: [],
+      projects_enabled: false,
+      projects_enabled_roles: []
     });
     setEditingGroup(null);
   };
@@ -228,7 +232,9 @@ export default function MemberGroupManagementPage() {
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
       default_self_join_role: group.default_self_join_role || '',
-      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? group.ems_enabled_roles : []
+      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? group.ems_enabled_roles : [],
+      projects_enabled: !!group.projects_enabled,
+      projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : []
     });
     setShowGroupDialog(true);
   };
@@ -243,7 +249,9 @@ export default function MemberGroupManagementPage() {
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
       default_self_join_role: group.default_self_join_role || '',
-      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? [...group.ems_enabled_roles] : []
+      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? [...group.ems_enabled_roles] : [],
+      projects_enabled: !!group.projects_enabled,
+      projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : []
     });
     setShowGroupDialog(true);
   };
@@ -291,14 +299,17 @@ export default function MemberGroupManagementPage() {
       }
     }
 
-    // Prune ems_enabled_roles to only roles still on the group.
+    // Prune ems_enabled_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
     const prunedEms = (groupForm.ems_enabled_roles || []).filter((r) => validRoles.has(r));
+    const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
 
     const payload = {
       ...groupForm,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
-      ems_enabled_roles: prunedEms
+      ems_enabled_roles: prunedEms,
+      projects_enabled: !!groupForm.projects_enabled,
+      projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : []
     };
 
     if (editingGroup) {
@@ -347,6 +358,7 @@ export default function MemberGroupManagementPage() {
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
       ems_enabled_roles: (groupForm.ems_enabled_roles || []).filter(r => r !== role),
+      projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
     });
   };
@@ -355,6 +367,12 @@ export default function MemberGroupManagementPage() {
     const current = new Set(groupForm.ems_enabled_roles || []);
     if (current.has(role)) current.delete(role); else current.add(role);
     setGroupForm({ ...groupForm, ems_enabled_roles: Array.from(current) });
+  };
+
+  const toggleProjectsRole = (role) => {
+    const current = new Set(groupForm.projects_enabled_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, projects_enabled_roles: Array.from(current) });
   };
 
   const handleAssignMember = () => {
@@ -1033,6 +1051,60 @@ export default function MemberGroupManagementPage() {
                       );
                     })}
                   </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Enable project board for this group</Label>
+                    <span className="text-xs text-slate-500">
+                      Creates a default Kanban board when enabled. Qualifying members will see a "Group Projects" page where they can open boards for the group.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.projects_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, projects_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-projects-enabled"
+                  />
+                </div>
+
+                {groupForm.projects_enabled && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <Label>Roles allowed to access project board</Label>
+                      <span className="text-xs text-slate-500">
+                        Members assigned one of these roles will see the "Group Projects" page and be added to every board belonging to this group.
+                      </span>
+                    </div>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-slate-500">Add at least one role above to choose who can access project boards.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {groupForm.roles.map((role) => {
+                          const checked = (groupForm.projects_enabled_roles || []).includes(role);
+                          return (
+                            <label
+                              key={role}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                              data-testid={`label-projects-role-${role}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleProjectsRole(role)}
+                                className="w-4 h-4"
+                                data-testid={`checkbox-projects-role-${role}`}
+                              />
+                              <span>{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

@@ -3,6 +3,8 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { getSession } from '../../_lib/session.js';
+import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
@@ -312,7 +314,9 @@ export default async function handler(req, res) {
         }
       }
 
-      if (isWorkflowEntity || isArticleBrief) {
+      const isMemberGroupProjectsEntity = entityNormalized === 'membergroup' || entityNormalized === 'membergroupassignment';
+
+      if (isWorkflowEntity || isArticleBrief || isMemberGroupProjectsEntity) {
         try {
           let beforeQuery = supabase
             .from(tableName)
@@ -628,6 +632,22 @@ export default async function handler(req, res) {
           });
         } catch (provErr) {
           xeroPoSyncResult = { xeroUpdated: false, xeroError: provErr.message };
+        }
+      }
+
+      if (isMemberGroupProjectsEntity && data) {
+        try {
+          const _session = await getSession(req);
+          const _actorIdentityId = _session?.data?.identityId || null;
+          await handleMemberGroupEntityChange({
+            entityNorm: entityNormalized,
+            action: 'update',
+            data,
+            beforeData,
+            actorIdentityId: _actorIdentityId,
+          });
+        } catch (err) {
+          console.error('[Entity PATCH] member-group projects hook failed:', err.message || err);
         }
       }
 
@@ -1494,6 +1514,22 @@ export default async function handler(req, res) {
 
       if (supabase && deleteData && deleteData.length > 0) {
         const deletedRecord = deleteData[0];
+        const _entityNormDel = entity.replace(/[-_]/g, '').toLowerCase();
+        if (_entityNormDel === 'membergroup' || _entityNormDel === 'membergroupassignment') {
+          try {
+            const _session = await getSession(req);
+            const _actorIdentityId = _session?.data?.identityId || null;
+            await handleMemberGroupEntityChange({
+              entityNorm: _entityNormDel,
+              action: 'delete',
+              data: null,
+              beforeData: deletedRecord,
+              actorIdentityId: _actorIdentityId,
+            });
+          } catch (err) {
+            console.error('[Entity DELETE] member-group projects hook failed:', err.message || err);
+          }
+        }
         if (entity === 'IEditPageElement' && deletedRecord.page_id) {
           rebuildSearchTextForEntity(supabase, 'IEditPage', null, deletedRecord.page_id).catch(err => {
             console.error('[Entity DELETE] Search text rebuild error for page:', err);

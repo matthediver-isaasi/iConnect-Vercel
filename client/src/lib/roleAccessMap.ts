@@ -221,6 +221,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Group Email"
       },
       {
+        id: "membership.member-group-projects",
+        label: "Group Projects"
+      },
+      {
         id: "membership.member-group-assignment-report",
         label: "Member Group Assignment Report"
       },

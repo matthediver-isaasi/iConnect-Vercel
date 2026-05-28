@@ -4,6 +4,8 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { getSession } from '../../_lib/session.js';
+import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
@@ -1413,6 +1415,22 @@ export default async function handler(req, res) {
         }).catch(err => {
           console.error('[Entity POST] Brief comment notification error:', err);
         });
+      }
+
+      if ((entityNorm === 'membergroup' || entityNorm === 'membergroupassignment') && data) {
+        try {
+          const _session = await getSession(req);
+          const _actorIdentityId = _session?.data?.identityId || null;
+          await handleMemberGroupEntityChange({
+            entityNorm,
+            action: 'create',
+            data,
+            beforeData: null,
+            actorIdentityId: _actorIdentityId,
+          });
+        } catch (err) {
+          console.error('[Entity POST] member-group projects hook failed:', err.message || err);
+        }
       }
 
       // Await the in-flight Zoho CRM sync (with a short timeout) so we
