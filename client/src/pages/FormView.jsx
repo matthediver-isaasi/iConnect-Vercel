@@ -13,7 +13,11 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 // Helper to check if a field value is considered "filled" for validation purposes
 const isFieldValueFilled = (field, value) => {
   if (!value) return false;
-  
+
+  if (field.type === 'countries') {
+    return Array.isArray(value) && value.length > 0;
+  }
+
   if (field.type === 'contact') {
     if (typeof value !== 'object') return false;
     if (!field.required) return Object.values(value).some(v => typeof v === 'string' && v.trim());
@@ -673,12 +677,18 @@ export default function FormViewPage() {
     const parseCustomFieldValue = (cfv, fieldType) => {
       if (!cfv || cfv.value === undefined || cfv.value === null) return null;
       let parsedValue = cfv.value;
-      if (fieldType === 'list') {
-        try {
-          const parsed = JSON.parse(cfv.value);
-          parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
-        } catch {
-          parsedValue = cfv.value ? [cfv.value] : [];
+      if (fieldType === 'list' || fieldType === 'countries') {
+        if (Array.isArray(cfv.value)) {
+          parsedValue = cfv.value;
+        } else if (typeof cfv.value === 'string') {
+          try {
+            const parsed = JSON.parse(cfv.value);
+            parsedValue = Array.isArray(parsed) ? parsed : (cfv.value ? [cfv.value] : []);
+          } catch {
+            parsedValue = cfv.value ? [cfv.value] : [];
+          }
+        } else {
+          parsedValue = [];
         }
       }
       return parsedValue;
