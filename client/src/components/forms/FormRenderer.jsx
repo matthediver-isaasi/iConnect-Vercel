@@ -1261,9 +1261,26 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           const allowedCountries = customFieldDef.all_countries !== false
             ? COUNTRIES
             : COUNTRIES.filter(c => (customFieldDef.selected_countries || []).includes(c.code));
-          const countriesValue = Array.isArray(value)
-            ? value
-            : (value === null || value === undefined || value === '' ? [] : [value]);
+          let countriesValue;
+          if (Array.isArray(value)) {
+            countriesValue = value;
+          } else if (value === null || value === undefined || value === '') {
+            countriesValue = [];
+          } else if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                countriesValue = Array.isArray(parsed) ? parsed : [value];
+              } catch {
+                countriesValue = [value];
+              }
+            } else {
+              countriesValue = [value];
+            }
+          } else {
+            countriesValue = [value];
+          }
           return (
             <MultiCountryCombobox
               countries={allowedCountries}

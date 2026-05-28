@@ -56,6 +56,21 @@ export const parseCustomFieldValue = (cfv, fieldType) => {
     } else {
       parsedValue = [];
     }
+  } else if (fieldType === 'custom_field') {
+    // For wrapped custom_field form fields we don't know the underlying type here.
+    // Only attempt JSON-parse when the raw value LOOKS like a JSON array string,
+    // so list/countries custom fields get an array but text/boolean/etc are untouched.
+    if (typeof cfv.value === 'string') {
+      const trimmed = cfv.value.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) parsedValue = parsed;
+        } catch {
+          // leave as raw string
+        }
+      }
+    }
   }
   return parsedValue;
 };
