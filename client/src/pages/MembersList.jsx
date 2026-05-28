@@ -72,6 +72,7 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 import MemberDetailView from "@/components/MemberDetailView";
+import GuestAccessControl from "@/components/GuestAccessControl";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useNavigate } from "react-router-dom";
@@ -623,7 +624,7 @@ export default function MembersListPage() {
     switch (col.id) {
       case 'name':
         return (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Avatar className="h-8 w-8">
               <AvatarImage src={member.profile_photo} />
               <AvatarFallback className="bg-blue-100 text-blue-700 text-xs">
@@ -631,6 +632,15 @@ export default function MembersListPage() {
               </AvatarFallback>
             </Avatar>
             <span className="font-medium text-slate-900">{getMemberName(member) || 'Unknown'}</span>
+            {member.is_guest && (
+              <span onClick={(e) => e.stopPropagation()}>
+                <GuestAccessControl
+                  member={member}
+                  canManage={isAccessReady && !isFeatureExcluded('element_TeamLoginAccessToggle')}
+                  testIdSuffix={`row-${member.id}`}
+                />
+              </span>
+            )}
           </div>
         );
       case 'email':
@@ -1238,11 +1248,22 @@ export default function MembersListPage() {
                               </p>
                             )}
                           </div>
-                          {member.disabled ? (
-                            <Badge variant="secondary" className="bg-red-100 text-red-700 text-xs">Disabled</Badge>
-                          ) : (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">Active</Badge>
-                          )}
+                          <div className="flex flex-col items-end gap-1">
+                            {member.disabled ? (
+                              <Badge variant="secondary" className="bg-red-100 text-red-700 text-xs">Disabled</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">Active</Badge>
+                            )}
+                            {member.is_guest && (
+                              <span onClick={(e) => e.stopPropagation()}>
+                                <GuestAccessControl
+                                  member={member}
+                                  canManage={isAccessReady && !isFeatureExcluded('element_TeamLoginAccessToggle')}
+                                  testIdSuffix={`card-${member.id}`}
+                                />
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-3 pt-3 border-t border-slate-100 space-y-1">
                           {member.email && (

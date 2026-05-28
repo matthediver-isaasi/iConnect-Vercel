@@ -48,6 +48,8 @@ export default async function handler(req, res) {
         created_on,
         profile_photo_url,
         tenant_id,
+        is_guest,
+        guest_expires_at,
         organization (id, name, tenant_id)
       `, { count: 'exact' });
 
