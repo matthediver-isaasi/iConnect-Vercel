@@ -2879,6 +2879,7 @@ export default function DueDiligenceConfigPage() {
                                                                   { value: 'description', label: 'Description' },
                                                                   { value: 'email', label: 'Email' },
                                                                   { value: 'invoicing_address', label: 'Invoice address' },
+                                                                  { value: 'invoicing_email', label: 'Invoicing email' },
                                                                   { value: 'logo_url', label: 'Logo' },
                                                                   { value: 'name', label: 'Organisation Name' },
                                                                   { value: 'phone', label: 'Phone' },

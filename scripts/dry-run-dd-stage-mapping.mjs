@@ -319,7 +319,7 @@ async function run() {
     .eq('is_active', true);
   const orgPrefMap = new Map((orgPrefFields || []).map((p) => [p.id, p]));
 
-  const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description', 'logo_url', 'invoicing_address'];
+  const VALID_CORE_FIELDS = ['name', 'email', 'invoicing_email', 'phone', 'website', 'description', 'logo_url', 'invoicing_address'];
   const COMPOSITE_CORE_FIELDS = { address: ['line1', 'line2', 'city', 'region', 'postcode', 'country'] };
 
   const wouldOrgPayload = {}; // accumulated would-be update

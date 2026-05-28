@@ -251,6 +251,7 @@ export default function OrganisationDetailView({
   const logoFileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
     phone: '',
     website_url: '',
     invoicing_email: '',
@@ -275,6 +276,7 @@ export default function OrganisationDetailView({
     if (organization && !isEditing) {
       setFormData({
         name: organization.name || '',
+        email: organization.email || '',
         phone: organization.phone || '',
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
@@ -839,6 +841,7 @@ export default function OrganisationDetailView({
     
     setFormData({
       name: organization.name || '',
+      email: organization.email || '',
       phone: organization.phone || '',
       website_url: organization.website_url || '',
       invoicing_email: organization.invoicing_email || '',
@@ -1199,11 +1202,14 @@ export default function OrganisationDetailView({
     }
     
     const iconMap = {
+      email: <Mail className="w-3 h-3" />,
       invoicing_email: <Mail className="w-3 h-3" />,
       phone: <Phone className="w-3 h-3" />,
       name: null
     };
-    
+
+    const inputType = (fieldKey === 'email' || fieldKey === 'invoicing_email') ? 'email' : 'text';
+
     return (
       <div className="space-y-2">
         <Label className="text-slate-500 flex items-center gap-1">
@@ -1211,7 +1217,7 @@ export default function OrganisationDetailView({
         </Label>
         {isEditing ? (
           <Input
-            type={fieldKey === 'invoicing_email' ? 'email' : 'text'}
+            type={inputType}
             value={value || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
             disabled={isLocked}

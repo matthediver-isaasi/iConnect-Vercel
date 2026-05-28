@@ -2100,7 +2100,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
         
         if (target_type === 'core') {
           // Valid core fields for organization
-          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description', 'logo_url', 'invoicing_address'];
+          const VALID_CORE_FIELDS = ['name', 'email', 'invoicing_email', 'phone', 'website', 'description', 'logo_url', 'invoicing_address'];
           // Composite core fields (stored as JSONB with sub-fields)
           const COMPOSITE_CORE_FIELDS = {
             address: ['line1', 'line2', 'city', 'region', 'postcode', 'country']

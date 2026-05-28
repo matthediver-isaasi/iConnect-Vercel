@@ -19,10 +19,11 @@ const DEFAULT_LAYOUT = {
       title: 'Contact Information',
       columns: 2,
       fields: [
-        { id: 'core:invoicing_email', type: 'core', fieldKey: 'invoicing_email', columnIndex: 0 },
+        { id: 'core:email', type: 'core', fieldKey: 'email', columnIndex: 0 },
         { id: 'core:phone', type: 'core', fieldKey: 'phone', columnIndex: 1 },
-        { id: 'core:website_url', type: 'core', fieldKey: 'website_url', columnIndex: 0 },
-        { id: 'core:invoicing_address', type: 'core', fieldKey: 'invoicing_address', columnIndex: 1 }
+        { id: 'core:invoicing_email', type: 'core', fieldKey: 'invoicing_email', columnIndex: 0 },
+        { id: 'core:website_url', type: 'core', fieldKey: 'website_url', columnIndex: 1 },
+        { id: 'core:invoicing_address', type: 'core', fieldKey: 'invoicing_address', columnIndex: 0 }
       ]
     },
     {
@@ -52,6 +53,7 @@ function migrateLayoutWithColumnIndex(layout) {
 export const CORE_FIELDS = [
   { id: 'core:name', fieldKey: 'name', label: 'Organisation Name', type: 'text' },
   { id: 'core:description', fieldKey: 'description', label: 'Description', type: 'textarea' },
+  { id: 'core:email', fieldKey: 'email', label: 'Email', type: 'email' },
   { id: 'core:invoicing_email', fieldKey: 'invoicing_email', label: 'Invoicing Email', type: 'email' },
   { id: 'core:phone', fieldKey: 'phone', label: 'Phone', type: 'text' },
   { id: 'core:website_url', fieldKey: 'website_url', label: 'Website', type: 'url' },
