@@ -5,6 +5,24 @@ import { supabase } from './database.js';
 import { simulateMembershipForOrg } from './membershipSimulation.js';
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 
+// Attempts to parse a stringified JSON array. Returns the parsed array
+// (with each element coerced to string) on success, or null when the value
+// is not a JSON-encoded array. Used by `contains`/`not_contains` workflow
+// condition operators so multi-select preference values match by exact
+// element rather than naive substring (e.g. so "Grade 1" does not match
+// against the stored string "Grade 10").
+function tryParseJsonArray(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(str);
+    return Array.isArray(parsed) ? parsed.map(v => String(v)) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
   if (!supabase || !memberId) {
@@ -1770,12 +1788,28 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             case 'not_equals':
               conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase();
               break;
-            case 'contains':
-              conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
+            case 'contains': {
+              const arr = tryParseJsonArray(actualValue);
+              if (arr) {
+                conditionMet = arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+                console.log(`[Workflows] contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
+              } else {
+                conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
+                console.log(`[Workflows] contains: substring path, met=${conditionMet}`);
+              }
               break;
-            case 'not_contains':
-              conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
+            }
+            case 'not_contains': {
+              const arr = tryParseJsonArray(actualValue);
+              if (arr) {
+                conditionMet = !arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+                console.log(`[Workflows] not_contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
+              } else {
+                conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
+                console.log(`[Workflows] not_contains: substring path, met=${conditionMet}`);
+              }
               break;
+            }
             case 'starts_with':
               conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase());
               break;
@@ -2047,8 +2081,28 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           switch (condition.operator) {
             case 'equals': conditionMet = actualValue.toLowerCase() === targetValue.toLowerCase(); break;
             case 'not_equals': conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase(); break;
-            case 'contains': conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase()); break;
-            case 'not_contains': conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase()); break;
+            case 'contains': {
+              const arr = tryParseJsonArray(actualValue);
+              if (arr) {
+                conditionMet = arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+                console.log(`[Workflows] Pref contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
+              } else {
+                conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
+                console.log(`[Workflows] Pref contains: substring path, met=${conditionMet}`);
+              }
+              break;
+            }
+            case 'not_contains': {
+              const arr = tryParseJsonArray(actualValue);
+              if (arr) {
+                conditionMet = !arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+                console.log(`[Workflows] Pref not_contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
+              } else {
+                conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
+                console.log(`[Workflows] Pref not_contains: substring path, met=${conditionMet}`);
+              }
+              break;
+            }
             case 'starts_with': conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase()); break;
             case 'ends_with': conditionMet = actualValue.toLowerCase().endsWith(targetValue.toLowerCase()); break;
             case 'is_empty': conditionMet = afterValue === null || afterValue === undefined || afterValue === ''; break;

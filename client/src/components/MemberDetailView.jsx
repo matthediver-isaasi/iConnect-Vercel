@@ -647,11 +647,23 @@ export default function MemberDetailView({
     if (!isEditing) {
       const valuesMap = {};
       memberValues.forEach(pv => {
-        valuesMap[pv.field_id] = pv.value;
+        const field = (memberCustomFields || []).find(f => f.id === pv.field_id);
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && typeof pv.value === 'string') {
+          try {
+            const parsed = JSON.parse(pv.value);
+            valuesMap[pv.field_id] = Array.isArray(parsed)
+              ? parsed.map(v => String(v).trim()).filter(Boolean)
+              : (pv.value ? [pv.value] : []);
+          } catch {
+            valuesMap[pv.field_id] = pv.value ? [pv.value] : [];
+          }
+        } else {
+          valuesMap[pv.field_id] = pv.value;
+        }
       });
       setCustomFieldValues(valuesMap);
     }
-  }, [memberValues, isEditing]);
+  }, [memberValues, memberCustomFields, isEditing]);
 
   // Load selected categories from member_resource_category join table
   // This effect runs whenever memberCategorySelections changes
