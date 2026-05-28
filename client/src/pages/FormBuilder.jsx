@@ -356,7 +356,12 @@ function FieldMappingSection({
                         <SelectContent>
                           {fields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
                             <SelectItem key={field.id} value={field.id}>
-                              {field.label || field.type}
+                              <span className="inline-flex items-center gap-2">
+                                <span>{field.label || field.type}</span>
+                                {field.starts_hidden && (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                                )}
+                              </span>
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -2272,9 +2277,14 @@ function EmailCard({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="_none">Not mapped</SelectItem>
-                            {formFields.map(field => (
+                            {formFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
                               <SelectItem key={field.id} value={field.id}>
-                                {field.label || field.id}
+                                <span className="inline-flex items-center gap-2">
+                                  <span>{field.label || field.id}</span>
+                                  {field.starts_hidden && (
+                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                                  )}
+                                </span>
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -2340,7 +2350,12 @@ function EmailCard({
                           ['text', 'email', 'select', 'radio', 'checkbox', 'number', 'phone', 'url'].includes(f.type)
                         ).map(field => (
                           <SelectItem key={field.id} value={field.id}>
-                            {field.label || field.id}
+                            <span className="inline-flex items-center gap-2">
+                              <span>{field.label || field.id}</span>
+                              {field.starts_hidden && (
+                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                              )}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
