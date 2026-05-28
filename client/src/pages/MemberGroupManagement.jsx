@@ -867,11 +867,11 @@ export default function MemberGroupManagementPage() {
 
         {/* Create/Edit Group Dialog */}
         <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingGroup ? 'Edit Group' : 'Create New Group'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 min-h-0 overflow-y-auto py-2">
               <div>
                 <Label htmlFor="name">Group Name *</Label>
                 <Input
