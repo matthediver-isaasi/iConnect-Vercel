@@ -18,6 +18,7 @@ export default function ManualContractOverrideForm({
 }) {
   const [formValues, setFormValues] = useState({});
   const [overrideDate, setOverrideDate] = useState('');
+  const [maxDateTimeLocal, setMaxDateTimeLocal] = useState('');
 
   const { data: contractForm, isLoading } = useQuery({
     queryKey: ['/api/entities/form', contractFormId],
@@ -31,7 +32,10 @@ export default function ManualContractOverrideForm({
       .toISOString()
       .slice(0, 16);
     setOverrideDate(localISOTime);
+    setMaxDateTimeLocal(localISOTime);
   }, []);
+
+  const isFuture = overrideDate ? new Date(overrideDate).getTime() > Date.now() : false;
 
   useEffect(() => {
     if (signer) {
@@ -53,6 +57,7 @@ export default function ManualContractOverrideForm({
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (isFuture) return;
     onSubmit({
       submissionData: formValues,
       overrideDate: overrideDate ? new Date(overrideDate).toISOString() : null
@@ -124,12 +129,19 @@ export default function ManualContractOverrideForm({
           type="datetime-local"
           value={overrideDate}
           onChange={(e) => setOverrideDate(e.target.value)}
+          max={maxDateTimeLocal}
           className="w-full"
           data-testid="input-override-date"
         />
-        <p className="text-xs text-muted-foreground">
-          Set the date when this contract was originally signed
-        </p>
+        {isFuture ? (
+          <p className="text-xs text-destructive" data-testid="text-override-date-error">
+            Submission date cannot be in the future
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Set the date when this contract was originally signed
+          </p>
+        )}
       </div>
 
       <div className="border rounded-lg p-4 bg-muted/30">
@@ -167,7 +179,7 @@ export default function ManualContractOverrideForm({
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isFuture}
           className="gap-2"
           data-testid="button-submit-override"
         >

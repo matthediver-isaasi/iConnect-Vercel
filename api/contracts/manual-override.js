@@ -39,6 +39,10 @@ export default async function handler(req, res) {
     if (isNaN(parsedDate.getTime())) {
       return res.status(400).json({ error: 'Invalid override date format' });
     }
+    const SKEW_MS = 5 * 60 * 1000;
+    if (parsedDate.getTime() > Date.now() + SKEW_MS) {
+      return res.status(400).json({ error: 'Override date cannot be in the future' });
+    }
   }
 
   try {
