@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSessionMember } from '../_lib/session.js';
+import { coerceBooleanPreferenceValue } from '../_lib/booleanCoercion.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -71,7 +72,15 @@ export default async function handler(req, res) {
 
       // Convert value to appropriate format for storage
       let storedValue = formValue;
-      if (customField.field_type === 'picklist' && Array.isArray(formValue)) {
+      if (customField.field_type === 'boolean') {
+        const coerced = coerceBooleanPreferenceValue(formValue);
+        if (coerced === null) {
+          // Ambiguous input — skip rather than silently storing false
+          console.log(`[Field Mapping] Skipping ${customField.label} - boolean value did not coerce:`, formValue);
+          continue;
+        }
+        storedValue = coerced;
+      } else if (customField.field_type === 'picklist' && Array.isArray(formValue)) {
         storedValue = JSON.stringify(formValue);
       } else if (typeof formValue === 'object') {
         storedValue = JSON.stringify(formValue);
