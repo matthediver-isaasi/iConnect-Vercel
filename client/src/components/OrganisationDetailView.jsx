@@ -87,6 +87,10 @@ import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/
 import { useOrgFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useOrgFieldVisibilityRules";
 import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
+import { COUNTRIES } from "@/data/countries";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { ChevronsUpDown, Check } from "lucide-react";
 import OrgMembershipTab from "@/components/OrgMembershipTab";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
@@ -172,6 +176,81 @@ function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disab
           >
             Add
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrgCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label, disabled = false }) {
+  const [open, setOpen] = useState(false);
+
+  const toggleCountry = (countryName) => {
+    if (selectedValues.includes(countryName)) {
+      onChange(selectedValues.filter(v => v !== countryName));
+    } else {
+      onChange([...selectedValues, countryName]);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="justify-between font-normal w-full min-h-9"
+            disabled={disabled}
+            data-testid={`select-custom-countries-${fieldId}`}
+          >
+            <span className="truncate text-left flex-1 text-sm">
+              {selectedValues.length === 0
+                ? `Select ${label.toLowerCase()}`
+                : `${selectedValues.length} countr${selectedValues.length === 1 ? 'y' : 'ies'} selected`}
+            </span>
+            <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search countries..." />
+            <CommandList>
+              <CommandEmpty>No countries found.</CommandEmpty>
+              <CommandGroup className="max-h-[250px] overflow-auto">
+                {availableCountries.map(country => (
+                  <CommandItem
+                    key={country.code}
+                    value={country.name}
+                    onSelect={() => toggleCountry(country.name)}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${selectedValues.includes(country.name) ? 'opacity-100' : 'opacity-0'}`} />
+                    {country.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selectedValues.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selectedValues.map(name => (
+            <Badge key={name} variant="secondary" className="text-xs">
+              {name}
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => toggleCountry(name)}
+                  className="ml-1"
+                  data-testid={`button-remove-country-${fieldId}-${name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
         </div>
       )}
     </div>
@@ -713,7 +792,7 @@ export default function OrganisationDetailView({
           foundField: field ? { id: field.id, name: field.name, options: field.options } : null
         });
         
-        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && pv.value) {
           try {
             const parsed = JSON.parse(pv.value);
             // Ensure it's an array, normalize values
@@ -927,7 +1006,7 @@ export default function OrganisationDetailView({
     const valuesMap = {};
     orgValues.forEach(pv => {
       const field = orgCustomFields.find(f => f.id === pv.field_id);
-      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && pv.value) {
         try {
           const parsed = JSON.parse(pv.value);
           valuesMap[pv.field_id] = Array.isArray(parsed) 
@@ -1086,6 +1165,69 @@ export default function OrganisationDetailView({
             ))}
           </div>
         );
+      case 'country': {
+        const availableCountries = field.all_countries !== false
+          ? COUNTRIES
+          : COUNTRIES.filter(c => {
+              const sel = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+              return sel.includes(c.code) || sel.includes(c.name);
+            });
+        const resolvedValue = (() => {
+          if (!value) return '';
+          const byCode = COUNTRIES.find(c => c.code === value);
+          return byCode ? byCode.name : value;
+        })();
+        return isEditing ? (
+          <Select
+            value={resolvedValue}
+            onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}
+            disabled={disabledOverride}
+          >
+            <SelectTrigger data-testid={`select-custom-country-${field.id}`}>
+              <SelectValue placeholder={`Select ${field.label}`} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableCountries.map((country) => (
+                <SelectItem key={country.code} value={country.name}>{country.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center" data-testid={`text-custom-${field.id}`}>
+            {resolvedValue || '-'}
+          </div>
+        );
+      }
+      case 'countries': {
+        const selectedCountries = Array.isArray(value) ? value : [];
+        const normalizedSelected = selectedCountries.map(v => {
+          const byCode = COUNTRIES.find(c => c.code === v);
+          return byCode ? byCode.name : v;
+        });
+        const availableCountriesList = field.all_countries !== false
+          ? COUNTRIES
+          : COUNTRIES.filter(c => {
+              const sel = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+              return sel.includes(c.code) || sel.includes(c.name);
+            });
+        if (!isEditing) {
+          return (
+            <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center" data-testid={`text-custom-${field.id}`}>
+              {normalizedSelected.length > 0 ? normalizedSelected.join(', ') : '-'}
+            </div>
+          );
+        }
+        return (
+          <OrgCountryMultiSelect
+            fieldId={field.id}
+            selectedValues={normalizedSelected}
+            availableCountries={availableCountriesList}
+            onChange={(newValues) => setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }))}
+            label={field.label}
+            disabled={isLocked}
+          />
+        );
+      }
       case 'list':
         return (
           <ListFieldEditorOrg
