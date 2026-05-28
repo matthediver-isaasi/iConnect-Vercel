@@ -1257,6 +1257,42 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           );
         }
 
+        if (customFieldDef.field_type === 'countries') {
+          const allowedCountries = customFieldDef.all_countries !== false
+            ? COUNTRIES
+            : COUNTRIES.filter(c => (customFieldDef.selected_countries || []).includes(c.code));
+          const countriesValue = Array.isArray(value)
+            ? value
+            : (value === null || value === undefined || value === '' ? [] : [value]);
+          return (
+            <MultiCountryCombobox
+              countries={allowedCountries}
+              value={countriesValue}
+              onChange={(v) => !isFieldDisabled && onChange(v)}
+              disabled={isFieldDisabled}
+              placeholder={field.placeholder || 'Select countries...'}
+              fieldId={field.id}
+            />
+          );
+        }
+
+        if (customFieldDef.field_type === 'country') {
+          const allowedCountriesSingle = customFieldDef.all_countries !== false
+            ? COUNTRIES
+            : COUNTRIES.filter(c => (customFieldDef.selected_countries || []).includes(c.code));
+          const singleValue = Array.isArray(value) ? (value[0] || '') : (value || '');
+          return (
+            <CountryCombobox
+              countries={allowedCountriesSingle}
+              value={singleValue}
+              onChange={(v) => !isFieldDisabled && onChange(v)}
+              disabled={isFieldDisabled}
+              placeholder={field.placeholder || 'Select a country...'}
+              fieldId={field.id}
+            />
+          );
+        }
+
         // For option-based types (checkbox, radio, picklist, dropdown), require options
         if (customFieldOptions.length === 0) {
           return (
