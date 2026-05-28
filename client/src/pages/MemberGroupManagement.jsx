@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2 } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -45,6 +45,7 @@ export default function MemberGroupManagementPage() {
     name: '',
     description: '',
     roles: [],
+    leadership_roles: [],
     is_active: true,
     header_image_url: '',
     allow_self_join: false,
@@ -211,6 +212,7 @@ export default function MemberGroupManagementPage() {
       name: '',
       description: '',
       roles: [],
+      leadership_roles: [],
       is_active: true,
       header_image_url: '',
       allow_self_join: false,
@@ -230,6 +232,7 @@ export default function MemberGroupManagementPage() {
       name: group.name,
       description: group.description || '',
       roles: group.roles || [],
+      leadership_roles: Array.isArray(group.leadership_roles) ? group.leadership_roles : [],
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
@@ -249,6 +252,7 @@ export default function MemberGroupManagementPage() {
       name: `${group.name} (Copy)`,
       description: group.description || '',
       roles: [...(group.roles || [])],
+      leadership_roles: Array.isArray(group.leadership_roles) ? [...group.leadership_roles] : [],
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
@@ -305,8 +309,9 @@ export default function MemberGroupManagementPage() {
       }
     }
 
-    // Prune ems_enabled_roles / projects_enabled_roles to only roles still on the group.
+    // Prune leadership_roles / ems_enabled_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
+    const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
     const prunedEms = (groupForm.ems_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedEvents = (groupForm.events_enabled_roles || []).filter((r) => validRoles.has(r));
@@ -314,6 +319,7 @@ export default function MemberGroupManagementPage() {
     const payload = {
       ...groupForm,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
+      leadership_roles: prunedLeadership,
       ems_enabled_roles: prunedEms,
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
@@ -366,11 +372,18 @@ export default function MemberGroupManagementPage() {
     setGroupForm({
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
+      leadership_roles: (groupForm.leadership_roles || []).filter(r => r !== role),
       ems_enabled_roles: (groupForm.ems_enabled_roles || []).filter(r => r !== role),
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       events_enabled_roles: (groupForm.events_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
     });
+  };
+
+  const toggleLeadershipRole = (role) => {
+    const current = new Set(groupForm.leadership_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, leadership_roles: Array.from(current) });
   };
 
   const toggleEventsRole = (role) => {
@@ -745,11 +758,19 @@ export default function MemberGroupManagementPage() {
                       <span className="text-sm font-medium text-slate-700">Roles:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {group.roles?.length > 0 ? (
-                          group.roles.map((role, idx) => (
-                            <Badge key={idx} className="bg-blue-100 text-blue-700 text-xs">
-                              {role}
-                            </Badge>
-                          ))
+                          group.roles.map((role, idx) => {
+                            const isLeader = Array.isArray(group.leadership_roles) && group.leadership_roles.includes(role);
+                            return (
+                              <Badge
+                                key={idx}
+                                className={`text-xs ${isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}`}
+                                title={isLeader ? "Leadership role" : undefined}
+                              >
+                                {isLeader && <Crown className="w-3 h-3 mr-1 fill-current" />}
+                                {role}
+                              </Badge>
+                            );
+                          })
                         ) : (
                           <span className="text-xs text-slate-500">No roles defined</span>
                         )}
@@ -960,18 +981,41 @@ export default function MemberGroupManagementPage() {
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {groupForm.roles.map((role, idx) => (
-                    <Badge key={idx} className="bg-blue-100 text-blue-700">
-                      {role}
-                      <button
-                        onClick={() => handleRemoveRole(role)}
-                        className="ml-2 hover:text-red-600"
+                  {groupForm.roles.map((role, idx) => {
+                    const isLeader = (groupForm.leadership_roles || []).includes(role);
+                    return (
+                      <Badge
+                        key={idx}
+                        className={isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}
+                        data-testid={`badge-role-${role}`}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
+                        {role}
+                        <button
+                          type="button"
+                          onClick={() => toggleLeadershipRole(role)}
+                          className={`ml-2 ${isLeader ? "text-amber-700" : "text-slate-400 hover:text-amber-700"}`}
+                          title={isLeader ? "Remove from Leadership" : "Mark as Leadership"}
+                          data-testid={`button-toggle-leadership-${role}`}
+                        >
+                          <Crown className={`w-3 h-3 ${isLeader ? "fill-current" : ""}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRole(role)}
+                          className="ml-2 hover:text-red-600"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    );
+                  })}
                 </div>
+                {(groupForm.leadership_roles || []).length > 0 && (
+                  <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                    <Crown className="w-3 h-3 fill-current text-amber-600" />
+                    Leadership roles appear in the group's Leadership section.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

@@ -28,6 +28,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Crown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -186,11 +187,31 @@ export default function MemberGroupDetailPage() {
   const [memberPage, setMemberPage] = useState(1);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
 
+  const memberRoleByMemberId = useMemo(() => {
+    const map = new Map();
+    for (const a of groupAssignments) {
+      if (a.member_id && a.group_role) map.set(a.member_id, a.group_role);
+    }
+    return map;
+  }, [groupAssignments]);
+
   const sortedMembers = useMemo(() => {
     return members
       .map((m) => ({ ...m, __display: getMemberDisplay(m) }))
       .sort((a, b) => a.__display.displayName.localeCompare(b.__display.displayName));
   }, [members]);
+
+  const leadershipRoleSet = useMemo(
+    () => new Set(Array.isArray(group?.leadership_roles) ? group.leadership_roles : []),
+    [group]
+  );
+
+  const leadershipMembers = useMemo(() => {
+    if (leadershipRoleSet.size === 0) return [];
+    return sortedMembers
+      .map((m) => ({ ...m, __role: memberRoleByMemberId.get(m.id) || null }))
+      .filter((m) => m.__role && leadershipRoleSet.has(m.__role));
+  }, [sortedMembers, memberRoleByMemberId, leadershipRoleSet]);
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -369,6 +390,79 @@ export default function MemberGroupDetailPage() {
             </div>
           </CardContent>
         </Card>
+
+        {leadershipMembers.length > 0 && (
+          <Card className="mb-6" data-testid="card-leadership-section">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Crown className="w-5 h-5 text-amber-600 fill-current" />
+                <h2
+                  className="text-lg font-semibold text-slate-900"
+                  data-testid="text-leadership-heading"
+                >
+                  Leadership ({leadershipMembers.length})
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {leadershipMembers.map((m) => {
+                  const { displayName, showAvatarImage, anonymised } = m.__display;
+                  const interactive = !anonymised;
+                  const handleOpen = () => {
+                    if (interactive) setSelectedMemberId(m.id);
+                  };
+                  return (
+                    <Card
+                      key={`leader-${m.id}`}
+                      className={`overflow-hidden ${interactive ? "cursor-pointer hover-elevate active-elevate-2" : ""}`}
+                      onClick={interactive ? handleOpen : undefined}
+                      onKeyDown={
+                        interactive
+                          ? (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleOpen();
+                              }
+                            }
+                          : undefined
+                      }
+                      role={interactive ? "button" : undefined}
+                      tabIndex={interactive ? 0 : undefined}
+                      data-testid={`card-leader-${m.id}`}
+                    >
+                      <CardContent className="p-3 flex items-center gap-3">
+                        <Avatar className="h-10 w-10 flex-shrink-0">
+                          {showAvatarImage && m.profile_photo_url ? (
+                            <AvatarImage src={m.profile_photo_url} alt={displayName} />
+                          ) : null}
+                          <AvatarFallback className="bg-amber-100 text-amber-800">
+                            {getInitials(displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className="font-medium text-sm text-slate-900 truncate"
+                            data-testid={`text-leader-name-${m.id}`}
+                            title={displayName}
+                          >
+                            {displayName}
+                          </div>
+                          <div
+                            className="text-xs text-amber-700 truncate flex items-center gap-1"
+                            data-testid={`text-leader-role-${m.id}`}
+                            title={m.__role}
+                          >
+                            <Crown className="w-3 h-3 fill-current flex-shrink-0" />
+                            {m.__role}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardContent className="p-6">
