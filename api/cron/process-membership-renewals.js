@@ -961,6 +961,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
   }
 
   let xeroInvoice = null;
+  let memberProviderLabel = 'Xero';
   if (createInvoice) {
     try {
       const bandVatRate = simResult.taxType || simResult.matchedBand?.vat_rate || null;
@@ -968,7 +969,9 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
       const resolvedMemberAddr = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
-      xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
+      const memberProvider = await getAccountingProvider(tenantId);
+      memberProviderLabel = memberProvider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
+      xeroInvoice = await memberProvider.createMembershipInvoice({
         appTenantId: tenantId,
         organizationName: memberName,
         invoicingEmail: member.email || null,
@@ -989,11 +992,11 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
           .eq('id', record.id);
 
         if (linkError) {
-          console.error(`[cron/process-membership-renewals] Failed to link Xero invoice for member ${memberId}:`, linkError.message);
+          console.error(`[cron/process-membership-renewals] Failed to link ${memberProviderLabel} invoice for member ${memberId}:`, linkError.message);
         }
       }
     } catch (xeroErr) {
-      console.error(`[cron/process-membership-renewals] Xero invoice failed for member ${memberId} (non-fatal):`, xeroErr.message);
+      console.error(`[cron/process-membership-renewals] ${memberProviderLabel} invoice failed for member ${memberId} (non-fatal):`, xeroErr.message);
     }
   }
 
@@ -1022,8 +1025,8 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
     let noteContent = `[Membership Renewal - ${modeLabel}] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.`;
     if (createInvoice) {
       noteContent += xeroInvoice
-        ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-        : ' Xero invoice could not be created - check Xero connection.';
+        ? ` ${memberProviderLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+        : ` ${memberProviderLabel} invoice could not be created - check ${memberProviderLabel} connection.`;
     } else {
       noteContent += ' Invoice will be generated on the scheduled date.';
     }
@@ -1103,12 +1106,14 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
   }
 
   let xeroInvoice = null;
+  const memberProvider2 = await getAccountingProvider(tenantId);
+  const memberProviderLabel2 = memberProvider2?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
     const resolvedMemberAddr2 = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
-    xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
+    xeroInvoice = await memberProvider2.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,
@@ -1129,7 +1134,7 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
         .eq('id', existingRecord.id);
     }
   } catch (xeroErr) {
-    console.error(`[cron/process-membership-renewals] Scheduled Xero invoice failed for member ${memberId} (non-fatal):`, xeroErr.message);
+    console.error(`[cron/process-membership-renewals] Scheduled ${memberProviderLabel2} invoice failed for member ${memberId} (non-fatal):`, xeroErr.message);
   }
 
   if (xeroInvoice && member.email) {
@@ -1154,8 +1159,8 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
 
   try {
     const invoiceNote = xeroInvoice
-      ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-      : ' Xero invoice could not be created - check Xero connection.';
+      ? ` ${memberProviderLabel2} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+      : ` ${memberProviderLabel2} invoice could not be created - check ${memberProviderLabel2} connection.`;
     await supabase
       .from('member_note')
       .insert({
@@ -1197,7 +1202,12 @@ async function sendMemberInvoiceEmailFromCron({
   xeroInvoiceId,
   onlineInvoiceUrl,
 }) {
-  if (!xeroInvoiceId || !xeroInvoiceNumber || !memberEmail) return;
+  if (!xeroInvoiceId || !memberEmail) return;
+
+  // QBO may legitimately return no DocNumber when "Custom transaction numbers"
+  // is enabled. Send the email anyway but omit the invoice-number row and drop
+  // the number from the subject so we never surface QBO's internal id.
+  const hasInvoiceNumber = !!xeroInvoiceNumber;
 
   try {
     const { data: template } = await supabase
@@ -1210,8 +1220,10 @@ async function sendMemberInvoiceEmailFromCron({
     const subject = template?.subject
       ? template.subject
           .replace(/\{membershipYear\}/gi, membershipYear)
-          .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber)
-      : `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear}`;
+          .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
+      : (hasInvoiceNumber
+          ? `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear}`
+          : `Membership Invoice - ${membershipYear}`);
 
     const formattedCost = parseFloat(finalCost).toFixed(2);
 
@@ -1224,14 +1236,14 @@ async function sendMemberInvoiceEmailFromCron({
         .replace(/\{tierLabel\}/gi, tierLabel || 'Standard')
         .replace(/\{finalCost\}/gi, formattedCost)
         .replace(/\{currency\}/gi, currency)
-        .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber)
+        .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
         .replace(/\{onlineInvoiceUrl\}/gi, onlineInvoiceUrl || '');
     } else {
       body = `
         <p>Dear ${memberName},</p>
         <p>Your membership invoice for ${membershipYear} has been generated.</p>
         <table style="border-collapse: collapse; margin: 16px 0;">
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>
+          ${hasInvoiceNumber ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>` : ''}
           <tr><td style="padding: 4px 12px; font-weight: bold;">Membership Year</td><td style="padding: 4px 12px;">${membershipYear}</td></tr>
           <tr><td style="padding: 4px 12px; font-weight: bold;">Tier</td><td style="padding: 4px 12px;">${tierLabel || 'Standard'}</td></tr>
           <tr><td style="padding: 4px 12px; font-weight: bold;">Fee</td><td style="padding: 4px 12px;">${currency} ${formattedCost}</td></tr>

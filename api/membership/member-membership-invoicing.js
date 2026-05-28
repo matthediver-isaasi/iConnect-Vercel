@@ -293,11 +293,12 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   }
 
   let xeroInvoice = null;
+  const provider = await getAccountingProvider(tenantId);
+  const providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
       ? `Membership ${membershipYear.label} - PO: ${poNumber}`
       : `Membership ${membershipYear.label}`;
-    const provider = await getAccountingProvider(tenantId);
     xeroInvoice = await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
@@ -319,13 +320,13 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         .eq('id', record.id);
 
       if (linkError) {
-        console.error(`[Member Invoicing] Failed to link Xero invoice to history record (non-fatal):`, linkError.message);
+        console.error(`[Member Invoicing] Failed to link ${providerLabel} invoice to history record (non-fatal):`, linkError.message);
       } else {
-        console.log(`[Member Invoicing] Xero invoice created: ${xeroInvoice.invoice_number} for ${memberName}`);
+        console.log(`[Member Invoicing] ${providerLabel} invoice created: ${xeroInvoice.invoice_number || '(no invoice number)'} for ${memberName}`);
       }
     }
   } catch (xeroErr) {
-    console.error('[Member Invoicing] Xero invoice creation failed (non-fatal):', xeroErr.message);
+    console.error(`[Member Invoicing] ${providerLabel} invoice creation failed (non-fatal):`, xeroErr.message);
   }
 
   if (xeroInvoice && member.email) {
@@ -353,8 +354,8 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   try {
     const noteCreatorId = tenantContext.memberId || tenantContext.tenantUserId || null;
     const invoiceNote = xeroInvoice
-      ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-      : ' Xero invoice could not be created - check Xero connection.';
+      ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+      : ` ${providerLabel} invoice could not be created - check ${providerLabel} connection.`;
     await supabase
       .from('member_note')
       .insert({
@@ -370,7 +371,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     success: true,
     record: { ...record, xero_invoice_id: xeroInvoice?.invoice_id, xero_invoice_number: xeroInvoice?.invoice_number },
     xeroInvoice: xeroInvoice || null,
-    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` Invoice ${xeroInvoice.invoice_number} created.` : ''}`,
+    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.` : ''}`,
   });
 }
 
@@ -389,8 +390,8 @@ async function sendMemberInvoiceEmail({
   totalWithVat,
   onlineInvoiceUrl,
 }) {
-  if (!xeroInvoiceId || !xeroInvoiceNumber) {
-    console.log('[Member Invoice Email] No Xero invoice details - skipping email');
+  if (!xeroInvoiceId) {
+    console.log('[Member Invoice Email] No invoice id - skipping email');
     return { success: false, error: 'No invoice details available' };
   }
 
@@ -398,6 +399,11 @@ async function sendMemberInvoiceEmail({
     console.log('[Member Invoice Email] No member email - skipping email');
     return { success: false, error: 'No email address available' };
   }
+
+  // QBO may legitimately return no DocNumber when "Custom transaction numbers"
+  // is enabled. Send the email anyway, but omit the invoice-number row + drop
+  // the number from the subject so we never surface QBO's internal id.
+  const hasInvoiceNumber = !!xeroInvoiceNumber;
 
   try {
     const { data: template } = await supabase
@@ -410,8 +416,10 @@ async function sendMemberInvoiceEmail({
     const subject = template?.subject
       ? template.subject
           .replace(/\{membershipYear\}/gi, membershipYear)
-          .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber)
-      : `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear}`;
+          .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
+      : (hasInvoiceNumber
+          ? `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear}`
+          : `Membership Invoice - ${membershipYear}`);
 
     const formattedCost = parseFloat(finalCost).toFixed(2);
     const formattedVat = parseFloat(vatAmount || 0).toFixed(2);
@@ -426,7 +434,7 @@ async function sendMemberInvoiceEmail({
         .replace(/\{tierLabel\}/gi, tierLabel || 'Standard')
         .replace(/\{finalCost\}/gi, formattedCost)
         .replace(/\{currency\}/gi, currency)
-        .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber)
+        .replace(/\{invoiceNumber\}/gi, xeroInvoiceNumber || '')
         .replace(/\{vatAmount\}/gi, formattedVat)
         .replace(/\{totalWithVat\}/gi, formattedTotal)
         .replace(/\{onlineInvoiceUrl\}/gi, onlineInvoiceUrl || '');
@@ -435,7 +443,7 @@ async function sendMemberInvoiceEmail({
         <p>Dear ${memberName},</p>
         <p>Your membership invoice for ${membershipYear} has been generated.</p>
         <table style="border-collapse: collapse; margin: 16px 0;">
-          <tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>
+          ${hasInvoiceNumber ? `<tr><td style="padding: 4px 12px; font-weight: bold;">Invoice Number</td><td style="padding: 4px 12px;">${xeroInvoiceNumber}</td></tr>` : ''}
           <tr><td style="padding: 4px 12px; font-weight: bold;">Membership Year</td><td style="padding: 4px 12px;">${membershipYear}</td></tr>
           <tr><td style="padding: 4px 12px; font-weight: bold;">Tier</td><td style="padding: 4px 12px;">${tierLabel || 'Standard'}</td></tr>
           <tr><td style="padding: 4px 12px; font-weight: bold;">Fee</td><td style="padding: 4px 12px;">${currency} ${formattedCost}</td></tr>
