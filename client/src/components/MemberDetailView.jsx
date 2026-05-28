@@ -9,6 +9,7 @@ import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
+import GuestAccessControl from "@/components/GuestAccessControl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1089,6 +1090,12 @@ export default function MemberDetailView({
               <MemberLoginStatusBadge
                 memberId={member.id}
                 fallbackEnabled={member?.login_enabled !== false}
+              />
+            )}
+            {!isNew && member?.id && member?.is_guest && (
+              <GuestAccessControl
+                member={member}
+                canManage={isFeatureExcluded && !isFeatureExcluded('element_TeamLoginAccessToggle')}
               />
             )}
             {isAdmin && !isEditing && !isNew && (

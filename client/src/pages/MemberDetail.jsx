@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import MemberLoginStatusBadge from "@/components/MemberLoginStatusBadge";
+import GuestAccessControl from "@/components/GuestAccessControl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1346,6 +1347,12 @@ export default function MemberDetail() {
             <MemberLoginStatusBadge
               memberId={member.id}
               fallbackEnabled={member?.login_enabled !== false}
+            />
+          )}
+          {member?.id && member?.is_guest && (
+            <GuestAccessControl
+              member={member}
+              canManage={isAccessReady && isFeatureExcluded && !isFeatureExcluded('element_TeamLoginAccessToggle')}
             />
           )}
           {isAdmin && !isEditing && (

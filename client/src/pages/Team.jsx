@@ -18,6 +18,7 @@ import { formatDistanceToNow, differenceInCalendarDays } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import GuestAccessControl, { getGuestStatus } from "@/components/GuestAccessControl";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
@@ -36,8 +37,6 @@ export default function TeamPage({ hasBanner }) {
   const [inviteBody, setInviteBody] = useState("");
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "" });
   const [signupLinkCopied, setSignupLinkCopied] = useState(false);
-  const [guestPopoverOpenId, setGuestPopoverOpenId] = useState(null);
-  const [guestDaysInput, setGuestDaysInput] = useState('');
   // Local edit state for the per-org Guest Access card. Mirrors the
   // organisation row but lets the admin tweak the period without saving on
   // every keystroke.
@@ -369,24 +368,6 @@ export default function TeamPage({ hasBanner }) {
     }
   });
 
-  // Update guest expiry mutation
-  const updateGuestExpiryMutation = useMutation({
-    mutationFn: async ({ memberId, guest_expires_at, login_enabled }) => {
-      const payload = { guest_expires_at };
-      if (login_enabled !== undefined) payload.login_enabled = login_enabled;
-      return await base44.entities.Member.update(memberId, payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team-members'] });
-      toast.success('Guest access updated');
-      setGuestPopoverOpenId(null);
-      setGuestDaysInput('');
-    },
-    onError: () => {
-      toast.error('Failed to update guest access');
-    }
-  });
-
   // Update member mutation
   const updateMemberMutation = useMutation({
     mutationFn: async ({ memberId, data }) => {
@@ -512,51 +493,6 @@ export default function TeamPage({ hasBanner }) {
 
   const handleToggleLogin = (member, newValue) => {
     toggleLoginMutation.mutate({ memberId: member.id, newValue });
-  };
-
-  const getGuestStatus = (member) => {
-    if (!member?.is_guest) return null;
-    const expiresAtRaw = member.guest_expires_at;
-    if (!expiresAtRaw) {
-      return { kind: 'permanent', label: 'Permanent' };
-    }
-    const expiresAt = new Date(expiresAtRaw);
-    if (Number.isNaN(expiresAt.getTime())) {
-      return { kind: 'permanent', label: 'Permanent' };
-    }
-    const now = new Date();
-    if (expiresAt.getTime() <= now.getTime()) {
-      return { kind: 'expired', label: 'Expired', expiresAt };
-    }
-    const daysLeft = Math.max(0, differenceInCalendarDays(expiresAt, now));
-    return {
-      kind: 'active',
-      label: daysLeft === 0 ? 'Less than a day left' : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`,
-      daysLeft,
-      expiresAt
-    };
-  };
-
-  const handleSetGuestDays = (member, days) => {
-    if (!Number.isFinite(days) || days < 1) {
-      toast.error('Enter a number of days greater than 0');
-      return;
-    }
-    const newExpiry = new Date();
-    newExpiry.setDate(newExpiry.getDate() + days);
-    updateGuestExpiryMutation.mutate({
-      memberId: member.id,
-      guest_expires_at: newExpiry.toISOString(),
-      login_enabled: true
-    });
-  };
-
-  const handleSetGuestPermanent = (member) => {
-    updateGuestExpiryMutation.mutate({
-      memberId: member.id,
-      guest_expires_at: null,
-      login_enabled: true
-    });
   };
 
   const handleEditClick = (member) => {
@@ -963,96 +899,11 @@ export default function TeamPage({ hasBanner }) {
 
                       <CardContent className="space-y-3" onClick={(e) => e.stopPropagation()}>
                         {guestStatus && (
-                          <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-100">
-                            <span className="text-xs inline-flex items-center gap-1">
-                              {guestStatus.kind === 'expired' ? (
-                                <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
-                              ) : guestStatus.kind === 'permanent' ? (
-                                <InfinityIcon className="w-3.5 h-3.5 text-slate-500" />
-                              ) : (
-                                <Clock className="w-3.5 h-3.5 text-warning" />
-                              )}
-                              <span
-                                className={
-                                  guestStatus.kind === 'expired'
-                                    ? 'text-red-600 font-medium'
-                                    : 'text-slate-700'
-                                }
-                                data-testid={`text-guest-status-${member.id}`}
-                              >
-                                Guest access: {guestStatus.label}
-                              </span>
-                            </span>
-                            {canManageGuestAccess && (
-                              <Popover
-                                open={guestPopoverOpenId === member.id}
-                                onOpenChange={(open) => {
-                                  setGuestPopoverOpenId(open ? member.id : null);
-                                  if (open) {
-                                    setGuestDaysInput(
-                                      guestStatus.kind === 'active' && guestStatus.daysLeft
-                                        ? String(guestStatus.daysLeft)
-                                        : '30'
-                                    );
-                                  } else {
-                                    setGuestDaysInput('');
-                                  }
-                                }}
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    data-testid={`button-adjust-guest-${member.id}`}
-                                  >
-                                    Adjust
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-72 space-y-3" align="end">
-                                  <div className="space-y-1">
-                                    <p className="text-sm font-medium text-slate-900">Adjust guest access</p>
-                                    <p className="text-xs text-slate-500">
-                                      Set a new number of days from today, or grant permanent access.
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      step={1}
-                                      value={guestDaysInput}
-                                      onChange={(e) => setGuestDaysInput(e.target.value)}
-                                      className="w-24"
-                                      data-testid={`input-guest-days-${member.id}`}
-                                    />
-                                    <span className="text-sm text-slate-600">days</span>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => {
-                                        const days = parseInt(guestDaysInput, 10);
-                                        handleSetGuestDays(member, days);
-                                      }}
-                                      disabled={updateGuestExpiryMutation.isPending}
-                                      data-testid={`button-set-guest-days-${member.id}`}
-                                    >
-                                      Set
-                                    </Button>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="w-full"
-                                    onClick={() => handleSetGuestPermanent(member)}
-                                    disabled={updateGuestExpiryMutation.isPending}
-                                    data-testid={`button-set-guest-permanent-${member.id}`}
-                                  >
-                                    <InfinityIcon className="w-4 h-4 mr-2" />
-                                    Make Permanent
-                                  </Button>
-                                </PopoverContent>
-                              </Popover>
-                            )}
-                          </div>
+                          <GuestAccessControl
+                            member={member}
+                            canManage={canManageGuestAccess}
+                            layout="inline-row"
+                          />
                         )}
                         {/* Render content sections in configured order */}
                         {orderedSections.filter(s => !['profile_photo', 'name_role'].includes(s)).map(sectionId => {
