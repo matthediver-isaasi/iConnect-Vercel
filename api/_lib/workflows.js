@@ -1937,7 +1937,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
-      .eq('trigger_type', 'field_change')
+      .in('trigger_type', ['field_change', 'record_update'])
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
@@ -1947,29 +1947,34 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
 
     for (const workflow of workflows) {
       const cfg = workflow.trigger_config;
-      console.log(`[Workflows] Checking workflow "${workflow.name}": cfg.field_id=${cfg?.field_id}, our fieldId=${fieldId}, cfg.field_type=${cfg?.field_type}`);
-      
-      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) {
-        console.log(`[Workflows] Skipping - field mismatch or not custom field`);
-        continue;
+      const isRecordUpdate = workflow.trigger_type === 'record_update';
+      console.log(`[Workflows] Checking workflow "${workflow.name}": trigger_type=${workflow.trigger_type}, cfg.field_id=${cfg?.field_id}, our fieldId=${fieldId}, cfg.field_type=${cfg?.field_type}`);
+
+      if (isRecordUpdate) {
+        console.log(`[Workflows] "${workflow.name}" is record_update - skipping trigger field matching, evaluating conditions`);
+      } else {
+        if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) {
+          console.log(`[Workflows] Skipping - field mismatch or not custom field`);
+          continue;
+        }
+
+        const target = String(cfg.value ?? '');
+        const actual = String(value ?? '');
+        let triggerMatches = false;
+
+        console.log(`[Workflows] Comparing: actual="${actual}" vs target="${target}", operator=${cfg.operator}`);
+
+        switch (cfg.operator) {
+          case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+          case 'changed_to': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+          case 'is_not_empty': triggerMatches = actual !== ''; break;
+          default: triggerMatches = false;
+        }
+
+        console.log(`[Workflows] Result: triggerMatches=${triggerMatches}`);
+
+        if (!triggerMatches) continue;
       }
-      
-      const target = String(cfg.value ?? '');
-      const actual = String(value ?? '');
-      let triggerMatches = false;
-      
-      console.log(`[Workflows] Comparing: actual="${actual}" vs target="${target}", operator=${cfg.operator}`);
-      
-      switch (cfg.operator) {
-        case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
-        case 'changed_to': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
-        case 'is_not_empty': triggerMatches = actual !== ''; break;
-        default: triggerMatches = false;
-      }
-      
-      console.log(`[Workflows] Result: triggerMatches=${triggerMatches}`);
-      
-      if (!triggerMatches) continue;
 
       let allConditionsMet = true;
       const conditionResults = [];
@@ -2082,7 +2087,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         continue;
       }
       
-      if (cfg.requires_confirmation) {
+      if (!isRecordUpdate && cfg?.requires_confirmation) {
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
         const conditionSummaries = await buildConditionSummaries(workflow.conditions, workflow.tenant_id, entityType);
         const confirmationData = {
@@ -2106,7 +2111,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       if (!allConditionsMet) {
         console.log(`[Workflows] Conditions not met for preference workflow: ${workflow.name} - SKIPPING`);
         
-        if (workflow.revert_trigger_on_condition_fail && !reverts.some(r => r.field_id === fieldId)) {
+        if (!isRecordUpdate && workflow.revert_trigger_on_condition_fail && !reverts.some(r => r.field_id === fieldId)) {
           console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting custom field ${fieldId} from "${value}" back to "${previousValue}"`);
           
           try {
