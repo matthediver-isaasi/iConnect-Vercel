@@ -307,12 +307,14 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
   }
 
   let xeroInvoice = null;
+  const provider = await getAccountingProvider(tenantId);
+  const providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
     const resolvedAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
-    xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
+    xeroInvoice = await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
       invoicingEmail: org.invoicing_email || null,
@@ -333,7 +335,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
         .eq('id', existingRecord.id);
     }
   } catch (xeroErr) {
-    console.error(`[cron/process-membership-renewals] Scheduled Xero invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
+    console.error(`[cron/process-membership-renewals] Scheduled ${providerLabel} invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
   }
 
   if (xeroInvoice) {
@@ -410,8 +412,8 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
 
   try {
     const invoiceNote = xeroInvoice
-      ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-      : ' Xero invoice could not be created - check Xero connection.';
+      ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+      : ` ${providerLabel} invoice could not be created - check ${providerLabel} connection.`;
     await supabase
       .from('organization_note')
       .insert({
@@ -546,6 +548,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   }
 
   let xeroInvoice = null;
+  let providerLabel = 'Xero';
   if (createInvoice) {
     try {
       const bandVatRate = simResult.taxType || simResult.matchedBand?.vat_rate || null;
@@ -553,7 +556,9 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
       const resolvedOrgAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
-      xeroInvoice = await (await getAccountingProvider(tenantId)).createMembershipInvoice({
+      const provider = await getAccountingProvider(tenantId);
+      providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
+      xeroInvoice = await provider.createMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
         invoicingEmail: org.invoicing_email || null,
@@ -574,11 +579,11 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
           .eq('id', record.id);
 
         if (linkError) {
-          console.error(`[cron/process-membership-renewals] Failed to link Xero invoice for org ${orgId}:`, linkError.message);
+          console.error(`[cron/process-membership-renewals] Failed to link ${providerLabel} invoice for org ${orgId}:`, linkError.message);
         }
       }
     } catch (xeroErr) {
-      console.error(`[cron/process-membership-renewals] Xero invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
+      console.error(`[cron/process-membership-renewals] ${providerLabel} invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
     }
   }
 
@@ -660,8 +665,8 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
     let noteContent = `[Membership Renewal - ${modeLabel}] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.`;
     if (createInvoice) {
       noteContent += xeroInvoice
-        ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-        : ' Xero invoice could not be created - check Xero connection.';
+        ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+        : ` ${providerLabel} invoice could not be created - check ${providerLabel} connection.`;
     } else {
       noteContent += ' Invoice will be generated on the scheduled date.';
     }

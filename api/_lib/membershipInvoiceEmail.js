@@ -23,10 +23,16 @@ export async function sendMembershipInvoiceEmail({
     return { success: false, error: 'Database not configured' };
   }
 
-  if (!xeroInvoiceId || !xeroInvoiceNumber) {
-    console.log('[Invoice Email] No Xero invoice details - skipping email');
+  if (!xeroInvoiceId) {
+    console.log('[Invoice Email] No invoice id - skipping email');
     return { success: false, error: 'No invoice details available' };
   }
+
+  // QBO may legitimately return no DocNumber when the company file has
+  // "Custom transaction numbers" enabled. In that case we send the email
+  // anyway, but omit the invoice-number row + drop the number from the
+  // subject so we never surface QBO's internal id as a fake "invoice number".
+  const hasInvoiceNumber = !!xeroInvoiceNumber;
 
   try {
     const resolved = await resolveTierRecipients({
@@ -71,10 +77,12 @@ export async function sendMembershipInvoiceEmail({
           <p>Your membership invoice for the period <strong>${membershipYear}</strong> has been generated.</p>
           <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
             <table style="width: 100%; border-collapse: collapse;">
+              ${hasInvoiceNumber ? `
               <tr>
                 <td style="padding: 4px 0; color: #666;">Invoice Number</td>
                 <td style="padding: 4px 0; text-align: right; font-weight: 600;">${xeroInvoiceNumber}</td>
               </tr>
+              ` : ''}
               <tr>
                 <td style="padding: 4px 0; color: #666;">Membership Year</td>
                 <td style="padding: 4px 0; text-align: right; font-weight: 600;">${membershipYear}</td>
@@ -114,7 +122,9 @@ export async function sendMembershipInvoiceEmail({
       </div>
     `;
 
-    const subject = `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear} - ${tenantName}`;
+    const subject = hasInvoiceNumber
+      ? `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear} - ${tenantName}`
+      : `Membership Invoice - ${membershipYear} - ${tenantName}`;
     const sendResults = [];
 
     for (const toEmail of allRecipients) {
@@ -140,13 +150,14 @@ export async function sendMembershipInvoiceEmail({
     }
 
     const recipientList = allRecipients.join(', ');
-    console.log(`[Invoice Email] Invoice email sent to ${recipientList} for ${organizationName} (${xeroInvoiceNumber})`);
+    const invoiceLabel = hasInvoiceNumber ? xeroInvoiceNumber : '(no invoice number)';
+    console.log(`[Invoice Email] Invoice email sent to ${recipientList} for ${organizationName} (${invoiceLabel})`);
 
     try {
       await supabase.from('organization_note').insert({
         organization_id: organizationId,
         member_id: null,
-        content: `[Membership Invoice Email] Invoice ${xeroInvoiceNumber} notification sent to ${recipientList} for ${membershipYear}.`,
+        content: `[Membership Invoice Email] Invoice ${invoiceLabel} notification sent to ${recipientList} for ${membershipYear}.`,
         attachments: [],
       });
     } catch {}

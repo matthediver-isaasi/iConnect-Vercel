@@ -494,14 +494,34 @@ export async function createQuickBooksMembershipInvoice({
     }
   }
 
+  // Best-effort fetch of the customer-facing hosted invoice URL via the
+  // `?include=invoiceLink` query on the invoice GET. QBO returns it as
+  // `InvoiceLink` on the Invoice object (only populated when the company
+  // file allows online sharing). Any failure is non-fatal — caller behaves
+  // exactly as before with `online_invoice_url: null`.
+  let onlineInvoiceUrl = null;
+  try {
+    const linkUrl = `${base}/invoice/${encodeURIComponent(invoice.Id)}?include=invoiceLink&minorversion=${MINOR_VERSION}`;
+    const linkResp = await qboFetch('invoice-link', accessToken, 'GET', linkUrl);
+    onlineInvoiceUrl = linkResp?.Invoice?.InvoiceLink || null;
+    if (onlineInvoiceUrl) {
+      console.log(`[QBO] Online invoice link retrieved for ${invoice.DocNumber || invoice.Id}`);
+    }
+  } catch (linkErr) {
+    console.log(`[QBO] Could not fetch online invoice link (non-fatal): ${linkErr.message}`);
+  }
+
   return {
     invoice_id: invoice.Id,
-    invoice_number: invoice.DocNumber || invoice.Id,
+    // Return DocNumber as-is; may be null when the company file has
+    // "Custom transaction numbers" enabled. Callers must handle the
+    // missing-number case rather than falling back to the internal Id.
+    invoice_number: invoice.DocNumber || null,
     total: invoice.TotalAmt,
     status: paymentRecorded ? 'PAID' : 'AUTHORISED',
     payment_recorded: paymentRecorded,
     payment_id: paymentId,
-    online_invoice_url: null,
+    online_invoice_url: onlineInvoiceUrl,
   };
 }
 

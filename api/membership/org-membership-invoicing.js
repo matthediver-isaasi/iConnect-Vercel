@@ -315,11 +315,12 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   }
 
   let xeroInvoice = null;
+  const provider = await getAccountingProvider(tenantId);
+  const providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
   try {
     const xeroReference = poNumber
       ? `Membership ${membershipYear.label} - PO: ${poNumber}`
       : `Membership ${membershipYear.label}`;
-    const provider = await getAccountingProvider(tenantId);
     xeroInvoice = await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
@@ -341,13 +342,13 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         .eq('id', record.id);
 
       if (linkError) {
-        console.error(`[Invoicing] Failed to link Xero invoice to history record (non-fatal):`, linkError.message);
+        console.error(`[Invoicing] Failed to link ${providerLabel} invoice to history record (non-fatal):`, linkError.message);
       } else {
-        console.log(`[Invoicing] Xero invoice created: ${xeroInvoice.invoice_number} for ${org.name}`);
+        console.log(`[Invoicing] ${providerLabel} invoice created: ${xeroInvoice.invoice_number || '(no invoice number)'} for ${org.name}`);
       }
     }
   } catch (xeroErr) {
-    console.error('[Invoicing] Xero invoice creation failed (non-fatal):', xeroErr.message);
+    console.error(`[Invoicing] ${providerLabel} invoice creation failed (non-fatal):`, xeroErr.message);
   }
 
   if (xeroInvoice) {
@@ -376,8 +377,8 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   try {
     const noteCreatorId = tenantContext.memberId || tenantContext.tenantUserId || null;
     const invoiceNote = xeroInvoice
-      ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
-      : ' Xero invoice could not be created - check Xero connection.';
+      ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.`
+      : ` ${providerLabel} invoice could not be created - check ${providerLabel} connection.`;
     await supabase
       .from('organization_note')
       .insert({
@@ -394,7 +395,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     success: true,
     record: { ...record, xero_invoice_id: xeroInvoice?.invoice_id, xero_invoice_number: xeroInvoice?.invoice_number },
     xeroInvoice: xeroInvoice || null,
-    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` Invoice ${xeroInvoice.invoice_number} created.` : ''}`,
+    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` ${providerLabel} invoice ${xeroInvoice.invoice_number || '(no invoice number)'} created.` : ''}`,
   });
 }
 
