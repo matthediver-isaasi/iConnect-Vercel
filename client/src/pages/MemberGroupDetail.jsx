@@ -32,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import MemberProfileModal from "@/components/MemberProfileModal";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -183,6 +184,7 @@ export default function MemberGroupDetailPage() {
 
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPage, setMemberPage] = useState(1);
+  const [selectedMemberId, setSelectedMemberId] = useState(null);
 
   const sortedMembers = useMemo(() => {
     return members
@@ -407,11 +409,28 @@ export default function MemberGroupDetailPage() {
                   <>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                       {pagedMembers.map((m) => {
-                        const { displayName, showAvatarImage } = m.__display;
+                        const { displayName, showAvatarImage, anonymised } = m.__display;
+                        const interactive = !anonymised;
+                        const handleOpen = () => {
+                          if (interactive) setSelectedMemberId(m.id);
+                        };
                         return (
                           <Card
                             key={m.id}
-                            className="overflow-hidden"
+                            className={`overflow-hidden ${interactive ? "cursor-pointer hover-elevate active-elevate-2" : ""}`}
+                            onClick={interactive ? handleOpen : undefined}
+                            onKeyDown={
+                              interactive
+                                ? (e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      handleOpen();
+                                    }
+                                  }
+                                : undefined
+                            }
+                            role={interactive ? "button" : undefined}
+                            tabIndex={interactive ? 0 : undefined}
                             data-testid={`card-member-${m.id}`}
                           >
                             <CardContent className="p-3 flex items-center gap-3">
@@ -514,6 +533,14 @@ export default function MemberGroupDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MemberProfileModal
+        memberId={selectedMemberId}
+        open={!!selectedMemberId}
+        onOpenChange={(open) => {
+          if (!open) setSelectedMemberId(null);
+        }}
+      />
     </div>
   );
 }
