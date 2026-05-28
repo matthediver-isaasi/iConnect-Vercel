@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 const VALID_CORE_FIELDS = [
-  'name', 'slug', 'description', 'website_url', 'email', 'phone',
+  'name', 'slug', 'description', 'website_url', 'email', 'invoicing_email', 'phone',
   'address', 'city', 'country', 'postcode', 'external_id', 'is_active',
   'status', 'twitter_url', 'linkedin_url', 'facebook_url', 'instagram_url'
 ];
