@@ -932,6 +932,16 @@ export default async function handler(req, res) {
     // existing org-resolution chain as a synthetic prefill_organization_id so
     // the right organisation row is updated.
     let dropdownSelectedOrgId = null;
+    // Same guard for member_dropdown form fields: their stored value is a
+    // member UUID, and mapping that to a member core column (Email / Full
+    // Name / etc.) would rename the member to its own id. Capture the id
+    // and feed it into the member-resolution chain instead.
+    const isMemberDropdownSourceField = (sourceFieldId) => {
+      if (!sourceFieldId) return false;
+      const f = fieldsById.get(sourceFieldId);
+      return !!f && f.type === 'member_dropdown';
+    };
+    let dropdownSelectedMemberId = null;
 
     const { data: preferenceFields } = await supabase
       .from('preference_field')
@@ -1089,6 +1099,18 @@ export default async function handler(req, res) {
         
         if (target_type === 'core') {
           if (target_entity === 'member') {
+            // Guard: a member_dropdown stores the selected member's UUID
+            // as its value. Writing that into memberData.email / .full_name
+            // / etc. would rename the member to its own id. Instead,
+            // capture the selected id for the member-resolution chain and
+            // skip the assignment.
+            if (isMemberDropdownSourceField(source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source:', { target_field, source_field_id, captured_member_id: value });
+              continue;
+            }
             // Use hasAssignableValue to properly handle boolean fields
             if (hasAssignableValue(target_field, value)) {
               memberData[target_field] = coerceCoreFieldValue('member', target_field, value);
@@ -1141,8 +1163,16 @@ export default async function handler(req, res) {
         if (field.core_field_mapping && !isEmptyForCore) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
           if (entity === 'member') {
-            // Use hasAssignableValue to properly handle boolean fields
-            if (hasAssignableValue(fieldName, value)) {
+            // Guard: a member_dropdown stores the selected member's UUID.
+            // Writing it into a member core column would rename the member
+            // to its own id. Capture the id for the member-resolution chain
+            // and skip.
+            if (field.type === 'member_dropdown') {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_member_id: value });
+            } else if (hasAssignableValue(fieldName, value)) {
               memberData[fieldName] = coerceCoreFieldValue('member', fieldName, value);
             }
           } else if (entity === 'organization') {
@@ -1274,6 +1304,14 @@ export default async function handler(req, res) {
                 dropdownSelectedOrgId = value;
               }
               console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: value });
+              continue;
+            }
+            // Same guard for member_dropdown -> member core column writes.
+            if (targetEntity === 'member' && isMemberDropdownSourceField(mapping.source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_member_id: value });
               continue;
             }
             // Use hasAssignableValue to allow boolean false/empty through for boolean fields
@@ -1550,13 +1588,15 @@ export default async function handler(req, res) {
       }
       
       if (!existingOrg) {
-        // Try via the resolved member (prefill_member_id, or by email within tenant).
+        // Try via the resolved member (prefill_member_id, the member_dropdown
+        // selection, or by email within tenant).
         let resolvedMember = null;
-        if (prefill_member_id) {
+        const memberIdForOrgLookup = prefill_member_id || dropdownSelectedMemberId || null;
+        if (memberIdForOrgLookup) {
           const { data: m } = await supabase
             .from('member')
             .select('id, organization_id')
-            .eq('id', prefill_member_id)
+            .eq('id', memberIdForOrgLookup)
             .maybeSingle();
           resolvedMember = m;
         } else if (memberData?.email) {
@@ -1763,16 +1803,37 @@ export default async function handler(req, res) {
 
     // Process member based on memberAction (none/create/update/upsert)
     if (shouldProcessMember) {
-      console.log('[AppProcessor] Member processing enabled. Action:', memberAction, 'MemberData:', memberData, 'PrefillMemberId:', prefill_member_id);
+      // If a member_dropdown selection was captured but no explicit
+      // prefill_member_id was supplied, use the dropdown's id as the
+      // synthetic prefill so the existing resolution chain targets the right
+      // member. When the request already carries an explicit prefill that
+      // disagrees, prefer the explicit one and leave a processing note.
+      let effectivePrefillMemberId = prefill_member_id || null;
+      if (dropdownSelectedMemberId) {
+        if (!effectivePrefillMemberId) {
+          effectivePrefillMemberId = dropdownSelectedMemberId;
+          console.log('[AppProcessor] Using member_dropdown selection as effective prefill_member_id:', dropdownSelectedMemberId);
+        } else if (effectivePrefillMemberId !== dropdownSelectedMemberId) {
+          addProcessingNote({
+            level: 'info',
+            stage: 'member_resolve',
+            message: 'member_dropdown selection ignored: explicit prefill_member_id takes precedence.',
+            dropdown_member_id: dropdownSelectedMemberId,
+            prefill_member_id: effectivePrefillMemberId,
+          });
+          console.warn('[AppProcessor] Dropdown member id disagrees with explicit prefill_member_id; using explicit:', { dropdown: dropdownSelectedMemberId, prefill: effectivePrefillMemberId });
+        }
+      }
+      console.log('[AppProcessor] Member processing enabled. Action:', memberAction, 'MemberData:', memberData, 'PrefillMemberId:', effectivePrefillMemberId);
       
       // Find existing member: by prefill_member_id first, then by email
       let existingMember = null;
       
-      if (prefill_member_id) {
+      if (effectivePrefillMemberId) {
         const { data: foundMember } = await supabase
           .from('member')
           .select('*')
-          .eq('id', prefill_member_id)
+          .eq('id', effectivePrefillMemberId)
           .single();
         existingMember = foundMember;
         console.log('[AppProcessor] Found member by prefill ID:', existingMember?.id);
