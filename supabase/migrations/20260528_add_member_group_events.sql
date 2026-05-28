@@ -16,6 +16,13 @@ ALTER TABLE event
 ALTER TABLE event
   ADD COLUMN IF NOT EXISTS online_meeting_url TEXT NULL;
 
+ALTER TABLE event
+  ADD COLUMN IF NOT EXISTS created_by TEXT NULL REFERENCES tenant_identity(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_event_created_by
+  ON event(created_by)
+  WHERE created_by IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_event_member_group_id
   ON event(member_group_id)
   WHERE member_group_id IS NOT NULL;
