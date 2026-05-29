@@ -1028,8 +1028,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         };
       });
   } else if (targetType === 'event_attendees' && targetIds.length > 0) {
-    const collectMemberIds = async (table) => {
-      const ids = new Set();
+    const collectBookings = async (table) => {
+      const rows = [];
       const idBatchSize = 200;
       for (let i = 0; i < targetIds.length; i += idBatchSize) {
         const idBatch = targetIds.slice(i, i + idBatchSize);
@@ -1039,10 +1039,9 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         while (hasMore) {
           const { data, error } = await supabase
             .from(table)
-            .select('member_id')
+            .select('attendee_email, attendee_first_name, attendee_last_name, member_id')
             .eq('tenant_id', tenantId)
             .eq('status', 'confirmed')
-            .not('member_id', 'is', null)
             .in('event_id', idBatch)
             .range(offset, offset + pageSize - 1);
           if (error) {
@@ -1050,9 +1049,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             break;
           }
           if (data && data.length > 0) {
-            for (const row of data) {
-              if (row.member_id) ids.add(row.member_id);
-            }
+            rows.push(...data);
             offset += data.length;
             hasMore = data.length === pageSize;
           } else {
@@ -1060,43 +1057,111 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           }
         }
       }
-      return ids;
+      return rows;
     };
 
-    const [regularIds, complexIds] = await Promise.all([
-      collectMemberIds('booking'),
-      collectMemberIds('complex_event_booking'),
+    const [regularBookings, complexBookings] = await Promise.all([
+      collectBookings('booking'),
+      collectBookings('complex_event_booking'),
     ]);
-    const memberIdSet = new Set([...regularIds, ...complexIds]);
+    const bookingRows = [...regularBookings, ...complexBookings];
 
-    if (memberIdSet.size > 0) {
-      const memberIdArr = [...memberIdSet];
-      const seenEmails = new Set();
+    if (bookingRows.length > 0) {
+      const isDeletedEmail = (email) => /^deleted_.*@deleted\.local$/i.test(email || '');
+
+      // Attendees identified directly by attendee_email.
+      const attendeeByEmail = new Map(); // emailKey -> { email, first_name, last_name }
+      // Bookings with no attendee_email fall back to the booker member.
+      const fallbackBookerIds = new Set();
+
+      for (const row of bookingRows) {
+        const attendeeEmail = (row.attendee_email || '').trim();
+        if (attendeeEmail) {
+          if (isDeletedEmail(attendeeEmail)) continue;
+          const key = attendeeEmail.toLowerCase();
+          if (!attendeeByEmail.has(key)) {
+            attendeeByEmail.set(key, {
+              email: attendeeEmail,
+              first_name: row.attendee_first_name || '',
+              last_name: row.attendee_last_name || '',
+            });
+          }
+        } else if (row.member_id) {
+          fallbackBookerIds.add(row.member_id);
+        }
+      }
+
+      // Resolve attendee emails to member rows (so members get id + opt-out flag).
+      const memberByEmail = new Map(); // emailKey -> member row
+      const attendeeEmailArr = [...attendeeByEmail.values()].map((a) => a.email);
+      const emailBatchSize = 200;
+      for (let i = 0; i < attendeeEmailArr.length; i += emailBatchSize) {
+        const batch = attendeeEmailArr.slice(i, i + emailBatchSize);
+        const { data: members } = await supabase
+          .from('member')
+          .select('id, email, first_name, last_name, communications_opted_out_all')
+          .eq('tenant_id', tenantId)
+          .in('email', batch);
+        if (members) {
+          for (const m of members) {
+            if (!m.email) continue;
+            memberByEmail.set(m.email.toLowerCase(), m);
+          }
+        }
+      }
+
+      // Resolve fallback booker member_ids to member rows.
+      const fallbackMembers = [];
+      const fallbackIdArr = [...fallbackBookerIds];
       const idBatchSize = 500;
-      for (let i = 0; i < memberIdArr.length; i += idBatchSize) {
-        const batch = memberIdArr.slice(i, i + idBatchSize);
+      for (let i = 0; i < fallbackIdArr.length; i += idBatchSize) {
+        const batch = fallbackIdArr.slice(i, i + idBatchSize);
         const { data: members } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('id', batch)
           .not('email', 'ilike', 'deleted_%@deleted.local');
-        if (members) {
-          for (const m of members) {
-            if (!m.email) continue;
-            const key = m.email.toLowerCase();
-            if (seenEmails.has(key)) continue;
-            seenEmails.add(key);
-            recipients.push({
-              id: m.id,
-              member_id: m.id,
-              email: m.email,
-              first_name: m.first_name,
-              last_name: m.last_name,
-              communications_opted_out_all: m.communications_opted_out_all,
-            });
-          }
+        if (members) fallbackMembers.push(...members);
+      }
+
+      const seenEmails = new Set();
+      const pushMember = (m) => {
+        if (!m.email || isDeletedEmail(m.email)) return;
+        const key = m.email.toLowerCase();
+        if (seenEmails.has(key)) return;
+        seenEmails.add(key);
+        recipients.push({
+          id: m.id,
+          member_id: m.id,
+          email: m.email,
+          first_name: m.first_name,
+          last_name: m.last_name,
+          communications_opted_out_all: m.communications_opted_out_all,
+        });
+      };
+
+      // Attendees: prefer the matching member row; otherwise include as a guest.
+      for (const [key, attendee] of attendeeByEmail) {
+        const member = memberByEmail.get(key);
+        if (member) {
+          pushMember(member);
+        } else {
+          if (seenEmails.has(key)) continue;
+          seenEmails.add(key);
+          recipients.push({
+            id: null,
+            member_id: null,
+            email: attendee.email,
+            first_name: attendee.first_name,
+            last_name: attendee.last_name,
+          });
         }
+      }
+
+      // Legacy bookings with no attendee_email: include the booker.
+      for (const m of fallbackMembers) {
+        pushMember(m);
       }
     }
   } else if (targetType === 'audience_list' && targetIds.length > 0) {
@@ -1414,6 +1479,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           const collectAttendeeIds = async (eventIds) => {
             const ids = new Set();
             if (!Array.isArray(eventIds) || eventIds.length === 0) return ids;
+            const attendeeEmails = new Map(); // emailKey -> original email
+            const fallbackBookerIds = new Set();
             for (const table of ['booking', 'complex_event_booking']) {
               const idBatchSize = 200;
               for (let i = 0; i < eventIds.length; i += idBatchSize) {
@@ -1424,10 +1491,9 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
                 while (hasMore) {
                   const { data, error } = await supabase
                     .from(table)
-                    .select('member_id')
+                    .select('attendee_email, member_id')
                     .eq('tenant_id', tenantId)
                     .eq('status', 'confirmed')
-                    .not('member_id', 'is', null)
                     .in('event_id', idBatch)
                     .range(offset, offset + pageSize - 1);
                   if (error) {
@@ -1436,13 +1502,37 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
                   }
                   if (data && data.length > 0) {
                     for (const row of data) {
-                      if (row.member_id) ids.add(row.member_id);
+                      const email = (row.attendee_email || '').trim();
+                      if (email) {
+                        attendeeEmails.set(email.toLowerCase(), email);
+                      } else if (row.member_id) {
+                        fallbackBookerIds.add(row.member_id);
+                      }
                     }
                     offset += data.length;
                     hasMore = data.length === pageSize;
                   } else { hasMore = false; }
                 }
               }
+            }
+            // Legacy rows with no attendee_email fall back to the booker member.
+            for (const id of fallbackBookerIds) ids.add(id);
+            // Resolve attendee emails to member IDs; guests with no member row are
+            // naturally excluded (this filter operates in a member-scope context).
+            const emailArr = [...attendeeEmails.values()];
+            const emailBatchSize = 200;
+            for (let i = 0; i < emailArr.length; i += emailBatchSize) {
+              const batch = emailArr.slice(i, i + emailBatchSize);
+              const { data: members, error } = await supabase
+                .from('member')
+                .select('id, email')
+                .eq('tenant_id', tenantId)
+                .in('email', batch);
+              if (error) {
+                console.error('[FieldFilter] attendee-email member lookup error:', error);
+                continue;
+              }
+              if (members) members.forEach((m) => ids.add(m.id));
             }
             return ids;
           };
