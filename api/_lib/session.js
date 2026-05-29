@@ -640,28 +640,44 @@ export async function getSessionTenantUser(req) {
       
       if (identity) {
         // Found in unified identity system - verify membership.
-        // Admin access is conveyed via membership.role ('owner'/'admin'),
-        // not via membership_type. Most admin rows are stored as
-        // membership_type='member' with role='owner', so filtering on
-        // membership_type='owner' alone would 401 every legitimate admin
-        // request on /api/admin/*.
-        const { data: membership, error: membershipError } = await supabase
+        //
+        // Robustness notes (this path runs on EVERY /api/admin/* request):
+        //  - Admin access is conveyed via membership.role ('owner'/'admin'),
+        //    not via membership_type. Most admin rows are stored as
+        //    membership_type='member' with role='owner', so filtering on
+        //    membership_type='owner' alone would 401 every legitimate admin.
+        //  - We fetch the FULL set of active memberships (no .single()/
+        //    .maybeSingle()) because those throw/error when duplicate rows
+        //    exist for the same identity+tenant, which would otherwise drop a
+        //    legitimate admin session and 401 the dashboard.
+        const { data: membershipRows, error: membershipError } = await supabase
           .from('tenant_membership')
           .select('*, tenant:tenant_id(*)')
           .eq('identity_id', identity.id)
           .eq('tenant_id', session.data.tenantId)
-          .eq('status', 'active')
-          .or('membership_type.eq.owner,role.eq.owner,role.eq.admin')
-          .maybeSingle();
-        
-        if (membership && !membershipError) {
+          .eq('status', 'active');
+
+        if (membershipError) {
+          // Transient lookup failure: reject THIS request but never delete the
+          // session, so the next request can recover instead of forcing a full
+          // re-authentication.
+          console.warn('[Session] tenant_membership lookup error, not deleting session:', membershipError.message);
+          return null;
+        }
+
+        const memberships = membershipRows || [];
+        const adminMembership = memberships.find(
+          m => m.role === 'owner' || m.role === 'admin' || m.membership_type === 'owner'
+        );
+
+        if (adminMembership) {
           console.log('[Session] Verified via unified identity system:', identity.email);
-          
+
           // Check if there's also a tenant_user record with a higher privilege role
           // This handles cases where user is both a member and tenant owner
-          let effectiveRole = membership.role || 'owner';
-          
-          if (session.data.tenantUserId && effectiveRole === 'member') {
+          let effectiveRole = adminMembership.role || 'owner';
+
+          if (session.data.tenantUserId && session.data.tenantUserId !== identity.id && effectiveRole === 'member') {
             const { data: legacyUser } = await supabase
               .from('tenant_user')
               .select('role')
@@ -669,13 +685,13 @@ export async function getSessionTenantUser(req) {
               .eq('tenant_id', session.data.tenantId)
               .eq('status', 'active')
               .single();
-            
+
             if (legacyUser && (legacyUser.role === 'owner' || legacyUser.role === 'admin')) {
               console.log('[Session] Elevating role from tenant_user table:', legacyUser.role);
               effectiveRole = legacyUser.role;
             }
           }
-          
+
           // Return a tenant user-like object for API compatibility
           const unifiedUser = {
             id: identity.id,
@@ -685,16 +701,28 @@ export async function getSessionTenantUser(req) {
             role: effectiveRole,
             status: 'active',
             tenant_id: session.data.tenantId,
-            tenant: membership.tenant,
+            tenant: adminMembership.tenant,
             _sessionTenantId: session.data.tenantId,
             _sessionIdentityId: identity.id,
             _isUnifiedIdentity: true
           };
-          
+
           return unifiedUser;
-        } else {
-          console.log('[Session] Unified identity membership not found or inactive for tenant:', session.data.tenantId);
         }
+
+        // Identity resolved but no admin-level membership for this tenant.
+        // Do NOT fall through to the legacy tenant_user lookup below when the
+        // session's tenantUserId is actually the identity.id (the case where no
+        // legacy tenant_user row exists): that lookup is guaranteed to miss and
+        // would DELETE a valid session, 401ing every subsequent request.
+        if (!session.data.tenantUserId || session.data.tenantUserId === identity.id) {
+          console.log('[Session] No admin-level membership for identity on tenant, returning null without deleting session:', session.data.tenantId);
+          return null;
+        }
+        // Otherwise tenantUserId is a real tenant_user.id — fall through and let
+        // the legacy lookup below validate it (legacy-only admins may have a
+        // tenant_user row without a matching tenant_membership row).
+        console.log('[Session] No unified admin membership; falling back to legacy tenant_user validation for:', session.data.tenantUserId);
       }
     }
     
