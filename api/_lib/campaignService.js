@@ -2204,25 +2204,69 @@ function buildQrReqFromHost(requestHost) {
   return { headers: { host, 'x-forwarded-host': host, 'x-forwarded-proto': 'https' } };
 }
 
+// Resolve the event ids a campaign's QR block should be scoped to. Returns an
+// array of event ids when the campaign targets event-attendees (directly or via
+// an audience_list whose saved segments are event_attendees), or null when no
+// event scope can be determined (fall back to all the recipient's bookings).
+async function resolveCampaignEventScope(campaign, tenantId) {
+  // Direct event-attendees targeting.
+  if (campaign.target_type === 'event_attendees'
+    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0) {
+    const ids = [...new Set(campaign.target_ids.filter(Boolean))];
+    return ids.length > 0 ? ids : null;
+  }
+
+  // Audience list whose saved segments include event_attendees.
+  if (campaign.target_type === 'audience_list'
+    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0) {
+    try {
+      const { data: lists } = await supabase
+        .from('audience_list')
+        .select('id, target_audiences')
+        .eq('tenant_id', tenantId)
+        .in('id', campaign.target_ids);
+      const eventIds = new Set();
+      for (const list of lists || []) {
+        const segs = list.target_audiences;
+        if (!Array.isArray(segs)) continue;
+        for (const seg of segs) {
+          if (seg?.type === 'event_attendees' && Array.isArray(seg.ids)) {
+            for (const id of seg.ids) if (id) eventIds.add(id);
+          }
+        }
+      }
+      if (eventIds.size > 0) return [...eventIds];
+    } catch (e) {
+      console.warn('[Campaign QR] audience_list event scope failed:', e?.message);
+    }
+  }
+
+  return null;
+}
+
 // Resolve the per-recipient entrance QR image URL for an Event QR block.
 // Returns a hosted PNG URL for the first confirmed in-person booking the
-// recipient holds (simple booking token, else first complex session token),
-// or null when there is no in-person booking (online events / no booking).
+// recipient holds, matched by the recipient's email against the booking's
+// attendee_email (so the QR is the attendee's own entrance code, not the
+// booker's), or null when there is no in-person booking (online events / no
+// booking). Works for member and guest attendees alike — matching is driven
+// by email, consistent with how the event-attendees audience list is built.
 async function resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost) {
-  if (!recipient?.member_id) return null;
-  const eventIds = (campaign.target_type === 'event_attendees'
-    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0)
-    ? campaign.target_ids
-    : null;
+  const email = (recipient?.email || '').trim();
+  if (!email) return null;
+  const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
+  const emailLike = escapeLike(email);
+  const eventIds = await resolveCampaignEventScope(campaign, tenantId);
   const req = buildQrReqFromHost(requestHost);
 
-  // 1. Simple bookings — one token per booking, skip online events.
+  // 1. Simple bookings — match by attendee email, one token per booking, skip
+  //    online events.
   try {
     let q = supabase
       .from('booking')
       .select('id, event_id, status')
       .eq('tenant_id', tenantId)
-      .eq('member_id', recipient.member_id)
+      .ilike('attendee_email', emailLike)
       .eq('status', 'confirmed');
     if (eventIds) q = q.in('event_id', eventIds);
     const { data: bookings } = await q;
@@ -2244,13 +2288,14 @@ async function resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost
     console.warn('[Campaign QR] simple booking lookup failed:', e?.message);
   }
 
-  // 2. Complex bookings — one token per in-person session; use the first.
+  // 2. Complex bookings — match by attendee email, one token per in-person
+  //    session; use the first.
   try {
     let q = supabase
       .from('complex_event_booking')
       .select('id, event_id, ticket_class_id, status, tenant_id')
       .eq('tenant_id', tenantId)
-      .eq('member_id', recipient.member_id)
+      .ilike('attendee_email', emailLike)
       .eq('status', 'confirmed');
     if (eventIds) q = q.in('event_id', eventIds);
     const { data: cbookings } = await q;
