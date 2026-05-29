@@ -17,7 +17,7 @@ import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp, ChevronRight,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
   Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon,
-  Layers, Building2, Handshake, AlertTriangle, AlertCircle, Mail, Bell, Download, FileText, Code
+  Layers, Building2, Handshake, AlertTriangle, AlertCircle, Mail, Bell, Download, FileText, Code, QrCode
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
@@ -644,6 +644,7 @@ export default function CreateComplexEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
   const [showSeatCount, setShowSeatCount] = useState(true);
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
+  const [qrOnConfirmation, setQrOnConfirmation] = useState(true);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
@@ -1105,8 +1106,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1210,6 +1211,7 @@ export default function CreateComplexEvent() {
       }
       setShowSeatCount(existingEvent.show_seat_count !== false);
       setShowTicketAvailability(existingEvent.show_ticket_availability === true);
+      setQrOnConfirmation(existingEvent.qr_on_confirmation !== false);
       setCollectThirdPartyConsent(existingEvent.pricing_config?.collectThirdPartyConsent === true);
 
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
@@ -1741,6 +1743,7 @@ export default function CreateComplexEvent() {
         is_unlimited_registration: unlimitedSeats,
         show_seat_count: showSeatCount,
         show_ticket_availability: showTicketAvailability,
+        qr_on_confirmation: qrOnConfirmation,
         pricing_config: { collectThirdPartyConsent: collectThirdPartyConsent === true },
         internal_reference: formData.internal_reference || null,
         xero_account_code: formData.xero_account_code || null,
@@ -2746,6 +2749,22 @@ export default function CreateComplexEvent() {
                       checked={showTicketAvailability}
                       onCheckedChange={setShowTicketAvailability}
                       data-testid="switch-show-ticket-availability"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-4 w-4 text-slate-500" />
+                      <div>
+                        <Label htmlFor="qr-on-confirmation" className="text-sm">Entrance QR code</Label>
+                        <p className="text-xs text-slate-500">Attach a check-in QR code to booking confirmation emails (per in-person session)</p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="qr-on-confirmation"
+                      checked={qrOnConfirmation}
+                      onCheckedChange={setQrOnConfirmation}
+                      data-testid="switch-qr-on-confirmation"
                     />
                   </div>
 

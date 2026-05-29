@@ -42,7 +42,8 @@ import {
   Gift,
   Bird,
   AlertCircle,
-  Handshake
+  Handshake,
+  QrCode
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -154,6 +155,7 @@ export default function EditEvent() {
   // Per-event seat visibility
   const [showSeatCount, setShowSeatCount] = useState(true);
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
+  const [qrOnConfirmation, setQrOnConfirmation] = useState(true);
   
   // Handler for timing changes - clears TBC-incompatible fields synchronously
   const handleTimingChange = (newTiming) => {
@@ -980,6 +982,9 @@ export default function EditEvent() {
       // Set per-event ticket availability visibility (default to false if not set)
       setShowTicketAvailability(event.show_ticket_availability === true);
       
+      // Set per-event entrance QR on confirmation (default to true if not set)
+      setQrOnConfirmation(event.qr_on_confirmation !== false);
+      
       setSlug(event.slug || "");
       setSeoTitle(event.seo_title || "");
       setSeoDescription(event.seo_description || "");
@@ -1426,6 +1431,8 @@ export default function EditEvent() {
       show_seat_count: showSeatCount,
       // Per-event ticket availability display toggle
       show_ticket_availability: showTicketAvailability,
+      // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
+      qr_on_confirmation: isOnlineEvent ? true : qrOnConfirmation,
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null,
       zoom_meeting_id: zoomType === 'meeting' ? (selectedMeetingId || null) : null,
@@ -3557,6 +3564,25 @@ export default function EditEvent() {
                       checked={showTicketAvailability}
                       onCheckedChange={setShowTicketAvailability}
                       data-testid="switch-show-ticket-availability"
+                    />
+                  </div>
+                )}
+
+                {/* Per-event entrance QR toggle - in-person events only */}
+                {!isOnlineEvent && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-4 w-4 text-slate-500" />
+                      <div>
+                        <Label htmlFor="qr-on-confirmation" className="text-sm">Entrance QR code</Label>
+                        <p className="text-xs text-slate-500">Attach a check-in QR code to booking confirmation emails</p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="qr-on-confirmation"
+                      checked={qrOnConfirmation}
+                      onCheckedChange={setQrOnConfirmation}
+                      data-testid="switch-qr-on-confirmation"
                     />
                   </div>
                 )}

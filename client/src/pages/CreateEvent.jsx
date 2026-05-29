@@ -34,7 +34,8 @@ import {
   Check,
   Mic,
   Eye,
-  AlertCircle
+  AlertCircle,
+  QrCode
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createFilterTagKey, parseFilterTagKey, parseEventTypes, serializeEventTypes } from "@/lib/utils";
@@ -116,6 +117,7 @@ export default function CreateEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
   const [showSeatCount, setShowSeatCount] = useState(true); // Per-event seat visibility (default: show)
   const [showTicketAvailability, setShowTicketAvailability] = useState(false); // Per-event ticket availability display
+  const [qrOnConfirmation, setQrOnConfirmation] = useState(true); // Per-event entrance QR on confirmation emails (in-person only, default: on)
   const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
   
@@ -754,6 +756,8 @@ export default function CreateEvent() {
       show_seat_count: showSeatCount,
       // Per-event ticket availability display toggle
       show_ticket_availability: showTicketAvailability,
+      // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
+      qr_on_confirmation: isOnline ? true : qrOnConfirmation,
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
       zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
@@ -1004,6 +1008,25 @@ export default function CreateEvent() {
                   data-testid="switch-delivery-mode"
                 />
               </div>
+
+              {!isOnline && (
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <QrCode className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="font-medium text-slate-900">Entrance QR code</p>
+                      <p className="text-sm text-slate-600">
+                        Attach a check-in QR code to booking confirmation emails
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={qrOnConfirmation}
+                    onCheckedChange={setQrOnConfirmation}
+                    data-testid="switch-qr-on-confirmation"
+                  />
+                </div>
+              )}
 
               {isOnline && (
                 <div className="space-y-4">
