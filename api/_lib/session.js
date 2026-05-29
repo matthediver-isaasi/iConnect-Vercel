@@ -615,12 +615,12 @@ export async function getSessionTenantUser(req) {
   }
   
   // SECURITY: Reject sessions without tenantId to prevent tenant isolation bypass
-  // This ensures pre-patch sessions that lack tenantId cannot access APIs
+  // This ensures pre-patch sessions that lack tenantId cannot access APIs.
+  // Reject THIS request but do NOT delete the session row — destroying the
+  // session here turns a recoverable validation miss into a poisoned cookie
+  // that 401s ("cannot coerce") every subsequent request until cookies clear.
   if (!session.data.tenantId) {
-    console.warn('[Session] SECURITY: Tenant user session missing tenantId, forcing re-authentication:', session.data.tenantUserId);
-    if (supabase) {
-      await supabase.from('session').delete().eq('sid', session.id);
-    }
+    console.warn('[Session] SECURITY: Tenant user session missing tenantId, rejecting request without deleting session:', session.data.tenantUserId);
     return null;
   }
   
@@ -735,14 +735,15 @@ export async function getSessionTenantUser(req) {
       .single();
     
     if (error || !tenantUser) {
-      console.log('[Session] Tenant user not found in database or tenant mismatch, cleaning up stale session:', session.data.tenantUserId);
-      await supabase.from('session').delete().eq('sid', session.id);
+      // Reject THIS request but never delete the session — an admin-access miss
+      // (e.g. a member-only tenant selection) must not poison the cookie and
+      // 401 every subsequent request. Genuine logout still deletes via destroySession.
+      console.log('[Session] Tenant user not found in database or tenant mismatch, rejecting request without deleting session:', session.data.tenantUserId);
       return null;
     }
     
     if (tenantUser.status !== 'active') {
-      console.log('[Session] Tenant user inactive, rejecting session:', tenantUser.id);
-      await supabase.from('session').delete().eq('sid', session.id);
+      console.log('[Session] Tenant user inactive, rejecting request without deleting session:', tenantUser.id);
       return null;
     }
     

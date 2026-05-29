@@ -173,14 +173,45 @@ export default async function handler(req, res) {
       return res.status(403).json({ success: false, error: 'No active tenant memberships found.' });
     }
 
+    // Admin access is conveyed either by an admin-level membership (role
+    // owner/admin, or the legacy membership_type='owner') OR by an active
+    // legacy tenant_user row with an owner/admin role. The admin dashboard
+    // rejects member-only access, so we must only offer / accept tenants the
+    // user can actually administer — otherwise we create a dead-end session
+    // that 401s on the dashboard ("cannot coerce result to single JSON object").
+    const isAdminMembership = (m) =>
+      m.role === 'owner' || m.role === 'admin' || m.membership_type === 'owner';
+
+    const { data: legacyAdminRows } = await supabase
+      .from('tenant_user')
+      .select('tenant_id, role, status')
+      .eq('identity_id', identity.id)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin']);
+    const legacyAdminTenantIds = new Set((legacyAdminRows || []).map(r => r.tenant_id));
+
+    const hasAdminAccess = (m) => isAdminMembership(m) || legacyAdminTenantIds.has(m.tenant_id);
+    const adminMemberships = memberships.filter(hasAdminAccess);
+
     let selectedMembership;
     if (tenantId) {
       selectedMembership = memberships.find(m => m.tenant_id === tenantId);
       if (!selectedMembership) {
         return res.status(403).json({ success: false, error: 'You do not have access to this tenant.' });
       }
-    } else if (memberships.length === 1) {
-      selectedMembership = memberships[0];
+      if (!hasAdminAccess(selectedMembership)) {
+        return res.status(403).json({
+          success: false,
+          error: "You don't have admin access to this organisation. Please use the member portal to sign in instead."
+        });
+      }
+    } else if (adminMemberships.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: "You don't have admin access to any organisation. Please use the member portal to sign in instead."
+      });
+    } else if (adminMemberships.length === 1) {
+      selectedMembership = adminMemberships[0];
     } else {
       return res.json({
         success: true,
@@ -191,7 +222,7 @@ export default async function handler(req, res) {
           first_name: identity.first_name,
           last_name: identity.last_name
         },
-        tenants: memberships.map(m => ({
+        tenants: adminMemberships.map(m => ({
           id: m.tenant_id,
           name: m.tenant?.name,
           slug: m.tenant?.slug,
