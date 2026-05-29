@@ -1,3 +1,4 @@
+/* deploy-trigger: 2026-05-29 */
 /**
  * GET /api/admin/onboarding-checklist
  *
