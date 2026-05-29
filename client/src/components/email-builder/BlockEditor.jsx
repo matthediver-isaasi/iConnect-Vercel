@@ -1511,6 +1511,95 @@ function UnsubscribeBlockEditor({ block, onChange, isChild }) {
   );
 }
 
+function EventQrBlockEditor({ block, onChange }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A unique entrance QR code is generated for each recipient at send time. It only appears for confirmed
+        in-person event attendees; online events and recipients without a booking show nothing.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption</Label>
+        <Input
+          value={block.caption !== undefined ? block.caption : 'Show this QR code at the door'}
+          onChange={(e) => onChange({ ...block, caption: e.target.value })}
+          placeholder="Caption shown below the QR code..."
+          data-testid="event-qr-caption"
+        />
+        <p className="text-xs text-muted-foreground">Leave empty to hide the caption.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>QR Size</Label>
+        <Select value={String(block.styles.qrSize || '180')} onValueChange={(v) => updateStyle('qrSize', v)}>
+          <SelectTrigger data-testid="event-qr-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="120">Small (120px)</SelectItem>
+            <SelectItem value="180">Medium (180px)</SelectItem>
+            <SelectItem value="240">Large (240px)</SelectItem>
+            <SelectItem value="300">Extra Large (300px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="event-qr-align">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.captionColor || '#666666'}
+            onChange={(e) => updateStyle('captionColor', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="event-qr-caption-color"
+          />
+          <Input
+            value={block.styles.captionColor || '#666666'}
+            onChange={(e) => updateStyle('captionColor', e.target.value)}
+            placeholder="#666666"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Caption Font Size</Label>
+        <Select value={block.styles.captionFontSize || '13px'} onValueChange={(v) => updateStyle('captionFontSize', v)}>
+          <SelectTrigger data-testid="event-qr-caption-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="11px">11px</SelectItem>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="13px">13px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1521,6 +1610,7 @@ const blockEditors = {
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockEditor,
+  [BLOCK_TYPES.EVENT_QR]: EventQrBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {

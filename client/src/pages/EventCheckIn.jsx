@@ -1,0 +1,203 @@
+import { useEffect, useState, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound } from "lucide-react";
+
+function formatDate(value) {
+  if (!value) return "";
+  try {
+    return new Date(value).toLocaleString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
+
+export default function EventCheckIn() {
+  const { toast } = useToast();
+  const [token, setToken] = useState("");
+  const [state, setState] = useState("loading"); // loading | ok | unauthenticated | denied | notfound | error
+  const [resolved, setResolved] = useState(null);
+  const [marking, setMarking] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setToken((params.get("token") || "").trim());
+  }, []);
+
+  const loadToken = useCallback(async (tok) => {
+    setState("loading");
+    try {
+      const res = await apiRequest("GET", `/api/admin/event-checkin?token=${encodeURIComponent(tok)}`);
+      setResolved(res.data);
+      setState("ok");
+    } catch (err) {
+      if (err.status === 401) setState("unauthenticated");
+      else if (err.status === 403) setState("denied");
+      else if (err.status === 404) setState("notfound");
+      else setState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) loadToken(token);
+    else if (token === "") {
+      // wait for the effect that reads the URL; only show notfound once resolved empty
+    }
+  }, [token, loadToken]);
+
+  const handleMark = async () => {
+    setMarking(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/event-checkin", { action: "mark", token });
+      setResolved(res.data);
+      if (res.alreadyCheckedIn) {
+        toast({ title: "Already checked in", description: "This attendee was already marked as attended." });
+      } else {
+        toast({ title: "Checked in", description: "Attendee marked as attended." });
+      }
+    } catch (err) {
+      toast({ title: "Check-in failed", description: err.message, variant: "destructive" });
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  const loginUrl = `/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+
+  return (
+    <div className="min-h-[70vh] flex items-start justify-center p-4">
+      <div className="w-full max-w-md mt-8 space-y-4">
+        <div className="text-center space-y-1">
+          <h1 className="text-xl font-semibold" data-testid="text-checkin-title">Event Check-In</h1>
+          <p className="text-sm text-muted-foreground">Scan to mark attendance at the door.</p>
+        </div>
+
+        {state === "loading" && (
+          <Card>
+            <CardContent className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+            </CardContent>
+          </Card>
+        )}
+
+        {state === "unauthenticated" && (
+          <Card>
+            <CardContent className="py-8 text-center space-y-4">
+              <LogIn className="h-8 w-8 mx-auto text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">You need to sign in as staff to check attendees in.</p>
+              <Button asChild data-testid="button-login">
+                <a href={loginUrl}>Sign in to continue</a>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {state === "denied" && (
+          <Card>
+            <CardContent className="py-8 text-center space-y-2">
+              <XCircle className="h-8 w-8 mx-auto text-destructive" />
+              <p className="text-sm text-muted-foreground" data-testid="text-denied">
+                Your account does not have permission to check attendees in.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {state === "notfound" && (
+          <Card>
+            <CardContent className="py-8 text-center space-y-2">
+              <XCircle className="h-8 w-8 mx-auto text-destructive" />
+              <p className="text-sm text-muted-foreground" data-testid="text-invalid">
+                This check-in code is invalid or has expired.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {state === "error" && (
+          <Card>
+            <CardContent className="py-8 text-center space-y-3">
+              <XCircle className="h-8 w-8 mx-auto text-destructive" />
+              <p className="text-sm text-muted-foreground">Something went wrong loading this code.</p>
+              <Button variant="outline" onClick={() => token && loadToken(token)} data-testid="button-retry">Retry</Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {state === "ok" && resolved && (
+          <Card data-testid="card-attendee">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserRound className="h-5 w-5" />
+                <span data-testid="text-attendee-name">
+                  {[resolved.attendee?.first_name, resolved.attendee?.last_name].filter(Boolean).join(" ") || "Attendee"}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2 text-sm">
+                {resolved.attendee?.email && (
+                  <div className="text-muted-foreground" data-testid="text-attendee-email">{resolved.attendee.email}</div>
+                )}
+                <div className="flex items-start gap-2">
+                  <CalendarClock className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div>
+                    <div className="font-medium" data-testid="text-event-title">{resolved.event?.title}</div>
+                    {resolved.event?.start_date && (
+                      <div className="text-muted-foreground">{formatDate(resolved.event.start_date)}</div>
+                    )}
+                  </div>
+                </div>
+                {resolved.session && (
+                  <div className="flex items-start gap-2">
+                    <Ticket className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                    <div>
+                      <div className="font-medium" data-testid="text-session-title">{resolved.session.title}</div>
+                      {resolved.session.track_name && (
+                        <Badge variant="secondary" className="mt-1">{resolved.session.track_name}</Badge>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {(resolved.session?.location || resolved.event?.location) && (
+                  <div className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                    <div className="text-muted-foreground">{resolved.session?.location || resolved.event?.location}</div>
+                  </div>
+                )}
+                {resolved.ticketClassName && (
+                  <div className="text-muted-foreground">Ticket: {resolved.ticketClassName}</div>
+                )}
+              </div>
+
+              {resolved.alreadyCheckedIn ? (
+                <div className="rounded-md border bg-warning/10 p-4 text-center space-y-1" data-testid="status-already">
+                  <CheckCircle2 className="h-6 w-6 mx-auto text-warning" />
+                  <div className="font-medium text-warning-foreground">Already checked in</div>
+                  {resolved.checkedInAt && (
+                    <div className="text-xs text-muted-foreground">{formatDate(resolved.checkedInAt)}</div>
+                  )}
+                </div>
+              ) : (
+                <Button className="w-full" onClick={handleMark} disabled={marking} data-testid="button-mark-attended">
+                  {marking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Mark attended
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

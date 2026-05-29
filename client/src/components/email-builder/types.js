@@ -8,6 +8,7 @@ export const BLOCK_TYPES = {
   COLUMNS: 'columns',
   SOCIAL_ICONS: 'social_icons',
   UNSUBSCRIBE: 'unsubscribe',
+  EVENT_QR: 'event_qr',
 };
 
 export const SOCIAL_PLATFORMS = [
@@ -222,6 +223,27 @@ export const createBlock = (type, props = {}) => {
           marginRight: '0',
           marginBottom: '0',
           marginLeft: '0',
+          ...props.styles,
+        },
+      };
+    case BLOCK_TYPES.EVENT_QR:
+      return {
+        id,
+        type,
+        caption: props.caption !== undefined ? props.caption : 'Show this QR code at the door',
+        styles: {
+          qrSize: '180',
+          paddingTop: '10',
+          paddingRight: '20',
+          paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
+          textAlign: 'center',
+          captionColor: '#666666',
+          captionFontSize: '13px',
           ...props.styles,
         },
       };

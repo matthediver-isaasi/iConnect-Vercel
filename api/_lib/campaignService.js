@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { checkEmailQuota } from './planQuota.js';
+import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -2092,6 +2093,78 @@ function parseCampaignDesign(campaign) {
   return { skipFooter, hasUnsubscribeBlock, contentWidth };
 }
 
+const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT_QR_BLOCK:END\s*-->/gi;
+
+function buildQrReqFromHost(requestHost) {
+  if (!requestHost) return null;
+  const host = String(requestHost).split(',')[0].trim();
+  if (!host) return null;
+  return { headers: { host, 'x-forwarded-host': host, 'x-forwarded-proto': 'https' } };
+}
+
+// Resolve the per-recipient entrance QR image URL for an Event QR block.
+// Returns a hosted PNG URL for the first confirmed in-person booking the
+// recipient holds (simple booking token, else first complex session token),
+// or null when there is no in-person booking (online events / no booking).
+async function resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost) {
+  if (!recipient?.member_id) return null;
+  const eventIds = (campaign.target_type === 'event_attendees'
+    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0)
+    ? campaign.target_ids
+    : null;
+  const req = buildQrReqFromHost(requestHost);
+
+  // 1. Simple bookings — one token per booking, skip online events.
+  try {
+    let q = supabase
+      .from('booking')
+      .select('id, event_id, status')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', recipient.member_id)
+      .eq('status', 'confirmed');
+    if (eventIds) q = q.in('event_id', eventIds);
+    const { data: bookings } = await q;
+    if (bookings && bookings.length > 0) {
+      const evIds = [...new Set(bookings.map(b => b.event_id).filter(Boolean))];
+      const { data: events } = await supabase
+        .from('event')
+        .select('id, is_online')
+        .in('id', evIds);
+      const onlineMap = {};
+      for (const e of events || []) onlineMap[e.id] = !!e.is_online;
+      for (const b of bookings) {
+        if (onlineMap[b.event_id]) continue;
+        const token = await ensureBookingToken(b.id, tenantId);
+        if (token) return buildQrImageUrl(token, req);
+      }
+    }
+  } catch (e) {
+    console.warn('[Campaign QR] simple booking lookup failed:', e?.message);
+  }
+
+  // 2. Complex bookings — one token per in-person session; use the first.
+  try {
+    let q = supabase
+      .from('complex_event_booking')
+      .select('id, event_id, ticket_class_id, status, tenant_id')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', recipient.member_id)
+      .eq('status', 'confirmed');
+    if (eventIds) q = q.in('event_id', eventIds);
+    const { data: cbookings } = await q;
+    for (const cb of cbookings || []) {
+      const sessions = await ensureComplexSessionTokens(cb, tenantId);
+      if (sessions && sessions.length > 0 && sessions[0].token) {
+        return buildQrImageUrl(sessions[0].token, req);
+      }
+    }
+  } catch (e) {
+    console.warn('[Campaign QR] complex booking lookup failed:', e?.message);
+  }
+
+  return null;
+}
+
 async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo) {
   try {
     let html = campaign.html_content || '';
@@ -2104,6 +2177,26 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
     subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
     subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
+
+    // Event QR block: resolve a per-recipient entrance QR image, or strip the
+    // block entirely when the recipient has no in-person booking (online
+    // events / no booking → nothing rendered).
+    if (html.includes('EVENT_QR_BLOCK') || html.includes('{{event_qr_image_url}}')) {
+      let qrUrl = null;
+      try {
+        qrUrl = await resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost);
+      } catch (qrErr) {
+        console.warn('[Campaign QR] resolution failed for recipient', recipient.id, qrErr?.message);
+      }
+      if (qrUrl) {
+        html = html.replace(/\{\{event_qr_image_url\}\}/gi, qrUrl);
+        html = html.replace(/<!--\s*EVENT_QR_BLOCK:(START|END)\s*-->/gi, '');
+      } else {
+        html = html.replace(EVENT_QR_BLOCK_RE, '');
+        html = html.replace(/<img[^>]*\{\{event_qr_image_url\}\}[^>]*>/gi, '');
+        html = html.replace(/\{\{event_qr_image_url\}\}/gi, '');
+      }
+    }
 
     // Build the campaign-specific tracking token + preference/unsubscribe
     // links FIRST and substitute them BEFORE the generic placeholder helper

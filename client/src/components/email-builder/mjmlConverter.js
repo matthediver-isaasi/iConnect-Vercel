@@ -227,9 +227,30 @@ const childBlockToMjml = (block) => {
         padding="${getPaddingAttr(block.styles)}"
       ><a href="{{unsubscribe_url}}" style="color: ${uColor}; text-decoration: underline;">${uLinkText}</a></mj-text>`;
     }
+    case BLOCK_TYPES.EVENT_QR: {
+      return eventQrToMjml(block);
+    }
     default:
       return '';
   }
+};
+
+const eventQrToMjml = (block) => {
+  const qrSize = parseInt(String(block.styles.qrSize || '180').replace('px', ''), 10) || 180;
+  const align = block.styles.textAlign || 'center';
+  const captionColor = block.styles.captionColor || '#666666';
+  const captionFontSize = block.styles.captionFontSize || '13px';
+  const caption = block.caption !== undefined ? block.caption : 'Show this QR code at the door';
+  const captionMjml = caption
+    ? `<mj-text align="${align}" color="${captionColor}" font-size="${captionFontSize}" padding="8px 0 0 0">${escapeHtml(caption)}</mj-text>`
+    : '';
+  return `<mj-image
+        src="{{event_qr_image_url}}"
+        alt="Entrance QR code"
+        width="${qrSize}px"
+        align="${align}"
+        padding="${getPaddingAttr(block.styles)}"
+      />${captionMjml}`;
 };
 
 const blockToMjml = (block) => {
@@ -367,6 +388,19 @@ const blockToMjml = (block) => {
       `;
     }
 
+    case BLOCK_TYPES.EVENT_QR: {
+      const qrSectionPad = getCombinedSectionPadding(block.styles);
+      return `
+        <mj-raw><!-- EVENT_QR_BLOCK:START --></mj-raw>
+        <mj-section padding="${qrSectionPad}">
+          <mj-column>
+            ${eventQrToMjml(block)}
+          </mj-column>
+        </mj-section>
+        <mj-raw><!-- EVENT_QR_BLOCK:END --></mj-raw>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -394,6 +428,9 @@ const blockToMjml = (block) => {
             return childBlockToMjml(b);
           }
           if (b.type === BLOCK_TYPES.UNSUBSCRIBE) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.EVENT_QR) {
             return childBlockToMjml(b);
           }
           return '';

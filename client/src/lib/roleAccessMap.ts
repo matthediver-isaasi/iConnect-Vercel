@@ -107,6 +107,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "events.event-report",
         label: "Event Registration Report"
+      },
+      {
+        id: "events.event-checkin",
+        label: "Event Check-In"
       }
     ]
   },
@@ -1069,6 +1073,9 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_AIReports": "admin.ai-reports",
   "page_AccessibilityAudits": "admin.accessibility-audits",
   "page_admin_AccessibilityAudits": "admin.accessibility-audits",
+  "page_EventCheckIn": "events.event-checkin",
+  "page_EventCheckInDashboard": "events.event-checkin",
+  "page_admin_EventCheckInDashboard": "events.event-checkin",
   "page_BriefManagement": "publications.briefmanagement",
   "page_BriefDetail": "content.briefs",
   "page_BriefSettings": "content.brief-settings",

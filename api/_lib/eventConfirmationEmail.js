@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
 import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
+import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -29,7 +30,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let eventQuery = supabase
       .from('event')
-      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
+      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone, qr_on_confirmation')
       .eq('id', eventId);
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
@@ -39,7 +40,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
     if (eventError || !event) {
       let complexQuery = supabase
         .from('complex_event')
-        .select('id, title, description, start_date, end_date, location, is_online, tenant_id, timezone')
+        .select('id, title, description, start_date, end_date, location, is_online, tenant_id, timezone, qr_on_confirmation')
         .eq('id', eventId);
       if (tenantId) {
         complexQuery = complexQuery.eq('tenant_id', tenantId);
@@ -96,6 +97,18 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       pricingDetails: pricingDetails || null
     };
 
+    // Entrance QR: in-person (offline) events only, when not opted out via
+    // qr_on_confirmation. Simple = one booking QR; complex = one QR per
+    // registered in-person session. Online events get nothing.
+    let qrHtml = '';
+    if (!event.is_online && event.qr_on_confirmation !== false) {
+      try {
+        qrHtml = await buildConfirmationQrHtml(event, booking, eventId);
+      } catch (qrErr) {
+        console.warn('[sendConfirmationEmailsFromTemplate] QR build failed:', qrErr?.message);
+      }
+    }
+
     for (const emailConfig of confirmationEmails) {
       try {
         const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
@@ -106,7 +119,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
         const emailResult = await sendEmail({
           to: bookingData.attendee_email,
           subject: subject,
-          html: formatBodyAsHtml(body),
+          html: formatBodyAsHtml(body) + qrHtml,
           cc: ccList.length > 0 ? ccList : undefined,
           tenantId: event.tenant_id,
           attachments: icsAttachment ? [icsAttachment] : undefined
@@ -130,6 +143,62 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
   }
 
   return results;
+}
+
+function renderQrCard(imgUrl, label) {
+  const labelHtml = label
+    ? `<div style="margin-top:8px;font-size:13px;color:#666666;">${escapeQrText(label)}</div>`
+    : '';
+  return `<div style="text-align:center;margin:16px 0;">
+    <img src="${imgUrl}" alt="Entrance QR code" width="180" style="display:inline-block;width:180px;max-width:100%;height:auto;border:1px solid #e0e0e0;border-radius:4px;" />
+    ${labelHtml}
+  </div>`;
+}
+
+function escapeQrText(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Build entrance-QR HTML appended to in-person booking confirmations.
+// Returns '' when no in-person token applies (e.g. online sessions only).
+async function buildConfirmationQrHtml(event, booking, eventId) {
+  if (!booking?.id) return '';
+
+  if (event.is_complex) {
+    const complexBooking = {
+      id: booking.id,
+      event_id: eventId,
+      ticket_class_id: booking.ticket_class_id || booking.ticketClassId || null,
+      tenant_id: event.tenant_id,
+    };
+    const sessions = await ensureComplexSessionTokens(complexBooking, event.tenant_id);
+    if (!sessions || sessions.length === 0) return '';
+    const cards = sessions
+      .filter((s) => s && s.token)
+      .map((s) => {
+        const title = s.session?.title || 'Session';
+        const track = s.session?.track_name ? ` — ${s.session.track_name}` : '';
+        return renderQrCard(buildQrImageUrl(s.token), `${title}${track}`);
+      })
+      .join('');
+    if (!cards) return '';
+    return `<div style="font-family: Arial, sans-serif;margin-top:24px;">
+      <h3 style="font-size:16px;color:#333333;margin:0 0 8px 0;text-align:center;">Your entrance QR codes</h3>
+      <p style="font-size:13px;color:#666666;margin:0 0 8px 0;text-align:center;">Show the relevant code at each session's door for check-in.</p>
+      ${cards}
+    </div>`;
+  }
+
+  const token = await ensureBookingToken(booking.id, event.tenant_id);
+  if (!token) return '';
+  return `<div style="font-family: Arial, sans-serif;margin-top:24px;">
+    <h3 style="font-size:16px;color:#333333;margin:0 0 8px 0;text-align:center;">Your entrance QR code</h3>
+    ${renderQrCard(buildQrImageUrl(token), 'Show this QR code at the door for check-in')}
+  </div>`;
 }
 
 function buildIcsAttachment(event, booking, complexEventData) {

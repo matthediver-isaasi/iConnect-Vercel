@@ -293,6 +293,8 @@ import ReportsDashboard from "./ReportsDashboard";
 
 import AIReports from "./AIReports";
 import AccessibilityAudits from "./AccessibilityAudits";
+import EventCheckIn from "./EventCheckIn";
+import EventCheckInDashboard from "./EventCheckInDashboard";
 
 import EventRegistrationReport from "./EventRegistrationReport";
 
@@ -690,6 +692,8 @@ const PAGES = {
     
     AIReports: AIReports,
     AccessibilityAudits: AccessibilityAudits,
+    EventCheckIn: EventCheckIn,
+    EventCheckInDashboard: EventCheckInDashboard,
     
     CreateComplexEvent: CreateComplexEvent,
     PublicComplexEvents: PublicComplexEvents,
@@ -1060,6 +1064,8 @@ function PagesContent() {
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 <Route path="/AIReports" element={<AIReports />} />
                 <Route path="/AccessibilityAudits" element={<AccessibilityAudits />} />
+                <Route path="/EventCheckIn" element={<EventCheckIn />} />
+                <Route path="/EventCheckInDashboard" element={<EventCheckInDashboard />} />
                 
                 <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
                 <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />

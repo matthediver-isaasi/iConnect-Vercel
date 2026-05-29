@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { Type, Image, MousePointer2, Minus, MoveVertical, Columns, SquareDashed, Share2, LinkIcon } from 'lucide-react';
+import { Type, Image, MousePointer2, Minus, MoveVertical, Columns, SquareDashed, Share2, LinkIcon, QrCode } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 
 const structureItems = [
@@ -15,6 +15,7 @@ const contentItems = [
   { type: BLOCK_TYPES.SPACER, icon: MoveVertical, label: 'Spacer' },
   { type: BLOCK_TYPES.SOCIAL_ICONS, icon: Share2, label: 'Social' },
   { type: BLOCK_TYPES.UNSUBSCRIBE, icon: LinkIcon, label: 'Unsub' },
+  { type: BLOCK_TYPES.EVENT_QR, icon: QrCode, label: 'Event QR' },
 ];
 
 function DraggablePaletteItem({ type, icon: Icon, label }) {

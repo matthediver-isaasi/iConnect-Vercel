@@ -1,7 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus } from 'lucide-react';
+import { Plus, QrCode } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues } from './SpacingControl';
@@ -471,6 +471,56 @@ function UnsubscribeBlockPreview({ block, isChild, globalFontFamily }) {
   return <div style={marginAsPadding}>{unsubEl}</div>;
 }
 
+function EventQrBlockPreview({ block, isChild }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const textAlign = block.styles.textAlign || 'center';
+  const qrSize = parseInt(String(block.styles.qrSize || '180').replace('px', ''), 10) || 180;
+  const captionColor = block.styles.captionColor || '#666666';
+  const captionFontSize = block.styles.captionFontSize || '13px';
+  const caption = block.caption !== undefined ? block.caption : 'Show this QR code at the door';
+
+  const qrEl = (
+    <div style={{ ...paddingStyle, textAlign }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: qrSize,
+          maxWidth: '100%',
+        }}
+        data-testid="event-qr-preview"
+      >
+        <div
+          style={{
+            width: qrSize,
+            height: qrSize,
+            maxWidth: '100%',
+            border: '1px solid #e0e0e0',
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#f8f8f8',
+            color: '#999999',
+          }}
+        >
+          <QrCode style={{ width: Math.min(qrSize * 0.55, 96), height: Math.min(qrSize * 0.55, 96) }} />
+        </div>
+        {caption ? (
+          <div style={{ marginTop: 8, color: captionColor, fontSize: captionFontSize }}>{caption}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (isChild) return qrEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{qrEl}</div>;
+}
+
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
@@ -479,6 +529,7 @@ const contentBlockPreviewComponents = {
   [BLOCK_TYPES.SPACER]: SpacerBlockPreview,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
+  [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -491,6 +542,7 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockPreview,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
+  [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
 };
 
 function ReadOnlySectionPreview({ block, globalFontFamily }) {
