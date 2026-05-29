@@ -1101,7 +1101,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
           .from('member')
           .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
-          .in('email', batch);
+          .or(buildEmailCaseInsensitiveOr(batch));
         if (members) {
           for (const m of members) {
             if (!m.email) continue;
@@ -1527,7 +1527,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
                 .from('member')
                 .select('id, email')
                 .eq('tenant_id', tenantId)
-                .in('email', batch);
+                .or(buildEmailCaseInsensitiveOr(batch));
               if (error) {
                 console.error('[FieldFilter] attendee-email member lookup error:', error);
                 continue;
@@ -1590,6 +1590,18 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
   }
 
   return recipients;
+}
+
+// Builds a PostgREST `.or()` clause that matches the `email` column
+// case-insensitively against an exact list of emails. Like-wildcards (% _ \)
+// and or-reserved chars (\ ( ) , ") are escaped so each entry behaves as an
+// exact (case-insensitive) equality rather than a pattern.
+function buildEmailCaseInsensitiveOr(emails) {
+  const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
+  const escapeOr = (s) => String(s).replace(/([\\(),"])/g, '\\$1');
+  return emails
+    .map((e) => `email.ilike."${escapeOr(escapeLike(e))}"`)
+    .join(',');
 }
 
 function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
