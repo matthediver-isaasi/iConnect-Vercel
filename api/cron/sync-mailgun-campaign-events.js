@@ -1,7 +1,10 @@
 import { supabase } from '../_lib/database.js';
 import { syncCampaignEvents } from '../_lib/mailgunEventSync.js';
 
-const OVERALL_BUDGET_MS = 50_000;
+const OVERALL_BUDGET_MS = 55_000;
+const MIN_USEFUL_BUDGET_MS = 12_000;
+const PER_CAMPAIGN_CAP_MS = 45_000;
+const BUDGET_RESERVE_MS = 2_000;
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -79,14 +82,10 @@ export default async function handler(req, res) {
         continue;
       }
 
-      const campaignsLeft = campaigns.length - idx;
-      const perCampaignBudget = Math.min(
-        Math.floor((remaining - 2_000) / campaignsLeft),
-        45_000
-      );
+      const perCampaignBudget = Math.min(remaining - BUDGET_RESERVE_MS, PER_CAMPAIGN_CAP_MS);
 
-      if (perCampaignBudget < 12_000) {
-        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for ${campaignsLeft} campaigns, stopping`);
+      if (perCampaignBudget < MIN_USEFUL_BUDGET_MS) {
+        console.log(`[cron/sync-mailgun-events] Insufficient time remaining (${Math.round(remaining / 1000)}s) for another campaign, stopping after ${campaignsSynced} synced, ${campaigns.length - idx} remaining`);
         break;
       }
 
