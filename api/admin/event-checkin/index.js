@@ -116,7 +116,14 @@ export default async function handler(req, res) {
       }
 
       if (action === 'undo') {
-        const result = await undoCheckin(token);
+        const reason = (body.reason || '').toString().trim();
+        if (!reason) {
+          return res.status(400).json({ error: 'A reason is required to deregister an attendee' });
+        }
+        const result = await undoCheckin(token, {
+          reason,
+          actorLabel: getActorLabel(context),
+        });
         return res.status(200).json({ data: sanitizeResolved(result.resolved) });
       }
 

@@ -10,11 +10,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, RotateCcw, Search, Loader2, Users } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users } from "lucide-react";
 
 function formatDate(value) {
   if (!value) return "";
@@ -32,8 +43,9 @@ function formatDate(value) {
 
 export default function EventCheckInDashboard() {
   const { toast } = useToast();
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
+  const tenantId = memberInfo?.tenant_id;
 
   const [events, setEvents] = useState([]);
   const [selectedEventId, setSelectedEventId] = useState("");
@@ -44,6 +56,8 @@ export default function EventCheckInDashboard() {
   const [trackFilter, setTrackFilter] = useState("all");
   const [sessionFilter, setSessionFilter] = useState("all");
   const [busyToken, setBusyToken] = useState(null);
+  const [deregisterTarget, setDeregisterTarget] = useState(null);
+  const [deregisterReason, setDeregisterReason] = useState("");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -93,6 +107,29 @@ export default function EventCheckInDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventId, selectedEventType, trackFilter, sessionFilter]);
 
+  // Live updates: refresh the attendee list/counts as scans (and un-scans)
+  // happen anywhere, scoped to this tenant and the selected event. The hook
+  // tears down + re-subscribes automatically when the selected event changes.
+  useRealtimeSubscription("booking", [], {
+    enabled: !!tenantId && !!selectedEventId && selectedEventType === "simple",
+    tenantId,
+    predicate: (payload) => {
+      const row = payload?.new || payload?.old || {};
+      return row.event_id === selectedEventId;
+    },
+    onEvent: () => loadDashboard(),
+  });
+
+  useRealtimeSubscription("complex_event_session_checkin", [], {
+    enabled: !!tenantId && !!selectedEventId && selectedEventType === "complex",
+    tenantId,
+    predicate: (payload) => {
+      const row = payload?.new || payload?.old || {};
+      return row.complex_event_id === selectedEventId;
+    },
+    onEvent: () => loadDashboard(),
+  });
+
   const handleSelectEvent = (value) => {
     const ev = events.find((e) => e.id === value);
     setSelectedEventId(value);
@@ -115,17 +152,40 @@ export default function EventCheckInDashboard() {
     }
   };
 
-  const handleUndo = async (token) => {
+  const openDeregister = (attendee) => {
+    setDeregisterTarget(attendee);
+    setDeregisterReason("");
+  };
+
+  const closeDeregister = () => {
+    setDeregisterTarget(null);
+    setDeregisterReason("");
+  };
+
+  const handleDeregister = async () => {
+    if (!deregisterTarget) return;
+    const token = deregisterTarget.token;
+    const reason = deregisterReason.trim();
+    if (!reason) {
+      toast({ title: "A reason is required", description: "Please enter why you are deregistering this attendee.", variant: "destructive" });
+      return;
+    }
     setBusyToken(token);
     try {
-      await apiRequest("POST", "/api/admin/event-checkin", { action: "undo", token });
+      await apiRequest("POST", "/api/admin/event-checkin", { action: "undo", token, reason });
+      toast({ title: "Attendee deregistered", description: "Their check-in has been undone." });
+      closeDeregister();
       await loadDashboard();
     } catch (err) {
-      toast({ title: "Undo failed", description: err.message, variant: "destructive" });
+      toast({ title: "Deregister failed", description: err.message, variant: "destructive" });
     } finally {
       setBusyToken(null);
     }
   };
+
+  const deregisterName = deregisterTarget
+    ? [deregisterTarget.first_name, deregisterTarget.last_name].filter(Boolean).join(" ") || deregisterTarget.email
+    : "";
 
   if (!accessChecked) {
     return (
@@ -265,12 +325,12 @@ export default function EventCheckInDashboard() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleUndo(a.token)}
+                            onClick={() => openDeregister(a)}
                             disabled={busyToken === a.token}
-                            data-testid={`button-undo-${a.token}`}
+                            data-testid={`button-deregister-${a.token}`}
                           >
-                            {busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                            Undo
+                            {busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+                            Deregister
                           </Button>
                         </>
                       ) : (
@@ -292,6 +352,45 @@ export default function EventCheckInDashboard() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={!!deregisterTarget} onOpenChange={(open) => { if (!open) closeDeregister(); }}>
+        <DialogContent data-testid="dialog-deregister">
+          <DialogHeader>
+            <DialogTitle>Deregister attendee</DialogTitle>
+            <DialogDescription>
+              This undoes the check-in for{deregisterName ? ` ${deregisterName}` : " this attendee"} and returns them to
+              "not checked in". It does not cancel their booking or trigger any refunds or emails.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="deregister-reason">Reason</Label>
+            <Textarea
+              id="deregister-reason"
+              placeholder="e.g. Scanned in error / wrong ticket"
+              value={deregisterReason}
+              onChange={(e) => setDeregisterReason(e.target.value)}
+              data-testid="input-deregister-reason"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeregister} data-testid="button-deregister-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeregister}
+              disabled={!deregisterReason.trim() || busyToken === deregisterTarget?.token}
+              data-testid="button-deregister-confirm"
+            >
+              {busyToken === deregisterTarget?.token ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserMinus className="h-4 w-4" />
+              )}
+              Deregister
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

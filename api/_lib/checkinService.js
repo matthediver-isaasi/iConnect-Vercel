@@ -360,20 +360,32 @@ export async function markCheckin(token, actorLabel) {
   return { ok: true, alreadyCheckedIn: false, resolved: fresh };
 }
 
-/** Undo a check-in (clears timestamp + actor). */
-export async function undoCheckin(token) {
+/**
+ * Undo (reverse) a check-in. Clears the check-in timestamp/actor and records
+ * who reversed it, when, and why. This only undoes the check-in — it does NOT
+ * touch the underlying booking (no refunds, seat changes, or emails).
+ */
+export async function undoCheckin(token, { reason = null, actorLabel = null } = {}) {
   const resolved = await resolveCheckinToken(token);
   if (!resolved) return { ok: false, reason: 'not_found' };
+
+  const reversal = {
+    checked_in_at: null,
+    checked_in_by: null,
+    check_in_reversed_at: new Date().toISOString(),
+    check_in_reversed_by: actorLabel,
+    check_in_reversal_reason: reason,
+  };
 
   if (resolved.type === 'simple') {
     await supabase
       .from('booking')
-      .update({ checked_in_at: null, checked_in_by: null })
+      .update(reversal)
       .eq('check_in_token', token);
   } else {
     await supabase
       .from('complex_event_session_checkin')
-      .update({ checked_in_at: null, checked_in_by: null })
+      .update(reversal)
       .eq('token', token);
   }
 
