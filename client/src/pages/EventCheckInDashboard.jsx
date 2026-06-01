@@ -25,7 +25,9 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, UserMinus, Search, Loader2, Users } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle } from "lucide-react";
+
+const PAGE_SIZE = 25;
 
 function formatDate(value) {
   if (!value) return "";
@@ -53,6 +55,8 @@ export default function EventCheckInDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "checked-in"
+  const [page, setPage] = useState(1);
   const [trackFilter, setTrackFilter] = useState("all");
   const [sessionFilter, setSessionFilter] = useState("all");
   const [busyToken, setBusyToken] = useState(null);
@@ -90,7 +94,6 @@ export default function EventCheckInDashboard() {
         eventId: selectedEventId,
         eventType: selectedEventType,
       });
-      if (search.trim()) params.set("search", search.trim());
       if (trackFilter !== "all") params.set("trackId", trackFilter);
       if (sessionFilter !== "all") params.set("sessionId", sessionFilter);
       const res = await apiRequest("GET", `/api/admin/event-checkin?${params.toString()}`);
@@ -100,12 +103,32 @@ export default function EventCheckInDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedEventId, selectedEventType, search, trackFilter, sessionFilter, toast]);
+  }, [selectedEventId, selectedEventType, trackFilter, sessionFilter, toast]);
 
   useEffect(() => {
     if (selectedEventId) loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventId, selectedEventType, trackFilter, sessionFilter]);
+
+  // Reset to the first page whenever the view or search changes.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, trackFilter, sessionFilter, selectedEventId]);
+
+  // Keep the page in range if the list shrinks (e.g. after a deregister or a
+  // realtime update reduces how many rows match the current filters).
+  const matchingCount = (data?.attendees || []).filter((a) => {
+    if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (!search.trim()) return true;
+    const t = search.trim().toLowerCase();
+    return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
+      .filter(Boolean)
+      .some((v) => v.toLowerCase().includes(t));
+  }).length;
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
+    setPage((p) => Math.min(p, maxPage));
+  }, [matchingCount]);
 
   // Live updates: refresh the attendee list/counts as scans (and un-scans)
   // happen anywhere, scoped to this tenant and the selected event. The hook
@@ -137,6 +160,8 @@ export default function EventCheckInDashboard() {
     setTrackFilter("all");
     setSessionFilter("all");
     setSearch("");
+    setStatusFilter("all");
+    setPage(1);
     setData(null);
   };
 
@@ -195,7 +220,23 @@ export default function EventCheckInDashboard() {
     );
   }
 
-  const attendees = data?.attendees || [];
+  const allAttendees = data?.attendees || [];
+  const term = search.trim().toLowerCase();
+  const filteredAttendees = allAttendees.filter((a) => {
+    if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (!term) return true;
+    return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
+      .filter(Boolean)
+      .some((v) => v.toLowerCase().includes(term));
+  });
+
+  const totalFiltered = filteredAttendees.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const attendees = filteredAttendees.slice(pageStart, pageStart + PAGE_SIZE);
+  const rangeStart = totalFiltered === 0 ? 0 : pageStart + 1;
+  const rangeEnd = Math.min(pageStart + PAGE_SIZE, totalFiltered);
 
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
@@ -250,11 +291,28 @@ export default function EventCheckInDashboard() {
                   placeholder="Search name, email or reference"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && loadDashboard()}
                   data-testid="input-search"
                 />
               </div>
-              <Button variant="outline" onClick={loadDashboard} data-testid="button-search">Search</Button>
+
+              <div className="flex items-center gap-1 rounded-md border p-1" role="group" aria-label="Filter attendees">
+                <Button
+                  size="sm"
+                  variant={statusFilter === "all" ? "secondary" : "ghost"}
+                  onClick={() => setStatusFilter("all")}
+                  data-testid="button-filter-all"
+                >
+                  All registrants
+                </Button>
+                <Button
+                  size="sm"
+                  variant={statusFilter === "checked-in" ? "secondary" : "ghost"}
+                  onClick={() => setStatusFilter("checked-in")}
+                  data-testid="button-filter-checked-in"
+                >
+                  Checked in
+                </Button>
+              </div>
 
               {selectedEventType === "complex" && data?.tracks?.length > 0 && (
                 <Select value={trackFilter} onValueChange={setTrackFilter}>
@@ -334,19 +392,57 @@ export default function EventCheckInDashboard() {
                           </Button>
                         </>
                       ) : (
-                        <Button
-                          size="sm"
-                          onClick={() => handleMark(a.token)}
-                          disabled={busyToken === a.token || !a.token}
-                          data-testid={`button-checkin-${a.token}`}
-                        >
-                          {busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                          Check in
-                        </Button>
+                        <>
+                          <Badge variant="outline" className="gap-1 text-muted-foreground">
+                            <Circle className="h-3 w-3" /> Not checked in
+                          </Badge>
+                          <Button
+                            size="sm"
+                            onClick={() => handleMark(a.token)}
+                            disabled={busyToken === a.token || !a.token}
+                            data-testid={`button-checkin-${a.token}`}
+                          >
+                            {busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            Check in
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {!loading && totalFiltered > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <span className="text-sm text-muted-foreground" data-testid="text-pagination-range">
+                  Showing {rangeStart}–{rangeEnd} of {totalFiltered}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    data-testid="button-prev-page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground" data-testid="text-page-indicator">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
