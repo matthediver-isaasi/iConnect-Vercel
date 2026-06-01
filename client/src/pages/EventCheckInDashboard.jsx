@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -41,6 +43,13 @@ function formatDate(value) {
   } catch {
     return value;
   }
+}
+
+function getInitials(first, last, email) {
+  const a = (first || "").trim();
+  const b = (last || "").trim();
+  if (a || b) return `${a.charAt(0)}${b.charAt(0)}`.toUpperCase() || "?";
+  return (email || "?").charAt(0).toUpperCase();
 }
 
 export default function EventCheckInDashboard() {
@@ -264,13 +273,44 @@ export default function EventCheckInDashboard() {
           </Select>
 
           {data && (
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 rounded-md border px-3 py-2" data-testid="stat-attended">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">
-                  <span className="font-semibold">{data.counts.attended}</span>
-                  <span className="text-muted-foreground"> / {data.counts.total} checked in</span>
-                </span>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-md border bg-green-50 px-3 py-2 dark:bg-green-950/30 dark:border-green-900" data-testid="stat-attended">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-300">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Checked in
+                  </div>
+                  <div className="mt-0.5 text-2xl font-semibold tabular-nums text-green-700 dark:text-green-200">
+                    {data.counts.attended}
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2" data-testid="stat-registered">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Users className="h-3.5 w-3.5" /> Registered
+                  </div>
+                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                    {data.counts.total}
+                  </div>
+                </div>
+                <div className="col-span-2 rounded-md border px-3 py-2 sm:col-span-1" data-testid="stat-remaining">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Circle className="h-3.5 w-3.5" /> Yet to arrive
+                  </div>
+                  <div className="mt-0.5 text-2xl font-semibold tabular-nums">
+                    {Math.max(0, data.counts.total - data.counts.attended)}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Progress
+                  value={data.counts.total ? (data.counts.attended / data.counts.total) * 100 : 0}
+                  className="h-2"
+                  data-testid="progress-attendance"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {data.counts.total
+                    ? `${Math.round((data.counts.attended / data.counts.total) * 100)}% of registrants checked in`
+                    : "No registrants yet"}
+                </p>
               </div>
             </div>
           )}
@@ -356,28 +396,45 @@ export default function EventCheckInDashboard() {
                 {attendees.map((a) => (
                   <div
                     key={a.token || `${a.bookingId}-${a.sessionId || ""}`}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 transition-colors ${
+                      a.checked_in_at
+                        ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30"
+                        : "bg-card"
+                    }`}
                     data-testid={`row-attendee-${a.token}`}
                   >
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">
-                        {[a.first_name, a.last_name].filter(Boolean).join(" ") || a.email}
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {a.email}
-                        {a.booking_reference ? ` · ${a.booking_reference}` : ""}
-                      </div>
-                      {selectedEventType === "complex" && (
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <span className="text-xs text-muted-foreground">{a.session_title}</span>
-                          {a.track_name && <Badge variant="secondary">{a.track_name}</Badge>}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar className="h-9 w-9 shrink-0">
+                        <AvatarFallback
+                          className={
+                            a.checked_in_at
+                              ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100"
+                              : "bg-muted text-muted-foreground"
+                          }
+                        >
+                          {getInitials(a.first_name, a.last_name, a.email)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">
+                          {[a.first_name, a.last_name].filter(Boolean).join(" ") || a.email}
                         </div>
-                      )}
+                        <div className="text-xs text-muted-foreground truncate">
+                          {a.email}
+                          {a.booking_reference ? ` · ${a.booking_reference}` : ""}
+                        </div>
+                        {selectedEventType === "complex" && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span className="text-xs text-muted-foreground">{a.session_title}</span>
+                            {a.track_name && <Badge variant="secondary">{a.track_name}</Badge>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {a.checked_in_at ? (
                         <>
-                          <Badge variant="secondary" className="gap-1">
+                          <Badge className="gap-1 border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-900 dark:text-green-100">
                             <CheckCircle2 className="h-3 w-3" /> {formatDate(a.checked_in_at)}
                           </Badge>
                           <Button
