@@ -151,12 +151,17 @@ export default async function handler(req, res) {
 
 /** Picker data: in-person simple events + in-person complex events. */
 async function listEvents(req, res, context) {
+  // Only surface events whose entrance QR check-in is enabled. The flag
+  // (`qr_on_confirmation`) defaults to enabled, so treat NULL or true as on and
+  // exclude only rows explicitly set to false.
+  const QR_ENABLED_FILTER = 'qr_on_confirmation.is.null,qr_on_confirmation.eq.true';
   const [{ data: events }, { data: complex }] = await Promise.all([
     supabase
       .from('event')
       .select('id, title, start_date, is_online, is_complex')
       .eq('tenant_id', context.tenantId)
       .eq('is_online', false)
+      .or(QR_ENABLED_FILTER)
       .order('start_date', { ascending: false })
       .limit(200),
     supabase
@@ -164,6 +169,7 @@ async function listEvents(req, res, context) {
       .select('id, title, start_date, is_online')
       .eq('tenant_id', context.tenantId)
       .eq('is_online', false)
+      .or(QR_ENABLED_FILTER)
       .order('start_date', { ascending: false })
       .limit(200),
   ]);
