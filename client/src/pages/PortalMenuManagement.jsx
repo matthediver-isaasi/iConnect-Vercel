@@ -80,6 +80,8 @@ const builtInPages = [
   { value: "EmailCampaignEdit", label: "Email Campaign Editor" },
   { value: "EmailTemplateManagement", label: "Email Templates" },
   { value: "EmailPlaceholders", label: "Email Placeholders Reference" },
+  { value: "EventCheckIn", label: "Event Check-In Scanner" },
+  { value: "EventCheckInDashboard", label: "Event Check-In Dashboard" },
   { value: "EventDetails", label: "Event Details" },
   { value: "EventRegistrationReport", label: "Event Registration Report" },
   { value: "Events", label: "Events" },
