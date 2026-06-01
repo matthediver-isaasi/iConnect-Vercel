@@ -101,6 +101,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Speaker Management"
       },
       {
+        id: "events.sponsors",
+        label: "Sponsor Management"
+      },
+      {
         id: "events.zoom-webinars",
         label: "Zoom Webinar Provisioning"
       },
@@ -924,6 +928,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_GroupEmail": "membership.member-group-email",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
+  "page_admin_SponsorManagement": "events.sponsors",
   "page_EventRegistrationReport": "events.event-report",
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
@@ -1004,6 +1009,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_TourManagement": "system.tours",
   "page_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_SpeakerManagement": "events.speakers",
+  "page_SponsorManagement": "events.sponsors",
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
   "page_MembershipFees": "commerce.membership",

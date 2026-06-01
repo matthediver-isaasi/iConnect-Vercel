@@ -183,7 +183,8 @@ const builtInPages = [
   { value: "WallOfFameManagement", label: "Wall of Fame" },
   { value: "WorkflowManagement", label: "Workflow Management" },
   { value: "ZoomWebinarProvisioning", label: "Zoom Webinar Management" },
-  { value: "SpeakerManagement", label: "Speaker Management" }
+  { value: "SpeakerManagement", label: "Speaker Management" },
+  { value: "SponsorManagement", label: "Sponsor Management" }
 ];
 
 export default function PortalMenuManagementPage() {
