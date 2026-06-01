@@ -158,7 +158,7 @@ async function listEvents(req, res, context) {
   const [{ data: events }, { data: complex }] = await Promise.all([
     supabase
       .from('event')
-      .select('id, title, start_date, is_online, is_complex')
+      .select('id, title, start_date, end_date, is_online, is_complex')
       .eq('tenant_id', context.tenantId)
       .eq('is_online', false)
       .or(QR_ENABLED_FILTER)
@@ -166,7 +166,7 @@ async function listEvents(req, res, context) {
       .limit(200),
     supabase
       .from('complex_event')
-      .select('id, title, start_date, is_online')
+      .select('id, title, start_date, end_date, is_online')
       .eq('tenant_id', context.tenantId)
       .eq('is_online', false)
       .or(QR_ENABLED_FILTER)
@@ -176,11 +176,12 @@ async function listEvents(req, res, context) {
 
   const simple = (events || [])
     .filter((e) => !e.is_complex)
-    .map((e) => ({ id: e.id, title: e.title, start_date: e.start_date, type: 'simple' }));
+    .map((e) => ({ id: e.id, title: e.title, start_date: e.start_date, end_date: e.end_date, type: 'simple' }));
   const complexList = (complex || []).map((e) => ({
     id: e.id,
     title: e.title,
     start_date: e.start_date,
+    end_date: e.end_date,
     type: 'complex',
   }));
 

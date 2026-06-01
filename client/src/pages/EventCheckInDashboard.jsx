@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock } from "lucide-react";
 
 const PAGE_SIZE = 25;
 
@@ -221,6 +221,30 @@ export default function EventCheckInDashboard() {
     ? [deregisterTarget.first_name, deregisterTarget.last_name].filter(Boolean).join(" ") || deregisterTarget.email
     : "";
 
+  // Event picker, alphabetised by title.
+  const sortedEvents = useMemo(
+    () => [...events].sort((a, b) => (a.title || "").localeCompare(b.title || "")),
+    [events]
+  );
+
+  // Events whose run spans today (date-only), for one-tap selection on the day.
+  const todaysEvents = useMemo(() => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOf = (value) => {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime())
+        ? null
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+    return sortedEvents.filter((e) => {
+      const start = dayOf(e.start_date);
+      if (!start) return false;
+      const end = e.end_date ? dayOf(e.end_date) || start : start;
+      return start <= today && today <= end;
+    });
+  }, [sortedEvents]);
+
   if (!accessChecked) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
@@ -254,6 +278,38 @@ export default function EventCheckInDashboard() {
         <p className="text-sm text-muted-foreground">Track attendance for in-person events at the door.</p>
       </div>
 
+      {todaysEvents.length > 0 && (
+        <Card data-testid="card-today">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-muted-foreground" />
+              Running today
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {todaysEvents.map((e) => {
+                const isActive = e.id === selectedEventId;
+                return (
+                  <Button
+                    key={e.id}
+                    variant={isActive ? "default" : "outline"}
+                    onClick={() => handleSelectEvent(e.id)}
+                    className="justify-start gap-2"
+                    data-testid={`button-today-event-${e.id}`}
+                  >
+                    <span className="truncate max-w-[14rem]">{e.title}</span>
+                    {e.type === "complex" && (
+                      <Badge variant="secondary" className="shrink-0">multi-session</Badge>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Select an event</CardTitle>
@@ -264,7 +320,7 @@ export default function EventCheckInDashboard() {
               <SelectValue placeholder="Choose an in-person event" />
             </SelectTrigger>
             <SelectContent>
-              {events.map((e) => (
+              {sortedEvents.map((e) => (
                 <SelectItem key={e.id} value={e.id} data-testid={`option-event-${e.id}`}>
                   {e.title}{e.type === "complex" ? " (multi-session)" : ""}
                 </SelectItem>
