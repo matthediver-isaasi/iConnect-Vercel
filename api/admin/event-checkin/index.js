@@ -6,6 +6,7 @@ import {
   undoCheckin,
   getActorLabel,
   ensureComplexSessionTokens,
+  ensureBookingToken,
 } from '../../_lib/checkinService.js';
 
 const FEATURE_ID = 'events.event-checkin';
@@ -206,6 +207,17 @@ async function dashboard(req, res, context) {
     .eq('tenant_id', context.tenantId)
     .eq('status', 'confirmed')
     .order('attendee_last_name', { ascending: true });
+
+  // Lazily ensure every confirmed in-person booking has a check-in token, so a
+  // booking created before tokens existed (or whose token generation failed)
+  // can still be checked in from the dashboard. Online events stay token-free.
+  if (!event.is_online) {
+    const missing = (bookings || []).filter((b) => !b.check_in_token);
+    for (const b of missing) {
+      const token = await ensureBookingToken(b.id, context.tenantId);
+      if (token) b.check_in_token = token;
+    }
+  }
 
   let attendees = (bookings || []).map((b) => ({
     token: b.check_in_token,

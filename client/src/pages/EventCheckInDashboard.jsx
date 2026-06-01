@@ -456,10 +456,10 @@ export default function EventCheckInDashboard() {
                           <Button
                             size="sm"
                             onClick={() => handleMark(a.token)}
-                            disabled={busyToken === a.token || !a.token}
+                            disabled={(!!busyToken && busyToken === a.token) || !a.token}
                             data-testid={`button-checkin-${a.token}`}
                           >
-                            {busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            {!!busyToken && busyToken === a.token ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                             Check in
                           </Button>
                         </>

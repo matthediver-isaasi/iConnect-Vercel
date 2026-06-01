@@ -78,13 +78,16 @@ export async function ensureBookingToken(bookingId, tenantId = null) {
   if (booking.check_in_token) return booking.check_in_token;
 
   const token = generateCheckinToken();
-  const { error: updErr } = await supabase
+  const { data: updated, error: updErr } = await supabase
     .from('booking')
     .update({ check_in_token: token })
     .eq('id', booking.id)
-    .is('check_in_token', null);
-  if (updErr) {
-    // Lost a race — re-read the now-set token.
+    .is('check_in_token', null)
+    .select('check_in_token')
+    .maybeSingle();
+  // On error OR a 0-row update (lost a race — another request set it first),
+  // re-read the now-persisted token rather than returning our unpersisted one.
+  if (updErr || !updated) {
     const { data: fresh } = await supabase
       .from('booking')
       .select('check_in_token')
@@ -92,7 +95,7 @@ export async function ensureBookingToken(bookingId, tenantId = null) {
       .maybeSingle();
     return fresh?.check_in_token || null;
   }
-  return token;
+  return updated.check_in_token;
 }
 
 /**
