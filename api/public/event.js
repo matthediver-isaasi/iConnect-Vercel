@@ -32,8 +32,6 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('event')
-      // Exclude private group events from public single-event lookup.
-      .is('member_group_id', null)
       .select(`
         id,
         title,
@@ -67,7 +65,9 @@ export default async function handler(req, res) {
         documents_section_title
       `)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc', 'draft']);
+      .in('status', ['published', 'tbc', 'draft'])
+      // Exclude private group events from public single-event lookup.
+      .is('member_group_id', null);
 
     if (eventSlug) {
       query = query.eq('slug', eventSlug.toLowerCase().trim());
