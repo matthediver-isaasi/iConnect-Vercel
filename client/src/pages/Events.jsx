@@ -374,13 +374,16 @@ export default function EventsPage({
   });
 
   // Query for categories that apply to Events content type - return full categories with subcategories
-  // Only runs for authenticated users - skipped on public pages
+  // Runs for both authenticated (base44) and public (publicClient) visitors so the
+  // category URL filter works when logged out. Both sources return the same shape.
   const { data: eventCategories = [] } = useQuery({
-    queryKey: ['event-filter-categories'],
+    queryKey: ['event-filter-categories', !!memberInfo],
     queryFn: async () => {
       try {
         // Get all active categories that have 'Events' in their applies_to_content_types
-        const categories = await base44.entities.ResourceCategory.list('display_order');
+        const categories = memberInfo
+          ? await base44.entities.ResourceCategory.list('display_order')
+          : await publicClient.listResourceCategories();
         const filtered = categories.filter(cat => 
           cat.is_active && 
           Array.isArray(cat.applies_to_content_types) && 
@@ -398,8 +401,7 @@ export default function EventsPage({
         console.error('[Events] Error loading filter categories:', error);
         return [];
       }
-    },
-    enabled: !!memberInfo // Only fetch when authenticated
+    }
   });
 
   if (eventsError) {
