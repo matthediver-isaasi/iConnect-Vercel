@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { publicClient } from "@/api/publicClient";
 
@@ -11,14 +12,17 @@ export function useEventTypes() {
     staleTime: 30000,
   });
 
-  let eventTypes = [];
-  if (settings?.setting_value) {
+  // Memoize so consumers get a referentially stable array (parsing produces a
+  // fresh array every render otherwise, which destabilizes downstream effects).
+  const eventTypes = useMemo(() => {
+    if (!settings?.setting_value) return [];
     try {
-      eventTypes = JSON.parse(settings.setting_value);
+      return JSON.parse(settings.setting_value);
     } catch (e) {
       console.error('Failed to parse event types:', e);
+      return [];
     }
-  }
+  }, [settings?.setting_value]);
 
   return {
     eventTypes,

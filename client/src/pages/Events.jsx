@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -155,8 +155,6 @@ export default function EventsPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [complexDeleteTarget, setComplexDeleteTarget] = useState(null);
   const [complexDeleteConfirmText, setComplexDeleteConfirmText] = useState("");
-  const [selectedFilterTags, setSelectedFilterTags] = useState(() => searchParams.getAll("category"));
-  const [selectedEventType, setSelectedEventType] = useState(() => searchParams.get("type") || "all");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
   const [sortBy, setSortBy] = useState("date");
   const [showPastEvents, setShowPastEvents] = useState(false);
@@ -464,58 +462,72 @@ export default function EventsPage({
   // Check if categories are loaded - needed for composite key filtering
   const categoriesLoaded = eventCategories.length > 0;
 
-  // Sync category & type filters to the URL query string so the filtered view
-  // can be linked to, refreshed, and shared (works for authenticated & public).
-  // Pushes a new history entry on genuine changes (so browser back/forward steps
-  // between filter states), and no-ops when the URL already matches the current
-  // state (so back/forward navigation doesn't create duplicate history entries
-  // or loop with the read-back effect below).
-  useEffect(() => {
-    const next = new URLSearchParams(searchParams);
-    if (selectedEventType && selectedEventType !== "all") {
-      next.set("type", selectedEventType);
-    } else {
-      next.delete("type");
-    }
-    next.delete("category");
-    for (const tagKey of selectedFilterTags) {
-      next.append("category", tagKey);
-    }
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next);
-    }
-  }, [selectedEventType, selectedFilterTags, searchParams, setSearchParams]);
-
-  // Keep filter state in sync when the URL changes externally (back/forward,
-  // shared link, initial load). Validates params against the loaded data so
-  // unknown/stale values are ignored rather than silently emptying the list:
-  // an invalid `type` falls back to "all" and unknown category keys are dropped.
-  // Validation only kicks in once the relevant data has loaded so valid params
-  // present before load aren't prematurely discarded.
-  useEffect(() => {
+  // The URL query string is the single source of truth for the category & type
+  // filters, so the filtered view can be linked to, refreshed, shared, and moved
+  // through with browser back/forward (works for authenticated & public). Filter
+  // values are derived from `searchParams` on each render and dropdown handlers
+  // write straight back to the URL — there is no separate filter state to keep in
+  // sync, which removes the bidirectional effect loop entirely.
+  //
+  // Stale/unknown params are ignored gracefully: an invalid `type` reads as "all"
+  // and unknown category keys are dropped from the active selection. Validation
+  // only kicks in once the relevant data has loaded so a valid param present
+  // before load is never treated as invalid (and we never write the URL back to
+  // strip it).
+  const selectedEventType = useMemo(() => {
     const rawType = searchParams.get("type") || "all";
-    let nextType = "all";
-    if (rawType !== "all") {
-      const typeNames = eventTypes.map((t) => (typeof t === "object" ? t.name : t));
-      // Accept tentatively while types are still loading; validate once loaded.
-      if (typeNames.length === 0 || typeNames.includes(rawType)) {
-        nextType = rawType;
-      }
+    if (rawType === "all") return "all";
+    const typeNames = eventTypes.map((t) => (typeof t === "object" ? t.name : t));
+    // Accept tentatively while types are still loading; validate once loaded.
+    if (typeNames.length === 0 || typeNames.includes(rawType)) {
+      return rawType;
     }
+    return "all";
+  }, [searchParams, eventTypes]);
 
+  const selectedFilterTags = useMemo(() => {
     const rawTags = searchParams.getAll("category");
-    const nextTags = categoriesLoaded
+    return categoriesLoaded
       ? rawTags.filter((key) => filterTagKeyMap.has(key))
       : rawTags;
+  }, [searchParams, categoriesLoaded, filterTagKeyMap]);
 
-    setSelectedEventType((prev) => (prev === nextType ? prev : nextType));
-    setSelectedFilterTags((prev) => {
-      if (prev.length === nextTags.length && prev.every((t, i) => t === nextTags[i])) {
-        return prev;
+  // Mutate only the filter params on the URL, preserving any unrelated params.
+  // Uses { replace: true } so adjusting filters doesn't flood browser history;
+  // genuine navigation (shared links, back/forward) still restores state because
+  // the values above are derived directly from `searchParams`.
+  const updateFilterParams = useCallback((mutate) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      mutate(next);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setSelectedEventType = useCallback((type) => {
+    updateFilterParams((next) => {
+      if (!type || type === "all") {
+        next.delete("type");
+      } else {
+        next.set("type", type);
       }
-      return nextTags;
     });
-  }, [searchParams, eventTypes, filterTagKeyMap, categoriesLoaded]);
+  }, [updateFilterParams]);
+
+  const setFilterTagSelected = useCallback((tagKey, selected) => {
+    updateFilterParams((next) => {
+      const current = next.getAll("category");
+      next.delete("category");
+      const updated = selected
+        ? [...current, tagKey]
+        : current.filter((t) => t !== tagKey);
+      for (const t of updated) next.append("category", t);
+    });
+  }, [updateFilterParams]);
+
+  const clearFilterTags = useCallback(() => {
+    updateFilterParams((next) => next.delete("category"));
+  }, [updateFilterParams]);
 
   let filteredEvents = accessibleEvents.filter((event) => {
     const matchesSearch =
@@ -1201,7 +1213,7 @@ export default function EventsPage({
                               variant="ghost"
                               size="sm"
                               className="h-7 text-xs text-slate-500 hover:text-slate-700"
-                              onClick={() => setSelectedFilterTags([])}
+                              onClick={() => clearFilterTags()}
                               data-testid="filter-tags-clear"
                             >
                               Clear all
@@ -1226,13 +1238,7 @@ export default function EventsPage({
                                       ? "bg-slate-100 text-slate-900 font-medium" 
                                       : "text-slate-600 hover:bg-slate-50"
                                   }`}
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      setSelectedFilterTags(prev => prev.filter(t => t !== tagKey));
-                                    } else {
-                                      setSelectedFilterTags(prev => [...prev, tagKey]);
-                                    }
-                                  }}
+                                  onClick={() => setFilterTagSelected(tagKey, !isSelected)}
                                   data-testid={`filter-tag-${subcategory}`}
                                 >
                                   <div className={`w-4 h-4 rounded border flex items-center justify-center ${
