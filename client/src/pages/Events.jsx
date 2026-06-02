@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { parseISO, format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { toast } from "sonner";
 import {
@@ -151,11 +151,12 @@ export default function EventsPage({
   const isAdmin = !hookIsFeatureExcluded('events.browse-events.create');
   const queryClient = useQueryClient();
   const { eventTypes } = useEventTypes();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [complexDeleteTarget, setComplexDeleteTarget] = useState(null);
   const [complexDeleteConfirmText, setComplexDeleteConfirmText] = useState("");
-  const [selectedFilterTags, setSelectedFilterTags] = useState([]);
-  const [selectedEventType, setSelectedEventType] = useState("all");
+  const [selectedFilterTags, setSelectedFilterTags] = useState(() => searchParams.getAll("category"));
+  const [selectedEventType, setSelectedEventType] = useState(() => searchParams.get("type") || "all");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
   const [sortBy, setSortBy] = useState("date");
   const [showPastEvents, setShowPastEvents] = useState(false);
@@ -462,6 +463,59 @@ export default function EventsPage({
   
   // Check if categories are loaded - needed for composite key filtering
   const categoriesLoaded = eventCategories.length > 0;
+
+  // Sync category & type filters to the URL query string so the filtered view
+  // can be linked to, refreshed, and shared (works for authenticated & public).
+  // Pushes a new history entry on genuine changes (so browser back/forward steps
+  // between filter states), and no-ops when the URL already matches the current
+  // state (so back/forward navigation doesn't create duplicate history entries
+  // or loop with the read-back effect below).
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (selectedEventType && selectedEventType !== "all") {
+      next.set("type", selectedEventType);
+    } else {
+      next.delete("type");
+    }
+    next.delete("category");
+    for (const tagKey of selectedFilterTags) {
+      next.append("category", tagKey);
+    }
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next);
+    }
+  }, [selectedEventType, selectedFilterTags, searchParams, setSearchParams]);
+
+  // Keep filter state in sync when the URL changes externally (back/forward,
+  // shared link, initial load). Validates params against the loaded data so
+  // unknown/stale values are ignored rather than silently emptying the list:
+  // an invalid `type` falls back to "all" and unknown category keys are dropped.
+  // Validation only kicks in once the relevant data has loaded so valid params
+  // present before load aren't prematurely discarded.
+  useEffect(() => {
+    const rawType = searchParams.get("type") || "all";
+    let nextType = "all";
+    if (rawType !== "all") {
+      const typeNames = eventTypes.map((t) => (typeof t === "object" ? t.name : t));
+      // Accept tentatively while types are still loading; validate once loaded.
+      if (typeNames.length === 0 || typeNames.includes(rawType)) {
+        nextType = rawType;
+      }
+    }
+
+    const rawTags = searchParams.getAll("category");
+    const nextTags = categoriesLoaded
+      ? rawTags.filter((key) => filterTagKeyMap.has(key))
+      : rawTags;
+
+    setSelectedEventType((prev) => (prev === nextType ? prev : nextType));
+    setSelectedFilterTags((prev) => {
+      if (prev.length === nextTags.length && prev.every((t, i) => t === nextTags[i])) {
+        return prev;
+      }
+      return nextTags;
+    });
+  }, [searchParams, eventTypes, filterTagKeyMap, categoriesLoaded]);
 
   let filteredEvents = accessibleEvents.filter((event) => {
     const matchesSearch =
