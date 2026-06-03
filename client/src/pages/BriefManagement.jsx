@@ -65,6 +65,7 @@ import {
   FileCheck2,
   Image as ImageIcon,
   Mail,
+  Download,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -109,6 +110,32 @@ const SORT_OPTIONS = [
   { value: "deadline_asc", label: "Deadline (Earliest)" },
   { value: "deadline_desc", label: "Deadline (Latest)" },
 ];
+
+const EXPORT_COLUMNS = [
+  { key: "title", label: "Brief title", default: true },
+  { key: "category", label: "Category", default: true },
+  { key: "status", label: "Status", default: true },
+  { key: "writer", label: "Writer", default: true },
+  { key: "editor", label: "Editor", default: true },
+  { key: "deadline", label: "Deadline", default: true },
+  { key: "latest_draft", label: "Latest Draft", default: true },
+  { key: "copyright", label: "Copyright status", default: true },
+  { key: "permission", label: "Permission status", default: true },
+  { key: "member_job_title", label: "Member Job Title", default: false },
+  { key: "member_organisation_name", label: "Member Organisation Name", default: false },
+];
+
+function escapeCSV(value) {
+  if (value === null || value === undefined) return "";
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
 
 const COPYRIGHT_STATUS_ORDER = {
   not_required: 0,
@@ -398,6 +425,13 @@ export default function BriefManagementPage() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] = useState("");
   const [bulkProgress, setBulkProgress] = useState(null);
+
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportColumns, setExportColumns] = useState(() => {
+    const initial = {};
+    EXPORT_COLUMNS.forEach((c) => { initial[c.key] = c.default; });
+    return initial;
+  });
 
   const [inboxOpen, setInboxOpen] = useState(false);
   const [inboxFolder, setInboxFolder] = useState("inbox");
@@ -1073,6 +1107,78 @@ export default function BriefManagementPage() {
     return getMemberName(brief.assigned_writer_id);
   }
 
+  function getExportCellValue(brief, key) {
+    switch (key) {
+      case "title":
+        return brief.title || "";
+      case "category":
+        return brief.category || "";
+      case "status": {
+        const cfg = STATUS_CONFIG[brief.status];
+        return cfg?.label || brief.status || "";
+      }
+      case "writer": {
+        const v = getWriterDisplay(brief);
+        return v === "--" ? "" : v;
+      }
+      case "editor": {
+        const v = getMemberName(brief.review_owner_id);
+        return v === "--" ? "" : v;
+      }
+      case "deadline":
+        return brief.deadline ? format(new Date(brief.deadline), "MMM d, yyyy") : "";
+      case "latest_draft": {
+        const v = latestVersionByBrief[brief.id];
+        if (!v) return "";
+        if (v.created_at) return format(new Date(v.created_at), "MMM d, yyyy");
+        return `v${v.version_number}`;
+      }
+      case "copyright":
+        return COPYRIGHT_STATUS_LABEL[getCopyrightStatus(brief)] || "";
+      case "permission":
+        return PERMISSION_STATUS_LABEL[getPermissionStatus(brief)] || "";
+      case "member_job_title": {
+        if (brief.external_writer_id || !brief.assigned_writer_id) return "";
+        return membersById[brief.assigned_writer_id]?.job_title || "";
+      }
+      case "member_organisation_name": {
+        if (brief.external_writer_id || !brief.assigned_writer_id) return "";
+        return membersById[brief.assigned_writer_id]?.organisation_name || "";
+      }
+      default:
+        return "";
+    }
+  }
+
+  function handleExport() {
+    const selectedCols = EXPORT_COLUMNS.filter((c) => exportColumns[c.key]);
+    if (selectedCols.length === 0) {
+      toast.error("Select at least one column to export.");
+      return;
+    }
+    const headerRow = selectedCols.map((c) => escapeCSV(c.label)).join(",");
+    const dataRows = filteredAndSorted.map((brief) =>
+      selectedCols.map((c) => escapeCSV(getExportCellValue(brief, c.key))).join(",")
+    );
+    const csv = [headerRow, ...dataRows].join("\n");
+
+    const today = new Date().toISOString().split("T")[0];
+    const filename = `brief-management-export_${today}.csv`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setExportDialogOpen(false);
+    toast.success(`Exported ${filteredAndSorted.length} ${filteredAndSorted.length === 1 ? "brief" : "briefs"}.`);
+  }
+
   if (!accessChecked || isLoading) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-spinner">
@@ -1110,6 +1216,14 @@ export default function BriefManagementPage() {
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </Badge>
                 )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setExportDialogOpen(true)}
+                data-testid="button-export-briefs"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export
               </Button>
               {canManage && (
                 <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-brief">
@@ -1627,6 +1741,52 @@ export default function BriefManagementPage() {
             >
               {bulkProgress && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {bulkProgress ? "Updating…" : "Apply"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent data-testid="dialog-export">
+          <DialogHeader>
+            <DialogTitle>Export briefs</DialogTitle>
+            <DialogDescription>
+              Choose the columns to include. The export contains the {filteredAndSorted.length} {filteredAndSorted.length === 1 ? "brief" : "briefs"} currently shown by your filters and sort order.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+            {EXPORT_COLUMNS.map((col) => (
+              <label
+                key={col.key}
+                className="flex items-center gap-2 cursor-pointer text-sm"
+                data-testid={`label-export-col-${col.key}`}
+              >
+                <Checkbox
+                  checked={!!exportColumns[col.key]}
+                  onCheckedChange={(v) =>
+                    setExportColumns((prev) => ({ ...prev, [col.key]: !!v }))
+                  }
+                  data-testid={`checkbox-export-col-${col.key}`}
+                />
+                <span>{col.label}</span>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setExportDialogOpen(false)}
+              data-testid="button-cancel-export"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExport}
+              disabled={!EXPORT_COLUMNS.some((c) => exportColumns[c.key]) || filteredAndSorted.length === 0}
+              data-testid="button-confirm-export"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
             </Button>
           </DialogFooter>
         </DialogContent>

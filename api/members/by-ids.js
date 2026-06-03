@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   try {
     const { data: members, error } = await supabase
       .from('member')
-      .select('id, first_name, last_name, email')
+      .select('id, first_name, last_name, email, job_title, organization (id, name)')
       .eq('tenant_id', tenantId)
       .in('id', uniqueIds);
 
@@ -32,7 +32,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
 
-    return res.json(members || []);
+    const normalized = (members || []).map((m) => ({
+      id: m.id,
+      first_name: m.first_name,
+      last_name: m.last_name,
+      email: m.email,
+      job_title: m.job_title || null,
+      organisation_name: m.organization?.name || null,
+    }));
+
+    return res.json(normalized);
   } catch (err) {
     console.error('[Member By IDs] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch members' });
