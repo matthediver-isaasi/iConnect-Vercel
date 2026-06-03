@@ -252,9 +252,8 @@ export default function GroupEventForm({ initial = null, memberGroupId, onSaved,
       <EventDocumentsManager
         documents={form.attached_documents}
         sectionTitle={form.documents_section_title}
-        onChange={(documents, sectionTitle) =>
-          setForm((f) => ({ ...f, attached_documents: documents, documents_section_title: sectionTitle }))
-        }
+        onSectionTitleChange={handleField("documents_section_title")}
+        onDocumentsChange={handleField("attached_documents")}
       />
 
       <div className="flex justify-end gap-2 pt-2">
