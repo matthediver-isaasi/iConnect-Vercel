@@ -612,8 +612,16 @@ export default function BookingsPage() {
 
   const isLoading = loadingBookings || loadingEvents || loadingComplexBookings;
 
+  const nonTbcBookings = React.useMemo(() => {
+    return bookings.filter(booking => {
+      const isComplex = booking._source === 'complex';
+      const event = isComplex ? booking._complexEvent : events.find(e => e.id === booking.event_id);
+      return event?.status !== 'tbc';
+    });
+  }, [bookings, events]);
+
   const filteredAndSortedGroups = React.useMemo(() => {
-    const grouped = bookings.reduce((acc, booking) => {
+    const grouped = nonTbcBookings.reduce((acc, booking) => {
       const rawRef = booking.booking_group_reference || booking.booking_reference || 'unknown';
       const ref = booking._source === 'complex' ? `complex:${rawRef}` : rawRef;
       if (!acc[ref]) acc[ref] = [];
@@ -658,7 +666,7 @@ export default function BookingsPage() {
     });
 
     return entries;
-  }, [bookings, events, searchQuery, sortOrder]);
+  }, [nonTbcBookings, events, searchQuery, sortOrder]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -703,7 +711,7 @@ export default function BookingsPage() {
           </div>
         )}
 
-        {!isLoading && bookings.length > 0 && (
+        {!isLoading && nonTbcBookings.length > 0 && (
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -749,7 +757,7 @@ export default function BookingsPage() {
               </Card>
             ))}
           </div>
-        ) : bookings.length === 0 ? (
+        ) : nonTbcBookings.length === 0 ? (
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-12 text-center">
               <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />

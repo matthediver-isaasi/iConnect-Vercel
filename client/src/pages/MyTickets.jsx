@@ -255,7 +255,7 @@ export default function MyTicketsPage({ hasBanner }) {
 
   const isLoading = loadingMyTickets;
 
-  const filteredAndSortedTickets = React.useMemo(() => {
+  const nonTbcTickets = React.useMemo(() => {
     const ticketsWithEvents = myTickets.map(ticket => {
       if (ticket._source === 'complex') {
         const ce = ticket._complexEvent;
@@ -272,6 +272,7 @@ export default function MyTicketsPage({ hasBanner }) {
             end_date: lastSession?.end_time || ce?.end_date || null,
             image_url: ce?.image_url || null,
             description: ce?.description || '',
+            status: ce?.status || null,
             _isComplex: true,
             _sessions: sessions,
           }
@@ -281,11 +282,15 @@ export default function MyTicketsPage({ hasBanner }) {
         ticket,
         event: events.find(e => e.id === ticket.event_id)
       };
-    }).filter(item => item.event);
+    }).filter(item => item.event && item.event.status !== 'tbc');
 
+    return ticketsWithEvents;
+  }, [myTickets, events]);
+
+  const filteredAndSortedTickets = React.useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
     const filtered = query
-      ? ticketsWithEvents.filter(({ ticket, event }) => {
+      ? nonTbcTickets.filter(({ ticket, event }) => {
           return (
             (event.title || '').toLowerCase().includes(query) ||
             (event.location || '').toLowerCase().includes(query) ||
@@ -294,7 +299,7 @@ export default function MyTicketsPage({ hasBanner }) {
             (ticket.status || '').toLowerCase().includes(query)
           );
         })
-      : ticketsWithEvents;
+      : [...nonTbcTickets];
 
     filtered.sort((a, b) => {
       const dateA = a.event.start_date ? new Date(a.event.start_date).getTime() : 0;
@@ -303,7 +308,7 @@ export default function MyTicketsPage({ hasBanner }) {
     });
 
     return filtered;
-  }, [myTickets, events, searchQuery, sortOrder]);
+  }, [nonTbcTickets, searchQuery, sortOrder]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedTickets.length / PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -482,7 +487,7 @@ export default function MyTicketsPage({ hasBanner }) {
           </div>
         )}
 
-        {!isLoading && myTickets.length > 0 && (
+        {!isLoading && nonTbcTickets.length > 0 && (
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -528,7 +533,7 @@ export default function MyTicketsPage({ hasBanner }) {
               </Card>
             ))}
           </div>
-        ) : myTickets.length === 0 ? (
+        ) : nonTbcTickets.length === 0 ? (
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-12 text-center">
               <Ticket className="w-16 h-16 text-slate-300 mx-auto mb-4" />
