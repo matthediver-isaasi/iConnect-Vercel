@@ -276,7 +276,7 @@ export default function GroupEventForm({ initial = null, memberGroupId, onSaved,
               Possible time clash
             </DialogTitle>
             <DialogDescription>
-              The time you chose overlaps with {clashes.length === 1 ? "another event" : `${clashes.length} other events`} in this tenant. You can save anyway or go back and adjust the time.
+              The time you chose overlaps with {clashes.length === 1 ? "another event" : `${clashes.length} other events`}. You can save anyway or go back and adjust the time.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-72 overflow-y-auto space-y-2 border-t border-b py-3">
