@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { article_brief_id, file_url, file_name, submission_note } = req.body;
+    const { article_brief_id, file_url, file_name, submission_note, storage_path, file_size } = req.body;
 
     if (!article_brief_id) {
       return res.status(400).json({ error: 'article_brief_id is required' });
@@ -74,6 +74,8 @@ export default async function handler(req, res) {
           submission_note: submission_note || null,
           file_url,
           file_name: file_name || null,
+          storage_path: storage_path || null,
+          file_size: Number.isFinite(Number(file_size)) ? Number(file_size) : null,
           status_at_upload: brief.status,
           tenant_id: tenantCtx.tenantId
         })

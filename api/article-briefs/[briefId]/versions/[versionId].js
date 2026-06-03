@@ -62,7 +62,7 @@ export default async function handler(req, res) {
   try {
     const { data: version, error: fetchError } = await supabase
       .from('article_brief_version')
-      .select('id, article_brief_id, tenant_id, version_number, file_name, file_url')
+      .select('id, article_brief_id, tenant_id, version_number, file_name, file_url, storage_path, file_size')
       .eq('id', versionId)
       .eq('article_brief_id', briefId)
       .eq('tenant_id', tenantCtx.tenantId)
@@ -83,10 +83,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to delete version' });
     }
 
-    const { bucket, path: storagePath } = extractStoragePath(version.file_url);
+    const fallback = extractStoragePath(version.file_url);
+    const storagePath = version.storage_path || fallback.path;
+    const bucket = version.storage_path ? 'private-uploads' : fallback.bucket;
     if (storagePath) {
       try {
         await supabase.storage.from(bucket).remove([storagePath]);
+        if (Number.isFinite(Number(version.file_size)) && Number(version.file_size) > 0) {
+          addTenantStorageBytes(version.tenant_id, -Number(version.file_size)).catch(() => {});
+        }
       } catch (storageErr) {
         console.warn('[BriefVersion Delete] Storage cleanup failed:', storageErr);
       }

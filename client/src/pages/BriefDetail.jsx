@@ -830,6 +830,8 @@ export default function BriefDetailPage() {
         article_brief_id: briefId,
         file_url: uploadResult.file_url,
         file_name: uploadResult.file_name,
+        storage_path: uploadResult.storage_path,
+        file_size: uploadResult.file_size,
         submission_note: submissionNote.trim() || null,
       });
       queryClient.invalidateQueries({ queryKey: ["article-brief-versions", briefId] });

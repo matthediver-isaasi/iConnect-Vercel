@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS article_brief_version (
   submission_note TEXT,
   file_url TEXT,
   file_name TEXT,
+  storage_path TEXT,
+  file_size BIGINT,
   status_at_upload TEXT,
   tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
