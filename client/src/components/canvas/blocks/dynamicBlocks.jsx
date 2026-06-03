@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
-  ChevronLeft, ChevronRight, Images,
+  ChevronLeft, ChevronRight, Images, User,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -1409,6 +1409,31 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
     return list;
   }, [data, source, c.tag, c.category, c.sortBy, c.featuredFirst, c.limit]);
 
+  // Co-authors (Task #1230): articles can have multiple authors stored in the
+  // blog_post_author join table. Fetch the ordered author list (primary first)
+  // for the visible article ids so teasers show co-authors, not just the
+  // primary author. News uses a separate entity, so this only runs for articles.
+  const articleIdsKey = useMemo(
+    () => (source === 'articles' ? items.map((a) => a.id).filter(Boolean).join(',') : ''),
+    [source, items]
+  );
+  const { data: coAuthorsData } = useQuery({
+    queryKey: ['canvas', 'article-co-authors', articleIdsKey],
+    queryFn: async () => {
+      if (!articleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(articleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: source === 'articles' && !!articleIdsKey,
+    staleTime: 60_000,
+  });
+  const formatAuthorNames = (cards) => {
+    const names = (cards || []).map((a) => a.name).filter(Boolean);
+    if (names.length === 0) return '';
+    return names.reduce((acc, n, idx) => acc + (idx === 0 ? n : (idx === 1 ? ' & ' : ', ') + n), '');
+  };
+
   const linkBase = source === 'news' ? '/NewsView?slug=' : '/Articles?slug=';
   const effectiveCols = layout === 'list' ? 1 : cols;
 
@@ -1472,6 +1497,19 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                 {a.published_date ? (
                   <div className="text-xs text-slate-500">{formatDate(a.published_date)}</div>
                 ) : null}
+                {source === 'articles' && (() => {
+                  const authorText = formatAuthorNames(coAuthorsData?.authors?.[a.id]);
+                  if (!authorText) return null;
+                  return (
+                    <div
+                      className="text-xs text-slate-500 flex items-center gap-1"
+                      data-testid={`text-article-authors-${a.id}`}
+                    >
+                      <User className="w-3 h-3 flex-shrink-0" />
+                      <span>by {authorText}</span>
+                    </div>
+                  );
+                })()}
                 {c.showSummary !== false && a.summary ? (
                   <p
                     className={summaryInline ? 'text-slate-600 line-clamp-3 mt-1' : 'text-xs text-slate-600 line-clamp-3 mt-1'}

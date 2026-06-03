@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight, User } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
@@ -1235,6 +1235,31 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       .filter(Boolean);
   }, [content.cards, allNews, allResources, allArticles, allJobs]);
 
+  // Co-authors (Task #1230): article cards can have multiple authors stored in
+  // the blog_post_author join table. Fetch the ordered author list (primary
+  // first) for the visible article items so showcase teasers display co-authors
+  // alongside the primary author. Only articles use this entity.
+  const articleIdsKey = React.useMemo(
+    () => items.filter((i) => i._contentType === 'articles').map((i) => i.id).filter(Boolean).join(','),
+    [items]
+  );
+  const { data: coAuthorsData } = useQuery({
+    queryKey: ['public-showcase-article-co-authors', articleIdsKey],
+    queryFn: async () => {
+      if (!articleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(articleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: !!articleIdsKey,
+    staleTime: 60_000,
+  });
+  const formatAuthorNames = (cards) => {
+    const names = (cards || []).map((a) => a.name).filter(Boolean);
+    if (names.length === 0) return '';
+    return names.reduce((acc, n, idx) => acc + (idx === 0 ? n : (idx === 1 ? ' & ' : ', ') + n), '');
+  };
+
   const getItemUrl = (item) => {
     switch (item._contentType) {
       case 'news':
@@ -1447,6 +1472,23 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                         {new Date(item.published_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
                       </div>
                     )}
+                    {item._contentType === 'articles' && (() => {
+                      const authorText = formatAuthorNames(coAuthorsData?.authors?.[item.id]);
+                      if (!authorText) return null;
+                      return (
+                        <div
+                          className="flex items-center gap-1 mt-2 text-slate-500"
+                          style={{
+                            justifyContent: content.card_text_align === 'center' ? 'center' : content.card_text_align === 'right' ? 'flex-end' : 'flex-start',
+                            fontSize: `${content.dateFontSize || 12}px`
+                          }}
+                          data-testid={`text-article-authors-${item.id}`}
+                        >
+                          <User style={{ width: `${content.dateFontSize || 12}px`, height: `${content.dateFontSize || 12}px` }} />
+                          <span>by {authorText}</span>
+                        </div>
+                      );
+                    })()}
                     {content.showCTAButton !== false && (
                       <div 
                         className="absolute flex items-center justify-center transition-transform hover:scale-110"
