@@ -230,9 +230,24 @@ const childBlockToMjml = (block) => {
     case BLOCK_TYPES.EVENT_QR: {
       return eventQrToMjml(block);
     }
+    case BLOCK_TYPES.DYNAMIC_TEXT:
+      return dynamicTextToMjml(block);
     default:
       return '';
   }
+};
+
+const dynamicTextToMjml = (block) => {
+  const dtFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
+  const token = block.token ? `{{${block.token}}}` : '';
+  return `<mj-text
+        ${dtFontFamily}
+        align="${block.styles.textAlign || 'left'}"
+        font-size="${block.styles.fontSize || '14px'}"
+        color="${block.styles.color || '#333333'}"
+        line-height="${block.styles.lineHeight || '1.5'}"
+        padding="${getPaddingAttr(block.styles)}"
+      >${token}</mj-text>`;
 };
 
 const eventQrToMjml = (block) => {
@@ -401,6 +416,17 @@ const blockToMjml = (block) => {
       `;
     }
 
+    case BLOCK_TYPES.DYNAMIC_TEXT: {
+      const dtSectionPad = getCombinedSectionPadding(block.styles);
+      return `
+        <mj-section padding="${dtSectionPad}">
+          <mj-column>
+            ${dynamicTextToMjml(block)}
+          </mj-column>
+        </mj-section>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -431,6 +457,9 @@ const blockToMjml = (block) => {
             return childBlockToMjml(b);
           }
           if (b.type === BLOCK_TYPES.EVENT_QR) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.DYNAMIC_TEXT) {
             return childBlockToMjml(b);
           }
           return '';

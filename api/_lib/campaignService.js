@@ -160,6 +160,118 @@ export async function getCampaign(campaignId, tenantId) {
   }
 }
 
+/**
+ * Pure predicate: is this email_template row a visual-builder template?
+ * True only when editor_type==='visual' AND design_json normalizes to an object
+ * carrying a blocks array. Legacy plain-HTML templates (editor_type 'html', no
+ * design_json) return false. Mirrors isVisualTemplate() in GroupEmail.jsx.
+ */
+export function isVisualTemplateRecord(tpl) {
+  if (!tpl || tpl.editor_type !== 'visual') return false;
+  let design = tpl.design_json;
+  if (typeof design === 'string') {
+    try { design = JSON.parse(design); } catch { return false; }
+  }
+  return !!(design && typeof design === 'object' && Array.isArray(design.blocks));
+}
+
+// Normalize a design_json value (object or JSON string) to an object or null.
+function normalizeDesignJson(design) {
+  if (!design) return null;
+  if (typeof design === 'string') {
+    try { const p = JSON.parse(design); return p && typeof p === 'object' ? p : null; }
+    catch { return null; }
+  }
+  return typeof design === 'object' ? design : null;
+}
+
+/**
+ * Collect every Dynamic Text slot token from a design's block tree (top-level
+ * blocks, section children, and column blocks). Server mirror of
+ * extractDynamicSlots() in client/src/components/email-builder/types.js — only
+ * `dynamic_text` blocks with a token count as fill-in slots. Returns a Set of
+ * token strings.
+ */
+export function extractDynamicSlotTokens(design) {
+  const root = normalizeDesignJson(design);
+  const blocks = Array.isArray(root) ? root : (root?.blocks || []);
+  const tokens = new Set();
+  const visit = (block) => {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === 'dynamic_text' && block.token) tokens.add(block.token);
+    if (Array.isArray(block.children)) block.children.forEach(visit);
+    if (Array.isArray(block.columns)) {
+      block.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(visit); });
+    }
+  };
+  blocks.forEach(visit);
+  return tokens;
+}
+
+/**
+ * Pure predicate: is this email_template row a visual-builder template?
+ * (kept for callers that only need a yes/no check.)
+ */
+export async function assertVisualTemplateForCampaign(templateId, tenantId) {
+  const resolved = await resolveMemberCampaignTemplateContent({ templateId, tenantId });
+  return resolved.ok ? { ok: true } : { ok: false, error: resolved.error };
+}
+
+/**
+ * Resolve the CANONICAL content a member (Group Email) campaign must persist
+ * for a given visual template, accepting ONLY per-send slot values from the
+ * client. This is the server-side lock for the template-driven flow:
+ *   - email_template_id is REQUIRED (a member campaign cannot be freeform).
+ *   - the template must be a visual-builder template (editor_type='visual').
+ *   - html_content is pinned to the template body (client-supplied HTML is
+ *     ignored — layout cannot be altered outside slot values).
+ *   - design_json is pinned to the template design; the only client-controlled
+ *     part is design_json.slotValues, and that is filtered down to the tokens
+ *     actually declared by the template's Dynamic Text blocks.
+ * Returns { ok, html_content, design_json, email_template_id } on success,
+ * else { ok:false, error }.
+ */
+export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues } = {}) {
+  if (!templateId || templateId === 'none' || templateId === '') {
+    return { ok: false, error: 'A visual email template is required.' };
+  }
+  if (!supabase) return { ok: false, error: 'Database not configured' };
+  try {
+    const { data, error } = await supabase
+      .from('email_template')
+      .select('id, editor_type, design_json, body')
+      .eq('id', templateId)
+      .eq('tenant_id', tenantId)
+      .single();
+    if (error || !data) return { ok: false, error: 'Selected template was not found.' };
+    if (!isVisualTemplateRecord(data)) {
+      return { ok: false, error: 'Group emails can only use visual-builder templates.' };
+    }
+
+    const design = normalizeDesignJson(data.design_json) || {};
+    const tokens = extractDynamicSlotTokens(design);
+    const slotValues = {};
+    if (requestedSlotValues && typeof requestedSlotValues === 'object') {
+      for (const token of tokens) {
+        if (Object.prototype.hasOwnProperty.call(requestedSlotValues, token)) {
+          const v = requestedSlotValues[token];
+          slotValues[token] = v == null ? '' : String(v);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      email_template_id: data.id,
+      html_content: data.body || '',
+      design_json: { ...design, slotValues },
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error resolving template content:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
 export async function createCampaign(campaignData, tenantId, createdBy) {
   if (!supabase || !tenantId) {
     return { success: false, error: 'Database not configured or missing tenant' };
@@ -2163,16 +2275,35 @@ export async function processSendingCampaigns() {
   }
 }
 
+// Replace Dynamic Text slot tokens ({{dynamic_N}}) with the single per-send
+// values captured when the campaign was composed. Slot values are the same for
+// every recipient (one value per send, not per-recipient). Missing values
+// resolve to an empty string so no raw {{dynamic_N}} token leaks.
+export function applyDynamicSlotValues(html, slotValues) {
+  if (!html || !slotValues || typeof slotValues !== 'object') return html;
+  let out = html;
+  for (const [token, value] of Object.entries(slotValues)) {
+    if (!token) continue;
+    const re = new RegExp(`\\{\\{\\s*${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'gi');
+    out = out.replace(re, value == null ? '' : String(value));
+  }
+  return out;
+}
+
 function parseCampaignDesign(campaign) {
   let skipFooter = false;
   let hasUnsubscribeBlock = false;
   let contentWidth = null;
+  let slotValues = null;
   if (campaign.design_json) {
     skipFooter = true;
     try {
       const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
       if (designData?.globalStyles?.contentWidth) {
         contentWidth = designData.globalStyles.contentWidth;
+      }
+      if (designData?.slotValues && typeof designData.slotValues === 'object') {
+        slotValues = designData.slotValues;
       }
       const checkForUnsubscribe = (blocks) => {
         if (!Array.isArray(blocks)) return false;
@@ -2192,7 +2323,7 @@ function parseCampaignDesign(campaign) {
       }
     } catch (e) {}
   }
-  return { skipFooter, hasUnsubscribeBlock, contentWidth };
+  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues };
 }
 
 const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT_QR_BLOCK:END\s*-->/gi;
@@ -2316,6 +2447,13 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
   try {
     let html = campaign.html_content || '';
     let subject = campaign.subject || '';
+
+    // Dynamic Text slots: single per-send values, identical for every recipient.
+    // Resolve before any per-recipient placeholder substitution.
+    if (designInfo?.slotValues) {
+      html = applyDynamicSlotValues(html, designInfo.slotValues);
+      subject = applyDynamicSlotValues(subject, designInfo.slotValues);
+    }
 
     const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';
     html = html.replace(/\{\{recipient_name\}\}/gi, recipientName);

@@ -521,6 +521,40 @@ function EventQrBlockPreview({ block, isChild }) {
   return <div style={marginAsPadding}>{qrEl}</div>;
 }
 
+function DynamicTextBlockPreview({ block, isChild, globalFontFamily }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const fontFamily = block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif';
+  const fontSize = block.styles.fontSize || '14px';
+  const color = block.styles.color || '#333333';
+  const textAlign = block.styles.textAlign || 'left';
+  const lineHeight = block.styles.lineHeight || '1.5';
+  const label = block.label || block.token || 'Dynamic Text';
+
+  const dtEl = (
+    <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight }}>
+      <span
+        style={{
+          display: 'inline-block',
+          padding: '1px 6px',
+          borderRadius: 4,
+          backgroundColor: 'rgba(59,130,246,0.12)',
+          color: '#1d4ed8',
+          fontFamily,
+          fontSize,
+        }}
+        data-testid="dynamic-text-preview"
+      >
+        {`{{ ${label} }}`}
+      </span>
+    </div>
+  );
+
+  if (isChild) return dtEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{dtEl}</div>;
+}
+
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
@@ -530,6 +564,7 @@ const contentBlockPreviewComponents = {
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -543,6 +578,7 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
 };
 
 function ReadOnlySectionPreview({ block, globalFontFamily }) {

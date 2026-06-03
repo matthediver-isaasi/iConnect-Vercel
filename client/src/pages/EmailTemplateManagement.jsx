@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle, Send, Search, User, BookOpen } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle, Send, Search, User, BookOpen, Wand2, Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   Collapsible,
@@ -48,6 +48,10 @@ import { createPageUrl } from "@/utils";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { EMAIL_PLACEHOLDERS } from "@/lib/emailPlaceholders";
+import { designToHtml } from "@/components/email-builder/mjmlConverter";
+import { defaultEmailDesign, extractDynamicSlots } from "@/components/email-builder/types";
+
+const EmailBuilder = lazy(() => import("@/components/email-builder/EmailBuilder").then(m => ({ default: m.default })));
 
 // Friendly labels for Membership Fees tokens. Keyed by token so the picker
 // can show short, human-readable names instead of the long registry
@@ -253,6 +257,8 @@ const emptyTemplate = {
   category: 'workflow',
   is_active: true,
   placeholders: [],
+  design_json: null,
+  editor_type: 'html',
 };
 
 const quillModules = {
@@ -342,6 +348,8 @@ export default function EmailTemplateManagement() {
   const [pageSize, setPageSize] = useState(12);
   const [isCodeView, setIsCodeView] = useState(false);
   const [newPlaceholder, setNewPlaceholder] = useState('');
+  const [editorMode, setEditorMode] = useState('html');
+  const [showVisualEditor, setShowVisualEditor] = useState(false);
   const quillRef = useRef(null);
   
   // Email footer state
@@ -600,6 +608,10 @@ export default function EmailTemplateManagement() {
 
   const handleOpenEditor = (template = null) => {
     if (template) {
+      let parsedDesign = template.design_json || null;
+      if (typeof parsedDesign === 'string') {
+        try { parsedDesign = JSON.parse(parsedDesign); } catch { parsedDesign = null; }
+      }
       setFormData({
         name: template.name || '',
         description: template.description || '',
@@ -611,10 +623,15 @@ export default function EmailTemplateManagement() {
         category: template.category || 'workflow',
         is_active: template.is_active !== false,
         placeholders: template.placeholders || [],
+        design_json: parsedDesign,
+        editor_type: parsedDesign ? 'visual' : (template.editor_type || 'html'),
       });
+      // Legacy plain-HTML templates (no design_json) open in ReactQuill.
+      setEditorMode(parsedDesign ? 'visual' : 'html');
       setSelectedTemplate(template);
     } else {
       setFormData(emptyTemplate);
+      setEditorMode('html');
       setSelectedTemplate(null);
     }
     setEditorOpen(true);
@@ -625,6 +642,8 @@ export default function EmailTemplateManagement() {
     setFormData(emptyTemplate);
     setSelectedTemplate(null);
     setIsCodeView(false);
+    setEditorMode('html');
+    setShowVisualEditor(false);
   };
 
   const handleSave = () => {
@@ -636,15 +655,38 @@ export default function EmailTemplateManagement() {
       toast.error('Subject is required');
       return;
     }
-    if (!formData.body.trim()) {
-      toast.error('Body is required');
-      return;
+
+    const isVisual = editorMode === 'visual' && formData.design_json && formData.design_json.blocks;
+    let saveData = { ...formData };
+
+    if (isVisual) {
+      // Visual builder: body holds the builder-rendered HTML so legacy send
+      // paths keep working. Regenerate it from the design on every save.
+      try {
+        const freshHtml = designToHtml(formData.design_json);
+        if (freshHtml) saveData.body = freshHtml;
+      } catch (e) {
+        console.warn('[Template Save] Failed to regenerate HTML from design, using existing body');
+      }
+      saveData.editor_type = 'visual';
+      if (!saveData.body || !saveData.body.trim()) {
+        toast.error('Add some content to the visual builder before saving');
+        return;
+      }
+    } else {
+      // Legacy / HTML mode: ReactQuill body is authoritative; no design.
+      saveData.design_json = null;
+      saveData.editor_type = 'html';
+      if (!saveData.body || !saveData.body.trim()) {
+        toast.error('Body is required');
+        return;
+      }
     }
 
     if (selectedTemplate) {
-      updateMutation.mutate({ id: selectedTemplate.id, data: formData });
+      updateMutation.mutate({ id: selectedTemplate.id, data: saveData });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(saveData);
     }
   };
 
@@ -1131,6 +1173,111 @@ export default function EmailTemplateManagement() {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <Label htmlFor="body">Email Body *</Label>
                   <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={editorMode === 'visual' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setEditorMode('visual')}
+                      data-testid="button-template-visual-mode"
+                    >
+                      <Wand2 className="w-4 h-4 mr-1" />
+                      Visual Builder
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={editorMode === 'html' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        if (editorMode === 'visual' && formData.design_json) {
+                          toast.info('Switching to the rich text editor. The visual design is kept, but saving in this mode will replace it with the HTML below.');
+                        }
+                        setEditorMode('html');
+                      }}
+                      data-testid="button-template-html-mode"
+                    >
+                      <FileText className="w-4 h-4 mr-1" />
+                      Rich Text / HTML
+                    </Button>
+                  </div>
+                </div>
+
+                {editorMode === 'visual' ? (
+                  <div className="space-y-4">
+                    <div className="border rounded-md p-6 bg-muted/10 text-center space-y-4">
+                      <div className="flex flex-col items-center gap-2">
+                        <Wand2 className="w-12 h-12 text-primary/60" />
+                        <h3 className="text-lg font-medium">Visual Email Builder</h3>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Design this template with drag-and-drop blocks. Add a <strong>Dynamic Text</strong> block for any value that should be filled in when the email is sent.
+                        </p>
+                      </div>
+                      {formData.design_json && (
+                        <p className="text-sm text-green-600 flex items-center justify-center gap-1">
+                          <Check className="w-4 h-4" />
+                          Design saved
+                        </p>
+                      )}
+                      <Button
+                        type="button"
+                        onClick={() => setShowVisualEditor(true)}
+                        className="gap-2"
+                        data-testid="button-open-template-builder"
+                      >
+                        <Wand2 className="w-4 h-4" />
+                        {formData.design_json ? 'Edit Design' : 'Open Visual Builder'}
+                      </Button>
+                    </div>
+
+                    {formData.design_json && (() => {
+                      const slots = extractDynamicSlots(formData.design_json);
+                      if (slots.length === 0) return null;
+                      return (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Dynamic Text slots in this template (filled in at send time):</p>
+                          <div className="flex flex-wrap gap-1">
+                            {slots.map(s => (
+                              <Badge key={s.token} variant="secondary" className="text-xs">
+                                {s.label}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {formData.design_json && (
+                      <div className="space-y-2">
+                        <Label className="text-sm">Preview</Label>
+                        <div className="border rounded-md overflow-hidden bg-white" data-testid="template-visual-preview">
+                          {(() => {
+                            try {
+                              const html = designToHtml(formData.design_json);
+                              if (!html) return null;
+                              return (
+                                <iframe
+                                  srcDoc={html}
+                                  title="Template Preview"
+                                  className="w-full border-0"
+                                  style={{ minHeight: '300px' }}
+                                  sandbox="allow-same-origin"
+                                  data-testid="iframe-template-preview"
+                                />
+                              );
+                            } catch {
+                              return (
+                                <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                                  Unable to generate preview.
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                <>
+                <div className="flex items-center justify-end flex-wrap gap-2">
                     <Select onValueChange={insertPlaceholder}>
                       <SelectTrigger className="w-[220px] h-8" data-testid="select-insert-placeholder">
                         <Code className="w-3 h-3 mr-2" />
@@ -1170,9 +1317,8 @@ export default function EmailTemplateManagement() {
                         </>
                       )}
                     </Button>
-                  </div>
                 </div>
-                
+
                 {isCodeView ? (
                   <Textarea
                     id="body"
@@ -1197,6 +1343,8 @@ export default function EmailTemplateManagement() {
                       data-testid="editor-body-rich"
                     />
                   </div>
+                )}
+                </>
                 )}
                 
                 {/* Helper note explaining placeholder syntax */}
@@ -1311,6 +1459,41 @@ export default function EmailTemplateManagement() {
                 {selectedTemplate ? 'Save Changes' : 'Create Template'}
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showVisualEditor} onOpenChange={setShowVisualEditor}>
+          <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] max-h-[90vh] p-0 gap-0 flex flex-col">
+            <DialogHeader className="flex flex-row items-center justify-between px-4 py-3 border-b bg-background flex-shrink-0 space-y-0">
+              <DialogTitle>Visual Email Builder</DialogTitle>
+              <Button
+                type="button"
+                onClick={() => setShowVisualEditor(false)}
+                size="sm"
+                data-testid="button-template-builder-done"
+              >
+                <Check className="w-4 h-4 mr-1" />
+                Done
+              </Button>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full bg-muted/10">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                </div>
+              }>
+                <EmailBuilder
+                  initialDesign={formData.design_json || defaultEmailDesign}
+                  onChange={({ design, html }) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      design_json: design,
+                      body: html || prev.body,
+                    }));
+                  }}
+                />
+              </Suspense>
+            </div>
           </DialogContent>
         </Dialog>
 

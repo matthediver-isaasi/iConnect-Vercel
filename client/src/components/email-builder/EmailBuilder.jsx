@@ -21,7 +21,7 @@ import BlockRenderer from './BlockRenderer';
 import BlockEditor from './BlockEditor';
 import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
-import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
+import { BLOCK_TYPES, createBlock, defaultEmailDesign, nextDynamicTokenIndex } from './types';
 import { designToHtml } from './mjmlConverter';
 import { PanelRightOpen, PanelRightClose, Layers, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -215,7 +215,13 @@ export default function EmailBuilder({
 
     if (activeData?.fromPalette) {
       const newBlock = createBlock(activeData.type);
-      
+
+      if (activeData.type === BLOCK_TYPES.DYNAMIC_TEXT) {
+        const n = nextDynamicTokenIndex(design.blocks);
+        newBlock.token = `dynamic_${n}`;
+        newBlock.label = `Slot ${n}`;
+      }
+
       setIsPageSelected(false);
       setSelectedColumnChildId(null);
       setSelectedColumnContext(null);

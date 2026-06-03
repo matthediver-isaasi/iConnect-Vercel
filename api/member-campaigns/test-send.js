@@ -5,6 +5,7 @@ import {
   generateTrackingToken,
   rewriteLinksForTracking,
   getTenantBaseUrl,
+  applyDynamicSlotValues,
 } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { getHostFromRequest } from '../_lib/tenantResolver.js';
@@ -106,6 +107,7 @@ export default async function handler(req, res) {
     let campaignSkipFooter = false;
     let designHasUnsubscribeBlock = false;
     let campaignContentWidth = null;
+    let campaignSlotValues = null;
     if (campaign.design_json) {
       campaignSkipFooter = true;
       try {
@@ -114,6 +116,7 @@ export default async function handler(req, res) {
           : campaign.design_json;
         if (designData?.globalStyles?.contentWidth) campaignContentWidth = designData.globalStyles.contentWidth;
         if (designData?.blocks) designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
+        if (designData?.slotValues && typeof designData.slotValues === 'object') campaignSlotValues = designData.slotValues;
       } catch (_e) {}
     }
 
@@ -128,7 +131,8 @@ export default async function handler(req, res) {
       const recipientId = `member-test-${Date.now()}-${memberId}-${i}`;
 
       let html = campaign.html_content || '';
-      const subject = `[TEST] ${campaign.subject || 'No Subject'}`;
+      if (campaignSlotValues) html = applyDynamicSlotValues(html, campaignSlotValues);
+      const subject = `[TEST] ${applyDynamicSlotValues(campaign.subject || 'No Subject', campaignSlotValues)}`;
       html = html.replace(/\{\{first_name\}\}/gi, 'Test');
       html = html.replace(/\{\{last_name\}\}/gi, 'User');
       html = html.replace(/\{\{email\}\}/gi, emailToUse);

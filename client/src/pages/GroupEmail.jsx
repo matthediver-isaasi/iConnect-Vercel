@@ -45,28 +45,45 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import { base44 } from "@/api/base44Client";
+import { extractDynamicSlots } from "@/components/email-builder/types";
+import { FileText } from "lucide-react";
 
-const quillModules = {
-  toolbar: [
-    [{ header: [1, 2, 3, false] }],
-    ["bold", "italic", "underline", "strike"],
-    [{ color: [] }, { background: [] }],
-    [{ list: "ordered" }, { list: "bullet" }],
-    [{ align: [] }],
-    ["link"],
-    ["clean"],
-  ],
-};
-const quillFormats = [
-  "header",
-  "bold", "italic", "underline", "strike",
-  "color", "background",
-  "list", "bullet",
-  "align",
-  "link",
-];
+// design_json may be persisted as a JSON string or an object depending on the
+// source (entity REST vs. campaign row). Normalize to an object (or null).
+function normalizeDesign(design) {
+  if (!design) return null;
+  if (typeof design === "string") {
+    try {
+      const parsed = JSON.parse(design);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof design === "object" ? design : null;
+}
+
+// A template is "visual" (eligible for Group Email composition) when it was
+// authored in the visual builder: editor_type 'visual' AND a normalizable
+// design_json carrying a blocks array. Legacy plain-HTML templates fail this.
+function isVisualTemplate(tpl) {
+  if (!tpl) return false;
+  if (tpl.editor_type !== "visual") return false;
+  const design = normalizeDesign(tpl.design_json);
+  return !!(design && Array.isArray(design.blocks));
+}
+
+// Replace every {{token}} occurrence in an HTML/text string with its slot value.
+// Mirrors applyDynamicSlotValues in api/_lib/campaignService.js for client preview.
+function fillDynamicSlots(input, slotValues) {
+  if (!input || !slotValues) return input || "";
+  return String(input).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, token) => {
+    return Object.prototype.hasOwnProperty.call(slotValues, token)
+      ? (slotValues[token] ?? "")
+      : match;
+  });
+}
 
 const STATUS_VARIANTS = {
   draft: "outline",
@@ -95,6 +112,9 @@ function blankComposeState() {
     from_name: "",
     preheader: "",
     html_content: "",
+    design_json: null,
+    template_id: "",
+    slotValues: {},
     audience_roles: [],
   };
 }
@@ -183,6 +203,48 @@ export default function GroupEmailPage() {
     },
   });
 
+  const { data: emailTemplates = [], isLoading: loadingTemplates } = useQuery({
+    queryKey: ["email-templates", "for-group-email"],
+    queryFn: async () => {
+      const list = await base44.entities.EmailTemplate.list("-created_at");
+      return Array.isArray(list) ? list : [];
+    },
+    enabled: composeOpen,
+  });
+
+  // Group Email only composes against visual-builder templates: editor_type
+  // 'visual' AND a usable design_json with blocks. Legacy plain-HTML templates
+  // are intentionally excluded from the picker (they have no fill-in slots and
+  // belong to the ReactQuill flow in EmailTemplateManagement).
+  const visualTemplates = emailTemplates.filter(isVisualTemplate);
+
+  const applyTemplateToCompose = (templateId) => {
+    if (!templateId) {
+      setCompose((prev) => ({
+        ...prev,
+        template_id: "",
+        design_json: null,
+        slotValues: {},
+        html_content: "",
+      }));
+      return;
+    }
+    const tpl = emailTemplates.find((t) => String(t.id) === String(templateId));
+    if (!tpl) return;
+    const design = normalizeDesign(tpl.design_json);
+    const slots = design ? extractDynamicSlots(design) : [];
+    const slotValues = {};
+    slots.forEach((s) => { slotValues[s.token] = ""; });
+    setCompose((prev) => ({
+      ...prev,
+      template_id: String(templateId),
+      design_json: design,
+      slotValues,
+      html_content: tpl.body || "",
+      subject: prev.subject || tpl.subject || "",
+    }));
+  };
+
   const openCompose = async (campaign = null) => {
     if (campaign) {
       // The list endpoint only returns summary fields, so hydrate the full
@@ -204,6 +266,19 @@ export default function GroupEmailPage() {
       }
 
       const segment = Array.isArray(full.target_audiences) ? full.target_audiences[0] : null;
+      const design = normalizeDesign(full.design_json);
+      const savedSlotValues = (design && design.slotValues && typeof design.slotValues === "object")
+        ? design.slotValues
+        : {};
+      // Ensure every slot present in the design has an entry (new slots default to empty).
+      const slotValues = {};
+      if (design) {
+        extractDynamicSlots(design).forEach((s) => {
+          slotValues[s.token] = Object.prototype.hasOwnProperty.call(savedSlotValues, s.token)
+            ? savedSlotValues[s.token]
+            : "";
+        });
+      }
       setCompose({
         id: full.id,
         name: full.name || "",
@@ -211,6 +286,9 @@ export default function GroupEmailPage() {
         from_name: full.from_name || activeGroup?.name || "",
         preheader: full.preheader || "",
         html_content: full.html_content || "",
+        design_json: design,
+        template_id: full.email_template_id ? String(full.email_template_id) : "",
+        slotValues,
         audience_roles: segment && Array.isArray(segment.roles) ? segment.roles : [],
       });
     } else {
@@ -259,9 +337,21 @@ export default function GroupEmailPage() {
       toast.error("Name and subject are required.");
       return null;
     }
+    // Content can only come from a selected template, so an empty body means no
+    // template has been chosen yet. Legacy drafts already carry html_content and
+    // therefore stay editable/sendable without re-selecting a template.
+    if (!compose.html_content || !compose.html_content.trim()) {
+      toast.error("Please choose an email template.");
+      return null;
+    }
     const isUpdate = !!compose.id;
     const url = isUpdate ? `/api/member-campaigns/${compose.id}` : "/api/member-campaigns";
     const method = isUpdate ? "PATCH" : "POST";
+    // Fold the per-send slot values into the design so the server can inject
+    // them at send time (parseCampaignDesign reads design_json.slotValues).
+    const designToSave = compose.design_json
+      ? { ...compose.design_json, slotValues: compose.slotValues || {} }
+      : null;
     const body = isUpdate
       ? {
           name: compose.name,
@@ -269,6 +359,8 @@ export default function GroupEmailPage() {
           from_name: compose.from_name,
           preheader: compose.preheader,
           html_content: compose.html_content,
+          design_json: designToSave,
+          email_template_id: compose.template_id || null,
           audience_roles: compose.audience_roles,
         }
       : {
@@ -278,6 +370,8 @@ export default function GroupEmailPage() {
           from_name: compose.from_name,
           preheader: compose.preheader,
           html_content: compose.html_content,
+          design_json: designToSave,
+          email_template_id: compose.template_id || null,
           audience_roles: compose.audience_roles,
         };
 
@@ -562,17 +656,76 @@ export default function GroupEmailPage() {
               </div>
             </div>
 
-            <div>
-              <Label className="mb-1 block">Body</Label>
-              <ReactQuill
-                theme="snow"
-                value={compose.html_content}
-                onChange={(html) => setCompose({ ...compose, html_content: html })}
-                modules={quillModules}
-                formats={quillFormats}
-                style={{ minHeight: 240 }}
-              />
+            <div className="space-y-2">
+              <Label htmlFor="template-select">Email template *</Label>
+              <Select
+                value={compose.template_id || ""}
+                onValueChange={(v) => applyTemplateToCompose(v)}
+              >
+                <SelectTrigger id="template-select" data-testid="select-email-template">
+                  <SelectValue placeholder={loadingTemplates ? "Loading templates…" : "Choose a template"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {visualTemplates.length === 0 && !loadingTemplates && (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">No visual templates available.</div>
+                  )}
+                  {visualTemplates.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)} data-testid={`option-template-${t.id}`}>
+                      {t.name || t.subject || "Untitled template"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Pick one of your tenant's email templates. Templates built with the visual builder may include fill-in slots below.
+              </p>
             </div>
+
+            {(() => {
+              if (!compose.design_json) return null;
+              const slots = extractDynamicSlots(compose.design_json);
+              if (slots.length === 0) return null;
+              return (
+                <div className="space-y-3 border rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-muted-foreground" />
+                    <Label className="m-0">Fill in template values</Label>
+                  </div>
+                  {slots.map((slot) => (
+                    <div key={slot.token} className="space-y-1">
+                      <Label htmlFor={`slot-${slot.token}`} className="text-sm">{slot.label}</Label>
+                      <Input
+                        id={`slot-${slot.token}`}
+                        value={compose.slotValues?.[slot.token] ?? ""}
+                        onChange={(e) =>
+                          setCompose((prev) => ({
+                            ...prev,
+                            slotValues: { ...(prev.slotValues || {}), [slot.token]: e.target.value },
+                          }))
+                        }
+                        data-testid={`input-slot-${slot.token}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {compose.html_content && (
+              <div className="space-y-1">
+                <Label className="text-sm">Preview</Label>
+                <div className="border rounded-md overflow-hidden bg-white">
+                  <iframe
+                    srcDoc={fillDynamicSlots(compose.html_content, compose.slotValues)}
+                    title="Email preview"
+                    className="w-full border-0"
+                    style={{ minHeight: 280 }}
+                    sandbox="allow-same-origin"
+                    data-testid="iframe-compose-preview"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">

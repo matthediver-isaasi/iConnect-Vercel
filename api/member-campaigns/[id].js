@@ -9,6 +9,7 @@ import {
   pauseCampaign,
   resumeCampaign,
   duplicateCampaign,
+  resolveMemberCampaignTemplateContent,
 } from '../_lib/campaignService.js';
 import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
 
@@ -17,13 +18,13 @@ import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolve
 // tenant's verified email-domain config.
 const MEMBER_EDITABLE_FIELDS = new Set([
   'name', 'subject', 'preheader', 'from_name',
-  'html_content', 'design_json', 'audience_roles',
+  'html_content', 'design_json', 'email_template_id', 'audience_roles',
 ]);
 
 async function loadOwnedCampaign(campaignId, access) {
   const { data, error } = await supabase
     .from('email_campaign')
-    .select('id, tenant_id, created_by_member_id, member_group_id, status, target_audiences')
+    .select('id, tenant_id, created_by_member_id, member_group_id, status, target_audiences, email_template_id')
     .eq('id', campaignId)
     .eq('tenant_id', access.tenantContext.tenantId)
     .single();
@@ -73,6 +74,30 @@ export default async function handler(req, res) {
     const updates = {};
     for (const [k, v] of Object.entries(req.body || {})) {
       if (MEMBER_EDITABLE_FIELDS.has(k)) updates[k] = v;
+    }
+
+    // Group Email is locked to the template-driven flow. The effective template
+    // is the incoming one (if the client is switching) or the campaign's current
+    // one. We re-pin html_content / design_json structure from that template and
+    // accept ONLY per-send slot values from the client — freeform html_content /
+    // structural design_json edits from the member endpoint are discarded.
+    const touchesContent = 'html_content' in updates || 'design_json' in updates || 'email_template_id' in updates;
+    if (touchesContent) {
+      const effectiveTemplateId = ('email_template_id' in updates)
+        ? updates.email_template_id
+        : row.email_template_id;
+      const requestedSlotValues = (updates.design_json && typeof updates.design_json === 'object')
+        ? updates.design_json.slotValues
+        : null;
+      const resolved = await resolveMemberCampaignTemplateContent({
+        templateId: effectiveTemplateId,
+        tenantId: access.tenantContext.tenantId,
+        requestedSlotValues,
+      });
+      if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+      updates.html_content = resolved.html_content;
+      updates.design_json = resolved.design_json;
+      updates.email_template_id = resolved.email_template_id;
     }
 
     // Audience is hard-locked to the owning group; client may only refine the

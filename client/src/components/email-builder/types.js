@@ -9,6 +9,7 @@ export const BLOCK_TYPES = {
   SOCIAL_ICONS: 'social_icons',
   UNSUBSCRIBE: 'unsubscribe',
   EVENT_QR: 'event_qr',
+  DYNAMIC_TEXT: 'dynamic_text',
 };
 
 export const SOCIAL_PLATFORMS = [
@@ -247,9 +248,75 @@ export const createBlock = (type, props = {}) => {
           ...props.styles,
         },
       };
+    case BLOCK_TYPES.DYNAMIC_TEXT:
+      return {
+        id,
+        type,
+        token: props.token || '',
+        label: props.label || '',
+        styles: {
+          fontFamily: '',
+          color: '#333333',
+          fontSize: '14px',
+          lineHeight: '1.5',
+          textAlign: 'left',
+          paddingTop: '10',
+          paddingRight: '20',
+          paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
+          ...props.styles,
+        },
+      };
     default:
       return { id, type, content: '', styles: {} };
   }
+};
+
+// Recursively walk a design's block tree (top-level blocks, section children,
+// and column blocks) and collect every Dynamic Text block's slot definition.
+// Returns a de-duplicated array of { token, label } keyed by token (first label
+// wins). Tokens are the stable substitution keys ({{token}}); labels are the
+// human-editable names shown when filling slots.
+export const extractDynamicSlots = (design) => {
+  const blocks = Array.isArray(design) ? design : (design?.blocks || []);
+  const seen = new Map();
+
+  const visit = (block) => {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === BLOCK_TYPES.DYNAMIC_TEXT && block.token) {
+      if (!seen.has(block.token)) {
+        seen.set(block.token, { token: block.token, label: block.label || block.token });
+      }
+    }
+    if (Array.isArray(block.children)) block.children.forEach(visit);
+    if (Array.isArray(block.columns)) {
+      block.columns.forEach((col) => {
+        if (Array.isArray(col?.blocks)) col.blocks.forEach(visit);
+      });
+    }
+  };
+
+  blocks.forEach(visit);
+  return Array.from(seen.values());
+};
+
+// Compute the next numeric suffix for a `dynamic_N` token by scanning every
+// existing Dynamic Text block in the tree. Guarantees uniqueness on insertion.
+export const nextDynamicTokenIndex = (blocks) => {
+  let max = 0;
+  const slots = extractDynamicSlots(blocks);
+  slots.forEach(({ token }) => {
+    const m = /^dynamic_(\d+)$/.exec(token || '');
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > max) max = n;
+    }
+  });
+  return max + 1;
 };
 
 export const defaultEmailDesign = {

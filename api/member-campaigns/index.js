@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
-import { createCampaign } from '../_lib/campaignService.js';
+import { createCampaign, resolveMemberCampaignTemplateContent } from '../_lib/campaignService.js';
 
 /**
  * /api/member-campaigns
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     // Note: from_email is intentionally NOT destructured — members may never
     // set the sender address. We always pull it from tenant email config.
-    const { groupId, name, subject, html_content, design_json, from_name, preheader, audience_roles } = req.body || {};
+    const { groupId, name, subject, html_content, design_json, email_template_id, from_name, preheader, audience_roles } = req.body || {};
 
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required' });
@@ -69,6 +69,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'audience_roles must be a subset of the group roles.' });
     }
 
+    // Group Email is locked to the template-driven flow: a visual template is
+    // required, and the persisted html_content / design_json structure is pinned
+    // server-side from that template. The client may only supply per-send slot
+    // values (design_json.slotValues); freeform html_content is ignored.
+    const requestedSlotValues = (design_json && typeof design_json === 'object') ? design_json.slotValues : null;
+    const resolved = await resolveMemberCampaignTemplateContent({
+      templateId: email_template_id,
+      tenantId: access.tenantContext.tenantId,
+      requestedSlotValues,
+    });
+    if (!resolved.ok) {
+      return res.status(400).json({ error: resolved.error });
+    }
+
     const audienceSegment = { type: 'member_group', ids: [group.groupId] };
     if (roles.length > 0) audienceSegment.roles = roles;
 
@@ -81,8 +95,9 @@ export default async function handler(req, res) {
       from_name: sender.fromName,
       from_email: sender.fromEmail,
       preheader: preheader || null,
-      html_content: html_content || '',
-      design_json: design_json || null,
+      html_content: resolved.html_content,
+      design_json: resolved.design_json,
+      email_template_id: resolved.email_template_id,
       target_audiences: [audienceSegment],
       target_type: 'member_group',
       target_ids: [group.groupId],

@@ -1600,6 +1600,133 @@ function EventQrBlockEditor({ block, onChange }) {
   );
 }
 
+function DynamicTextBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Text slot is filled in with a single value when the email is sent
+        (one value per send, the same for every recipient). Give it a clear label so
+        the sender knows what to type.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Event name"
+          data-testid="dynamic-text-label"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Token</Label>
+        <Input
+          value={block.token ? `{{${block.token}}}` : ''}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-text-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned and used to fill in the value at send time.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="dynamic-text-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '14px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="dynamic-text-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+            <SelectItem value="18px">18px</SelectItem>
+            <SelectItem value="20px">20px</SelectItem>
+            <SelectItem value="24px">24px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="dynamic-text-color"
+          />
+          <Input
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="dynamic-text-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'left'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="dynamic-text-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1611,6 +1738,7 @@ const blockEditors = {
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockEditor,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {
