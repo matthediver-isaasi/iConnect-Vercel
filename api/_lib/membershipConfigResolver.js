@@ -17,8 +17,8 @@ export async function getAllActiveConfigs(tenantId, onDate = null) {
   return data || [];
 }
 
-export async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides = {}) {
-  const allConfigs = await getAllActiveConfigs(tenantId);
+export async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides = {}, onDate = null) {
+  const allConfigs = await getAllActiveConfigs(tenantId, onDate);
   if (!allConfigs || allConfigs.length === 0) return null;
 
   const configs = allConfigs.filter(c => (c.structure_scope_type || 'organization') === 'organization');
@@ -133,8 +133,8 @@ export async function getConfigByIdDirect(tenantId, configId) {
   return data;
 }
 
-export async function getConfigForMember(tenantId, memberId, fieldOverrides = {}) {
-  const allConfigs = await getAllActiveConfigs(tenantId);
+export async function getConfigForMember(tenantId, memberId, fieldOverrides = {}, onDate = null) {
+  const allConfigs = await getAllActiveConfigs(tenantId, onDate);
   if (!allConfigs || allConfigs.length === 0) return null;
 
   const configs = allConfigs.filter(c => c.structure_scope_type === 'member');

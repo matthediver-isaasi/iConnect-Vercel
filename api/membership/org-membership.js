@@ -230,6 +230,7 @@ function mapSimResultToYearData(sim, startDate) {
     isNewOrg: sim.isNewOrg,
     currency: sim.currency || 'GBP',
     billingPeriod: sim.billingPeriod || 'annual',
+    resolvedConfigName: sim.config?.name || null,
   };
 }
 
@@ -406,6 +407,7 @@ async function handleGet(req, res, tenantId) {
     const nextSimResult = await simulateMembershipForOrg(tenantId, organizationId, {
       source: 'tab',
       targetYear: nextYear.label,
+      asOfDate: nextYearStartDate,
     });
     if (nextSimResult.success) {
       nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);

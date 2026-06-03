@@ -15,6 +15,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     targetYear = null,
     fieldOverrides = {},
     configId: explicitConfigId = null,
+    asOfDate = null,
   } = options;
 
   const steps = [];
@@ -58,9 +59,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   const config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
-    : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides);
+    : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, asOfDate);
   if (!config) {
-    const allActive = await getAllActiveConfigs(tenantId);
+    const allActive = await getAllActiveConfigs(tenantId, asOfDate);
     const scopedCount = allActive.filter(c => c.structure_field_id && c.structure_match_value).length;
     if (scopedCount > 0) {
       log('Fetch Tier Config', `No matching tier configuration found. There are ${allActive.length} active config(s), ${scopedCount} scoped — but none match this organisation's field values.`, 'error');
@@ -962,6 +963,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     targetYear = null,
     fieldOverrides = {},
     configId: explicitConfigId = null,
+    asOfDate = null,
   } = options;
 
   const steps = [];
@@ -1006,9 +1008,9 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
 
   const config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
-    : await getConfigForMember(tenantId, memberId, fieldOverrides);
+    : await getConfigForMember(tenantId, memberId, fieldOverrides, asOfDate);
   if (!config) {
-    const allActive = await getAllActiveConfigs(tenantId);
+    const allActive = await getAllActiveConfigs(tenantId, asOfDate);
     const memberConfigs = allActive.filter(c => c.structure_scope_type === 'member');
     if (memberConfigs.length > 0) {
       log('Fetch Tier Config', `No matching member tier configuration found. There are ${memberConfigs.length} member-scoped config(s), but none match this member's field values.`, 'error');

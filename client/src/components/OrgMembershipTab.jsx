@@ -205,7 +205,7 @@ function YearCostSection({
         {configName && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Structure</span>
-            <span className="font-medium">{yearData.overrideConfigName || configName}</span>
+            <span className="font-medium">{yearData.overrideConfigName || yearData.resolvedConfigName || configName}</span>
           </div>
         )}
         {!isFlat && (

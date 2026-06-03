@@ -182,6 +182,7 @@ async function handleGet(req, res, tenantId) {
     const nextSimResult = await simulateMembershipForMember(tenantId, memberId, {
       source: 'tab',
       targetYear: nextYear.label,
+      asOfDate: nextYearStartDate,
     });
     if (nextSimResult.success) {
       nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
