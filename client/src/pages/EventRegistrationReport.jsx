@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -250,6 +250,131 @@ export default function EventRegistrationReport() {
   const bookingGroups = reportData?.bookingGroups || [];
   const organizations = reportData?.organizations || {};
 
+  const [editingDesignationId, setEditingDesignationId] = useState(null);
+  const [designationDraft, setDesignationDraft] = useState("");
+
+  const updateDesignationMutation = useMutation({
+    mutationFn: async ({ eventId, bookingId, designation }) => {
+      const response = await fetch(`/api/admin/events/${eventId}/attendees/designation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId, designation }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update designation');
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['event-registration-report', appliedFilters], (old) => {
+        if (!old?.bookingGroups) return old;
+        return {
+          ...old,
+          bookingGroups: old.bookingGroups.map(group => ({
+            ...group,
+            attendees: group.attendees.map(a =>
+              a.id === data.bookingId ? { ...a, designation: data.designation } : a
+            ),
+          })),
+        };
+      });
+      setEditingDesignationId(null);
+      setDesignationDraft("");
+      toast.success(data.designation ? 'Designation updated' : 'Designation cleared');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update designation');
+    },
+  });
+
+  const startEditingDesignation = (attendee) => {
+    setEditingDesignationId(attendee.id);
+    setDesignationDraft(attendee.designation || "");
+  };
+
+  const cancelEditingDesignation = () => {
+    setEditingDesignationId(null);
+    setDesignationDraft("");
+  };
+
+  const saveDesignation = (attendee, eventId) => {
+    const next = (designationDraft || "").trim();
+    if (next === (attendee.designation || "").trim()) {
+      cancelEditingDesignation();
+      return;
+    }
+    updateDesignationMutation.mutate({ eventId, bookingId: attendee.id, designation: next });
+  };
+
+  const renderDesignationCell = (attendee, eventId) => {
+    if (editingDesignationId === attendee.id) {
+      return (
+        <div className="flex items-center gap-1.5">
+          <Input
+            autoFocus
+            value={designationDraft}
+            onChange={(e) => setDesignationDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); saveDesignation(attendee, eventId); }
+              else if (e.key === 'Escape') { e.preventDefault(); cancelEditingDesignation(); }
+            }}
+            placeholder="e.g. VIP Guest"
+            maxLength={120}
+            className="h-9 w-36"
+            disabled={updateDesignationMutation.isPending}
+            data-testid={`input-designation-${attendee.id}`}
+          />
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => saveDesignation(attendee, eventId)}
+            disabled={updateDesignationMutation.isPending}
+            aria-label="Save designation"
+            data-testid={`button-save-designation-${attendee.id}`}
+          >
+            {updateDesignationMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Check className="w-4 h-4" />
+            )}
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={cancelEditingDesignation}
+            disabled={updateDesignationMutation.isPending}
+            aria-label="Cancel editing designation"
+            data-testid={`button-cancel-designation-${attendee.id}`}
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5">
+        {attendee.designation ? (
+          <Badge variant="secondary" className="gap-1" data-testid={`badge-designation-${attendee.id}`}>
+            <Star className="w-3 h-3" />
+            {attendee.designation}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground text-sm">-</span>
+        )}
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => attendee.id && eventId && startEditingDesignation(attendee)}
+          disabled={!attendee.id || !eventId}
+          aria-label={attendee.designation ? 'Edit designation' : 'Add designation'}
+          data-testid={`button-edit-designation-${attendee.id}`}
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      </div>
+    );
+  };
+
   const handleGenerateReport = () => {
     setAppliedFilters({
       eventName: filterEventName.trim(),
@@ -432,6 +557,7 @@ export default function EventRegistrationReport() {
       'Booking Group',
       'Name',
       'Email',
+      'Designation',
       'Organisation',
       'Ticket Type',
       'Track Access',
@@ -475,6 +601,7 @@ export default function EventRegistrationReport() {
           group.isGroup ? (group.groupRef || 'Group') : '',
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
           a.attendee_email || '',
+          a.designation || '',
           organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member'),
           a.ticket_class_name || '',
           a.track_access || '',
@@ -1082,6 +1209,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Invoice</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">3rd Party Consent</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Designation</th>
                           {showAttendanceColumn && (
                             <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
                           )}
@@ -1171,6 +1299,9 @@ export default function EventRegistrationReport() {
                                   ) : (
                                     <span className="text-muted-foreground">-</span>
                                   )}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">
+                                  {renderDesignationCell(attendee, group.eventId)}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-3 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
@@ -1279,6 +1410,7 @@ export default function EventRegistrationReport() {
                                 {renderPaymentCells()}
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
                                 {showAttendanceColumn && <td className="py-2"></td>}
                               </tr>
                             );
@@ -1347,6 +1479,9 @@ export default function EventRegistrationReport() {
                                   ) : (
                                     <span className="text-muted-foreground">-</span>
                                   )}
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap">
+                                  {renderDesignationCell(attendee, group.eventId)}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-2 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
