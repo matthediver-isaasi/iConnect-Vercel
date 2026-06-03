@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserMinus, Bookmark } from "lucide-react";
+import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, UserPlus, UserMinus, Bookmark, BookOpen } from "lucide-react";
 import { format } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
@@ -775,9 +775,25 @@ export default function ArticleViewPage() {
                   <div className="flex-1">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">
-                          {isGuestWriter ? author.full_name : `${author.first_name} ${author.last_name}`}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-slate-900">
+                            {isGuestWriter ? author.full_name : `${author.first_name} ${author.last_name}`}
+                          </h3>
+                          {articleSettings?.showAuthorBio && author.biography && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setBioExpanded(!bioExpanded)}
+                              aria-expanded={bioExpanded}
+                              aria-label={bioExpanded ? "Hide author biography" : "Show author biography"}
+                              title={bioExpanded ? "Hide biography" : "Show biography"}
+                              className="h-7 w-7 flex-shrink-0 text-slate-500"
+                              data-testid="button-toggle-author-bio"
+                            >
+                              <BookOpen className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
                         {articleSettings?.showAuthorOrganization && organizationName && (
                           <p className="text-sm text-blue-700 font-medium mt-0.5">{organizationName}</p>
                         )}
@@ -816,25 +832,11 @@ export default function ArticleViewPage() {
                     </div>
 
                     {/* Biography */}
-                    {articleSettings?.showAuthorBio && author.biography && (
-                      <div className="mt-3">
-                        <p className={`text-sm text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-3' : ''}`}>
+                    {articleSettings?.showAuthorBio && author.biography && bioExpanded && (
+                      <div className="mt-3" data-testid="text-author-bio">
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
                           {author.biography}
                         </p>
-                        <button
-                          onClick={() => setBioExpanded(!bioExpanded)}
-                          className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 mt-2 font-medium"
-                        >
-                          {bioExpanded ? (
-                            <>
-                              Hide <ChevronUp className="w-4 h-4" />
-                            </>
-                          ) : (
-                            <>
-                              Read More <ChevronDown className="w-4 h-4" />
-                            </>
-                          )}
-                        </button>
                       </div>
                     )}
 
