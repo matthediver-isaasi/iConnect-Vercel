@@ -62,6 +62,11 @@ export default async function handler(req, res) {
       console.error('[Event Registration Report] Error fetching complex events:', complexEventsError);
     }
 
+    // Exclude "To be confirmed" events: they are interest-gatherers that
+    // frequently get cancelled/replaced and must never inflate reporting.
+    regularEvents = (regularEvents || []).filter(e => e.status !== 'tbc');
+    complexEvents = (complexEvents || []).filter(e => e.status !== 'tbc');
+
     const allEvents = [
       ...(regularEvents || []).map(e => ({ ...e, source: 'event', has_zoom: !!(e.zoom_meeting_id || e.zoom_webinar_id) })),
       ...(complexEvents || []).map(e => ({ ...e, is_complex: true, internal_reference: null, source: 'complex_event', has_zoom: false }))
@@ -94,10 +99,14 @@ export default async function handler(req, res) {
       let targetComplexEventIds = [];
 
       if (eventId) {
+        // Validate the requested eventId against the TBC-filtered lists. A
+        // directly-requested TBC event is absent from both, so it resolves to
+        // no target ids and yields no counted data.
         const isComplexEvent = (complexEvents || []).some(e => e.id === eventId);
+        const isRegularEvent = (regularEvents || []).some(e => e.id === eventId);
         if (isComplexEvent) {
           targetComplexEventIds = [eventId];
-        } else {
+        } else if (isRegularEvent) {
           targetEventIds = [eventId];
         }
       } else {

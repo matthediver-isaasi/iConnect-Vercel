@@ -107,7 +107,8 @@ You have access to a PostgreSQL database via the Supabase client. Below are the 
 - id (uuid, PK), tenant_id (uuid, FK)
 - title (text), description (text), event_type (text)
 - start_date (timestamptz), end_date (timestamptz)
-- location (text), status (text - draft/published/cancelled)
+- location (text), status (text - draft/published/cancelled/tbc)
+  - status = 'tbc' means "To be confirmed": an interest-gathering event with no fixed date. TBC events are frequently cancelled/replaced and MUST be excluded by default from engagement/reporting queries (add status != 'tbc' or filter to status = 'published'). Only include TBC events if the user explicitly asks about them.
 - max_attendees (integer), is_virtual (boolean)
 - created_date (timestamptz)
 
@@ -546,6 +547,7 @@ IMPORTANT RULES:
    - area: cumulative trends over time
 9. Provide meaningful axis labels and a clear report title
 10. Include summary statistics where appropriate (totals, averages, counts)
+11. For any query involving the "event" table (or relation-expanded event data), exclude "To be confirmed" events by default: add a filter { "column": "status", "operator": "neq", "value": "tbc" } (or filter to status = 'published'). TBC events are interest-gatherers that are frequently cancelled/replaced and must not inflate engagement/reporting figures. Only include them when the user explicitly asks about TBC events.
 
 You MUST respond with valid JSON in this exact format:
 {
