@@ -283,6 +283,8 @@ export default function BriefDetailPage() {
   const [copyrightFormInitialized, setCopyrightFormInitialized] = useState(false);
   const [copyrightConfirmOpen, setCopyrightConfirmOpen] = useState(false);
   const [copyrightDisableConfirmOpen, setCopyrightDisableConfirmOpen] = useState(false);
+  const [versionToDelete, setVersionToDelete] = useState(null);
+  const [caseStudyUploadToDelete, setCaseStudyUploadToDelete] = useState(null);
 
   const { data: briefSettings } = useQuery({
     queryKey: ["brief-settings"],
@@ -1626,11 +1628,7 @@ export default function BriefDetailPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => {
-                              if (window.confirm(`Delete Version ${version.version_number}?`)) {
-                                deleteVersionMutation.mutate(version.id);
-                              }
-                            }}
+                            onClick={() => setVersionToDelete(version)}
                             disabled={deleteVersionMutation.isPending}
                             title="Delete version"
                             data-testid={`button-delete-version-${version.id}`}
@@ -2085,11 +2083,7 @@ export default function BriefDetailPage() {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    onClick={() => {
-                                      if (window.confirm(`Delete v${u.version_number}?`)) {
-                                        csDeleteUploadMutation.mutate(u.id);
-                                      }
-                                    }}
+                                    onClick={() => setCaseStudyUploadToDelete(u)}
                                     disabled={csDeleteUploadMutation.isPending}
                                     data-testid={`button-case-study-upload-delete-${u.id}`}
                                   >
@@ -2503,6 +2497,64 @@ export default function BriefDetailPage() {
             >
               {statusMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!versionToDelete} onOpenChange={(open) => !open && setVersionToDelete(null)}>
+        <AlertDialogContent data-testid="dialog-confirm-delete-version">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete Version {versionToDelete?.version_number}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this draft version. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-version">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (!versionToDelete) return;
+                deleteVersionMutation.mutate(versionToDelete.id, {
+                  onSuccess: () => setVersionToDelete(null),
+                });
+              }}
+              disabled={deleteVersionMutation.isPending}
+              data-testid="button-confirm-delete-version"
+            >
+              {deleteVersionMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!caseStudyUploadToDelete} onOpenChange={(open) => !open && setCaseStudyUploadToDelete(null)}>
+        <AlertDialogContent data-testid="dialog-confirm-delete-case-study-upload">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this upload?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete case study upload v{caseStudyUploadToDelete?.version_number}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-case-study-upload">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (!caseStudyUploadToDelete) return;
+                csDeleteUploadMutation.mutate(caseStudyUploadToDelete.id, {
+                  onSuccess: () => setCaseStudyUploadToDelete(null),
+                });
+              }}
+              disabled={csDeleteUploadMutation.isPending}
+              data-testid="button-confirm-delete-case-study-upload"
+            >
+              {csDeleteUploadMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
