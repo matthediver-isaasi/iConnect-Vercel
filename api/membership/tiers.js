@@ -4,6 +4,25 @@ import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } f
 import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
 
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function isConfigInEffect(config, onDate = todayStr()) {
+  if (!config) return false;
+  const startsOk = !config.effective_from || config.effective_from <= onDate;
+  const endsOk = config.effective_to === null || config.effective_to === undefined || config.effective_to >= onDate;
+  return startsOk && endsOk;
+}
+
+function configLifecycleStatus(config, onDate = todayStr()) {
+  if (isConfigInEffect(config, onDate)) return 'active';
+  if (config.effective_from && config.effective_from > onDate && (config.effective_to === null || config.effective_to === undefined)) {
+    return 'scheduled';
+  }
+  return 'historical';
+}
+
 export default async function handler(req, res) {
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
@@ -65,15 +84,15 @@ async function handleGet(req, res, tenantId) {
     return getConfigById(req, res, tenantId, configId);
   }
 
-  const { data: activeConfigs } = await supabase
+  const { data: allTenantConfigs } = await supabase
     .from('membership_tier_config')
     .select('*')
     .eq('tenant_id', tenantId)
-    .is('effective_to', null)
     .order('effective_from', { ascending: false, nullsFirst: true });
 
-  const configs = activeConfigs || [];
-  const firstConfig = configs[0] || null;
+  const all = allTenantConfigs || [];
+  const configs = all.filter(isConfigInEffect);
+  const firstConfig = configs[0] || all[0] || null;
 
   let bands = [];
   let discounts = [];
@@ -86,11 +105,16 @@ async function handleGet(req, res, tenantId) {
     reminders = await getRemindersForConfig(firstConfig.id, tenantId);
   }
 
-  const { data: allConfigs } = await supabase
-    .from('membership_tier_config')
-    .select('id, name, effective_from, effective_to, created_at, structure_field_id, structure_match_value')
-    .eq('tenant_id', tenantId)
-    .order('effective_from', { ascending: false, nullsFirst: true });
+  const history = all.map(c => ({
+    id: c.id,
+    name: c.name,
+    effective_from: c.effective_from,
+    effective_to: c.effective_to,
+    created_at: c.created_at,
+    structure_field_id: c.structure_field_id,
+    structure_match_value: c.structure_match_value,
+    status: configLifecycleStatus(c)
+  }));
 
   return res.json({
     config: firstConfig,
@@ -99,16 +123,18 @@ async function handleGet(req, res, tenantId) {
     vatOverrides,
     reminders,
     activeConfigs: configs,
-    history: allConfigs || []
+    history
   });
 }
 
 async function getCurrentConfig(tenantId) {
-  const { data: current, error } = await supabase
+  const onDate = todayStr();
+  const { data: rows, error } = await supabase
     .from('membership_tier_config')
     .select('*')
     .eq('tenant_id', tenantId)
-    .is('effective_to', null)
+    .or(`effective_from.is.null,effective_from.lte.${onDate}`)
+    .or(`effective_to.is.null,effective_to.gte.${onDate}`)
     .order('effective_from', { ascending: false, nullsFirst: true })
     .limit(1)
     .maybeSingle();
@@ -117,7 +143,7 @@ async function getCurrentConfig(tenantId) {
     console.error('[Membership Tiers] Error fetching current config:', error);
     return null;
   }
-  return current;
+  return rows;
 }
 
 async function getBandsForConfig(configId, tenantId) {
@@ -185,7 +211,8 @@ async function getHistory(req, res, tenantId) {
       bands,
       discounts,
       vatOverrides,
-      isHistorical: config.effective_to !== null
+      isHistorical: config.effective_to !== null,
+      status: configLifecycleStatus(config)
     });
   }
 
@@ -623,12 +650,6 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Match value is required when a structure scope field is selected' });
   }
 
-  const today = new Date().toISOString().split('T')[0];
-  const configId_check = config.id || req.query.configId;
-  if (!configId_check && config.effective_from > today) {
-    return res.status(400).json({ error: 'Effective from date cannot be in the future. New tier structures take effect from today or a past date.' });
-  }
-
   let basisField = null;
   let resolvedCustomFieldLabel = null;
   if (config.pricing_model !== 'flat' && bands && Array.isArray(bands) && bands.length > 0) {
@@ -763,36 +784,61 @@ async function handlePost(req, res, tenantId) {
 
   const structureFieldId = config.structure_field_id || null;
   const structureMatchValue = config.structure_match_value || null;
+  const onDate = todayStr();
 
-  let matchQuery = supabase
+  let scopeQuery = supabase
     .from('membership_tier_config')
     .select('*')
-    .eq('tenant_id', tenantId)
-    .is('effective_to', null);
+    .eq('tenant_id', tenantId);
 
   if (structureFieldId) {
-    matchQuery = matchQuery.eq('structure_field_id', structureFieldId).eq('structure_match_value', structureMatchValue);
+    scopeQuery = scopeQuery.eq('structure_field_id', structureFieldId).eq('structure_match_value', structureMatchValue);
   } else {
-    matchQuery = matchQuery.is('structure_field_id', null);
+    scopeQuery = scopeQuery.is('structure_field_id', null);
   }
 
-  const { data: matchingConfigs } = await matchQuery.order('effective_from', { ascending: false, nullsFirst: true });
-  const currentConfig = matchingConfigs?.[0] || null;
+  const { data: scopeConfigsRaw } = await scopeQuery.order('effective_from', { ascending: false, nullsFirst: true });
+  const scopeConfigs = scopeConfigsRaw || [];
 
-  if (currentConfig) {
-    const newEffectiveFrom = new Date(config.effective_from);
+  // The structure currently in effect today for this scope. It should remain
+  // live until the new structure's start date. It may already be capped by a
+  // previously-scheduled future structure.
+  const currentConfig = scopeConfigs.find(c => isConfigInEffect(c, onDate)) || null;
 
-    if (currentConfig.effective_from) {
-      const currentFrom = new Date(currentConfig.effective_from);
-      if (newEffectiveFrom <= currentFrom) {
-        return res.status(400).json({
-          error: `New tier structure must start after the current one (${currentConfig.effective_from}). Please choose a later date.`
-        });
-      }
+  // Any pending future structure(s) already scheduled for this scope. Saving a
+  // new future-dated structure replaces these rather than leaving two
+  // conflicting open-ended records.
+  const pendingFuture = scopeConfigs.filter(c =>
+    c.effective_to === null &&
+    c.effective_from && c.effective_from > onDate &&
+    (!currentConfig || c.id !== currentConfig.id)
+  );
+
+  if (currentConfig && currentConfig.effective_from) {
+    if (config.effective_from <= currentConfig.effective_from) {
+      return res.status(400).json({
+        error: `New tier structure must start after the current one (${currentConfig.effective_from}). Please choose a later date.`
+      });
     }
+  }
 
-    const prevDay = new Date(newEffectiveFrom);
-    prevDay.setDate(prevDay.getDate() - 1);
+  // Remove any previously-scheduled future structure for this scope so we don't
+  // leave conflicting pending records.
+  for (const pf of pendingFuture) {
+    await supabase.from('membership_tier_band').delete().eq('config_id', pf.id).eq('tenant_id', tenantId);
+    await deleteDiscountsForConfig(pf.id, tenantId);
+    await deleteVatOverridesForConfig(pf.id, tenantId);
+    await saveRemindersForConfig(pf.id, tenantId, []);
+    await supabase.from('membership_tier_config').delete().eq('id', pf.id).eq('tenant_id', tenantId);
+  }
+
+  // Cap the currently-active structure to end the day before the new one
+  // starts, so it stays live until the scheduled switch-over.
+  let prevEffectiveTo = null;
+  if (currentConfig) {
+    prevEffectiveTo = currentConfig.effective_to;
+    const prevDay = new Date(`${config.effective_from}T00:00:00Z`);
+    prevDay.setUTCDate(prevDay.getUTCDate() - 1);
     const closingDate = prevDay.toISOString().split('T')[0];
 
     const { error: closeError } = await supabase
@@ -852,7 +898,7 @@ async function handlePost(req, res, tenantId) {
     if (currentConfig) {
       await supabase
         .from('membership_tier_config')
-        .update({ effective_to: null, updated_at: new Date().toISOString() })
+        .update({ effective_to: prevEffectiveTo, updated_at: new Date().toISOString() })
         .eq('id', currentConfig.id)
         .eq('tenant_id', tenantId);
     }
@@ -882,9 +928,11 @@ async function handlePost(req, res, tenantId) {
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
-    .select('id, name, effective_from, effective_to, created_at')
+    .select('id, name, effective_from, effective_to, created_at, structure_field_id, structure_match_value')
     .eq('tenant_id', tenantId)
     .order('effective_from', { ascending: false, nullsFirst: true });
+
+  const history = (allConfigs || []).map(c => ({ ...c, status: configLifecycleStatus(c) }));
 
   return res.json({
     config: newConfig,
@@ -892,7 +940,7 @@ async function handlePost(req, res, tenantId) {
     discounts: savedDiscounts,
     vatOverrides: savedVatOverrides,
     reminders: savedReminders,
-    history: allConfigs || []
+    history
   });
 }
 

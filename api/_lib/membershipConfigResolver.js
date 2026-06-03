@@ -1,11 +1,13 @@
 import { supabase } from './database.js';
 
-export async function getAllActiveConfigs(tenantId) {
+export async function getAllActiveConfigs(tenantId, onDate = null) {
+  const asOf = onDate || new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
     .from('membership_tier_config')
     .select('*')
     .eq('tenant_id', tenantId)
-    .is('effective_to', null)
+    .or(`effective_from.is.null,effective_from.lte.${asOf}`)
+    .or(`effective_to.is.null,effective_to.gte.${asOf}`)
     .order('effective_from', { ascending: false, nullsFirst: true });
 
   if (error) {

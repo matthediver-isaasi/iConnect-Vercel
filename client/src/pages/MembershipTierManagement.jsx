@@ -3026,8 +3026,10 @@ export default function MembershipTierManagement() {
         <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            Creating a new tier structure. If this has the same structure scope (field and match value) as an existing active structure,
-            the existing one will be automatically closed when this new structure starts.
+            Creating a new tier structure. Set an <strong>Effective From</strong> date in the future to schedule it &mdash; it stays
+            dormant until that date while the current structure remains active. If it shares the same structure scope (field and match
+            value) as an existing structure, that one is automatically closed the day before this one starts. Saving another future-dated
+            structure for the same scope replaces the previously scheduled one.
           </p>
         </div>
       )}
@@ -3066,7 +3068,10 @@ export default function MembershipTierManagement() {
           <CardContent>
             <div className="space-y-2">
               {historyItems.map((item) => {
-                const isCurrent = item.effective_to === null;
+                const status = item.status || (item.effective_to === null ? 'active' : 'historical');
+                const isActive = status === 'active';
+                const isScheduled = status === 'scheduled';
+                const isCurrent = isActive;
                 const isViewing = viewingHistorical === item.id || (!viewingHistorical && !isCreatingNew && isCurrent);
                 return (
                   <div
@@ -3084,13 +3089,20 @@ export default function MembershipTierManagement() {
                           )}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {formatDate(item.effective_from) || 'No start date'}
-                          {item.effective_to ? ` - ${formatDate(item.effective_to)}` : ' - Present'}
+                          {isScheduled ? (
+                            <>Starts {formatDate(item.effective_from)}</>
+                          ) : (
+                            <>
+                              {formatDate(item.effective_from) || 'No start date'}
+                              {item.effective_to ? ` - ${formatDate(item.effective_to)}` : ' - Present'}
+                            </>
+                          )}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {isCurrent && <Badge variant="secondary">Active</Badge>}
+                      {isActive && <Badge variant="secondary">Active</Badge>}
+                      {isScheduled && <Badge variant="warning">Scheduled</Badge>}
                       {!isViewing && (
                         <Button
                           size="sm"
