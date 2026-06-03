@@ -457,6 +457,21 @@ export default function BriefDetailPage() {
     },
   });
 
+  const deleteVersionMutation = useMutation({
+    mutationFn: async (versionId) => {
+      return await apiRequest("DELETE", `/api/article-briefs/${briefId}/versions/${versionId}`);
+    },
+    onSuccess: () => {
+      toast.success("Version deleted");
+      queryClient.invalidateQueries({ queryKey: ["article-brief-versions", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-brief-versions-all"] });
+      queryClient.invalidateQueries({ queryKey: ["article-brief-activity", briefId] });
+    },
+    onError: (err) => {
+      toast.error(err?.message || "Failed to delete version");
+    },
+  });
+
   const referencedMemberIds = useMemo(() => {
     const ids = new Set();
     if (brief) {
@@ -1603,6 +1618,22 @@ export default function BriefDetailPage() {
                         {version.file_url && (
                           <Button variant="ghost" size="icon" onClick={() => window.open(version.file_url, "_blank")} title="Open file" data-testid={`button-open-version-${version.id}`}>
                             <ExternalLink className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {canManage && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              if (window.confirm(`Delete Version ${version.version_number}?`)) {
+                                deleteVersionMutation.mutate(version.id);
+                              }
+                            }}
+                            disabled={deleteVersionMutation.isPending}
+                            title="Delete version"
+                            data-testid={`button-delete-version-${version.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
                       </div>
