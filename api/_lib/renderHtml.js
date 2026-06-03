@@ -132,6 +132,7 @@ function injectMeta(html, values) {
   // Replace OG tags
   const ogReplacements = {
     'og:site_name': values.siteName,
+    'og:type': values.ogType || 'website',
     'og:title': values.title,
     'og:description': values.description,
     'og:image': values.ogImage,
@@ -141,6 +142,17 @@ function injectMeta(html, values) {
     const re = new RegExp(`<meta\\s+property=["']${prop}["'][^>]*>`, 'i');
     const tag = `<meta property="${prop}" content="${escapeAttr(val ?? '')}" />`;
     out = re.test(out) ? out.replace(re, tag) : out.replace('</head>', `    ${tag}\n  </head>`);
+  }
+
+  // article:author — one tag per ordered contributor (primary author first).
+  // Strip any from the template first so a stale list never lingers, then
+  // re-emit for article pages that resolved an author list.
+  out = out.replace(/\s*<meta\s+property=["']article:author["'][^>]*>/gi, '');
+  if (Array.isArray(values.authors) && values.authors.length > 0) {
+    const authorTags = values.authors
+      .map((name) => `    <meta property="article:author" content="${escapeAttr(name)}" />`)
+      .join('\n');
+    out = out.replace('</head>', `${authorTags}\n  </head>`);
   }
 
   // Replace Twitter tags
@@ -231,6 +243,8 @@ export async function renderTenantHtml(req) {
     description: entity?.description || tenantDescription,
     ogImage,
     ogUrl,
+    ogType: entity?.ogType || 'website',
+    authors: Array.isArray(entity?.authors) ? entity.authors : null,
     favicon32: tenant?.favicon_url || DEFAULTS.favicon32,
     favicon192: tenant?.favicon_url || DEFAULTS.favicon192,
   };

@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { getArticleUrlConfig } from './articleUrlPaths.js';
+import { resolveBlogPostAuthors } from './blogPostAuthors.js';
 
 function stripHtml(html) {
   if (!html) return '';
@@ -166,9 +167,22 @@ async function resolveBlogPostBySlug(tenantId, slug, authorHandle, articleBasePa
     description: data.seo_description?.trim()
       || truncate(stripHtml(data.summary || data.content), 300),
     image: data.og_image_url?.trim() || data.feature_image_url || null,
+    ogType: 'article',
   };
   if (articleBasePath && resolvedAuthorHandle) {
     result.canonicalPath = `${articleBasePath}/${encodeURIComponent(resolvedAuthorHandle)}/${encodeURIComponent(data.slug)}`;
+  }
+
+  // Task #1226: surface every ordered contributor for article:author tags.
+  // The post's primary author stays first (display_order 0); co-authors follow.
+  try {
+    const authors = await resolveBlogPostAuthors(supabase, data);
+    const names = (authors || [])
+      .map((a) => (a?.name || '').trim())
+      .filter(Boolean);
+    if (names.length > 0) result.authors = names;
+  } catch (err) {
+    console.error('[entityMeta] author resolution failed:', err?.message);
   }
   return result;
 }
