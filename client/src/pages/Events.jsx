@@ -883,12 +883,13 @@ export default function EventsPage({
       toast.error('No attendees to export');
       return;
     }
-    const headers = ['Name', 'Job Title', 'Organisation', 'Email'];
+    const headers = ['Name', 'Job Title', 'Organisation', 'Email', 'Designation'];
     const rows = complexFilteredAttendees.map(booking => [
       `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
       booking.member_id ? (complexMemberJobTitleMap[booking.member_id] || '') : '',
       booking.organization_id ? (complexOrgMap[booking.organization_id] || '') : 'Non-member',
-      booking.attendee_email || ''
+      booking.attendee_email || '',
+      booking.designation || ''
     ]);
     const csvContent = [
       headers.join(','),
@@ -982,6 +983,58 @@ export default function EventsPage({
   };
 
   const [complexResendingBookingId, setComplexResendingBookingId] = useState(null);
+  const [complexEditingDesignationId, setComplexEditingDesignationId] = useState(null);
+  const [complexDesignationDraft, setComplexDesignationDraft] = useState("");
+
+  const complexUpdateDesignationMutation = useMutation({
+    mutationFn: async ({ bookingId, designation }) => {
+      const response = await fetch(`/api/admin/events/${complexAttendeesEvent.id}/attendees/designation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId, designation })
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update designation');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['event-bookings', complexAttendeesEvent?.id], (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(b => b.id === data.bookingId ? { ...b, designation: data.designation } : b);
+      });
+      queryClient.invalidateQueries({ queryKey: ['event-bookings', complexAttendeesEvent?.id] });
+      setComplexEditingDesignationId(null);
+      setComplexDesignationDraft("");
+      toast.success(data.designation ? 'Designation updated' : 'Designation cleared');
+    },
+    onError: (error) => {
+      console.error('Update designation error:', error);
+      toast.error(error.message || 'Failed to update designation');
+    }
+  });
+
+  const startEditingDesignation = (booking) => {
+    setComplexEditingDesignationId(booking.id);
+    setComplexDesignationDraft(booking.designation || "");
+  };
+
+  const cancelEditingDesignation = () => {
+    setComplexEditingDesignationId(null);
+    setComplexDesignationDraft("");
+  };
+
+  const saveDesignation = (booking) => {
+    if (!booking?.id) return;
+    const next = (complexDesignationDraft || "").trim();
+    if (next === (booking.designation || "").trim()) {
+      cancelEditingDesignation();
+      return;
+    }
+    complexUpdateDesignationMutation.mutate({ bookingId: booking.id, designation: next });
+  };
 
   const complexResendConfirmationMutation = useMutation({
     mutationFn: async (bookingId) => {
@@ -2363,6 +2416,7 @@ export default function EventsPage({
                       <TableHead>Job Title</TableHead>
                       <TableHead>Organisation</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Designation</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2393,6 +2447,71 @@ export default function EventsPage({
                             >
                               {booking.attendee_email || '-'}
                             </a>
+                          </TableCell>
+                          <TableCell>
+                            {complexEditingDesignationId === booking.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  autoFocus
+                                  value={complexDesignationDraft}
+                                  onChange={(e) => setComplexDesignationDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); saveDesignation(booking); }
+                                    else if (e.key === 'Escape') { e.preventDefault(); cancelEditingDesignation(); }
+                                  }}
+                                  placeholder="e.g. VIP Guest"
+                                  maxLength={120}
+                                  className="h-9 w-40"
+                                  disabled={complexUpdateDesignationMutation.isPending}
+                                  data-testid={`input-designation-${booking.id}`}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => saveDesignation(booking)}
+                                  disabled={complexUpdateDesignationMutation.isPending}
+                                  aria-label="Save designation"
+                                  data-testid={`button-save-designation-${booking.id}`}
+                                >
+                                  {complexUpdateDesignationMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Check className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={cancelEditingDesignation}
+                                  disabled={complexUpdateDesignationMutation.isPending}
+                                  aria-label="Cancel editing designation"
+                                  data-testid={`button-cancel-designation-${booking.id}`}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                {booking.designation ? (
+                                  <Badge variant="secondary" className="gap-1" data-testid={`badge-designation-${booking.id}`}>
+                                    <Star className="w-3 h-3" />
+                                    {booking.designation}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">-</span>
+                                )}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => booking.id && startEditingDesignation(booking)}
+                                  disabled={!booking.id}
+                                  aria-label={booking.designation ? 'Edit designation' : 'Add designation'}
+                                  data-testid={`button-edit-designation-${booking.id}`}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">
                             <TooltipProvider delayDuration={100}>
