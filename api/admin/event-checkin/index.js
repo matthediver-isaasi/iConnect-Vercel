@@ -7,6 +7,7 @@ import {
   getActorLabel,
   ensureComplexSessionTokens,
   ensureBookingToken,
+  getSpeakersByIds,
 } from '../../_lib/checkinService.js';
 
 const FEATURE_ID = 'events.event-checkin';
@@ -201,7 +202,7 @@ async function dashboard(req, res, context) {
 
   const { data: event } = await supabase
     .from('event')
-    .select('id, title, start_date, location, is_online, tenant_id')
+    .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
     .eq('id', eventId)
     .eq('tenant_id', context.tenantId)
     .maybeSingle();
@@ -209,11 +210,20 @@ async function dashboard(req, res, context) {
 
   const { data: bookings } = await supabase
     .from('booking')
-    .select('id, attendee_first_name, attendee_last_name, attendee_email, ticket_class_name, booking_reference, check_in_token, checked_in_at, checked_in_by')
+    .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference, check_in_token, checked_in_at, checked_in_by')
     .eq('event_id', eventId)
     .eq('tenant_id', context.tenantId)
     .eq('status', 'confirmed')
     .order('attendee_last_name', { ascending: true });
+
+  // Build an email -> speaker-name lookup once for the event's speakers, so we
+  // can flag speaker attendees in the list without a per-attendee query.
+  const speakers = await getSpeakersByIds(event.speaker_ids, context.tenantId);
+  const speakerByEmail = new Map();
+  for (const s of speakers) {
+    const e = (s.email || '').trim().toLowerCase();
+    if (e) speakerByEmail.set(e, s.full_name || null);
+  }
 
   // Lazily ensure every confirmed in-person booking has a check-in token, so a
   // booking created before tokens existed (or whose token generation failed)
@@ -226,17 +236,24 @@ async function dashboard(req, res, context) {
     }
   }
 
-  let attendees = (bookings || []).map((b) => ({
-    token: b.check_in_token,
-    bookingId: b.id,
-    first_name: b.attendee_first_name,
-    last_name: b.attendee_last_name,
-    email: b.attendee_email,
-    ticket_class_name: b.ticket_class_name,
-    booking_reference: b.booking_reference,
-    checked_in_at: b.checked_in_at,
-    checked_in_by: b.checked_in_by,
-  }));
+  let attendees = (bookings || []).map((b) => {
+    const email = (b.attendee_email || '').trim().toLowerCase();
+    const isSpeaker = speakerByEmail.has(email);
+    return {
+      token: b.check_in_token,
+      bookingId: b.id,
+      first_name: b.attendee_first_name,
+      last_name: b.attendee_last_name,
+      email: b.attendee_email,
+      designation: b.designation || null,
+      isSpeaker,
+      speakerName: isSpeaker ? speakerByEmail.get(email) : null,
+      ticket_class_name: b.ticket_class_name,
+      booking_reference: b.booking_reference,
+      checked_in_at: b.checked_in_at,
+      checked_in_by: b.checked_in_by,
+    };
+  });
 
   const total = attendees.length;
   const attended = attendees.filter((a) => a.checked_in_at).length;
@@ -275,7 +292,7 @@ async function complexDashboard(req, res, context, eventId, filters) {
   // dashboard reflects every registered attendee/session.
   const { data: confirmedBookings } = await supabase
     .from('complex_event_booking')
-    .select('id, tenant_id, event_id, ticket_class_id, attendee_first_name, attendee_last_name, attendee_email, ticket_class_name, booking_reference')
+    .select('id, tenant_id, event_id, ticket_class_id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference')
     .eq('event_id', eventId)
     .eq('tenant_id', context.tenantId)
     .eq('status', 'confirmed');
@@ -288,12 +305,23 @@ async function complexDashboard(req, res, context, eventId, filters) {
     supabase.from('complex_event_track').select('id, name').eq('complex_event_id', eventId).eq('tenant_id', context.tenantId),
     supabase
       .from('complex_event_session')
-      .select('id, title, start_time, complex_event_track_id, is_online')
+      .select('id, title, start_time, complex_event_track_id, is_online, speaker_ids')
       .eq('complex_event_id', eventId)
       .eq('tenant_id', context.tenantId)
       .eq('is_online', false)
       .order('start_time', { ascending: true }),
   ]);
+
+  // Speakers are configured per-session for complex events. Batch-fetch every
+  // speaker referenced across the in-person sessions, then resolve per row by
+  // matching the attendee's email against that session's speakers.
+  const allSpeakerIds = [
+    ...new Set(
+      (sessions || []).flatMap((s) => (Array.isArray(s.speaker_ids) ? s.speaker_ids : []))
+    ),
+  ];
+  const speakerRows = await getSpeakersByIds(allSpeakerIds, context.tenantId);
+  const speakerById = new Map(speakerRows.map((s) => [s.id, s]));
 
   let checkinQuery = supabase
     .from('complex_event_session_checkin')
@@ -316,6 +344,18 @@ async function complexDashboard(req, res, context, eventId, filters) {
     .map((c) => {
       const cb = bookingById[c.booking_id];
       const s = sessionById[c.session_id];
+      const email = (cb.attendee_email || '').trim().toLowerCase();
+      const sessSpeakerIds = Array.isArray(s.speaker_ids) ? s.speaker_ids : [];
+      let isSpeaker = false;
+      let speakerName = null;
+      for (const sid of sessSpeakerIds) {
+        const sp = speakerById.get(sid);
+        if (sp && (sp.email || '').trim().toLowerCase() === email && email) {
+          isSpeaker = true;
+          speakerName = sp.full_name || null;
+          break;
+        }
+      }
       return {
         token: c.token,
         bookingId: c.booking_id,
@@ -326,6 +366,9 @@ async function complexDashboard(req, res, context, eventId, filters) {
         first_name: cb.attendee_first_name,
         last_name: cb.attendee_last_name,
         email: cb.attendee_email,
+        designation: cb.designation || null,
+        isSpeaker,
+        speakerName,
         ticket_class_name: cb.ticket_class_name,
         booking_reference: cb.booking_reference,
         checked_in_at: c.checked_in_at,

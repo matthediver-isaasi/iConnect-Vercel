@@ -241,6 +241,26 @@ async function resolveSpeakerForAttendee(attendeeEmail, speakerIds, tenantId) {
 }
 
 /**
+ * Batch-fetch speaker rows for a set of speaker ids, scoped to a tenant.
+ * Used by the check-in dashboard/list to resolve speaker status for many
+ * attendees without a per-attendee query. Returns the raw rows
+ * ({ id, full_name, email }); callers build whatever lookup they need.
+ */
+export async function getSpeakersByIds(speakerIds, tenantId = null) {
+  if (!supabase) return [];
+  if (!Array.isArray(speakerIds) || speakerIds.length === 0) return [];
+
+  let query = supabase
+    .from('speaker')
+    .select('id, full_name, email')
+    .in('id', speakerIds);
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+
+  const { data } = await query;
+  return data || [];
+}
+
+/**
  * Resolve a check-in token to its attendee + event (+ session) details.
  * Returns null when the token is unknown. Tries the simple-booking table
  * first, then the complex per-session table.

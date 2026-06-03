@@ -27,7 +27,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star } from "lucide-react";
 
 const PAGE_SIZE = 25;
 
@@ -479,6 +479,28 @@ export default function EventCheckInDashboard() {
                           {a.email}
                           {a.booking_reference ? ` · ${a.booking_reference}` : ""}
                         </div>
+                        {(a.isSpeaker || a.designation) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`indicators-${a.token}`}>
+                            {a.isSpeaker && (
+                              <Badge
+                                className="gap-1 bg-primary text-primary-foreground"
+                                data-testid={`badge-speaker-${a.token}`}
+                              >
+                                <Mic className="h-3 w-3" />
+                                Speaker{a.speakerName ? ` · ${a.speakerName}` : ""}
+                              </Badge>
+                            )}
+                            {a.designation && (
+                              <Badge
+                                className="gap-1 bg-accent text-accent-foreground"
+                                data-testid={`badge-designation-${a.token}`}
+                              >
+                                <Star className="h-3 w-3" />
+                                {a.designation}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
                         {selectedEventType === "complex" && (
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             <span className="text-xs text-muted-foreground">{a.session_title}</span>
