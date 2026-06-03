@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -41,6 +41,12 @@ export default function MemberGroupManagementPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(12);
   const [sortBy, setSortBy] = useState('name-asc');
+  const [classificationFilter, setClassificationFilter] = useState('all');
+  const [groupByClassification, setGroupByClassification] = useState(false);
+  const [showClassificationDialog, setShowClassificationDialog] = useState(false);
+  const [editingClassification, setEditingClassification] = useState(null);
+  const [classificationName, setClassificationName] = useState('');
+  const [classificationToDelete, setClassificationToDelete] = useState(null);
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
@@ -52,7 +58,8 @@ export default function MemberGroupManagementPage() {
     default_self_join_role: '',
     ems_enabled_roles: [],
     projects_enabled: false,
-    projects_enabled_roles: []
+    projects_enabled_roles: [],
+    classification_id: ''
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -100,6 +107,13 @@ export default function MemberGroupManagementPage() {
   const { data: guests = [], isLoading: loadingGuests } = useQuery({
     queryKey: ['member-group-guests'],
     queryFn: () => base44.entities.MemberGroupGuest.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: classifications = [], isLoading: loadingClassifications } = useQuery({
+    queryKey: ['member-group-classifications'],
+    queryFn: () => base44.entities.MemberGroupClassification.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -207,6 +221,70 @@ export default function MemberGroupManagementPage() {
     }
   });
 
+  const createClassificationMutation = useMutation({
+    mutationFn: (data) => base44.entities.MemberGroupClassification.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      setEditingClassification(null);
+      setClassificationName('');
+      toast.success('Classification created');
+    },
+    onError: (error) => {
+      toast.error('Failed to create classification: ' + error.message);
+    }
+  });
+
+  const updateClassificationMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.MemberGroupClassification.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      setEditingClassification(null);
+      setClassificationName('');
+      toast.success('Classification updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update classification: ' + error.message);
+    }
+  });
+
+  const deleteClassificationMutation = useMutation({
+    mutationFn: async (classificationId) => {
+      // Unassign any groups still using this classification so they fall back to "no classification".
+      const affected = groups.filter(g => g.classification_id === classificationId);
+      for (const group of affected) {
+        await base44.entities.MemberGroup.update(group.id, { classification_id: null });
+      }
+      await base44.entities.MemberGroupClassification.delete(classificationId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      queryClient.invalidateQueries({ queryKey: ['member-groups'] });
+      setClassificationToDelete(null);
+      toast.success('Classification deleted');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete classification: ' + error.message);
+    }
+  });
+
+  const handleSaveClassification = () => {
+    const name = classificationName.trim();
+    if (!name) {
+      toast.error('Classification name is required');
+      return;
+    }
+    if (editingClassification) {
+      updateClassificationMutation.mutate({ id: editingClassification.id, data: { name } });
+    } else {
+      createClassificationMutation.mutate({ name, is_active: true });
+    }
+  };
+
+  const getClassificationName = (classificationId) => {
+    const c = classifications.find(c => c.id === classificationId);
+    return c ? c.name : null;
+  };
+
   const resetGroupForm = () => {
     setGroupForm({
       name: '',
@@ -221,7 +299,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled: false,
       projects_enabled_roles: [],
       events_enabled: false,
-      events_enabled_roles: []
+      events_enabled_roles: [],
+      classification_id: ''
     });
     setEditingGroup(null);
   };
@@ -241,7 +320,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
-      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : []
+      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : [],
+      classification_id: group.classification_id || ''
     });
     setShowGroupDialog(true);
   };
@@ -261,7 +341,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
-      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : []
+      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : [],
+      classification_id: group.classification_id || ''
     });
     setShowGroupDialog(true);
   };
@@ -324,7 +405,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
-      events_enabled_roles: groupForm.events_enabled ? prunedEvents : []
+      events_enabled_roles: groupForm.events_enabled ? prunedEvents : [],
+      classification_id: groupForm.classification_id || null
     };
 
     if (editingGroup) {
@@ -474,7 +556,12 @@ export default function MemberGroupManagementPage() {
       const matchesSearch = searchQuery === '' || 
         group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (group.description && group.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesSearch;
+      const matchesClassification =
+        classificationFilter === 'all' ||
+        (classificationFilter === '__none__'
+          ? !group.classification_id
+          : group.classification_id === classificationFilter);
+      return matchesSearch && matchesClassification;
     });
 
     // Sort groups
@@ -500,7 +587,7 @@ export default function MemberGroupManagementPage() {
     });
 
     return filtered;
-  }, [groups, searchQuery, sortBy, assignments]);
+  }, [groups, searchQuery, sortBy, assignments, classificationFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedGroups.length / itemsPerPage);
@@ -509,10 +596,10 @@ export default function MemberGroupManagementPage() {
     currentPage * itemsPerPage
   );
 
-  // Reset to page 1 when search/sort changes
+  // Reset to page 1 when search/sort/filter changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sortBy]);
+  }, [searchQuery, sortBy, classificationFilter]);
 
   const handleSelectGroup = (groupId) => {
     setSelectedGroups(prev => 
@@ -582,7 +669,169 @@ export default function MemberGroupManagementPage() {
     });
   };
 
-  const isLoading = !accessChecked || loadingGroups || loadingMembers || loadingAssignments || loadingGuests;
+  const renderGroupCard = (group) => {
+    const groupAssignments = getGroupAssignments(group.id);
+    const isSelected = selectedGroups.includes(group.id);
+    return (
+      <Card
+        key={group.id}
+        className={`hover:shadow-lg transition-shadow ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+      >
+        <CardHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => handleSelectGroup(group.id)}
+              className="w-4 h-4 cursor-pointer"
+            />
+            <div className="flex items-start justify-between flex-1">
+              <CardTitle className="text-lg">{group.name}</CardTitle>
+              {!group.is_active && (
+                <Badge className="bg-slate-200 text-slate-700">Inactive</Badge>
+              )}
+            </div>
+          </div>
+          {group.classification_id && getClassificationName(group.classification_id) && (
+            <Badge
+              className="bg-indigo-100 text-indigo-700 w-fit"
+              data-testid={`badge-classification-${group.id}`}
+            >
+              <Tag className="w-3 h-3 mr-1" />
+              {getClassificationName(group.classification_id)}
+            </Badge>
+          )}
+          {group.description && (
+            <p className="text-sm text-slate-600">{group.description}</p>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <span className="text-sm font-medium text-slate-700">Roles:</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {group.roles?.length > 0 ? (
+                group.roles.map((role, idx) => {
+                  const isLeader = Array.isArray(group.leadership_roles) && group.leadership_roles.includes(role);
+                  return (
+                    <Badge
+                      key={idx}
+                      className={`text-xs ${isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}`}
+                      title={isLeader ? "Leadership role" : undefined}
+                    >
+                      {isLeader && <Crown className="w-3 h-3 mr-1 fill-current" />}
+                      {role}
+                    </Badge>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-slate-500">No roles defined</span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-sm font-medium text-slate-700">
+              Members: {groupAssignments.length}
+            </span>
+          </div>
+
+          <div className="flex gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedGroup(group);
+                setShowAssignDialog(true);
+              }}
+              className="flex-1"
+            >
+              <UserPlus className="w-3 h-3 mr-1" />
+              Assign
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDuplicateGroup(group)}
+              title="Duplicate"
+            >
+              <Copy className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleEditGroup(group)}
+            >
+              <Pencil className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setGroupToDelete(group);
+                setShowDeleteDialog(true);
+              }}
+              className="text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          {groupAssignments.length > 0 && (
+          <div className="pt-2 border-t border-slate-200">
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {groupAssignments.map((assignment) => (
+              <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
+                <div>
+                  <div className="font-medium text-slate-900 flex items-center gap-1">
+                    {getAssigneeName(assignment)}
+                    {isAssignmentGuest(assignment) && (
+                      <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
+                    )}
+                  </div>
+                  <div className="text-slate-500">{assignment.group_role}</div>
+                  {assignment.expires_at && (
+                    <div className="text-slate-400 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeAssignmentMutation.mutate(assignment.id)}
+                  className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Sections for "group by classification" view (operates on the full filtered set, not paginated).
+  const classificationSections = React.useMemo(() => {
+    const byId = new Map();
+    classifications.forEach((c) => byId.set(c.id, { id: c.id, name: c.name, groups: [] }));
+    const noneSection = { id: '__none__', name: 'No classification', groups: [] };
+    filteredAndSortedGroups.forEach((g) => {
+      const section = g.classification_id && byId.has(g.classification_id)
+        ? byId.get(g.classification_id)
+        : noneSection;
+      section.groups.push(g);
+    });
+    const ordered = [...byId.values()].filter((s) => s.groups.length > 0);
+    ordered.sort((a, b) => a.name.localeCompare(b.name));
+    if (noneSection.groups.length > 0) ordered.push(noneSection);
+    return ordered;
+  }, [classifications, filteredAndSortedGroups]);
+
+  const isLoading = !accessChecked || loadingGroups || loadingMembers || loadingAssignments || loadingGuests || loadingClassifications;
 
   if (isLoading) {
     return (
@@ -606,7 +855,15 @@ export default function MemberGroupManagementPage() {
               <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Member Groups</h1>
               <p className="text-slate-600">Create and manage member groups with roles</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={() => { setEditingClassification(null); setClassificationName(''); setShowClassificationDialog(true); }}
+                variant="outline"
+                data-testid="button-manage-classifications"
+              >
+                <Tag className="w-4 h-4 mr-2" />
+                Classifications
+              </Button>
               <Button onClick={() => setShowBulkDialog(true)} variant="outline">
                 <ListPlus className="w-4 h-4 mr-2" />
                 Bulk Create
@@ -664,7 +921,21 @@ export default function MemberGroupManagementPage() {
                         className="w-full"
                       />
                     </div>
-                    <div className="w-full md:w-64">
+                    <div className="w-full md:w-56">
+                      <Select value={classificationFilter} onValueChange={setClassificationFilter}>
+                        <SelectTrigger data-testid="select-classification-filter">
+                          <SelectValue placeholder="All classifications" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All classifications</SelectItem>
+                          <SelectItem value="__none__">No classification</SelectItem>
+                          {classifications.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-full md:w-56">
                       <Select value={sortBy} onValueChange={setSortBy}>
                         <SelectTrigger>
                           <SelectValue />
@@ -678,11 +949,21 @@ export default function MemberGroupManagementPage() {
                       </Select>
                     </div>
                   </div>
-                  {filteredAndSortedGroups.length > 0 && (
-                    <p className="text-sm text-slate-600 mt-3">
-                      Showing {filteredAndSortedGroups.length} of {groups.length} group{groups.length !== 1 ? 's' : ''}
-                    </p>
-                  )}
+                  <div className="flex items-center justify-between flex-wrap gap-2 mt-3">
+                    {filteredAndSortedGroups.length > 0 ? (
+                      <p className="text-sm text-slate-600">
+                        Showing {filteredAndSortedGroups.length} of {groups.length} group{groups.length !== 1 ? 's' : ''}
+                      </p>
+                    ) : <span />}
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer" data-testid="label-group-by-classification">
+                      <Switch
+                        checked={groupByClassification}
+                        onCheckedChange={setGroupByClassification}
+                        data-testid="switch-group-by-classification"
+                      />
+                      Group by classification
+                    </label>
+                  </div>
                 </CardContent>
               </Card>
             </>
@@ -723,183 +1004,64 @@ export default function MemberGroupManagementPage() {
               </Button>
             </CardContent>
           </Card>
+        ) : groupByClassification ? (
+          <div className="space-y-8">
+            {classificationSections.map((section) => (
+              <div key={section.id} data-testid={`section-classification-${section.id}`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Tag className="w-4 h-4 text-indigo-600" />
+                  <h2 className="text-xl font-semibold text-slate-900">{section.name}</h2>
+                  <Badge className="bg-slate-200 text-slate-700">{section.groups.length}</Badge>
+                </div>
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {section.groups.map((group) => renderGroupCard(group))}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedGroups.map((group) => {
-              const groupAssignments = getGroupAssignments(group.id);
-              const isSelected = selectedGroups.includes(group.id);
-              return (
-                <Card 
-                  key={group.id} 
-                  className={`hover:shadow-lg transition-shadow ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-2 mb-2">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleSelectGroup(group.id)}
-                        className="w-4 h-4 cursor-pointer"
-                      />
-                      <div className="flex items-start justify-between flex-1">
-                        <CardTitle className="text-lg">{group.name}</CardTitle>
-                        {!group.is_active && (
-                          <Badge className="bg-slate-200 text-slate-700">Inactive</Badge>
-                        )}
-                      </div>
-                    </div>
-                    {group.description && (
-                      <p className="text-sm text-slate-600">{group.description}</p>
-                    )}
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <span className="text-sm font-medium text-slate-700">Roles:</span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {group.roles?.length > 0 ? (
-                          group.roles.map((role, idx) => {
-                            const isLeader = Array.isArray(group.leadership_roles) && group.leadership_roles.includes(role);
-                            return (
-                              <Badge
-                                key={idx}
-                                className={`text-xs ${isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}`}
-                                title={isLeader ? "Leadership role" : undefined}
-                              >
-                                {isLeader && <Crown className="w-3 h-3 mr-1 fill-current" />}
-                                {role}
-                              </Badge>
-                            );
-                          })
-                        ) : (
-                          <span className="text-xs text-slate-500">No roles defined</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="text-sm font-medium text-slate-700">
-                        Members: {groupAssignments.length}
-                      </span>
-                    </div>
-
-                    <div className="flex gap-2 pt-2 border-t border-slate-200">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedGroup(group);
-                          setShowAssignDialog(true);
-                        }}
-                        className="flex-1"
-                      >
-                        <UserPlus className="w-3 h-3 mr-1" />
-                        Assign
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDuplicateGroup(group)}
-                        title="Duplicate"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEditGroup(group)}
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setGroupToDelete(group);
-                          setShowDeleteDialog(true);
-                        }}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-
-                    {groupAssignments.length > 0 && (
-                    <div className="pt-2 border-t border-slate-200">
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {groupAssignments.map((assignment) => (
-                        <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
-                          <div>
-                            <div className="font-medium text-slate-900 flex items-center gap-1">
-                              {getAssigneeName(assignment)}
-                              {isAssignmentGuest(assignment) && (
-                                <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
-                              )}
-                            </div>
-                            <div className="text-slate-500">{assignment.group_role}</div>
-                            {assignment.expires_at && (
-                              <div className="text-slate-400 flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
-                              </div>
-                            )}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeAssignmentMutation.mutate(assignment.id)}
-                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-8 flex justify-center">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                    <Button
-                      key={page}
-                      variant={currentPage === page ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setCurrentPage(page)}
-                      className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
-                    >
-                      {page}
-                    </Button>
-                  ))}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  Next
-                </Button>
-              </div>
+              {paginatedGroups.map((group) => renderGroupCard(group))}
             </div>
-          )}
-        </>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-8 flex justify-center">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                      <Button
+                        key={page}
+                        variant={currentPage === page ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(page)}
+                        className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                      >
+                        {page}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Create/Edit Group Dialog */}
@@ -928,6 +1090,25 @@ export default function MemberGroupManagementPage() {
                   placeholder="Description of this group..."
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="classification">Classification</Label>
+                <Select
+                  value={groupForm.classification_id || '__none__'}
+                  onValueChange={(val) => setGroupForm({ ...groupForm, classification_id: val === '__none__' ? '' : val })}
+                >
+                  <SelectTrigger id="classification" data-testid="select-group-classification">
+                    <SelectValue placeholder="No classification" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No classification</SelectItem>
+                    {classifications.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">An organisational label only — used to group and filter member groups.</p>
               </div>
 
               <div>
@@ -1621,6 +1802,139 @@ export default function MemberGroupManagementPage() {
                 className="bg-red-600 hover:bg-red-700"
               >
                 Delete Group
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Manage Classifications Dialog */}
+        <Dialog
+          open={showClassificationDialog}
+          onOpenChange={(open) => {
+            setShowClassificationDialog(open);
+            if (!open) {
+              setEditingClassification(null);
+              setClassificationName('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Manage Classifications</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-slate-600">
+              Classifications are organisational labels for member groups. They don't change permissions or behaviour — they just help you group and filter your groups.
+            </p>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Label htmlFor="classification-name">
+                  {editingClassification ? 'Rename classification' : 'New classification'}
+                </Label>
+                <Input
+                  id="classification-name"
+                  value={classificationName}
+                  onChange={(e) => setClassificationName(e.target.value)}
+                  placeholder="e.g., Committees"
+                  data-testid="input-classification-name"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveClassification(); } }}
+                />
+              </div>
+              <Button
+                onClick={handleSaveClassification}
+                disabled={createClassificationMutation.isPending || updateClassificationMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-classification"
+              >
+                {editingClassification ? 'Save' : 'Add'}
+              </Button>
+              {editingClassification && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setEditingClassification(null); setClassificationName(''); }}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 mt-2">
+              {classifications.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-6">No classifications yet. Add one above.</p>
+              ) : (
+                classifications.map((c) => {
+                  const inUse = groups.filter(g => g.classification_id === c.id).length;
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50"
+                      data-testid={`row-classification-${c.id}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Tag className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span className="font-medium text-slate-900 truncate">{c.name}</span>
+                        <span className="text-xs text-slate-500 shrink-0">
+                          {inUse} group{inUse !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setEditingClassification(c); setClassificationName(c.name); }}
+                          data-testid={`button-edit-classification-${c.id}`}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setClassificationToDelete(c)}
+                          className="text-red-600 hover:text-red-700"
+                          data-testid={`button-delete-classification-${c.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowClassificationDialog(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Classification Confirmation */}
+        <Dialog open={!!classificationToDelete} onOpenChange={(open) => { if (!open) setClassificationToDelete(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Classification</DialogTitle>
+            </DialogHeader>
+            {classificationToDelete && (() => {
+              const inUse = groups.filter(g => g.classification_id === classificationToDelete.id).length;
+              return (
+                <p className="text-slate-600">
+                  Are you sure you want to delete <strong>{classificationToDelete.name}</strong>?
+                  {inUse > 0 && (
+                    <> {inUse} group{inUse !== 1 ? 's' : ''} currently using it will be set to "no classification".</>
+                  )} This action cannot be undone.
+                </p>
+              );
+            })()}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setClassificationToDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => deleteClassificationMutation.mutate(classificationToDelete.id)}
+                disabled={deleteClassificationMutation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+                data-testid="button-confirm-delete-classification"
+              >
+                Delete Classification
               </Button>
             </DialogFooter>
           </DialogContent>

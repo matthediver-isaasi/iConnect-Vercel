@@ -73,6 +73,7 @@ const entityToTable = {
   'PortalNavigationItem': 'portal_navigation_item',
   'MemberGroup': 'member_group',
   'MemberGroupAssignment': 'member_group_assignment',
+  'MemberGroupClassification': 'member_group_classification',
   'GuestWriter': 'guest_writer',
   'PortalMenu': 'portal_menu',
   'AwardClassification': 'award_classification',
