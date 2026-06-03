@@ -803,6 +803,18 @@ export default function ArticleViewPage() {
                         {articleSettings?.showAuthorEmail && author.email && (
                           <p className="text-sm text-slate-600 mt-1">{author.email}</p>
                         )}
+                        {isGuestWriter && author.linkedin_url && (
+                          <a
+                            href={author.linkedin_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-1 font-medium"
+                            data-testid="link-author-linkedin"
+                          >
+                            <Linkedin className="w-4 h-4" />
+                            LinkedIn
+                          </a>
+                        )}
                       </div>
                       
                       {memberInfo && !isCurrentUserAuthor && !isFeatureExcluded('content.articles.follow-author') && (

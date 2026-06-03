@@ -168,7 +168,7 @@ export default async function handler(req, res) {
     if (article.guest_writer_id) {
       const { data: gw } = await supabase
         .from('guest_writer')
-        .select('id, full_name, email, organization, job_title, biography, profile_photo_url, is_active, tenant_id')
+        .select('id, full_name, email, organization, job_title, biography, profile_photo_url, linkedin_url, is_active, tenant_id')
         .eq('id', article.guest_writer_id)
         .single();
 

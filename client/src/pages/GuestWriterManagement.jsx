@@ -54,6 +54,7 @@ export default function GuestWriterManagementPage() {
     job_title: "",
     biography: "",
     profile_photo_url: "",
+    linkedin_url: "",
     is_active: true
   });
 
@@ -110,6 +111,7 @@ export default function GuestWriterManagementPage() {
         job_title: writer.job_title || "",
         biography: writer.biography || "",
         profile_photo_url: writer.profile_photo_url || "",
+        linkedin_url: writer.linkedin_url || "",
         is_active: writer.is_active !== false
       });
     } else {
@@ -121,6 +123,7 @@ export default function GuestWriterManagementPage() {
         job_title: "",
         biography: "",
         profile_photo_url: "",
+        linkedin_url: "",
         is_active: true
       });
     }
@@ -137,6 +140,7 @@ export default function GuestWriterManagementPage() {
       job_title: "",
       biography: "",
       profile_photo_url: "",
+      linkedin_url: "",
       is_active: true
     });
   };
@@ -430,6 +434,19 @@ export default function GuestWriterManagementPage() {
                   value={formData.organization}
                   onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
                   placeholder="Example University"
+                />
+              </div>
+
+              {/* LinkedIn Profile */}
+              <div className="space-y-2">
+                <Label htmlFor="linkedin_url">LinkedIn Profile</Label>
+                <Input
+                  id="linkedin_url"
+                  type="url"
+                  value={formData.linkedin_url}
+                  onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })}
+                  placeholder="https://www.linkedin.com/in/username"
+                  data-testid="input-linkedin-url"
                 />
               </div>
 
