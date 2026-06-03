@@ -683,6 +683,21 @@ export default function BriefDetailPage() {
     },
   });
 
+  const setCaseStudyStatusMutation = useMutation({
+    mutationFn: async (status) => {
+      return await base44.entities.ArticleBrief.update(briefId, {
+        case_study_status: status,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["article-brief", briefId] });
+      queryClient.invalidateQueries({ queryKey: ["article-briefs"] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update case study status");
+    },
+  });
+
   const sendCopyrightFormMutation = useMutation({
     mutationFn: async ({ copyright_form_id, email_template_id }) => {
       return await apiRequest("POST", `/api/article-briefs/${briefId}/send-copyright-form`, {
@@ -1435,12 +1450,34 @@ export default function BriefDetailPage() {
                       )}
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground" data-testid="text-case-study-toggle-help">
                       {caseStudyRequired
                         ? "Case study is enabled for this brief — manage it on the Case Study tab."
                         : "Case study is not required for this brief."}
                     </p>
+                    {canManage && (
+                      <div className="space-y-1">
+                        <Label className="text-sm">Case study status</Label>
+                        <Select
+                          value={brief.case_study_status || "none"}
+                          onValueChange={(v) => setCaseStudyStatusMutation.mutate(v)}
+                          disabled={setCaseStudyStatusMutation.isPending}
+                        >
+                          <SelectTrigger className="w-full sm:w-[220px]" data-testid="select-case-study-status">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No case study</SelectItem>
+                            <SelectItem value="prepared">Prepared</SelectItem>
+                            <SelectItem value="submitted">Submitted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Manual tracking only — does not trigger the case-study permission form or any emails.
+                        </p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 <Card className="mt-4" data-testid="card-brief-copyright">

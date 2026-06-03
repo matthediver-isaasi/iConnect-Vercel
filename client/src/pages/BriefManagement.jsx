@@ -149,6 +149,23 @@ const FORM_STATUS_FILTER_OPTIONS = [
   { value: "received", label: "Received" },
 ];
 
+const CASE_STUDY_STATUS_LABEL = {
+  none: "No case study",
+  prepared: "Prepared",
+  submitted: "Submitted",
+};
+
+const CASE_STUDY_STATUS_FILTER_OPTIONS = [
+  { value: "none", label: "No case study" },
+  { value: "prepared", label: "Prepared" },
+  { value: "submitted", label: "Submitted" },
+];
+
+function getCaseStudyStatus(brief) {
+  const v = brief?.case_study_status;
+  return v === "prepared" || v === "submitted" ? v : "none";
+}
+
 function SortableHeader({ field, label, sortField, sortDir, onSort }) {
   const active = sortField === field;
   const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
@@ -364,6 +381,7 @@ export default function BriefManagementPage() {
   const [reviewerFilter, setReviewerFilter] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState([]);
   const [caseStudyFilter, setCaseStudyFilter] = useState("all");
+  const [caseStudyStatusFilter, setCaseStudyStatusFilter] = useState("all");
   const [copyrightFilter, setCopyrightFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
   const [sortField, setSortField] = useState(null);
@@ -755,6 +773,9 @@ export default function BriefManagementPage() {
     } else if (caseStudyFilter === "not_sent" || caseStudyFilter === "sent" || caseStudyFilter === "received") {
       filtered = filtered.filter((b) => getPermissionStatus(b) === caseStudyFilter);
     }
+    if (caseStudyStatusFilter !== "all") {
+      filtered = filtered.filter((b) => getCaseStudyStatus(b) === caseStudyStatusFilter);
+    }
     if (copyrightFilter === "required") {
       filtered = filtered.filter((b) => !!b.copyright_required);
     } else if (copyrightFilter === "not_required") {
@@ -855,7 +876,7 @@ export default function BriefManagementPage() {
       }
     }
     return sorted;
-  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, copyrightFilter, dateField, dateFrom, dateTo, searchQuery, sortBy, sortField, sortDir, STATUS_CONFIG, latestVersionByBrief, membersById, externalWritersById]);
+  }, [briefs, activeView, memberInfo, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, caseStudyStatusFilter, copyrightFilter, dateField, dateFrom, dateTo, searchQuery, sortBy, sortField, sortDir, STATUS_CONFIG, latestVersionByBrief, membersById, externalWritersById]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -866,7 +887,7 @@ export default function BriefManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, copyrightFilter, dateField, dateFrom, dateTo, searchQuery, pageSize, sortField, sortDir, sortBy]);
+  }, [activeView, statusFilter, writerFilter, reviewerFilter, categoryFilter, caseStudyFilter, caseStudyStatusFilter, copyrightFilter, dateField, dateFrom, dateTo, searchQuery, pageSize, sortField, sortDir, sortBy]);
 
   const handleHeaderSort = (field) => {
     if (sortField !== field) {
@@ -1218,6 +1239,17 @@ export default function BriefManagementPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Select value={caseStudyStatusFilter} onValueChange={setCaseStudyStatusFilter}>
+                  <SelectTrigger className="w-[170px]" data-testid="select-case-study-status-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All CS Status</SelectItem>
+                    {CASE_STUDY_STATUS_FILTER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={copyrightFilter} onValueChange={setCopyrightFilter}>
                   <SelectTrigger className="w-[170px]" data-testid="select-copyright-filter">
                     <SelectValue />
@@ -1313,13 +1345,14 @@ export default function BriefManagementPage() {
                   <TableHead className="min-w-[120px]">
                     <SortableHeader field="permission" label="Permission" sortField={sortField} sortDir={sortDir} onSort={handleHeaderSort} />
                   </TableHead>
+                  <TableHead className="min-w-[130px]">Case Study</TableHead>
                   {(canDelete || canChangeStatus) && <TableHead className="min-w-[100px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedBriefs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8 + (canChangeStatus ? 1 : 0) + ((canDelete || canChangeStatus) ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
+                    <TableCell colSpan={9 + (canChangeStatus ? 1 : 0) + ((canDelete || canChangeStatus) ? 1 : 0)} className="text-center py-12 text-muted-foreground" data-testid="text-empty-state">
                       {briefs.length === 0
                         ? "No briefs yet. Create your first article brief to get started."
                         : activeView === "my_briefs"
@@ -1394,6 +1427,9 @@ export default function BriefManagementPage() {
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground" data-testid={`text-brief-permission-${brief.id}`}>
                           {PERMISSION_STATUS_LABEL[getPermissionStatus(brief)]}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground" data-testid={`text-brief-case-study-status-${brief.id}`}>
+                          {CASE_STUDY_STATUS_LABEL[getCaseStudyStatus(brief)]}
                         </TableCell>
                         {(canDelete || canChangeStatus) && (
                           <TableCell onClick={(e) => e.stopPropagation()}>
