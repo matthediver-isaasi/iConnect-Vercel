@@ -32,6 +32,14 @@ import {
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
+import {
+  TypographyStyleField,
+  useTenantTypographyStyles,
+  resolveTenantStyle,
+  buildTypographyInlineStyle,
+  buildTenantTypographyResponsiveCss,
+  hasResponsiveTypographyOverride,
+} from './registry';
 
 // ---- Shared small primitives (duplicated minimally from registry.jsx to
 // keep this file self-contained without forcing big imports).
@@ -1404,8 +1412,36 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   const linkBase = source === 'news' ? '/NewsView?slug=' : '/Articles?slug=';
   const effectiveCols = layout === 'list' ? 1 : cols;
 
+  // Tenant typography styles for the card title / summary text. When set,
+  // the chosen style's font (family/size/weight/line-height/etc.) overrides
+  // the hardcoded text-sm / text-xs classes; when unset, cards render
+  // exactly as before. Mirrors the Card/Text/Hero block pattern.
+  const tenantStyles = useTenantTypographyStyles();
+  const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
+  const summaryStyleObj = resolveTenantStyle(c.summaryTypographyStyleId, tenantStyles);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
+  const titleInline = titleStyleObj
+    ? buildTypographyInlineStyle(titleStyleObj, { breakpoint: bpForInline })
+    : null;
+  const summaryInline = summaryStyleObj
+    ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint: bpForInline })
+    : null;
+  const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
+  const responsiveCss = !isPreview
+    ? [
+        titleStyleObj && hasResponsiveTypographyOverride(titleStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="article-title"]`, titleStyleObj)
+          : null,
+        summaryStyleObj && hasResponsiveTypographyOverride(summaryStyleObj)
+          ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="article-summary"]`, summaryStyleObj)
+          : null,
+      ].filter(Boolean).join('')
+    : '';
+
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Articles'}>
+      {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
       {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
       {isLoading ? (
         <ListSkeleton count={Math.min(c.limit || 6, 6)} columns={effectiveCols} gap={c.gap} />
@@ -1426,12 +1462,24 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                 </div>
               ) : null}
               <div className="p-3 flex-1 flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-slate-900 m-0">{a.title}</h3>
+                <h3
+                  className={titleInline ? 'text-slate-900 m-0' : 'text-sm font-semibold text-slate-900 m-0'}
+                  style={titleInline || undefined}
+                  data-tg-r="article-title"
+                >
+                  {a.title}
+                </h3>
                 {a.published_date ? (
                   <div className="text-xs text-slate-500">{formatDate(a.published_date)}</div>
                 ) : null}
                 {c.showSummary !== false && a.summary ? (
-                  <p className="text-xs text-slate-600 line-clamp-3 mt-1">{a.summary}</p>
+                  <p
+                    className={summaryInline ? 'text-slate-600 line-clamp-3 mt-1' : 'text-xs text-slate-600 line-clamp-3 mt-1'}
+                    style={summaryInline || undefined}
+                    data-tg-r="article-summary"
+                  >
+                    {a.summary}
+                  </p>
                 ) : null}
                 <a
                   href={asEditor ? undefined : `${linkBase}${encodeURIComponent(a.slug || a.id)}`}
@@ -1500,6 +1548,18 @@ function ArticleListInspector({ block, update }) {
       <NumberField label="Gap (px)" min={0} value={c.gap || 16} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-article-list-gap" />
       <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId="toggle-article-list-image" />
       <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-article-list-summary" />
+      <TypographyStyleField
+        label="Card title style"
+        value={c.titleTypographyStyleId}
+        onChange={(id) => set({ titleTypographyStyleId: id })}
+        testId="select-article-list-title-typography"
+      />
+      <TypographyStyleField
+        label="Card text style"
+        value={c.summaryTypographyStyleId}
+        onChange={(id) => set({ summaryTypographyStyleId: id })}
+        testId="select-article-list-summary-typography"
+      />
       <ToggleField label="Featured first" value={!!c.featuredFirst} onChange={(v) => set({ featuredFirst: v })} testId="toggle-article-list-featured-first" />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-article-list-empty" />
     </>

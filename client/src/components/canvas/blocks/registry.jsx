@@ -372,7 +372,7 @@ async function fetchTenantTypographyStyles() {
   }
 }
 
-function useTenantTypographyStyles() {
+export function useTenantTypographyStyles() {
   const { data } = useQuery({
     queryKey: ['/api/public/typography-styles'],
     queryFn: fetchTenantTypographyStyles,
@@ -426,7 +426,7 @@ function pickResponsiveTypoValue(style, baseKey, breakpoint) {
   return desk;
 }
 
-function buildTypographyInlineStyle(style, options) {
+export function buildTypographyInlineStyle(style, options) {
   if (!style) return null;
   const opts = options || {};
   const bp = opts.breakpoint;
@@ -459,7 +459,7 @@ function buildTypographyInlineStyle(style, options) {
 // True when the tenant style declares any tablet- or mobile-specific
 // override that differs from the desktop value (for the four per-device
 // properties font-size / line-height / letter-spacing / margin-bottom).
-function hasResponsiveTypographyOverride(tenantStyle) {
+export function hasResponsiveTypographyOverride(tenantStyle) {
   if (!tenantStyle) return false;
   for (const k of ['font_size', 'line_height', 'letter_spacing', 'margin_bottom']) {
     const d = tenantStyle[k];
@@ -480,7 +480,7 @@ function hasResponsiveTypographyOverride(tenantStyle) {
 // renderer. Mobile rules are only emitted when the mobile value
 // differs from whatever applies at tablet (desktop or tablet override)
 // to keep the stylesheet small. Returns null when no override applies.
-function buildTenantTypographyResponsiveCss(selector, style) {
+export function buildTenantTypographyResponsiveCss(selector, style) {
   if (!style || !selector) return null;
   const PROPS = [
     { css: 'font-size', key: 'font_size', unit: 'px' },
@@ -572,7 +572,7 @@ function buildTiptapFontSizeResponsiveCss(blockId, html, breakpoint) {
 // `onChange(id, picked)` — `id` is the chosen style id (or '' for default) and
 // `picked` is the resolved style object (or null) so callers can also persist
 // a graceful-degradation fallback (e.g. mirror `headingLevel`).
-function TypographyStyleField({ label, value, onChange, testId }) {
+export function TypographyStyleField({ label, value, onChange, testId }) {
   const tenantStyles = useTenantTypographyStyles();
   const sorted = useMemo(() => sortTypographyStyles(tenantStyles), [tenantStyles]);
   if (sorted.length === 0) return null;
@@ -605,7 +605,7 @@ function TypographyStyleField({ label, value, onChange, testId }) {
 // Resolve a stored tenant typography style id against the cached tenant
 // styles list. Returns null if the id is empty, unknown, or the list isn't
 // loaded yet — callers should fall back to their pre-typography defaults.
-function resolveTenantStyle(styleId, styles) {
+export function resolveTenantStyle(styleId, styles) {
   if (!styleId) return null;
   return (styles || []).find((s) => s.id === styleId) || null;
 }
