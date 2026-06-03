@@ -19,6 +19,16 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 
+function isDuplicateClassificationError(error) {
+  const msg = (error?.message || error?.error || '').toLowerCase();
+  return (
+    msg.includes('uq_member_group_classification_tenant_name') ||
+    msg.includes('duplicate key') ||
+    msg.includes('already exists') ||
+    error?.code === '23505'
+  );
+}
+
 export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -230,6 +240,10 @@ export default function MemberGroupManagementPage() {
       toast.success('Classification created');
     },
     onError: (error) => {
+      if (isDuplicateClassificationError(error)) {
+        toast.error('A classification with this name already exists');
+        return;
+      }
       toast.error('Failed to create classification: ' + error.message);
     }
   });
@@ -243,6 +257,10 @@ export default function MemberGroupManagementPage() {
       toast.success('Classification updated');
     },
     onError: (error) => {
+      if (isDuplicateClassificationError(error)) {
+        toast.error('A classification with this name already exists');
+        return;
+      }
       toast.error('Failed to update classification: ' + error.message);
     }
   });
@@ -271,6 +289,15 @@ export default function MemberGroupManagementPage() {
     const name = classificationName.trim();
     if (!name) {
       toast.error('Classification name is required');
+      return;
+    }
+    const normalized = name.toLowerCase();
+    const duplicate = classifications.some((c) =>
+      (c.name || '').trim().toLowerCase() === normalized &&
+      (!editingClassification || c.id !== editingClassification.id)
+    );
+    if (duplicate) {
+      toast.error('A classification with this name already exists');
       return;
     }
     if (editingClassification) {
