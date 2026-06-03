@@ -29,6 +29,16 @@ function isDuplicateClassificationError(error) {
   );
 }
 
+function isDuplicateGroupNameError(error) {
+  const msg = (error?.message || error?.error || '').toLowerCase();
+  return (
+    msg.includes('uq_member_group_tenant_name') ||
+    msg.includes('duplicate key') ||
+    msg.includes('already exists') ||
+    error?.code === '23505'
+  );
+}
+
 export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -167,6 +177,10 @@ export default function MemberGroupManagementPage() {
       toast.success('Group created successfully');
     },
     onError: (error) => {
+      if (isDuplicateGroupNameError(error)) {
+        toast.error('A group with this name already exists');
+        return;
+      }
       toast.error('Failed to create group: ' + error.message);
     }
   });
@@ -180,6 +194,10 @@ export default function MemberGroupManagementPage() {
       toast.success('Group updated successfully');
     },
     onError: (error) => {
+      if (isDuplicateGroupNameError(error)) {
+        toast.error('A group with this name already exists');
+        return;
+      }
       toast.error('Failed to update group: ' + error.message);
     }
   });
@@ -380,20 +398,50 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
-    const lines = bulkText.split('\n').filter(line => line.trim());
-    const groupsToCreate = lines.map(line => ({
-      name: line.trim(),
-      description: '',
-      roles: [],
-      is_active: true
-    }));
+    const lines = bulkText.split('\n').map(line => line.trim()).filter(Boolean);
+
+    const existingNames = new Set(
+      groups.map((g) => (g.name || '').trim().toLowerCase())
+    );
+    const seenInInput = new Set();
+    const groupsToCreate = [];
+    let skipped = 0;
+
+    for (const name of lines) {
+      const normalized = name.toLowerCase();
+      if (existingNames.has(normalized) || seenInInput.has(normalized)) {
+        skipped += 1;
+        continue;
+      }
+      seenInInput.add(normalized);
+      groupsToCreate.push({
+        name,
+        description: '',
+        roles: [],
+        is_active: true
+      });
+    }
+
+    if (groupsToCreate.length === 0) {
+      toast.error(
+        skipped > 0
+          ? 'All group names already exist'
+          : 'Please enter group names'
+      );
+      return;
+    }
 
     Promise.all(groupsToCreate.map(g => base44.entities.MemberGroup.create(g)))
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['member-groups'] });
         setShowBulkDialog(false);
         setBulkText('');
-        toast.success(`Created ${groupsToCreate.length} groups successfully`);
+        const created = groupsToCreate.length;
+        toast.success(
+          skipped > 0
+            ? `Created ${created} group${created === 1 ? '' : 's'}, skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}`
+            : `Created ${created} group${created === 1 ? '' : 's'} successfully`
+        );
       })
       .catch(error => {
         toast.error('Failed to create groups: ' + error.message);
@@ -403,6 +451,16 @@ export default function MemberGroupManagementPage() {
   const handleSaveGroup = () => {
     if (!groupForm.name.trim()) {
       toast.error('Group name is required');
+      return;
+    }
+
+    const normalizedName = groupForm.name.trim().toLowerCase();
+    const duplicateName = groups.some((g) =>
+      (g.name || '').trim().toLowerCase() === normalizedName &&
+      (!editingGroup || g.id !== editingGroup.id)
+    );
+    if (duplicateName) {
+      toast.error('A group with this name already exists');
       return;
     }
 
