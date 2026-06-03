@@ -7,6 +7,7 @@ import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
 
@@ -383,6 +384,15 @@ export default async function handler(req, res) {
         }
       }
 
+      // BlogPost co-authors (Task #1222): `authors` is not a column on blog_post;
+      // pop it here and sync the blog_post_author join table after update. Absent
+      // (e.g. auto-save) means "no change" — the join table is left untouched.
+      let blogPostAuthorsPayload;
+      if (entityNormalized === 'blogpost' && 'authors' in sanitizedBody) {
+        blogPostAuthorsPayload = sanitizedBody.authors;
+        delete sanitizedBody.authors;
+      }
+
       // CardDeck: normalize and cap the links array (max 10 rows of { text, url })
       if (entityNormalized === 'carddeck' && 'links' in sanitizedBody) {
         const raw = Array.isArray(sanitizedBody.links) ? sanitizedBody.links : [];
@@ -728,6 +738,16 @@ export default async function handler(req, res) {
 
       if (entity === 'BlogPost' && responseData && tenantCtx.tenantId) {
         dispatchWpWebhook(tenantCtx.tenantId, 'article.updated', id);
+      }
+
+      // BlogPost co-authors (Task #1222): sync the join table after update.
+      if (entityNormalized === 'blogpost' && blogPostAuthorsPayload !== undefined) {
+        try {
+          const authorTenantId = (responseData && responseData.tenant_id) || (data && data.tenant_id) || tenantCtx.tenantId;
+          await syncBlogPostAuthors(supabase, id, authorTenantId, blogPostAuthorsPayload);
+        } catch (err) {
+          console.error('[Entity PATCH] BlogPost author sync error:', err.message || err);
+        }
       }
 
       const searchTextEntities = ['blogpost', 'newspost', 'event', 'resource', 'ieditpage', 'ieditpageelement', 'complexevent', 'complexeventsession', 'complexeventtrack'];

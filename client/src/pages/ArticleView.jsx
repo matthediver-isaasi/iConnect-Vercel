@@ -301,6 +301,25 @@ export default function ArticleViewPage() {
   // Get organization name (from member's org or guest writer's organization field)
   const organizationName = isGuestWriter ? effectiveGuestWriter?.organization : authorOrganization?.name;
 
+  // Co-authors (Task #1222): ordered author list (primary first). Works for both
+  // the public and authenticated paths via the tenant-scoped endpoint.
+  const { data: authorsData } = useQuery({
+    queryKey: ['article-authors', article?.id],
+    queryFn: async () => {
+      const r = await fetch(`/api/articles/authors?blog_post_id=${article.id}`, { credentials: 'include' });
+      if (!r.ok) return { authors: [] };
+      return r.json();
+    },
+    enabled: !!article?.id,
+    staleTime: 60_000,
+  });
+  const allAuthors = authorsData?.authors || articleData?.authors || [];
+  const coAuthorCards = allAuthors.filter(
+    (a) =>
+      !(a.type === 'member' && a.author_id === article?.author_id) &&
+      !(a.type === 'guest' && a.guest_writer_id === article?.guest_writer_id)
+  );
+
   // Fetch author engagement stats (only for authenticated members)
   const { data: authorStats } = useQuery({
     queryKey: ['author-stats', authorMember?.id],
@@ -902,6 +921,56 @@ export default function ArticleViewPage() {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Co-authors (Task #1222) */}
+            {coAuthorCards.length > 0 && (
+              <div className="mb-8 space-y-4" data-testid="section-coauthor-cards">
+                {coAuthorCards.map((ca) => (
+                  <div
+                    key={`${ca.type}:${ca.author_id || ca.guest_writer_id}`}
+                    className="p-6 bg-gradient-to-br from-slate-50 to-blue-50 rounded-lg border border-slate-200"
+                    data-testid={`card-coauthor-${ca.type}-${ca.author_id || ca.guest_writer_id}`}
+                  >
+                    <div className="flex items-start gap-4">
+                      {articleSettings?.showAuthorPhoto && (
+                        <div className="flex-shrink-0">
+                          {ca.photoUrl ? (
+                            <img
+                              src={ca.photoUrl}
+                              alt={ca.name}
+                              className="w-20 h-20 rounded-full object-cover border-2 border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 rounded-full bg-slate-200 flex items-center justify-center">
+                              <User className="w-10 h-10 text-slate-400" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-slate-900" data-testid={`text-coauthor-name-${ca.type}-${ca.author_id || ca.guest_writer_id}`}>
+                          {ca.name}
+                        </h3>
+                        {articleSettings?.showAuthorOrganization && ca.organization && (
+                          <p className="text-sm text-blue-700 font-medium mt-0.5">{ca.organization}</p>
+                        )}
+                        {ca.jobTitle && (
+                          <p className="text-sm text-slate-600 mt-1">{ca.jobTitle}</p>
+                        )}
+                        {articleSettings?.showAuthorEmail && ca.email && (
+                          <p className="text-sm text-slate-600 mt-1">{ca.email}</p>
+                        )}
+                        {articleSettings?.showAuthorBio && ca.biography && (
+                          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line mt-3">
+                            {ca.biography}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 

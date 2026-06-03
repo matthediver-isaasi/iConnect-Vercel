@@ -20,6 +20,7 @@ import StatusSelector from "../components/blog/StatusSelector";
 import SEOSettings from "../components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import MemberCombobox from "@/components/MemberCombobox";
 
 export default function ArticleEditorPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -55,6 +56,12 @@ export default function ArticleEditorPage() {
   // Persisted original_author_id from database - never changes after first set
   const [persistedOriginalAuthorId, setPersistedOriginalAuthorId] = useState(null);
   const [persistedOriginalAuthorName, setPersistedOriginalAuthorName] = useState(null);
+  // Co-authors (Task #1222): additional authors beyond the primary. Each entry
+  // is { type: 'member' | 'guest', id, name }. The primary author is NOT stored
+  // here — it is always prepended when building the saved authors array.
+  const [coAuthors, setCoAuthors] = useState([]);
+  const [memberPickerKey, setMemberPickerKey] = useState(0);
+  const coAuthorsInitRef = useRef(false);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
   // Share draft functionality
@@ -355,7 +362,113 @@ export default function ArticleEditorPage() {
     return () => clearTimeout(timer);
   }, [slug, authorType, originalAuthorId, selectedGuestWriterId, currentMember?.id, isEditing, articleId]);
 
-  // Auto-save functionality
+  // Co-authors (Task #1222) -------------------------------------------------
+  // The current primary author, derived the same way the save logic does, so we
+  // can prevent it being added a second time as a co-author.
+  const currentPrimary = useMemo(() => {
+    if (authorType === "guest") {
+      return selectedGuestWriterId ? { type: "guest", id: selectedGuestWriterId } : null;
+    }
+    if (authorType === "other_member" && originalAuthorId) {
+      return { type: "member", id: originalAuthorId };
+    }
+    if (authorType === "revert_original" && persistedOriginalAuthorId) {
+      return { type: "member", id: persistedOriginalAuthorId };
+    }
+    if (currentMember?.id) {
+      return { type: "member", id: currentMember.id };
+    }
+    return null;
+  }, [authorType, selectedGuestWriterId, originalAuthorId, persistedOriginalAuthorId, currentMember?.id]);
+
+  // Build the ordered authors array to persist: primary first, then co-authors,
+  // de-duplicated. Returns [{ type, id }].
+  const buildAuthorsArray = (primaryRef) => {
+    const seen = new Set();
+    const list = [];
+    const push = (type, id) => {
+      if (!type || !id) return;
+      const key = `${type}:${id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ type, id });
+    };
+    if (primaryRef) push(primaryRef.type, primaryRef.id);
+    for (const c of coAuthors) push(c.type, c.id);
+    return list;
+  };
+
+  // Rehydrate existing authors when editing.
+  const { data: existingAuthorsData } = useQuery({
+    queryKey: ['blog-post-authors', articleId],
+    queryFn: async () => {
+      const r = await fetch(`/api/articles/authors?blog_post_id=${articleId}`, { credentials: 'include' });
+      if (!r.ok) return { authors: [] };
+      return r.json();
+    },
+    enabled: isEditing && !!articleId,
+  });
+
+  useEffect(() => {
+    if (coAuthorsInitRef.current) return;
+    if (!isEditing || !article || !existingAuthorsData?.authors) return;
+    const primaryAuthorId = article.author_id;
+    const primaryGuestId = article.guest_writer_id;
+    const cos = existingAuthorsData.authors
+      .filter((a) => !(a.type === 'member' && a.author_id === primaryAuthorId)
+        && !(a.type === 'guest' && a.guest_writer_id === primaryGuestId))
+      .map((a) => ({
+        type: a.type,
+        id: a.type === 'member' ? a.author_id : a.guest_writer_id,
+        name: a.name,
+      }));
+    setCoAuthors(cos);
+    coAuthorsInitRef.current = true;
+  }, [existingAuthorsData, article, isEditing]);
+
+  const removeCoAuthor = (type, id) => {
+    setCoAuthors((prev) => prev.filter((c) => !(c.type === type && c.id === id)));
+  };
+
+  const handleAddMemberCoAuthor = async (memberId) => {
+    if (!memberId || memberId === 'unassigned') return;
+    if (currentPrimary?.type === 'member' && currentPrimary.id === memberId) {
+      toast.error('That member is already the primary author');
+      setMemberPickerKey((k) => k + 1);
+      return;
+    }
+    if (coAuthors.some((c) => c.type === 'member' && c.id === memberId)) {
+      setMemberPickerKey((k) => k + 1);
+      return;
+    }
+    let name = 'Member';
+    try {
+      const r = await fetch('/api/members/by-ids', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids: [memberId] }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (d[0]) name = [d[0].first_name, d[0].last_name].filter(Boolean).join(' ') || d[0].email || 'Member';
+      }
+    } catch {}
+    setCoAuthors((prev) => [...prev, { type: 'member', id: memberId, name }]);
+    setMemberPickerKey((k) => k + 1);
+  };
+
+  const handleAddGuestCoAuthor = (guestId) => {
+    if (!guestId) return;
+    if (currentPrimary?.type === 'guest' && currentPrimary.id === guestId) {
+      toast.error('That guest writer is already the primary author');
+      return;
+    }
+    if (coAuthors.some((c) => c.type === 'guest' && c.id === guestId)) return;
+    const gw = guestWriters.find((w) => w.id === guestId);
+    setCoAuthors((prev) => [...prev, { type: 'guest', id: guestId, name: gw?.full_name || 'Guest writer' }]);
+  };
+
   useEffect(() => {
     if (!memberInfo || !title) return;
     // For member type, require handle. For other types, no handle required.
@@ -403,7 +516,13 @@ export default function ArticleEditorPage() {
               autoSaveData.original_author_id = originalAuthorId;
             }
           }
-          
+
+          // Co-authors (Task #1222): keep the ordered author list in sync.
+          const autoPrimaryRef = autoSaveData.guest_writer_id
+            ? { type: 'guest', id: autoSaveData.guest_writer_id }
+            : (autoSaveData.author_id ? { type: 'member', id: autoSaveData.author_id } : null);
+          autoSaveData.authors = buildAuthorsArray(autoPrimaryRef);
+
           await base44.entities.BlogPost.update(articleId, autoSaveData);
           setLastSaved(new Date());
         } catch (error) {
@@ -415,7 +534,7 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, ogImageUrl, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article, coAuthors]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
@@ -555,6 +674,12 @@ export default function ArticleEditorPage() {
         }
         // If persistedOriginalAuthorId already exists, don't change it
       }
+
+      // Co-authors (Task #1222): persist the ordered author list (primary first).
+      const primaryRef = articleData.guest_writer_id
+        ? { type: 'guest', id: articleData.guest_writer_id }
+        : (articleData.author_id ? { type: 'member', id: articleData.author_id } : null);
+      articleData.authors = buildAuthorsArray(primaryRef);
 
       if (isEditing) {
         return await base44.entities.BlogPost.update(articleId, articleData);
@@ -979,6 +1104,78 @@ export default function ArticleEditorPage() {
                         {selectedGuestWriter.email} {selectedGuestWriter.job_title && `• ${selectedGuestWriter.job_title}`}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* Co-authors (Task #1222) */}
+                {!isFeatureExcluded('content.articles.author-takeover') && (
+                  <div className="space-y-2" data-testid="section-coauthors">
+                    <Label>Co-authors</Label>
+                    <p className="text-xs text-slate-500">
+                      Additional authors shown on the article. The primary author above stays the main author.
+                    </p>
+
+                    {coAuthors.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        {coAuthors.map((c) => (
+                          <div
+                            key={`${c.type}:${c.id}`}
+                            className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
+                            data-testid={`coauthor-${c.type}-${c.id}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <User className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="text-sm truncate">{c.name || (c.type === 'guest' ? 'Guest writer' : 'Member')}</span>
+                              <span className="text-xs text-slate-400 shrink-0">
+                                {c.type === 'guest' ? 'Guest writer' : 'Member'}
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => removeCoAuthor(c.type, c.id)}
+                              data-testid={`button-remove-coauthor-${c.type}-${c.id}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-500">Add a member</Label>
+                        <MemberCombobox
+                          key={memberPickerKey}
+                          value="unassigned"
+                          onValueChange={handleAddMemberCoAuthor}
+                          placeholder="Search member..."
+                          unassignedLabel="Add member co-author"
+                          testId="combobox-coauthor-member"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-500">Add a guest writer</Label>
+                        <select
+                          value=""
+                          onChange={(e) => { handleAddGuestCoAuthor(e.target.value); e.target.value = ''; }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          data-testid="select-coauthor-guest"
+                        >
+                          <option value="">Add guest writer co-author...</option>
+                          {guestWriters
+                            .filter((w) => !(currentPrimary?.type === 'guest' && currentPrimary.id === w.id))
+                            .filter((w) => !coAuthors.some((c) => c.type === 'guest' && c.id === w.id))
+                            .map((writer) => (
+                              <option key={writer.id} value={writer.id}>
+                                {writer.full_name} {writer.organization ? `(${writer.organization})` : ''}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 )}
 

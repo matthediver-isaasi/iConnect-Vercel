@@ -9,6 +9,7 @@ import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAcc
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
+import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { checkMemberQuota, checkEventQuota } from '../../_lib/planQuota.js';
 
 // Send email on form submission if configured
@@ -1017,6 +1018,14 @@ export default async function handler(req, res) {
         sanitizedBody.links = cleaned;
       }
 
+      // BlogPost co-authors (Task #1222): `authors` is not a column on blog_post;
+      // pop it here and sync the blog_post_author join table after insert.
+      let blogPostAuthorsPayload;
+      if (entityNorm === 'blogpost' && 'authors' in sanitizedBody) {
+        blogPostAuthorsPayload = sanitizedBody.authors;
+        delete sanitizedBody.authors;
+      }
+
       // Apply tenant context for tenant-scoped entities
       // SECURITY: Force-set tenant_id/organization_id/member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
@@ -1383,6 +1392,15 @@ export default async function handler(req, res) {
 
       if (entityNorm === 'blogpost' && data && data.tenant_id) {
         dispatchWpWebhook(data.tenant_id, 'article.created', data.id);
+      }
+
+      // BlogPost co-authors (Task #1222): sync the join table after insert.
+      if (entityNorm === 'blogpost' && data && blogPostAuthorsPayload !== undefined) {
+        try {
+          await syncBlogPostAuthors(supabase, data.id, data.tenant_id || tenantCtx.tenantId, blogPostAuthorsPayload);
+        } catch (err) {
+          console.error('[Entity POST] BlogPost author sync error:', err.message || err);
+        }
       }
 
       const searchTextEntities = ['blogpost', 'newspost', 'event', 'resource', 'ieditpage', 'ieditpageelement', 'complexevent', 'complexeventsession', 'complexeventtrack'];

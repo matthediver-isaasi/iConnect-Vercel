@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveBlogPostAuthors } from '../_lib/blogPostAuthors.js';
 
 // Public API endpoint for fetching a single article by slug and author handle
 export default async function handler(req, res) {
@@ -177,10 +178,20 @@ export default async function handler(req, res) {
       }
     }
 
+    // Task #1222: ordered co-author list (primary author first). Existing
+    // author / guestWriter fields are kept for back-compat.
+    let authors = [];
+    try {
+      authors = await resolveBlogPostAuthors(supabase, article);
+    } catch (e) {
+      console.error('[Public Article] Author list resolve error:', e.message || e);
+    }
+
     res.json({
       article,
       author,
-      guestWriter
+      guestWriter,
+      authors
     });
   } catch (error) {
     console.error('[Public Article] Error:', error);
