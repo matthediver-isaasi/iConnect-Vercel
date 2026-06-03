@@ -76,6 +76,7 @@ function normalizeRow(input) {
     email: trim(input.email).toLowerCase(),
     organization: trim(input.organization),
     job_title: trim(input.job_title),
+    designation: trim(input.designation),
   };
 }
 
@@ -311,6 +312,7 @@ export default async function handler(req, res) {
           ...(resolvedTicketClassName ? { ticket_class_name: resolvedTicketClassName } : {}),
           ...(event.is_complex ? { is_one_off_event: true } : {}),
           ...(event.tenant_id ? { tenant_id: event.tenant_id } : {}),
+          ...(row.designation ? { designation: row.designation } : {}),
         };
 
         let bookingData;

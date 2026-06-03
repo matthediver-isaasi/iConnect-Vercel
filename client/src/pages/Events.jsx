@@ -1037,7 +1037,7 @@ export default function EventsPage({
     };
 
     const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const expectedHeaders = ['first_name', 'last_name', 'email', 'organization', 'job_title'];
+    const expectedHeaders = ['first_name', 'last_name', 'email', 'organization', 'job_title', 'designation'];
     let columnOrder = expectedHeaders;
     let startIndex = 0;
 
@@ -1085,6 +1085,7 @@ export default function EventsPage({
         email: email.trim().toLowerCase(),
         organization: (row.organization || '').trim(),
         job_title: (row.job_title || '').trim(),
+        designation: (row.designation || '').trim(),
       });
     }
 
@@ -2490,7 +2491,7 @@ export default function EventsPage({
             setComplexImportTicketClasses([]);
           }
         }}>
-          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Upload className="w-5 h-5 text-purple-600" />
@@ -2537,14 +2538,14 @@ export default function EventsPage({
                 <textarea
                   id="complex-import-textarea"
                   className="mt-1.5 w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder={"first_name,last_name,email,organization,job_title\nJane,Doe,jane@example.com,Acme Ltd,Manager\nJohn,Smith,john@example.com,,"}
+                  placeholder={"first_name,last_name,email,organization,job_title,designation\nJane,Doe,jane@example.com,Acme Ltd,Manager,VIP Guest\nJohn,Smith,john@example.com,,,"}
                   value={complexImportEmailsText}
                   onChange={(e) => setComplexImportEmailsText(e.target.value)}
                   disabled={complexImportAttendeesMutation.isPending}
                   data-testid="textarea-complex-import-emails"
                 />
                 <p className="text-xs text-slate-500 mt-2">
-                  Format: <code className="font-mono">first_name, last_name, email, organization, job_title</code>. A header row is supported. Only the email column is required; the rest is used for guests.
+                  Format: <code className="font-mono">first_name, last_name, email, organization, job_title, designation</code>. A header row is supported. Only the email column is required; the rest is used for guests. <span className="font-medium">Designation</span> is optional (e.g. "VIP Guest", "Press") and shows on the check-in screen.
                 </p>
               </div>
 

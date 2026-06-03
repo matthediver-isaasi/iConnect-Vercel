@@ -218,6 +218,29 @@ export async function ensureComplexSessionTokens(complexBooking, tenantId = null
 }
 
 /**
+ * Determine whether an attendee is a registered speaker for an event/session.
+ * Matches the attendee's email (case-insensitive) against the `speaker` rows
+ * whose id is in `speakerIds`, scoped to the booking's tenant. Returns the
+ * matching speaker row ({ id, full_name }) or null.
+ */
+async function resolveSpeakerForAttendee(attendeeEmail, speakerIds, tenantId) {
+  if (!supabase) return null;
+  const email = (attendeeEmail || '').trim().toLowerCase();
+  if (!email) return null;
+  if (!Array.isArray(speakerIds) || speakerIds.length === 0) return null;
+
+  let query = supabase
+    .from('speaker')
+    .select('id, full_name, email')
+    .in('id', speakerIds)
+    .ilike('email', email);
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+
+  const { data } = await query.limit(1).maybeSingle();
+  return data || null;
+}
+
+/**
  * Resolve a check-in token to its attendee + event (+ session) details.
  * Returns null when the token is unknown. Tries the simple-booking table
  * first, then the complex per-session table.
@@ -228,16 +251,21 @@ export async function resolveCheckinToken(token) {
   // Simple booking
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, event_id, tenant_id, attendee_first_name, attendee_last_name, attendee_email, ticket_class_name, booking_reference, status, check_in_token, checked_in_at, checked_in_by')
+    .select('id, event_id, tenant_id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference, status, check_in_token, checked_in_at, checked_in_by')
     .eq('check_in_token', token)
     .maybeSingle();
 
   if (booking) {
     const { data: event } = await supabase
       .from('event')
-      .select('id, title, start_date, location, is_online, tenant_id')
+      .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
       .eq('id', booking.event_id)
       .maybeSingle();
+    const speaker = await resolveSpeakerForAttendee(
+      booking.attendee_email,
+      event?.speaker_ids,
+      booking.tenant_id || event?.tenant_id
+    );
     return {
       type: 'simple',
       token,
@@ -249,6 +277,9 @@ export async function resolveCheckinToken(token) {
         first_name: booking.attendee_first_name,
         last_name: booking.attendee_last_name,
         email: booking.attendee_email,
+        designation: booking.designation || null,
+        isSpeaker: !!speaker,
+        speakerName: speaker?.full_name || null,
       },
       ticketClassName: booking.ticket_class_name,
       bookingReference: booking.booking_reference,
@@ -270,7 +301,7 @@ export async function resolveCheckinToken(token) {
     const [{ data: cb }, { data: ce }, { data: session }] = await Promise.all([
       supabase
         .from('complex_event_booking')
-        .select('id, attendee_first_name, attendee_last_name, attendee_email, ticket_class_name, booking_reference, status')
+        .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference, status')
         .eq('id', ci.booking_id)
         .maybeSingle(),
       supabase
@@ -280,10 +311,16 @@ export async function resolveCheckinToken(token) {
         .maybeSingle(),
       supabase
         .from('complex_event_session')
-        .select('id, title, start_time, end_time, location, is_online, complex_event_track_id')
+        .select('id, title, start_time, end_time, location, is_online, complex_event_track_id, speaker_ids')
         .eq('id', ci.session_id)
         .maybeSingle(),
     ]);
+
+    const speaker = await resolveSpeakerForAttendee(
+      cb?.attendee_email,
+      session?.speaker_ids,
+      ci.tenant_id || ce?.tenant_id
+    );
 
     let trackName = null;
     if (session?.complex_event_track_id) {
@@ -306,6 +343,9 @@ export async function resolveCheckinToken(token) {
         first_name: cb?.attendee_first_name,
         last_name: cb?.attendee_last_name,
         email: cb?.attendee_email,
+        designation: cb?.designation || null,
+        isSpeaker: !!speaker,
+        speakerName: speaker?.full_name || null,
       },
       ticketClassName: cb?.ticket_class_name,
       bookingReference: cb?.booking_reference,

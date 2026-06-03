@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound } from "lucide-react";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star } from "lucide-react";
 
 function formatDate(value) {
   if (!value) return "";
@@ -136,7 +136,31 @@ export default function EventCheckIn() {
 
         {state === "ok" && resolved && (
           <Card data-testid="card-attendee">
-            <CardHeader>
+            <CardHeader className="space-y-3">
+              {(resolved.attendee?.isSpeaker || resolved.attendee?.designation) && (
+                <div className="space-y-2" data-testid="container-attendee-indicators">
+                  {resolved.attendee?.isSpeaker && (
+                    <div
+                      className="flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-primary-foreground"
+                      data-testid="banner-speaker"
+                    >
+                      <Mic className="h-5 w-5 shrink-0" />
+                      <span className="font-semibold">
+                        Speaker{resolved.attendee?.speakerName ? ` · ${resolved.attendee.speakerName}` : ""}
+                      </span>
+                    </div>
+                  )}
+                  {resolved.attendee?.designation && (
+                    <div
+                      className="flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-accent-foreground"
+                      data-testid="banner-designation"
+                    >
+                      <Star className="h-5 w-5 shrink-0" />
+                      <span className="font-semibold" data-testid="text-attendee-designation">{resolved.attendee.designation}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-5 w-5" />
                 <span data-testid="text-attendee-name">
