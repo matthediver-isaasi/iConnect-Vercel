@@ -120,6 +120,28 @@ export default function PublicArticlesPage() {
   const endIndex = startIndex + itemsPerPage;
   const paginatedArticles = sortedArticles.slice(startIndex, endIndex);
 
+  // Task #1225: fetch ordered author lists for the visible cards so co-authors
+  // can be shown alongside the primary author.
+  const visibleArticleIdsKey = paginatedArticles.map(a => a.id).join(',');
+  const { data: cardCoAuthorsData } = useQuery({
+    queryKey: ['card-co-authors', visibleArticleIdsKey],
+    queryFn: async () => {
+      if (!visibleArticleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(visibleArticleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: !!visibleArticleIdsKey,
+    staleTime: 60000,
+  });
+  const getCoAuthorsForArticle = (article) => {
+    const list = cardCoAuthorsData?.authors?.[article.id] || [];
+    return list.filter(a =>
+      !(a.type === 'member' && String(a.author_id) === String(article.author_id)) &&
+      !(a.type === 'guest' && String(a.guest_writer_id) === String(article.guest_writer_id))
+    );
+  };
+
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
@@ -258,6 +280,7 @@ export default function PublicArticlesPage() {
                       displayName={articleDisplayName}
                       authorHandles={authorHandles}
                       authorNames={authorNames}
+                      coAuthors={getCoAuthorsForArticle(article)}
                     />
                   ))}
                 </div>

@@ -33,6 +33,21 @@ export default async function handler(req, res) {
           const compareDate = follow.last_read_at || follow.created_at;
           const nowIso = new Date().toISOString();
           
+          // Task #1225: also count posts the followed person CO-authored, not
+          // just the ones where they are the primary author. Gather the
+          // co-authored post ids from the join table first.
+          let coAuthoredIds = [];
+          {
+            let linkQuery = supabase.from('blog_post_author').select('blog_post_id');
+            if (follow.followed_member_id) {
+              linkQuery = linkQuery.eq('author_id', follow.followed_member_id);
+            } else if (follow.followed_guest_writer_id) {
+              linkQuery = linkQuery.eq('guest_writer_id', follow.followed_guest_writer_id);
+            }
+            const { data: links } = await linkQuery;
+            coAuthoredIds = [...new Set((links || []).map((l) => l.blog_post_id).filter(Boolean))];
+          }
+
           let query = supabase
             .from('blog_post')
             .select('id', { count: 'exact', head: true })
@@ -44,9 +59,17 @@ export default async function handler(req, res) {
           }
 
           if (follow.followed_member_id) {
-            query = query.eq('author_id', follow.followed_member_id);
+            if (coAuthoredIds.length > 0) {
+              query = query.or(`author_id.eq.${follow.followed_member_id},id.in.(${coAuthoredIds.join(',')})`);
+            } else {
+              query = query.eq('author_id', follow.followed_member_id);
+            }
           } else if (follow.followed_guest_writer_id) {
-            query = query.eq('guest_writer_id', follow.followed_guest_writer_id);
+            if (coAuthoredIds.length > 0) {
+              query = query.or(`guest_writer_id.eq.${follow.followed_guest_writer_id},id.in.(${coAuthoredIds.join(',')})`);
+            } else {
+              query = query.eq('guest_writer_id', follow.followed_guest_writer_id);
+            }
           }
 
           const { count } = await query;

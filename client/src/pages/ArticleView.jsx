@@ -16,6 +16,7 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
+import AuthorFollowButton from "@/components/blog/AuthorFollowButton";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
@@ -968,6 +969,16 @@ export default function ArticleViewPage() {
                           </p>
                         )}
                       </div>
+                      {memberInfo
+                        && !isFeatureExcluded('content.articles.follow-author')
+                        && (ca.author_id || ca.guest_writer_id)
+                        && !(ca.type === 'member' && String(ca.author_id) === String(memberInfo.id)) && (
+                        <AuthorFollowButton
+                          memberId={ca.type === 'member' ? ca.author_id : null}
+                          guestWriterId={ca.type === 'guest' ? ca.guest_writer_id : null}
+                          enabled={isAuthenticated}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}

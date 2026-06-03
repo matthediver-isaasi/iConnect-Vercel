@@ -120,14 +120,32 @@ export default function ArticlesPage() {
     staleTime: 0,
   });
 
+  // Task #1225: post ids the looked-up author CO-authored (appears in the
+  // blog_post_author join table but may not be the primary author), so the
+  // author listing page also surfaces co-authored articles.
+  const { data: coAuthoredPostIdsData, isFetched: coAuthoredPostIdsFetched } = useQuery({
+    queryKey: ['co-authored-post-ids', authorInfo?.type, authorInfo?.id],
+    queryFn: async () => {
+      const r = await fetch(`/api/articles/co-authored-post-ids?type=${encodeURIComponent(authorInfo.type)}&id=${encodeURIComponent(authorInfo.id)}`);
+      if (!r.ok) return { postIds: [] };
+      return r.json();
+    },
+    enabled: !!authorHandle && !!authorInfo?.id,
+    staleTime: 60000,
+  });
+  const coAuthoredPostIdsKey = (coAuthoredPostIdsData?.postIds || []).slice().sort().join(',');
+
   // Fetch articles by specific author when filtering by author handle
   const { data: authorArticles = [], isLoading: authorArticlesLoading } = useQuery({
-    queryKey: ['articles-by-author', authorHandle, authorInfo?.id, authorInfo?.type],
+    queryKey: ['articles-by-author', authorHandle, authorInfo?.id, authorInfo?.type, coAuthoredPostIdsKey],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-published_date');
-      // Filter by author - only published articles
+      const coAuthoredSet = new Set(coAuthoredPostIdsData?.postIds || []);
+      // Filter by author - only published articles. Include primary-authored AND
+      // co-authored posts (primary author behaviour stays unchanged).
       return allArticles.filter(article => {
         if (article.status !== 'published') return false;
+        if (coAuthoredSet.has(article.id)) return true;
         if (authorInfo?.type === 'member') {
           return String(article.author_id) === String(authorInfo.id);
         } else if (authorInfo?.type === 'guest_writer') {
@@ -136,7 +154,9 @@ export default function ArticlesPage() {
         return false;
       });
     },
-    enabled: !!authorHandle && !!authorInfo,
+    // Wait until the co-authored ids have resolved so the list isn't missing
+    // co-authored posts on first paint.
+    enabled: !!authorHandle && !!authorInfo && coAuthoredPostIdsFetched,
     staleTime: 0,
   });
 
@@ -414,6 +434,28 @@ export default function ArticlesPage() {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedArticles = sortedArticles.slice(startIndex, endIndex);
+
+  // Task #1225: fetch ordered author lists for the visible cards so co-authors
+  // can be shown alongside the primary author.
+  const visibleArticleIdsKey = paginatedArticles.map(a => a.id).join(',');
+  const { data: cardCoAuthorsData } = useQuery({
+    queryKey: ['card-co-authors', visibleArticleIdsKey],
+    queryFn: async () => {
+      if (!visibleArticleIdsKey) return { authors: {} };
+      const r = await fetch(`/api/articles/co-authors?ids=${encodeURIComponent(visibleArticleIdsKey)}`);
+      if (!r.ok) return { authors: {} };
+      return r.json();
+    },
+    enabled: !!visibleArticleIdsKey,
+    staleTime: 60000,
+  });
+  const getCoAuthorsForArticle = (article) => {
+    const list = cardCoAuthorsData?.authors?.[article.id] || [];
+    return list.filter(a =>
+      !(a.type === 'member' && String(a.author_id) === String(article.author_id)) &&
+      !(a.type === 'guest' && String(a.guest_writer_id) === String(article.guest_writer_id))
+    );
+  };
 
   const getPageNumbers = () => {
     const pages = [];
@@ -738,6 +780,7 @@ export default function ArticlesPage() {
                       onDelete={handleDeleteArticle}
                       authorHandles={authorHandles}
                       authorNames={authorNames}
+                      coAuthors={getCoAuthorsForArticle(article)}
                       viewCount={isAuthenticated && !isFeatureExcluded('content.articles.show-count') ? (articleStats[article.id]?.viewCount || 0) : null}
                     />
                   ))}

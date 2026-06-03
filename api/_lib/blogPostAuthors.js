@@ -203,3 +203,118 @@ export async function resolveBlogPostAuthors(supabase, post) {
 
   return result;
 }
+
+/**
+ * Batch version of resolveBlogPostAuthors. Given an array of post rows (each at
+ * least { id, author_id, guest_writer_id }), returns a Map keyed by post id to
+ * its ordered, resolved author cards (same normalized shape as
+ * resolveBlogPostAuthors). Avoids the N+1 query pattern when resolving authors
+ * for a whole article list.
+ */
+export async function resolveBlogPostAuthorsForPosts(supabase, posts) {
+  const result = new Map();
+  if (!supabase || !Array.isArray(posts) || posts.length === 0) return result;
+
+  const postIds = [...new Set(posts.map((p) => p?.id).filter(Boolean))];
+  if (postIds.length === 0) return result;
+
+  const { data: linkRows } = await supabase
+    .from('blog_post_author')
+    .select('blog_post_id, author_id, guest_writer_id, display_order')
+    .in('blog_post_id', postIds)
+    .order('display_order', { ascending: true });
+
+  // Group links by post id.
+  const linksByPost = new Map();
+  for (const row of linkRows || []) {
+    if (!linksByPost.has(row.blog_post_id)) linksByPost.set(row.blog_post_id, []);
+    linksByPost.get(row.blog_post_id).push(row);
+  }
+
+  // Fallback for un-backfilled posts: synthesize a single link from the post.
+  for (const post of posts) {
+    if (!post?.id) continue;
+    if (!linksByPost.has(post.id)) {
+      if (post.author_id) {
+        linksByPost.set(post.id, [{ blog_post_id: post.id, author_id: post.author_id, guest_writer_id: null, display_order: 0 }]);
+      } else if (post.guest_writer_id) {
+        linksByPost.set(post.id, [{ blog_post_id: post.id, author_id: null, guest_writer_id: post.guest_writer_id, display_order: 0 }]);
+      }
+    }
+  }
+
+  // Collect every referenced member / guest id across all posts.
+  const allLinks = [].concat(...linksByPost.values());
+  const memberIds = [...new Set(allLinks.filter((l) => l.author_id).map((l) => l.author_id))];
+  const guestIds = [...new Set(allLinks.filter((l) => l.guest_writer_id).map((l) => l.guest_writer_id))];
+
+  const membersById = new Map();
+  const guestsById = new Map();
+  const orgsById = new Map();
+
+  if (memberIds.length > 0) {
+    const { data: members } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, handle, profile_image_url, job_title, biography, linkedin_url, email, organization_id')
+      .in('id', memberIds);
+    for (const m of members || []) membersById.set(m.id, m);
+
+    const orgIds = [...new Set((members || []).map((m) => m.organization_id).filter(Boolean))];
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase.from('organization').select('id, name').in('id', orgIds);
+      for (const o of orgs || []) orgsById.set(o.id, o);
+    }
+  }
+  if (guestIds.length > 0) {
+    const { data: guests } = await supabase
+      .from('guest_writer')
+      .select('id, full_name, organization, job_title, biography, profile_photo_url, email')
+      .in('id', guestIds);
+    for (const g of guests || []) guestsById.set(g.id, g);
+  }
+
+  for (const [postId, links] of linksByPost.entries()) {
+    const cards = [];
+    for (const link of links) {
+      if (link.author_id) {
+        const m = membersById.get(link.author_id);
+        if (!m) continue;
+        const org = m.organization_id ? orgsById.get(m.organization_id) : null;
+        cards.push({
+          type: 'member',
+          author_id: m.id,
+          guest_writer_id: null,
+          display_order: link.display_order ?? 0,
+          name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+          photoUrl: m.profile_image_url || null,
+          jobTitle: m.job_title || null,
+          organization: org?.name || null,
+          biography: m.biography || null,
+          email: m.email || null,
+          handle: m.handle || m.blog_handle || null,
+          linkedinUrl: m.linkedin_url || null,
+        });
+      } else if (link.guest_writer_id) {
+        const g = guestsById.get(link.guest_writer_id);
+        if (!g) continue;
+        cards.push({
+          type: 'guest',
+          author_id: null,
+          guest_writer_id: g.id,
+          display_order: link.display_order ?? 0,
+          name: g.full_name || '',
+          photoUrl: g.profile_photo_url || null,
+          jobTitle: g.job_title || null,
+          organization: g.organization || null,
+          biography: g.biography || null,
+          email: g.email || null,
+          handle: null,
+          linkedinUrl: null,
+        });
+      }
+    }
+    result.set(postId, cards);
+  }
+
+  return result;
+}

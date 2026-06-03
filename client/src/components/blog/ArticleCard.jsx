@@ -21,6 +21,7 @@ export default function ArticleCard({
   showImage = true,
   authorHandles = {}, // Map of author_id to handle
   authorNames = {}, // Map of author_id (or guest_gwId) to full name
+  coAuthors = [], // Task #1225: ordered co-author cards (primary already excluded)
   viewCount = null
 }) {
   const { getArticleViewUrl } = useArticleUrl();
@@ -150,12 +151,38 @@ export default function ArticleCard({
           // Fallback to legacy author_name field
           if (!displayAuthorName) displayAuthorName = article.author_name;
           
-          return displayAuthorName ? (
-            <div className="flex items-center gap-1.5 text-xs text-slate-600 pb-3">
-              <User className="w-3 h-3" />
-              <span>by {displayAuthorName}</span>
+          const hasCoAuthors = Array.isArray(coAuthors) && coAuthors.length > 0;
+          if (!displayAuthorName && !hasCoAuthors) return null;
+
+          return (
+            <div className="flex items-start gap-1.5 text-xs text-slate-600 pb-3" data-testid={`text-article-authors-${article.id}`}>
+              <User className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span>
+                by {displayAuthorName || 'Unknown'}
+                {hasCoAuthors && coAuthors.map((ca, idx) => {
+                  const key = `${ca.type}:${ca.author_id || ca.guest_writer_id || idx}`;
+                  const sep = idx === 0 ? ' & ' : ', ';
+                  return (
+                    <React.Fragment key={key}>
+                      {sep}
+                      {ca.handle ? (
+                        <Link
+                          to={`/articles/author/${ca.handle}`}
+                          className="text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`link-coauthor-${ca.author_id || ca.guest_writer_id}`}
+                        >
+                          {ca.name}
+                        </Link>
+                      ) : (
+                        <span data-testid={`text-coauthor-${ca.author_id || ca.guest_writer_id}`}>{ca.name}</span>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </span>
             </div>
-          ) : null;
+          );
         })()}
 
         {viewCount !== null && viewCount !== undefined && (
