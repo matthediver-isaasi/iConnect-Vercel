@@ -184,7 +184,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importRows, setImportRows] = useState([
-    { first_name: "", last_name: "", email: "", organization: "", job_title: "" },
+    { first_name: "", last_name: "", email: "", organization: "", job_title: "", designation: "" },
   ]);
   const [importTicketClassId, setImportTicketClassId] = useState("");
   const [importSendConfirmations, setImportSendConfirmations] = useState(true);
@@ -539,7 +539,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const resetImportState = () => {
     setImportResults(null);
-    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
+    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "", designation: "" }]);
     setImportTicketClassId("");
     setImportSendConfirmations(true);
     setImportTicketClasses([]);
@@ -593,14 +593,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   };
 
   const addImportRow = () => {
-    setImportRows(prev => [...prev, { first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
+    setImportRows(prev => [...prev, { first_name: "", last_name: "", email: "", organization: "", job_title: "", designation: "" }]);
   };
 
   const removeImportRow = (index) => {
     setImportRows(prev => {
       if (prev.length <= 1) {
         // Never remove the last row — clear it instead.
-        return [{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }];
+        return [{ first_name: "", last_name: "", email: "", organization: "", job_title: "", designation: "" }];
       }
       return prev.filter((_, i) => i !== index);
     });
@@ -620,6 +620,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         email: (r.email || "").trim(),
         organization: (r.organization || "").trim(),
         job_title: (r.job_title || "").trim(),
+        designation: (r.designation || "").trim(),
       }));
 
     if (rows.length === 0) {
@@ -1378,12 +1379,13 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[16%]">First name</TableHead>
-                        <TableHead className="w-[16%]">Last name</TableHead>
-                        <TableHead className="w-[24%]">Email *</TableHead>
-                        <TableHead className="w-[18%]">Organization</TableHead>
-                        <TableHead className="w-[18%]">Job title</TableHead>
-                        <TableHead className="w-[8%]"></TableHead>
+                        <TableHead className="w-[14%]">First name</TableHead>
+                        <TableHead className="w-[14%]">Last name</TableHead>
+                        <TableHead className="w-[20%]">Email *</TableHead>
+                        <TableHead className="w-[15%]">Organization</TableHead>
+                        <TableHead className="w-[15%]">Job title</TableHead>
+                        <TableHead className="w-[15%]">Designation</TableHead>
+                        <TableHead className="w-[7%]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1441,6 +1443,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                                 />
                               </TableCell>
                               <TableCell className="align-top p-2">
+                                <Input
+                                  value={row.designation}
+                                  onChange={(e) => updateImportRow(index, 'designation', e.target.value)}
+                                  disabled={importAttendeesMutation.isPending}
+                                  placeholder="VIP Guest"
+                                  data-testid={`input-import-designation-${index}`}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top p-2">
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -1455,7 +1466,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                             </TableRow>
                             {rowError && (
                               <TableRow>
-                                <TableCell colSpan={6} className="p-2 pt-0">
+                                <TableCell colSpan={7} className="p-2 pt-0">
                                   <p
                                     className="text-xs text-red-600"
                                     data-testid={`text-import-row-error-${index}`}
@@ -1614,7 +1625,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 <Button
                   onClick={() => {
                     setImportResults(null);
-                    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "" }]);
+                    setImportRows([{ first_name: "", last_name: "", email: "", organization: "", job_title: "", designation: "" }]);
                   }}
                   data-testid="button-import-more"
                 >
