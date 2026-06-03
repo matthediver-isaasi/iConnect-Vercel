@@ -222,6 +222,7 @@ export default async function handler(req, res) {
           // Tenant-scoped entities: filter by tenant_id or fall back to organization_id
           // These entities have been fully migrated to tenant_id only (no organization_id column):
           const entitiesWithoutOrgId = [
+            'MemberGroupClassification',
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
@@ -341,6 +342,7 @@ export default async function handler(req, res) {
               }
             } else if (tenantScope === TENANT_SCOPE.TENANT) {
               const entitiesWithoutOrgId = [
+                'MemberGroupClassification',
                 'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
                 'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
                 'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
@@ -534,6 +536,7 @@ export default async function handler(req, res) {
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           const entitiesWithoutOrgId = [
+            'MemberGroupClassification',
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
@@ -935,6 +938,7 @@ export default async function handler(req, res) {
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           const entitiesWithoutOrgId = [
+            'MemberGroupClassification',
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',

@@ -864,6 +864,7 @@ export default async function handler(req, res) {
             // Fallback: use organization_id during migration period
             // Only for tables that still have organization_id column
             const entitiesWithoutOrgId = [
+              'MemberGroupClassification',
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
               'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
@@ -1105,6 +1106,7 @@ export default async function handler(req, res) {
           // Only set organization_id for entities that still have that column
           // These entities have been fully migrated to tenant_id only (no organization_id column):
           const entitiesWithoutOrgId = [
+            'MemberGroupClassification',
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
