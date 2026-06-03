@@ -6,6 +6,7 @@ import {
   applyInvoicePoUpdate,
   ensurePendingPoTokenTable,
   summariseInvoice,
+  resolveReminderGreetingName,
 } from '../_lib/pendingPoInvoice.js';
 import crypto from 'crypto';
 
@@ -832,7 +833,7 @@ export default async function handler(req, res) {
           ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
           : 'N/A';
         const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
-        const orgName = summary.organizationName || 'your organisation';
+        const greetingName = await resolveReminderGreetingName(supabase, summary);
         const invoiceNumber = summary.invoiceNumber || 'N/A';
         const sourceLine = summary.sourceName
           ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
@@ -843,7 +844,7 @@ export default async function handler(req, res) {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
               <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
-              <p>Dear ${orgName},</p>
+              <p>Dear ${greetingName},</p>
               <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
               <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
                 <table style="width: 100%; border-collapse: collapse;">
@@ -964,7 +965,7 @@ export default async function handler(req, res) {
             ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
             : 'N/A';
           const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
-          const orgName = summary.organizationName || 'your organisation';
+          const greetingName = await resolveReminderGreetingName(supabase, summary);
           const invoiceNumber = summary.invoiceNumber || 'N/A';
           const sourceLine = summary.sourceName
             ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
@@ -974,7 +975,7 @@ export default async function handler(req, res) {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
               <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
-              <p>Dear ${orgName},</p>
+              <p>Dear ${greetingName},</p>
               <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
               <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
                 <table style="width: 100%; border-collapse: collapse;">

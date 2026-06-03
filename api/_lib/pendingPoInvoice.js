@@ -489,3 +489,34 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
 export async function ensurePendingPoTokenTable() {
   return;
 }
+
+// Resolve the personalised greeting name for a PO reminder email. Fallback
+// chain: organisation primary-contact name -> booker name -> organisation
+// name -> a neutral default. Deterministic from the (tenant-scoped) summary so
+// the previewed greeting matches the email that is actually sent.
+export async function resolveReminderGreetingName(client, summary) {
+  let name = null;
+  if (summary?.organizationId) {
+    const { data, error } = await client
+      .from('member')
+      .select('first_name, last_name')
+      .eq('organization_id', summary.organizationId)
+      .eq('is_primary_contact', true)
+      .limit(1);
+    if (error) {
+      console.error(`[PendingPO] resolveReminderGreetingName primary-contact lookup failed orgId=${summary.organizationId}: ${error.message}`);
+    }
+    const contact = data?.[0];
+    if (contact) {
+      const nm = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+      if (nm) name = nm;
+    }
+  }
+  if (!name && Array.isArray(summary?.bookerNames) && summary.bookerNames.length > 0) {
+    name = summary.bookerNames[0];
+  }
+  if (!name) {
+    name = summary?.organizationName || 'your organisation';
+  }
+  return name;
+}
