@@ -57,7 +57,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const currentMode = invoicingSettings?.invoicing_mode || 'manual';
   log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
 
-  const config = explicitConfigId
+  let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
     : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, asOfDate);
   if (!config) {
@@ -70,7 +70,33 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     }
     return { success: false, steps, error: 'No active membership tier configuration found' };
   }
-  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
+
+  // Re-resolve the config as of the *target* membership year's start date.
+  // The first resolution above uses today's date (or any caller-supplied asOfDate),
+  // which selects the config valid right now — wrong when simulating a future year
+  // that may be governed by a different, future-scheduled config. We bootstrap the
+  // target year window from the just-resolved config (only to derive the date), then
+  // re-resolve as of that date so future-scheduled configs are honoured.
+  let configResolutionDate = asOfDate || null;
+  if (!explicitConfigId) {
+    const bootstrapCurrentYear = calculateMembershipYear(config);
+    const bootstrapNextYear = calculateNextMembershipYear(config);
+    let targetWindow;
+    if (targetYear) {
+      targetWindow = targetYear === bootstrapCurrentYear.label ? bootstrapCurrentYear : bootstrapNextYear;
+    } else {
+      targetWindow = source === 'simulate' ? bootstrapNextYear : bootstrapCurrentYear;
+    }
+    if (targetWindow.label === bootstrapNextYear.label) {
+      const targetStartDate = targetWindow.start.toISOString().split('T')[0];
+      configResolutionDate = targetStartDate;
+      const reResolved = await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, targetStartDate);
+      if (reResolved) config = reResolved;
+    }
+  }
+
+  const resolvedAsOf = configResolutionDate || new Date().toISOString().split('T')[0];
+  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'} (resolved as of ${resolvedAsOf})`);
 
   if (explicitConfigId) {
     log('Config Resolution', `Using explicitly selected config ID: ${explicitConfigId} (name: "${config.name || 'Default'}")`);
@@ -1006,7 +1032,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   const currentMode = invoicingSettings?.invoicing_mode || 'manual';
   log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
 
-  const config = explicitConfigId
+  let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
     : await getConfigForMember(tenantId, memberId, fieldOverrides, asOfDate);
   if (!config) {
@@ -1019,7 +1045,31 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     }
     return { success: false, steps, error: 'No active member-scoped tier configuration found' };
   }
-  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", pricing: ${config.pricing_model || 'banded'}, currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
+
+  // Re-resolve the config as of the *target* membership year's start date (see the
+  // organisation simulation above for the full rationale): bootstrap the target year
+  // window from the just-resolved config to derive its start date, then re-resolve as
+  // of that date so future-scheduled configs governing the next year are honoured.
+  let configResolutionDate = asOfDate || null;
+  if (!explicitConfigId) {
+    const bootstrapCurrentYear = calculateMembershipYear(config);
+    const bootstrapNextYear = calculateNextMembershipYear(config);
+    let targetWindow;
+    if (targetYear) {
+      targetWindow = targetYear === bootstrapCurrentYear.label ? bootstrapCurrentYear : bootstrapNextYear;
+    } else {
+      targetWindow = source === 'simulate' ? bootstrapNextYear : bootstrapCurrentYear;
+    }
+    if (targetWindow.label === bootstrapNextYear.label) {
+      const targetStartDate = targetWindow.start.toISOString().split('T')[0];
+      configResolutionDate = targetStartDate;
+      const reResolved = await getConfigForMember(tenantId, memberId, fieldOverrides, targetStartDate);
+      if (reResolved) config = reResolved;
+    }
+  }
+
+  const resolvedAsOf = configResolutionDate || new Date().toISOString().split('T')[0];
+  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", pricing: ${config.pricing_model || 'banded'}, currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'} (resolved as of ${resolvedAsOf})`);
 
   if (explicitConfigId) {
     log('Config Resolution', `Using explicitly selected config ID: ${explicitConfigId} (name: "${config.name || 'Default'}")`);
