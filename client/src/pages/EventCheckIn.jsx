@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star } from "lucide-react";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star, Utensils, AlertTriangle, Accessibility } from "lucide-react";
 
 function formatDate(value) {
   if (!value) return "";
@@ -161,6 +161,45 @@ export default function EventCheckIn() {
                   )}
                 </div>
               )}
+              {(() => {
+                const dietary = Array.isArray(resolved.attendee?.dietary_selections) ? resolved.attendee.dietary_selections.filter(Boolean) : [];
+                const allergies = Array.isArray(resolved.attendee?.allergy_selections) ? resolved.attendee.allergy_selections.filter((a) => a && a.name) : [];
+                const accessibility = Array.isArray(resolved.attendee?.accessibility_selections) ? resolved.attendee.accessibility_selections.filter(Boolean) : [];
+                if (dietary.length === 0 && allergies.length === 0 && accessibility.length === 0) return null;
+                return (
+                  <div className="space-y-2" data-testid="container-attendee-options">
+                    {dietary.length > 0 && (
+                      <div className="flex items-start gap-2 rounded-md bg-warning px-3 py-2 text-warning-foreground" data-testid="banner-dietary">
+                        <Utensils className="h-5 w-5 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Dietary</div>
+                          <div className="font-medium" data-testid="text-attendee-dietary">{dietary.join(", ")}</div>
+                        </div>
+                      </div>
+                    )}
+                    {allergies.length > 0 && (
+                      <div className="flex items-start gap-2 rounded-md bg-destructive px-3 py-2 text-destructive-foreground" data-testid="banner-allergies">
+                        <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Allergies</div>
+                          <div className="font-medium" data-testid="text-attendee-allergies">
+                            {allergies.map((a) => a.severity ? `${a.name} (${a.severity})` : a.name).join(", ")}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {accessibility.length > 0 && (
+                      <div className="flex items-start gap-2 rounded-md bg-accent px-3 py-2 text-accent-foreground" data-testid="banner-accessibility">
+                        <Accessibility className="h-5 w-5 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Accessibility</div>
+                          <div className="font-medium" data-testid="text-attendee-accessibility">{accessibility.join(", ")}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-5 w-5" />
                 <span data-testid="text-attendee-name">

@@ -10,6 +10,7 @@ import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
+import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
 import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
@@ -1370,6 +1371,7 @@ const functionHandlers = {
           status: bookingStatus,
           payment_method: 'program_ticket',
           third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
+          ...sanitizeOptionSelections(attendee, event),
           created_at: new Date().toISOString()
         };
 
@@ -1619,6 +1621,9 @@ const functionHandlers = {
         organization: guestInfo.organization,
         phone: guestInfo.phone,
         job_title: guestInfo.job_title,
+        dietary_selections: guestInfo.dietary_selections,
+        allergy_selections: guestInfo.allergy_selections,
+        accessibility_selections: guestInfo.accessibility_selections,
         isGuest: true
       }];
     }
@@ -2264,6 +2269,7 @@ const functionHandlers = {
         discount_code_id: validatedDiscountCodeId || null,
         discount_code_amount: validatedDiscountAmount > 0 ? validatedDiscountAmount / ticketsRequired : 0,
         third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
+        ...sanitizeOptionSelections(attendee, event),
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
       };

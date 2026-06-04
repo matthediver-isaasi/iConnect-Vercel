@@ -271,7 +271,7 @@ export async function resolveCheckinToken(token) {
   // Simple booking
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, event_id, tenant_id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference, status, check_in_token, checked_in_at, checked_in_by')
+    .select('id, event_id, tenant_id, attendee_first_name, attendee_last_name, attendee_email, designation, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference, status, check_in_token, checked_in_at, checked_in_by')
     .eq('check_in_token', token)
     .maybeSingle();
 
@@ -298,6 +298,9 @@ export async function resolveCheckinToken(token) {
         last_name: booking.attendee_last_name,
         email: booking.attendee_email,
         designation: booking.designation || null,
+        dietary_selections: booking.dietary_selections || null,
+        allergy_selections: booking.allergy_selections || null,
+        accessibility_selections: booking.accessibility_selections || null,
         isSpeaker: !!speaker,
         speakerName: speaker?.full_name || null,
       },
@@ -321,7 +324,7 @@ export async function resolveCheckinToken(token) {
     const [{ data: cb }, { data: ce }, { data: session }] = await Promise.all([
       supabase
         .from('complex_event_booking')
-        .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, ticket_class_name, booking_reference, status')
+        .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference, status')
         .eq('id', ci.booking_id)
         .maybeSingle(),
       supabase
@@ -364,6 +367,9 @@ export async function resolveCheckinToken(token) {
         last_name: cb?.attendee_last_name,
         email: cb?.attendee_email,
         designation: cb?.designation || null,
+        dietary_selections: cb?.dietary_selections || null,
+        allergy_selections: cb?.allergy_selections || null,
+        accessibility_selections: cb?.accessibility_selections || null,
         isSpeaker: !!speaker,
         speakerName: speaker?.full_name || null,
       },

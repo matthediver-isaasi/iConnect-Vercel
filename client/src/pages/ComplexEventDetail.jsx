@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import ColleagueSelector from "@/components/booking/ColleagueSelector";
+import AttendeeOptionsSelector from "@/components/booking/AttendeeOptionsSelector";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
@@ -1118,7 +1119,7 @@ function TicketDiscountInput({ ticketClassId, discountInfo, onApply, onRemove, e
   );
 }
 
-function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicketPrice }) {
+function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, getEffectiveTicketPrice, eventOptions }) {
   const entries = Object.entries(cart).filter(([, item]) => item.attendees.length > 0);
   if (entries.length === 0) return null;
 
@@ -1171,26 +1172,36 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
             {item.attendees.map((attendee, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50 border border-slate-100"
+                className="p-2 rounded-md bg-slate-50 border border-slate-100 space-y-2"
                 data-testid={`cart-attendee-${ticketClassId}-${i}`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-slate-800 truncate">
-                    {attendee.first_name} {attendee.last_name}
-                    {attendee.isSelf && <span className="text-indigo-600 text-xs ml-1">(you)</span>}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-800 truncate">
+                      {attendee.first_name} {attendee.last_name}
+                      {attendee.isSelf && <span className="text-indigo-600 text-xs ml-1">(you)</span>}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">{attendee.email}</div>
                   </div>
-                  <div className="text-xs text-slate-500 truncate">{attendee.email}</div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => onRemoveAttendee(ticketClassId, i)}
+                    data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
+                  >
+                    <X className="w-3.5 h-3.5 text-slate-400" />
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => onRemoveAttendee(ticketClassId, i)}
-                  data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
-                >
-                  <X className="w-3.5 h-3.5 text-slate-400" />
-                </Button>
+                {onUpdateAttendee && (
+                  <AttendeeOptionsSelector
+                    eventOptions={eventOptions}
+                    value={attendee}
+                    onChange={(next) => onUpdateAttendee(ticketClassId, i, next)}
+                    idPrefix={`cart-${ticketClassId}-${i}`}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -1281,6 +1292,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     return vis === 'public_only';
   };
 
+  const eventOptions = useMemo(() => ({
+    dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
+    allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
+    accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
+  }), [event]);
+
   const allExistingEmails = useMemo(() => {
     const emails = [];
     Object.values(cart).forEach(item => {
@@ -1311,6 +1328,17 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       };
     });
   }, [modalTicketClassId, ticketClasses]);
+
+  const handleUpdateAttendee = useCallback((ticketClassId, attendeeIndex, patch) => {
+    setCart(prev => {
+      const existing = prev[ticketClassId];
+      if (!existing) return prev;
+      const updatedAttendees = existing.attendees.map((a, i) =>
+        i === attendeeIndex ? { ...a, ...patch } : a
+      );
+      return { ...prev, [ticketClassId]: { ...existing, attendees: updatedAttendees } };
+    });
+  }, []);
 
   const handleRemoveAttendee = useCallback((ticketClassId, attendeeIndex) => {
     setCart(prev => {
@@ -1419,7 +1447,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
             last_name: (a.last_name || '').trim(),
             organization: (a.organization || '').trim(),
             phone: (a.phone || '').trim(),
-            job_title: (a.job_title || '').trim()
+            job_title: (a.job_title || '').trim(),
+            dietary_selections: a.dietary_selections || [],
+            allergy_selections: a.allergy_selections || [],
+            accessibility_selections: a.accessibility_selections || []
           }))
         }));
       }
@@ -1441,7 +1472,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
           last_name: (a.last_name || '').trim(),
           organization: (a.organization || '').trim(),
           phone: (a.phone || '').trim(),
-          job_title: (a.job_title || '').trim()
+          job_title: (a.job_title || '').trim(),
+          dietary_selections: a.dietary_selections || [],
+          allergy_selections: a.allergy_selections || [],
+          accessibility_selections: a.accessibility_selections || []
         }))
       }));
     },
@@ -1717,7 +1751,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         ) : (
           <>
             {ticketCards}
-            <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
+            <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} />
             {paymentOptionsSection}
           </>
         )}

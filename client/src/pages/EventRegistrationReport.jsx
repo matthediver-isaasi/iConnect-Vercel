@@ -15,6 +15,24 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
 import { toast } from "sonner";
 
+function formatDietarySelections(value) {
+  if (!Array.isArray(value)) return '';
+  return value.filter(Boolean).join(', ');
+}
+
+function formatAllergySelections(value) {
+  if (!Array.isArray(value)) return '';
+  return value
+    .filter((a) => a && a.name)
+    .map((a) => (a.severity ? `${a.name} (${a.severity})` : a.name))
+    .join(', ');
+}
+
+function formatAccessibilitySelections(value) {
+  if (!Array.isArray(value)) return '';
+  return value.filter(Boolean).join(', ');
+}
+
 function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem, "data-testid": testId, icon: Icon }) {
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
@@ -375,6 +393,22 @@ export default function EventRegistrationReport() {
     );
   };
 
+  const renderOptionsCell = (attendee) => {
+    const dietary = formatDietarySelections(attendee.dietary_selections);
+    const allergies = formatAllergySelections(attendee.allergy_selections);
+    const accessibility = formatAccessibilitySelections(attendee.accessibility_selections);
+    if (!dietary && !allergies && !accessibility) {
+      return <span className="text-muted-foreground text-sm">-</span>;
+    }
+    return (
+      <div className="space-y-0.5 text-xs" data-testid={`text-options-${attendee.id}`}>
+        {dietary && <div><span className="text-muted-foreground">Dietary:</span> {dietary}</div>}
+        {allergies && <div><span className="text-muted-foreground">Allergies:</span> {allergies}</div>}
+        {accessibility && <div><span className="text-muted-foreground">Access:</span> {accessibility}</div>}
+      </div>
+    );
+  };
+
   const handleGenerateReport = () => {
     setAppliedFilters({
       eventName: filterEventName.trim(),
@@ -558,6 +592,9 @@ export default function EventRegistrationReport() {
       'Name',
       'Email',
       'Designation',
+      'Dietary Requirements',
+      'Allergies',
+      'Accessibility Needs',
       'Organisation',
       'Ticket Type',
       'Track Access',
@@ -602,6 +639,9 @@ export default function EventRegistrationReport() {
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
           a.attendee_email || '',
           a.designation || '',
+          formatDietarySelections(a.dietary_selections),
+          formatAllergySelections(a.allergy_selections),
+          formatAccessibilitySelections(a.accessibility_selections),
           organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member'),
           a.ticket_class_name || '',
           a.track_access || '',
@@ -1210,6 +1250,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">3rd Party Consent</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Designation</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Dietary &amp; Access</th>
                           {showAttendanceColumn && (
                             <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
                           )}
@@ -1302,6 +1343,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {renderDesignationCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-3 pr-3 align-top">
+                                  {renderOptionsCell(attendee)}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-3 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
@@ -1411,6 +1455,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
                                 {showAttendanceColumn && <td className="py-2"></td>}
                               </tr>
                             );
@@ -1482,6 +1527,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   {renderDesignationCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-2 pr-3 align-top">
+                                  {renderOptionsCell(attendee)}
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-2 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>

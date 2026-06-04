@@ -47,6 +47,7 @@ import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
+import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -120,6 +121,9 @@ export default function CreateEvent() {
   const [qrOnConfirmation, setQrOnConfirmation] = useState(true); // Per-event entrance QR on confirmation emails (in-person only, default: on)
   const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
+  const [dietaryOptions, setDietaryOptions] = useState([]);
+  const [allergyOptions, setAllergyOptions] = useState([]);
+  const [accessibilityOptions, setAccessibilityOptions] = useState([]);
   
   // Handler for timing changes - clears TBC-incompatible fields synchronously
   const handleTimingChange = (newTiming) => {
@@ -775,7 +779,10 @@ export default function CreateEvent() {
       event_state: eventState,
       is_featured: isFeatured,
       attached_documents: attachedDocuments,
-      documents_section_title: documentsSectionTitle.trim() || null
+      documents_section_title: documentsSectionTitle.trim() || null,
+      dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
+      allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
+      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean)
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
@@ -2737,6 +2744,25 @@ export default function CreateEvent() {
                 onSectionTitleChange={setDocumentsSectionTitle}
                 documents={attachedDocuments}
                 onDocumentsChange={setAttachedDocuments}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
+              <CardDescription>
+                Define the options registrants can choose from for each attendee during booking. Sections with no options are hidden from registrants.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventOptionListsEditor
+                dietaryOptions={dietaryOptions}
+                allergyOptions={allergyOptions}
+                accessibilityOptions={accessibilityOptions}
+                onDietaryChange={setDietaryOptions}
+                onAllergyChange={setAllergyOptions}
+                onAccessibilityChange={setAccessibilityOptions}
               />
             </CardContent>
           </Card>

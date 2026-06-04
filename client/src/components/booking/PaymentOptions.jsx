@@ -1119,7 +1119,10 @@ export default function PaymentOptions({
           email: guestInfo.email,
           organization: guestInfo.organization,
           phone: guestInfo.phone || null,
-          job_title: guestInfo.job_title || null
+          job_title: guestInfo.job_title || null,
+          dietary_selections: guestInfo.dietary_selections || [],
+          allergy_selections: guestInfo.allergy_selections || [],
+          accessibility_selections: guestInfo.accessibility_selections || []
         };
       }
       
@@ -1151,7 +1154,10 @@ export default function PaymentOptions({
             last_name: (a.last_name || '').trim(),
             organization: (a.organization || '').trim(),
             phone: (a.phone || '').trim(),
-            job_title: (a.job_title || '').trim()
+            job_title: (a.job_title || '').trim(),
+            dietary_selections: a.dietary_selections || [],
+            allergy_selections: a.allergy_selections || [],
+            accessibility_selections: a.accessibility_selections || []
           })),
           ticket_class_id: selectedTicketClass?.id || null,
           payment_method: remainingBalance > 0 ? remainingBalancePaymentMethod : 'free',
@@ -1232,7 +1238,10 @@ export default function PaymentOptions({
             email: guestInfo.email,
             organization: guestInfo.organization,
             phone: guestInfo.phone || null,
-            job_title: guestInfo.job_title || null
+            job_title: guestInfo.job_title || null,
+            dietary_selections: guestInfo.dietary_selections || [],
+            allergy_selections: guestInfo.allergy_selections || [],
+            accessibility_selections: guestInfo.accessibility_selections || []
           };
         }
 

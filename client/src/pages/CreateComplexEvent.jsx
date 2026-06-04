@@ -32,6 +32,7 @@ import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
+import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
@@ -712,6 +713,9 @@ export default function CreateComplexEvent() {
   const [seoTitle, setSeoTitle] = useState("");
   const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
+  const [dietaryOptions, setDietaryOptions] = useState([]);
+  const [allergyOptions, setAllergyOptions] = useState([]);
+  const [accessibilityOptions, setAccessibilityOptions] = useState([]);
   const [seoDescription, setSeoDescription] = useState("");
   const [ogImageUrl, setOgImageUrl] = useState("");
   const [isProgramEvent, setIsProgramEvent] = useState(false);
@@ -1198,6 +1202,9 @@ export default function CreateComplexEvent() {
       setOgImageUrl(existingEvent.og_image_url || "");
       setAttachedDocuments(Array.isArray(existingEvent.attached_documents) ? existingEvent.attached_documents : []);
       setDocumentsSectionTitle(existingEvent.documents_section_title || "");
+      setDietaryOptions(Array.isArray(existingEvent.dietary_options) ? existingEvent.dietary_options : []);
+      setAllergyOptions(Array.isArray(existingEvent.allergy_options) ? existingEvent.allergy_options : []);
+      setAccessibilityOptions(Array.isArray(existingEvent.accessibility_options) ? existingEvent.accessibility_options : []);
       if (existingEvent.program_tag) {
         setIsProgramEvent(true);
       }
@@ -1757,6 +1764,9 @@ export default function CreateComplexEvent() {
         og_image_url: ogImageUrl || null,
         attached_documents: attachedDocuments,
         documents_section_title: documentsSectionTitle.trim() || null,
+        dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
+        allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
+        accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean),
         program_tag: formData.program_tag || null,
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
@@ -2811,6 +2821,25 @@ export default function CreateComplexEvent() {
                   documents={attachedDocuments}
                   onDocumentsChange={setAttachedDocuments}
                   entityId={editId || null}
+                />
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
+                <CardDescription>
+                  Define the options registrants can choose from for each attendee during booking. Sections with no options are hidden from registrants.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventOptionListsEditor
+                  dietaryOptions={dietaryOptions}
+                  allergyOptions={allergyOptions}
+                  accessibilityOptions={accessibilityOptions}
+                  onDietaryChange={setDietaryOptions}
+                  onAllergyChange={setAllergyOptions}
+                  onAccessibilityChange={setAccessibilityOptions}
                 />
               </CardContent>
             </Card>

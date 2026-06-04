@@ -4,8 +4,9 @@ import { base44 } from "@/api/base44Client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2, AlertCircle, CheckCircle2, User, Info } from "lucide-react";
+import AttendeeOptionsSelector from "./AttendeeOptionsSelector";
 
-export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo }) {
+export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo, eventOptions }) {
   const [validating, setValidating] = useState({});
 
   const validateEmail = async (index, email) => {
@@ -224,6 +225,16 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                 </p>
               )}
             </div>
+            <AttendeeOptionsSelector
+              eventOptions={eventOptions}
+              value={attendee}
+              onChange={(next) => {
+                onUpdate(index, 'dietary_selections', next.dietary_selections);
+                onUpdate(index, 'allergy_selections', next.allergy_selections);
+                onUpdate(index, 'accessibility_selections', next.accessibility_selections);
+              }}
+              idPrefix={`attendee-${index}`}
+            />
           </div>
         </div>
       ))}

@@ -27,6 +27,7 @@ import { formatEventTime, getTimezoneAbbreviation } from "@/utils/timeFormat";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
+import AttendeeOptionsSelector from "../components/booking/AttendeeOptionsSelector";
 import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
@@ -88,7 +89,10 @@ export default function EventDetailsPage() {
     email: '',
     organization: '',
     phone: '',
-    job_title: ''
+    job_title: '',
+    dietary_selections: [],
+    allergy_selections: [],
+    accessibility_selections: []
   });
 
   // Validate guest form
@@ -434,6 +438,12 @@ export default function EventDetailsPage() {
   });
   
   // One-off event pricing calculations - parse if it's a JSON string
+  const eventOptions = useMemo(() => ({
+    dietary_options: Array.isArray(event?.dietary_options) ? event.dietary_options : [],
+    allergy_options: Array.isArray(event?.allergy_options) ? event.allergy_options : [],
+    accessibility_options: Array.isArray(event?.accessibility_options) ? event.accessibility_options : [],
+  }), [event]);
+
   const pricingConfig = useMemo(() => {
     // Guard for missing event or not a one-off event
     if (!event || !isOneOffEvent || !event.pricing_config) return null;
@@ -1785,6 +1795,13 @@ export default function EventDetailsPage() {
                       </div>
                     </div>
 
+                    <AttendeeOptionsSelector
+                      eventOptions={eventOptions}
+                      value={guestInfo}
+                      onChange={(next) => setGuestInfo((prev) => ({ ...prev, ...next }))}
+                      idPrefix="guest"
+                    />
+
                     {!isGuestFormValid && !isGuestFormDisabled && (
                       <p className="text-xs text-slate-500">
                         <span className="text-red-500">*</span> Required fields
@@ -1892,6 +1909,7 @@ export default function EventDetailsPage() {
                           onUpdate={updateAttendee}
                           onRemove={canAddColleagues ? removeAttendee : null}
                           memberInfo={currentMemberInfo}
+                          eventOptions={eventOptions}
                         />
                         
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
@@ -2359,7 +2377,10 @@ export default function EventDetailsPage() {
                     isGuest: true,
                     organization: guestInfo.organization,
                     phone: guestInfo.phone,
-                    job_title: guestInfo.job_title
+                    job_title: guestInfo.job_title,
+                    dietary_selections: guestInfo.dietary_selections,
+                    allergy_selections: guestInfo.allergy_selections,
+                    accessibility_selections: guestInfo.accessibility_selections
                   }] : [])
                 : attendees.filter((a) => a.isValid)}
               numberOfLinks={0}

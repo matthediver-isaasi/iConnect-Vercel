@@ -56,6 +56,7 @@ import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDat
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
+import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -196,6 +197,9 @@ export default function EditEvent() {
   const [seoTitle, setSeoTitle] = useState("");
   const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
+  const [dietaryOptions, setDietaryOptions] = useState([]);
+  const [allergyOptions, setAllergyOptions] = useState([]);
+  const [accessibilityOptions, setAccessibilityOptions] = useState([]);
   const [seoDescription, setSeoDescription] = useState("");
   const [ogImageUrl, setOgImageUrl] = useState("");
 
@@ -991,6 +995,9 @@ export default function EditEvent() {
       setOgImageUrl(event.og_image_url || "");
       setAttachedDocuments(Array.isArray(event.attached_documents) ? event.attached_documents : []);
       setDocumentsSectionTitle(event.documents_section_title || "");
+      setDietaryOptions(Array.isArray(event.dietary_options) ? event.dietary_options : []);
+      setAllergyOptions(Array.isArray(event.allergy_options) ? event.allergy_options : []);
+      setAccessibilityOptions(Array.isArray(event.accessibility_options) ? event.accessibility_options : []);
       setInitialDataLoaded(true);
 
       if (event.donation_config) {
@@ -1454,7 +1461,10 @@ export default function EditEvent() {
       seo_description: seoDescription || null,
       og_image_url: ogImageUrl || null,
       attached_documents: attachedDocuments,
-      documents_section_title: documentsSectionTitle.trim() || null
+      documents_section_title: documentsSectionTitle.trim() || null,
+      dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
+      allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
+      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean)
     };
 
     // Add ticket classes for one-off events
@@ -3617,6 +3627,25 @@ export default function EditEvent() {
                 documents={attachedDocuments}
                 onDocumentsChange={setAttachedDocuments}
                 entityId={eventId}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
+              <CardDescription>
+                Define the options registrants can choose from for each attendee during booking. Sections with no options are hidden from registrants.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventOptionListsEditor
+                dietaryOptions={dietaryOptions}
+                allergyOptions={allergyOptions}
+                accessibilityOptions={accessibilityOptions}
+                onDietaryChange={setDietaryOptions}
+                onAllergyChange={setAllergyOptions}
+                onAccessibilityChange={setAccessibilityOptions}
               />
             </CardContent>
           </Card>

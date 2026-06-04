@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
+import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
 import {
   resolveTicketPrice,
   getTicketClassFromConfig,
@@ -93,7 +94,7 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, available_seats, internal_reference, xero_account_code, pricing_config')
+      .select('id, title, status, event_state, tenant_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -626,7 +627,8 @@ export default async function handler(req, res) {
           account_balance_amount: confirmedPaymentMethod === 'account_balance' ? totalCostPounds / totalAttendees : 0,
           purchase_order_number: purchaseOrderNumber || null,
           po_to_follow: (confirmedPaymentMethod === 'account' || confirmedPaymentMethod === 'invoice') ? (poToFollow || false) : false,
-          third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null
+          third_party_consent: (event.pricing_config?.collectThirdPartyConsent === true && typeof thirdPartyConsent === 'boolean') ? thirdPartyConsent : null,
+          ...sanitizeOptionSelections(attendee, event)
         };
 
         const { data: booking, error: insertError } = await supabase
