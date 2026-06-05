@@ -998,7 +998,7 @@ export default async function handler(req, res) {
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
       const sanitizedBody = { ...req.body };
-      const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 
+      const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by',
                           'organisation_award_id', 'offline_award_id', 'engagement_award_id', 'award_id'];
       for (const field of uuidFields) {

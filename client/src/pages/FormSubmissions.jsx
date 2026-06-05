@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -120,6 +120,29 @@ export default function FormSubmissionsPage() {
     forms.forEach(f => { map[f.id] = f; });
     return map;
   }, [forms]);
+
+  // Events lookup so event-linked submissions can show which event they relate to.
+  const { data: eventsForLink = [] } = useQuery({
+    queryKey: ['events-for-form-submissions'],
+    queryFn: async () => await base44.entities.Event.list(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const eventsById = useMemo(() => {
+    const map = {};
+    eventsForLink.forEach(ev => { map[ev.id] = ev; });
+    return map;
+  }, [eventsForLink]);
+
+  // Resolve the linked event for a submission. Prefer the submission's own
+  // event_id (set at submission time); fall back to the form's currently
+  // linked event for older rows captured before this feature shipped.
+  const resolveLinkedEvent = (submission) => {
+    if (!submission) return null;
+    const eventId = submission.event_id || formsById[submission.form_id]?.related_event_id || null;
+    if (!eventId) return null;
+    return eventsById[eventId] || { id: eventId, title: 'Linked event' };
+  };
 
   const sortedForms = useMemo(() => {
     return [...forms].sort((a, b) =>
@@ -1344,6 +1367,12 @@ export default function FormSubmissionsPage() {
                           <Badge variant="outline" className="text-slate-600">
                             {moment(submission.created_date).format('MMM D, YYYY h:mm A')}
                           </Badge>
+                          {resolveLinkedEvent(submission) && (
+                            <Badge variant="secondary" className="flex items-center gap-1" data-testid={`badge-event-${submission.id}`}>
+                              <Calendar className="w-3.5 h-3.5" />
+                              {resolveLinkedEvent(submission).title}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1533,6 +1562,15 @@ export default function FormSubmissionsPage() {
                     <div>
                       <Label className="text-slate-600">Email</Label>
                       <p className="font-medium text-slate-900">{getSubmitterEmail(viewingSubmission)}</p>
+                    </div>
+                  )}
+                  {resolveLinkedEvent(viewingSubmission) && (
+                    <div>
+                      <Label className="text-slate-600">Linked Event</Label>
+                      <p className="font-medium text-slate-900 flex items-center gap-1" data-testid="text-linked-event">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {resolveLinkedEvent(viewingSubmission).title}
+                      </p>
                     </div>
                   )}
                 </div>

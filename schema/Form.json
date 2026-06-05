@@ -55,6 +55,15 @@
         "default": true,
         "description": "Whether the form is currently active"
       },
+      "is_event_related": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this form is related to an event. When true, related_event_id points at the linked event and submissions carry that event reference."
+      },
+      "related_event_id": {
+        "type": "string",
+        "description": "The single event this form is related to (Event id). Only meaningful when is_event_related is true."
+      },
       "submission_count": {
         "type": "number",
         "default": 0,

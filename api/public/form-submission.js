@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -153,7 +153,10 @@ export default async function handler(req, res) {
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
       ...(contract_instance_id && { contract_instance_id }),
-      ...(prefill_organization_id && { organization_id: prefill_organization_id })
+      ...(prefill_organization_id && { organization_id: prefill_organization_id }),
+      // For event-linked forms, associate the submission with the form's
+      // chosen event so admins can review submissions per event.
+      ...(form.is_event_related && form.related_event_id && { event_id: form.related_event_id })
     };
 
     const { data: submission, error: insertError } = await supabase

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -4689,6 +4689,8 @@ export default function FormBuilderPage() {
     redirect_url: "",
     require_authentication: false,
     is_active: true,
+    is_event_related: false,
+    related_event_id: null,
     due_diligence_required: false,
     allow_submitter_email_copy: false,
     prevent_duplicate_email_submission: false,
@@ -4885,6 +4887,40 @@ export default function FormBuilderPage() {
       }
     }
   });
+
+  // Fetch events for the "related to an event" form setting. We pull all
+  // events ordered by start date and filter to upcoming ones in the dropdown
+  // (keeping any already-linked past event visible so editing round-trips).
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['/api/entities/Event', 'all-for-form-event-link'],
+    queryFn: async () => {
+      try {
+        const events = await base44.entities.Event.list({ sort: { start_date: 'asc' } });
+        return events || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Upcoming events for the dropdown (ordered by start date). Any event that
+  // is already linked to this form is always included even if it is now in the
+  // past, so editing an existing form restores its selection cleanly.
+  const eventOptions = useMemo(() => {
+    const now = Date.now();
+    const selectedId = formData.related_event_id || null;
+    const list = (allEvents || []).filter(ev => {
+      if (!ev || !ev.id) return false;
+      if (selectedId && ev.id === selectedId) return true;
+      const start = ev.start_date ? new Date(ev.start_date).getTime() : NaN;
+      return Number.isFinite(start) ? start >= now : false;
+    });
+    return list.sort((a, b) => {
+      const da = a.start_date ? new Date(a.start_date).getTime() : Infinity;
+      const db = b.start_date ? new Date(b.start_date).getTime() : Infinity;
+      return da - db;
+    });
+  }, [allEvents, formData.related_event_id]);
 
   // Fetch organisations for contract linking
   const { data: organizations = [] } = useQuery({
@@ -5131,6 +5167,8 @@ export default function FormBuilderPage() {
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
         is_active: existingForm.is_active ?? true,
+        is_event_related: existingForm.is_event_related ?? false,
+        related_event_id: existingForm.related_event_id || null,
         due_diligence_required: existingForm.due_diligence_required ?? false,
         allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
         prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
@@ -5747,10 +5785,56 @@ export default function FormBuilderPage() {
                 <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
               </div>
 
+              <div className="flex items-center gap-2" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
+                <Switch
+                  id="is_event_related"
+                  checked={formData.is_event_related}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    is_event_related: checked,
+                    related_event_id: checked ? formData.related_event_id : null
+                  })}
+                  data-testid="switch-is-event-related"
+                />
+                <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
+              </div>
+
               <div className="text-xs text-slate-500 ml-auto">
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>
+
+            {/* Event link selector - shown only when the form is related to an event */}
+            {formData.is_event_related && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="space-y-2 max-w-md">
+                  <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
+                  <Select
+                    value={formData.related_event_id || ""}
+                    onValueChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
+                  >
+                    <SelectTrigger data-testid="select-related-event">
+                      <SelectValue placeholder="Select an upcoming event..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventOptions.length === 0 ? (
+                        <div className="px-2 py-1.5 text-sm text-slate-500">No upcoming events found</div>
+                      ) : (
+                        eventOptions.map(event => (
+                          <SelectItem key={event.id} value={event.id} data-testid={`option-event-${event.id}`}>
+                            {event.title}
+                            {event.start_date ? ` — ${new Date(event.start_date).toLocaleDateString()}` : ''}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Submissions to this form will be associated with the selected event.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Contract Settings Section - Only shown when Contract Mode is enabled */}
             {formData.is_contract && (
