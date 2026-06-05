@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -405,6 +405,29 @@ export default function EventRegistrationReport() {
         {dietary && <div><span className="text-muted-foreground">Dietary:</span> {dietary}</div>}
         {allergies && <div><span className="text-muted-foreground">Allergies:</span> {allergies}</div>}
         {accessibility && <div><span className="text-muted-foreground">Access:</span> {accessibility}</div>}
+      </div>
+    );
+  };
+
+  const renderFlagBadges = (attendee) => {
+    const flags = Array.isArray(attendee.flags) ? attendee.flags : [];
+    if (flags.length === 0) return null;
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`flags-${attendee.id}`}>
+        {flags.map((flag) => (
+          <a
+            key={flag.field_id}
+            href={`/FormSubmission/${flag.form_submission_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`badge-flag-${attendee.id}-${flag.field_id}`}
+          >
+            <Badge className="gap-1 bg-warning text-warning-foreground">
+              <Flag className="h-3 w-3" />
+              {flag.label}
+            </Badge>
+          </a>
+        ))}
       </div>
     );
   };
@@ -1275,6 +1298,7 @@ export default function EventRegistrationReport() {
                                     {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
                                   </div>
                                   <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
+                                  {renderFlagBadges(attendee)}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''}>
                                   <div className="flex items-center gap-1">
@@ -1496,6 +1520,7 @@ export default function EventRegistrationReport() {
                                         {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
                                       </div>
                                       <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
+                                      {renderFlagBadges(attendee)}
                                     </div>
                                   </div>
                                 </td>

@@ -29,7 +29,7 @@
           "type": "object"
         },
         "default": [],
-        "description": "Array of form field definitions"
+        "description": "Array of form field definitions. Each field is an object keyed by an `id` with a `type` and `label`. Boolean fields additionally support `default_value` (boolean), `flag_on_checkin` (boolean — when true and the form is event-linked, a truthy answer surfaces a warning on the QR check-in screen, check-in dashboard, and registration report) and `flag_label` (string — the warning text shown to check-in staff; falls back to the field label when blank)."
       },
       "submit_button_text": {
         "type": "string",

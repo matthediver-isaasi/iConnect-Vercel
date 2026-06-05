@@ -8,6 +8,7 @@ import {
   ensureComplexSessionTokens,
   ensureBookingToken,
   getSpeakersByIds,
+  buildEventCheckinFlagMap,
 } from '../../_lib/checkinService.js';
 
 const FEATURE_ID = 'events.event-checkin';
@@ -69,6 +70,7 @@ function sanitizeResolved(resolved) {
     checkedInAt: resolved.checkedInAt,
     checkedInBy: resolved.checkedInBy,
     alreadyCheckedIn: resolved.alreadyCheckedIn,
+    flags: Array.isArray(resolved.flags) ? resolved.flags : [],
   };
 }
 
@@ -236,6 +238,8 @@ async function dashboard(req, res, context) {
     }
   }
 
+  const flagMap = await buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] });
+
   let attendees = (bookings || []).map((b) => {
     const email = (b.attendee_email || '').trim().toLowerCase();
     const isSpeaker = speakerByEmail.has(email);
@@ -255,6 +259,7 @@ async function dashboard(req, res, context) {
       booking_reference: b.booking_reference,
       checked_in_at: b.checked_in_at,
       checked_in_by: b.checked_in_by,
+      flags: flagMap.get(`${eventId}::${email}`) || [],
     };
   });
 
@@ -334,6 +339,8 @@ async function complexDashboard(req, res, context, eventId, filters) {
   if (sessionFilter) checkinQuery = checkinQuery.eq('session_id', sessionFilter);
   const { data: checkins } = await checkinQuery;
 
+  const flagMap = await buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] });
+
   const bookingById = {};
   for (const cb of confirmedBookings || []) bookingById[cb.id] = cb;
   const sessionById = {};
@@ -379,6 +386,7 @@ async function complexDashboard(req, res, context, eventId, filters) {
         booking_reference: cb.booking_reference,
         checked_in_at: c.checked_in_at,
         checked_in_by: c.checked_in_by,
+        flags: flagMap.get(`${eventId}::${email}`) || [],
       };
     });
 

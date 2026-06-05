@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { supabase } from './database.js';
+import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 
 /**
  * Event QR check-in service.
@@ -281,11 +282,18 @@ export async function resolveCheckinToken(token) {
       .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
       .eq('id', booking.event_id)
       .maybeSingle();
-    const speaker = await resolveSpeakerForAttendee(
-      booking.attendee_email,
-      event?.speaker_ids,
-      booking.tenant_id || event?.tenant_id
-    );
+    const [speaker, flags] = await Promise.all([
+      resolveSpeakerForAttendee(
+        booking.attendee_email,
+        event?.speaker_ids,
+        booking.tenant_id || event?.tenant_id
+      ),
+      resolveCheckinFlags({
+        tenantId: booking.tenant_id || event?.tenant_id,
+        eventId: booking.event_id,
+        attendeeEmail: booking.attendee_email,
+      }),
+    ]);
     return {
       type: 'simple',
       token,
@@ -293,6 +301,7 @@ export async function resolveCheckinToken(token) {
       booking,
       event: event || null,
       session: null,
+      flags,
       attendee: {
         first_name: booking.attendee_first_name,
         last_name: booking.attendee_last_name,
@@ -339,11 +348,18 @@ export async function resolveCheckinToken(token) {
         .maybeSingle(),
     ]);
 
-    const speaker = await resolveSpeakerForAttendee(
-      cb?.attendee_email,
-      session?.speaker_ids,
-      ci.tenant_id || ce?.tenant_id
-    );
+    const [speaker, flags] = await Promise.all([
+      resolveSpeakerForAttendee(
+        cb?.attendee_email,
+        session?.speaker_ids,
+        ci.tenant_id || ce?.tenant_id
+      ),
+      resolveCheckinFlags({
+        tenantId: ci.tenant_id || ce?.tenant_id,
+        eventId: ci.complex_event_id,
+        attendeeEmail: cb?.attendee_email,
+      }),
+    ]);
 
     let trackName = null;
     if (session?.complex_event_track_id) {
@@ -362,6 +378,7 @@ export async function resolveCheckinToken(token) {
       booking: cb || null,
       event: ce || null,
       session: session ? { ...session, track_name: trackName } : null,
+      flags,
       attendee: {
         first_name: cb?.attendee_first_name,
         last_name: cb?.attendee_last_name,
@@ -460,4 +477,145 @@ export async function undoCheckin(token, { reason = null, actorLabel = null } = 
 
   const fresh = await resolveCheckinToken(token);
   return { ok: true, resolved: fresh };
+}
+
+/**
+ * Extract the boolean fields of a form that are flagged for check-in.
+ * Returns [{ field_id, label }]. The label prefers the admin-configured
+ * `flag_label`, falling back to the field's own label.
+ */
+function extractFlaggedBooleanFields(fields) {
+  const arr = Array.isArray(fields) ? fields : [];
+  return arr
+    .filter((f) => f && f.type === 'boolean' && f.flag_on_checkin === true && f.id)
+    .map((f) => ({
+      field_id: f.id,
+      label: (f.flag_label && String(f.flag_label).trim()) || f.label || 'Flagged response',
+    }));
+}
+
+/**
+ * Resolve form-driven check-in flags for a single attendee.
+ *
+ * Loads the event's linked forms (`is_event_related` + `related_event_id`),
+ * finds boolean fields marked `flag_on_checkin`, looks up the attendee's
+ * submission(s) for that event by lowercased email, and returns a flag entry
+ * for each flagged field answered truthy. Returns [] on any miss so callers
+ * can spread it unconditionally. Works generically for simple events
+ * (eventId = booking.event_id) and complex events (eventId = complex_event_id).
+ */
+export async function resolveCheckinFlags({ tenantId, eventId, attendeeEmail }) {
+  if (!supabase || !tenantId || !eventId || !attendeeEmail) return [];
+  const email = String(attendeeEmail).trim().toLowerCase();
+  if (!email) return [];
+
+  const { data: forms } = await supabase
+    .from('form')
+    .select('id, fields')
+    .eq('tenant_id', tenantId)
+    .eq('is_event_related', true)
+    .eq('related_event_id', eventId);
+  if (!forms || forms.length === 0) return [];
+
+  const flaggedByForm = new Map();
+  const formIds = [];
+  for (const form of forms) {
+    const flagged = extractFlaggedBooleanFields(form.fields);
+    if (flagged.length > 0) {
+      flaggedByForm.set(form.id, flagged);
+      formIds.push(form.id);
+    }
+  }
+  if (formIds.length === 0) return [];
+
+  const { data: submissions } = await supabase
+    .from('form_submission')
+    .select('id, form_id, submission_data')
+    .eq('tenant_id', tenantId)
+    .eq('event_id', eventId)
+    .eq('submitted_by_email', email)
+    .in('form_id', formIds);
+  if (!submissions || submissions.length === 0) return [];
+
+  const flags = [];
+  for (const sub of submissions) {
+    const flagged = flaggedByForm.get(sub.form_id);
+    if (!flagged) continue;
+    const data = sub.submission_data || {};
+    for (const f of flagged) {
+      if (coerceBooleanPreferenceValue(data[f.field_id]) === 'true') {
+        flags.push({
+          field_id: f.field_id,
+          label: f.label,
+          form_submission_id: sub.id,
+          form_id: sub.form_id,
+        });
+      }
+    }
+  }
+  return flags;
+}
+
+/**
+ * Batch variant of resolveCheckinFlags for the check-in dashboard and reports.
+ * Given a set of event ids, returns a Map keyed `${eventId}::${lowercased
+ * email}` -> [{ field_id, label, form_submission_id, form_id }]. Loads all
+ * linked forms and submissions for the events in two queries.
+ */
+export async function buildEventCheckinFlagMap({ tenantId, eventIds }) {
+  const map = new Map();
+  if (!supabase || !tenantId || !Array.isArray(eventIds)) return map;
+  const ids = [...new Set(eventIds.filter(Boolean))];
+  if (ids.length === 0) return map;
+
+  const { data: forms } = await supabase
+    .from('form')
+    .select('id, fields, related_event_id')
+    .eq('tenant_id', tenantId)
+    .eq('is_event_related', true)
+    .in('related_event_id', ids);
+  if (!forms || forms.length === 0) return map;
+
+  const flaggedByForm = new Map();
+  const eventByForm = new Map();
+  const formIds = [];
+  for (const form of forms) {
+    const flagged = extractFlaggedBooleanFields(form.fields);
+    if (flagged.length > 0) {
+      flaggedByForm.set(form.id, flagged);
+      eventByForm.set(form.id, form.related_event_id);
+      formIds.push(form.id);
+    }
+  }
+  if (formIds.length === 0) return map;
+
+  const { data: submissions } = await supabase
+    .from('form_submission')
+    .select('id, form_id, submission_data, submitted_by_email, event_id')
+    .eq('tenant_id', tenantId)
+    .in('event_id', ids)
+    .in('form_id', formIds);
+  if (!submissions || submissions.length === 0) return map;
+
+  for (const sub of submissions) {
+    const flagged = flaggedByForm.get(sub.form_id);
+    if (!flagged) continue;
+    const eventId = sub.event_id || eventByForm.get(sub.form_id);
+    const email = (sub.submitted_by_email || '').trim().toLowerCase();
+    if (!eventId || !email) continue;
+    const data = sub.submission_data || {};
+    for (const f of flagged) {
+      if (coerceBooleanPreferenceValue(data[f.field_id]) === 'true') {
+        const key = `${eventId}::${email}`;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push({
+          field_id: f.field_id,
+          label: f.label,
+          form_submission_id: sub.id,
+          form_id: sub.form_id,
+        });
+      }
+    }
+  }
+  return map;
 }

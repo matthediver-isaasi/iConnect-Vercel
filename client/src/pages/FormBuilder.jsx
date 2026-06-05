@@ -3138,16 +3138,45 @@ function FieldCard({
               </div>
 
               {field.type === 'boolean' && (
-                <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                  <div>
-                    <Label className="text-xs font-medium">Default Value</Label>
-                    <p className="text-xs text-slate-500 mt-0.5">Initial state when form loads</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div>
+                      <Label className="text-xs font-medium">Default Value</Label>
+                      <p className="text-xs text-slate-500 mt-0.5">Initial state when form loads</p>
+                    </div>
+                    <Switch
+                      checked={field.default_value === true}
+                      onCheckedChange={(checked) => updateField(originalIndex, { default_value: checked })}
+                      data-testid={`switch-default-value-${field.id}`}
+                    />
                   </div>
-                  <Switch
-                    checked={field.default_value === true}
-                    onCheckedChange={(checked) => updateField(originalIndex, { default_value: checked })}
-                    data-testid={`switch-default-value-${field.id}`}
-                  />
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-xs font-medium">Flag on check-in</Label>
+                        <p className="text-xs text-slate-500 mt-0.5">Warn check-in staff when an event attendee answers Yes</p>
+                      </div>
+                      <Switch
+                        checked={field.flag_on_checkin === true}
+                        onCheckedChange={(checked) => updateField(originalIndex, { flag_on_checkin: checked })}
+                        data-testid={`switch-flag-on-checkin-${field.id}`}
+                      />
+                    </div>
+                    {field.flag_on_checkin && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium">Flag label</Label>
+                        <Input
+                          type="text"
+                          value={field.flag_label || ''}
+                          onChange={(e) => updateField(originalIndex, { flag_label: e.target.value })}
+                          placeholder={`e.g. Attendee has ${field.label || 'special requirements'}`}
+                          className="h-8 text-xs"
+                          data-testid={`input-flag-label-${field.id}`}
+                        />
+                        <p className="text-xs text-slate-500">Shown to check-in staff. Defaults to the field label when left blank.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

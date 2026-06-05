@@ -27,7 +27,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star, Flag } from "lucide-react";
 
 const PAGE_SIZE = 25;
 
@@ -499,6 +499,24 @@ export default function EventCheckInDashboard() {
                                 {a.designation}
                               </Badge>
                             )}
+                          </div>
+                        )}
+                        {Array.isArray(a.flags) && a.flags.length > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`flags-${a.token}`}>
+                            {a.flags.map((flag) => (
+                              <a
+                                key={flag.field_id}
+                                href={`/FormSubmission/${flag.form_submission_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                data-testid={`badge-flag-${a.token}-${flag.field_id}`}
+                              >
+                                <Badge className="gap-1 bg-warning text-warning-foreground">
+                                  <Flag className="h-3 w-3" />
+                                  {flag.label}
+                                </Badge>
+                              </a>
+                            ))}
                           </div>
                         )}
                         {selectedEventType === "complex" && (

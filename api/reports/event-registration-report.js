@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -251,6 +252,12 @@ export default async function handler(req, res) {
       let attendanceByBookingId = {};
       let attendanceByEmail = {};
       const allTargetIds = [...targetEventIds, ...targetComplexEventIds];
+
+      let flagMap = new Map();
+      if (allTargetIds.length > 0) {
+        flagMap = await buildEventCheckinFlagMap({ tenantId, eventIds: allTargetIds });
+      }
+
       if (allTargetIds.length > 0) {
         const { data: attendanceData } = await supabase
           .from('zoom_attendance')
@@ -558,6 +565,7 @@ export default async function handler(req, res) {
               accessibility_selections: b.accessibility_selections || null,
               event_id: b.event_id,
               is_booker: isBooker,
+              flags: flagMap.get(`${b.event_id}::${(b.attendee_email || '').trim().toLowerCase()}`) || [],
             };
           }),
         });

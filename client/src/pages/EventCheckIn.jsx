@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star, Utensils, AlertTriangle, Accessibility } from "lucide-react";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText } from "lucide-react";
 
 function formatDate(value) {
   if (!value) return "";
@@ -137,6 +137,40 @@ export default function EventCheckIn() {
         {state === "ok" && resolved && (
           <Card data-testid="card-attendee">
             <CardHeader className="space-y-3">
+              {Array.isArray(resolved.flags) && resolved.flags.length > 0 && (
+                <div className="space-y-2" data-testid="container-attendee-flags">
+                  {resolved.flags.map((flag) => (
+                    <div
+                      key={flag.field_id}
+                      className="flex items-center justify-between gap-2 rounded-md bg-warning px-3 py-2 text-warning-foreground"
+                      data-testid={`banner-flag-${flag.field_id}`}
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Flag className="h-5 w-5 shrink-0" />
+                        <span className="font-semibold truncate" data-testid={`text-flag-${flag.field_id}`}>{flag.label}</span>
+                      </div>
+                      {flag.form_submission_id && (
+                        <Button
+                          asChild
+                          size="icon"
+                          variant="outline"
+                          className="shrink-0 border-warning-foreground/40 bg-background/20"
+                          data-testid={`button-view-flag-${flag.field_id}`}
+                        >
+                          <a
+                            href={`/FormSubmission/${flag.form_submission_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="View form submission"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {(resolved.attendee?.isSpeaker || resolved.attendee?.designation) && (
                 <div className="space-y-2" data-testid="container-attendee-indicators">
                   {resolved.attendee?.isSpeaker && (
