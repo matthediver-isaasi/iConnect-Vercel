@@ -2,10 +2,18 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getFlagColorClasses } from "@/lib/flagColors";
-import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText } from "lucide-react";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText } from "lucide-react";
+
+function getInitials(first, last, email) {
+  const a = (first || "").trim();
+  const b = (last || "").trim();
+  if (a || b) return `${a.charAt(0)}${b.charAt(0)}`.toUpperCase() || "?";
+  return (email || "?").charAt(0).toUpperCase();
+}
 
 function formatDate(value) {
   if (!value) return "";
@@ -239,7 +247,22 @@ export default function EventCheckIn() {
                 );
               })()}
               <CardTitle className="flex items-center gap-2">
-                <UserRound className="h-5 w-5" />
+                <Avatar className="h-9 w-9 shrink-0">
+                  {resolved.attendee?.profile_photo_url && (
+                    <AvatarImage
+                      src={resolved.attendee.profile_photo_url}
+                      alt=""
+                      data-testid="img-attendee-avatar"
+                    />
+                  )}
+                  <AvatarFallback className="bg-muted text-muted-foreground">
+                    {getInitials(
+                      resolved.attendee?.first_name,
+                      resolved.attendee?.last_name,
+                      resolved.attendee?.email
+                    )}
+                  </AvatarFallback>
+                </Avatar>
                 <span data-testid="text-attendee-name">
                   {[resolved.attendee?.first_name, resolved.attendee?.last_name].filter(Boolean).join(" ") || "Attendee"}
                 </span>
@@ -282,9 +305,9 @@ export default function EventCheckIn() {
               </div>
 
               {resolved.alreadyCheckedIn ? (
-                <div className="rounded-md border bg-warning/10 p-4 text-center space-y-1" data-testid="status-already">
-                  <CheckCircle2 className="h-6 w-6 mx-auto text-warning" />
-                  <div className="font-medium text-warning-foreground">Already checked in</div>
+                <div className="rounded-md border border-green-200 bg-green-50 p-4 text-center space-y-1 dark:border-green-900 dark:bg-green-950/30" data-testid="status-already">
+                  <CheckCircle2 className="h-6 w-6 mx-auto text-green-700 dark:text-green-400" />
+                  <div className="font-medium text-green-800 dark:text-green-100">Already checked in</div>
                   {resolved.checkedInAt && (
                     <div className="text-xs text-muted-foreground">{formatDate(resolved.checkedInAt)}</div>
                   )}

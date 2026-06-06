@@ -480,6 +480,11 @@ export default function EventCheckInDashboard() {
                           {a.email}
                           {a.booking_reference ? ` · ${a.booking_reference}` : ""}
                         </div>
+                        {a.ticket_class_name && (
+                          <div className="text-xs text-muted-foreground truncate" data-testid={`text-ticket-${a.token}`}>
+                            Ticket: {a.ticket_class_name}
+                          </div>
+                        )}
                         {(a.isSpeaker || a.designation) && (
                           <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`indicators-${a.token}`}>
                             {a.isSpeaker && (

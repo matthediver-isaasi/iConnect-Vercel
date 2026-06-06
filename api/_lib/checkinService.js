@@ -242,6 +242,30 @@ async function resolveSpeakerForAttendee(attendeeEmail, speakerIds, tenantId) {
 }
 
 /**
+ * Look up the member matching an attendee's email within a tenant and return
+ * their profile photo URL (null when no member matches or they have no photo).
+ * Graceful + non-fatal: any error or missing match resolves to null so the
+ * overall token resolution still succeeds.
+ */
+async function resolveMemberPhotoForAttendee(attendeeEmail, tenantId) {
+  if (!supabase) return null;
+  const email = (attendeeEmail || '').trim().toLowerCase();
+  if (!email || !tenantId) return null;
+  try {
+    const { data } = await supabase
+      .from('member')
+      .select('profile_photo_url')
+      .eq('tenant_id', tenantId)
+      .ilike('email', email)
+      .limit(1)
+      .maybeSingle();
+    return data?.profile_photo_url || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Batch-fetch speaker rows for a set of speaker ids, scoped to a tenant.
  * Used by the check-in dashboard/list to resolve speaker status for many
  * attendees without a per-attendee query. Returns the raw rows
@@ -282,7 +306,7 @@ export async function resolveCheckinToken(token) {
       .select('id, title, start_date, location, is_online, tenant_id, speaker_ids')
       .eq('id', booking.event_id)
       .maybeSingle();
-    const [speaker, flags] = await Promise.all([
+    const [speaker, flags, profilePhotoUrl] = await Promise.all([
       resolveSpeakerForAttendee(
         booking.attendee_email,
         event?.speaker_ids,
@@ -293,6 +317,10 @@ export async function resolveCheckinToken(token) {
         eventId: booking.event_id,
         attendeeEmail: booking.attendee_email,
       }),
+      resolveMemberPhotoForAttendee(
+        booking.attendee_email,
+        booking.tenant_id || event?.tenant_id
+      ),
     ]);
     return {
       type: 'simple',
@@ -312,6 +340,7 @@ export async function resolveCheckinToken(token) {
         accessibility_selections: booking.accessibility_selections || null,
         isSpeaker: !!speaker,
         speakerName: speaker?.full_name || null,
+        profile_photo_url: profilePhotoUrl,
       },
       ticketClassName: booking.ticket_class_name,
       bookingReference: booking.booking_reference,
@@ -348,7 +377,7 @@ export async function resolveCheckinToken(token) {
         .maybeSingle(),
     ]);
 
-    const [speaker, flags] = await Promise.all([
+    const [speaker, flags, profilePhotoUrl] = await Promise.all([
       resolveSpeakerForAttendee(
         cb?.attendee_email,
         session?.speaker_ids,
@@ -359,6 +388,10 @@ export async function resolveCheckinToken(token) {
         eventId: ci.complex_event_id,
         attendeeEmail: cb?.attendee_email,
       }),
+      resolveMemberPhotoForAttendee(
+        cb?.attendee_email,
+        ci.tenant_id || ce?.tenant_id
+      ),
     ]);
 
     let trackName = null;
@@ -389,6 +422,7 @@ export async function resolveCheckinToken(token) {
         accessibility_selections: cb?.accessibility_selections || null,
         isSpeaker: !!speaker,
         speakerName: speaker?.full_name || null,
+        profile_photo_url: profilePhotoUrl,
       },
       ticketClassName: cb?.ticket_class_name,
       bookingReference: cb?.booking_reference,
