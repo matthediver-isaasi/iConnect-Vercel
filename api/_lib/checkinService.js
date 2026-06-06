@@ -286,6 +286,42 @@ export async function getSpeakersByIds(speakerIds, tenantId = null) {
 }
 
 /**
+ * Batch-fetch member profile photos for a set of attendee emails, scoped to a
+ * tenant. Used by the check-in dashboard/list to show each attendee's photo
+ * without a per-attendee lookup. Returns a Map of lowercased email ->
+ * profile_photo_url (only entries with a non-empty photo are included).
+ * Graceful + non-fatal: any error resolves to an empty Map.
+ */
+export async function getMemberPhotosByEmails(emails, tenantId = null) {
+  const map = new Map();
+  if (!supabase || !tenantId) return map;
+  const normalized = [
+    ...new Set(
+      (Array.isArray(emails) ? emails : [])
+        .map((e) => (e || '').trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+  if (normalized.length === 0) return map;
+  try {
+    const { data } = await supabase
+      .from('member')
+      .select('email, profile_photo_url')
+      .eq('tenant_id', tenantId)
+      .in('email', normalized);
+    for (const m of data || []) {
+      const email = (m.email || '').trim().toLowerCase();
+      if (email && m.profile_photo_url && !map.has(email)) {
+        map.set(email, m.profile_photo_url);
+      }
+    }
+  } catch {
+    return map;
+  }
+  return map;
+}
+
+/**
  * Resolve a check-in token to its attendee + event (+ session) details.
  * Returns null when the token is unknown. Tries the simple-booking table
  * first, then the complex per-session table.

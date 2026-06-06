@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -462,6 +462,13 @@ export default function EventCheckInDashboard() {
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar className="h-9 w-9 shrink-0">
+                        {a.profile_photo_url && (
+                          <AvatarImage
+                            src={a.profile_photo_url}
+                            alt={[a.first_name, a.last_name].filter(Boolean).join(" ") || a.email}
+                            data-testid={`img-attendee-${a.token}`}
+                          />
+                        )}
                         <AvatarFallback
                           className={
                             a.checked_in_at

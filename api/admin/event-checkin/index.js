@@ -8,6 +8,7 @@ import {
   ensureComplexSessionTokens,
   ensureBookingToken,
   getSpeakersByIds,
+  getMemberPhotosByEmails,
   buildEventCheckinFlagMap,
 } from '../../_lib/checkinService.js';
 
@@ -238,7 +239,13 @@ async function dashboard(req, res, context) {
     }
   }
 
-  const flagMap = await buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] });
+  const [flagMap, photoByEmail] = await Promise.all([
+    buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] }),
+    getMemberPhotosByEmails(
+      (bookings || []).map((b) => b.attendee_email),
+      context.tenantId
+    ),
+  ]);
 
   let attendees = (bookings || []).map((b) => {
     const email = (b.attendee_email || '').trim().toLowerCase();
@@ -255,6 +262,7 @@ async function dashboard(req, res, context) {
       accessibility_selections: b.accessibility_selections || null,
       isSpeaker,
       speakerName: isSpeaker ? speakerByEmail.get(email) : null,
+      profile_photo_url: photoByEmail.get(email) || null,
       ticket_class_name: b.ticket_class_name,
       booking_reference: b.booking_reference,
       checked_in_at: b.checked_in_at,
@@ -339,7 +347,13 @@ async function complexDashboard(req, res, context, eventId, filters) {
   if (sessionFilter) checkinQuery = checkinQuery.eq('session_id', sessionFilter);
   const { data: checkins } = await checkinQuery;
 
-  const flagMap = await buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] });
+  const [flagMap, photoByEmail] = await Promise.all([
+    buildEventCheckinFlagMap({ tenantId: context.tenantId, eventIds: [eventId] }),
+    getMemberPhotosByEmails(
+      (confirmedBookings || []).map((cb) => cb.attendee_email),
+      context.tenantId
+    ),
+  ]);
 
   const bookingById = {};
   for (const cb of confirmedBookings || []) bookingById[cb.id] = cb;
@@ -382,6 +396,7 @@ async function complexDashboard(req, res, context, eventId, filters) {
         accessibility_selections: cb.accessibility_selections || null,
         isSpeaker,
         speakerName,
+        profile_photo_url: photoByEmail.get(email) || null,
         ticket_class_name: cb.ticket_class_name,
         booking_reference: cb.booking_reference,
         checked_in_at: c.checked_in_at,
