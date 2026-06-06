@@ -26,6 +26,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
+import { getFlagColorClasses } from "@/lib/flagColors";
 import { createPageUrl } from "@/utils";
 import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star, Flag } from "lucide-react";
 
@@ -511,7 +512,7 @@ export default function EventCheckInDashboard() {
                                 rel="noopener noreferrer"
                                 data-testid={`badge-flag-${a.token}-${flag.field_id}`}
                               >
-                                <Badge className="gap-1 bg-warning text-warning-foreground">
+                                <Badge className={`gap-1 ${getFlagColorClasses(flag.color).surface}`}>
                                   <Flag className="h-3 w-3" />
                                   {flag.label}
                                 </Badge>

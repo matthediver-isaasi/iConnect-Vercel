@@ -491,6 +491,7 @@ function extractFlaggedBooleanFields(fields) {
     .map((f) => ({
       field_id: f.id,
       label: (f.flag_label && String(f.flag_label).trim()) || f.label || 'Flagged response',
+      color: (f.flag_color && String(f.flag_color).trim()) || 'default',
     }));
 }
 
@@ -547,6 +548,7 @@ export async function resolveCheckinFlags({ tenantId, eventId, attendeeEmail }) 
         flags.push({
           field_id: f.field_id,
           label: f.label,
+          color: f.color || 'default',
           form_submission_id: sub.id,
           form_id: sub.form_id,
         });
@@ -611,6 +613,7 @@ export async function buildEventCheckinFlagMap({ tenantId, eventIds }) {
         map.get(key).push({
           field_id: f.field_id,
           label: f.label,
+          color: f.color || 'default',
           form_submission_id: sub.id,
           form_id: sub.form_id,
         });

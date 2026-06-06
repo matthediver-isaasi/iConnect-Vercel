@@ -13,6 +13,7 @@ import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
+import { getFlagColorClasses } from "@/lib/flagColors";
 import { toast } from "sonner";
 
 function formatDietarySelections(value) {
@@ -422,7 +423,7 @@ export default function EventRegistrationReport() {
             rel="noopener noreferrer"
             data-testid={`badge-flag-${attendee.id}-${flag.field_id}`}
           >
-            <Badge className="gap-1 bg-warning text-warning-foreground">
+            <Badge className={`gap-1 ${getFlagColorClasses(flag.color).surface}`}>
               <Flag className="h-3 w-3" />
               {flag.label}
             </Badge>

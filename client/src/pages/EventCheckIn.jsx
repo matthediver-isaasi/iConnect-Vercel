@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { getFlagColorClasses } from "@/lib/flagColors";
 import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, UserRound, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText } from "lucide-react";
 
 function formatDate(value) {
@@ -139,10 +140,12 @@ export default function EventCheckIn() {
             <CardHeader className="space-y-3">
               {Array.isArray(resolved.flags) && resolved.flags.length > 0 && (
                 <div className="space-y-2" data-testid="container-attendee-flags">
-                  {resolved.flags.map((flag) => (
+                  {resolved.flags.map((flag) => {
+                    const flagColors = getFlagColorClasses(flag.color);
+                    return (
                     <div
                       key={flag.field_id}
-                      className="flex items-center justify-between gap-2 rounded-md bg-warning px-3 py-2 text-warning-foreground"
+                      className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 ${flagColors.surface}`}
                       data-testid={`banner-flag-${flag.field_id}`}
                     >
                       <div className="flex min-w-0 items-center gap-2">
@@ -154,7 +157,7 @@ export default function EventCheckIn() {
                           asChild
                           size="icon"
                           variant="outline"
-                          className="shrink-0 border-warning-foreground/40 bg-background/20"
+                          className={`shrink-0 bg-background/20 ${flagColors.border}`}
                           data-testid={`button-view-flag-${flag.field_id}`}
                         >
                           <a
@@ -168,7 +171,8 @@ export default function EventCheckIn() {
                         </Button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {(resolved.attendee?.isSpeaker || resolved.attendee?.designation) && (

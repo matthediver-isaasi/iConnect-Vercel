@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { FLAG_COLOR_OPTIONS, getFlagColorClasses } from "@/lib/flagColors";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -3174,6 +3175,30 @@ function FieldCard({
                           data-testid={`input-flag-label-${field.id}`}
                         />
                         <p className="text-xs text-slate-500">Shown to check-in staff. Defaults to the field label when left blank.</p>
+                      </div>
+                    )}
+                    {field.flag_on_checkin && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium">Flag colour</Label>
+                        <Select
+                          value={field.flag_color || 'default'}
+                          onValueChange={(value) => updateField(originalIndex, { flag_color: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-flag-color-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FLAG_COLOR_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} data-testid={`option-flag-color-${field.id}-${opt.value}`}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`inline-block h-3 w-3 rounded-full ${getFlagColorClasses(opt.value).swatch}`} />
+                                  {opt.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">Helps check-in staff spot this flag quickly on the scanner.</p>
                       </div>
                     )}
                   </div>
