@@ -329,6 +329,7 @@ import CampaignsPage from "./CampaignsPage";
 import MembershipFeePage from "./MembershipFeePage";
 import SubmitPOPage from "./SubmitPOPage";
 import GroupBookingPage from "./GroupBookingPage";
+import GuestApprovalPage from "./GuestApprovalPage";
 
 import MembershipFees from "./MembershipFees";
 
@@ -1116,6 +1117,7 @@ function StandaloneRoutes() {
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/submit-po/:token" element={<SubmitPOPage />} />
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
+            <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/events/:eventSlug" element={<EventDetails />} />
             <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
@@ -1219,6 +1221,7 @@ function AppRoutes() {
     const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
     const isSubmitPoPage = location.pathname.toLowerCase().startsWith('/submit-po/');
     const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
+    const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
     const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
     
     // Use window.location.search to reliably detect embed param (works even before routing)
@@ -1227,7 +1230,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isCampaignsPage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

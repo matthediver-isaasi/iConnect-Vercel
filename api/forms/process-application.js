@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 import { calculateMembershipYearWindow } from '../_lib/membershipYear.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
+import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -2166,6 +2167,25 @@ export default async function handler(req, res) {
             console.error('[AppProcessor] Workflow error:', err);
           }
           console.log('[AppProcessor] Triggered workflows for new member:', createdMemberId);
+
+          // Guest signup approval alerts: when this member was stamped as a
+          // guest (domain mismatch + guest access enabled), email the tenant
+          // roles configured on the Guest Access card with one-click
+          // Approve/Deny links. Non-fatal — never blocks member creation.
+          if (domainCtx?.guestStamp) {
+            try {
+              await notifyGuestSignup({
+                client: supabase,
+                tenantId: newMember.tenant_id || tenant_id || null,
+                member: newMember,
+                organizationId: orgIdForNewMember,
+                organizationName: domainCtx?.organizationName || null,
+                guestExpiresAt: domainCtx.guestStamp.guest_expires_at,
+              });
+            } catch (notifyErr) {
+              console.error('[AppProcessor] Guest signup notification error:', notifyErr);
+            }
+          }
 
         }
       }

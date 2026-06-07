@@ -59,7 +59,8 @@ export default function TeamSettingsPage() {
   const [guestAccess, setGuestAccess] = useState({
     enabled: false,
     default_period_days: 30,
-    unlimited: false
+    unlimited: false,
+    role_ids: []
   });
 
   const { data: eligibleRolesData } = useQuery({
@@ -95,7 +96,7 @@ export default function TeamSettingsPage() {
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === 'guest_access');
-      let value = { enabled: false, default_period_days: 30, unlimited: false };
+      let value = { enabled: false, default_period_days: 30, unlimited: false, role_ids: [] };
       if (setting?.setting_value) {
         try {
           const parsed = JSON.parse(setting.setting_value);
@@ -103,7 +104,8 @@ export default function TeamSettingsPage() {
           value = {
             enabled: !!parsed.enabled,
             default_period_days: Number.isFinite(days) && days > 0 ? days : 30,
-            unlimited: parsed.default_period_days === null || parsed.unlimited === true
+            unlimited: parsed.default_period_days === null || parsed.unlimited === true,
+            role_ids: Array.isArray(parsed.role_ids) ? parsed.role_ids.filter(Boolean) : []
           };
         } catch {
           // ignore
@@ -125,7 +127,8 @@ export default function TeamSettingsPage() {
       const payload = {
         enabled: !!newValue.enabled,
         default_period_days: newValue.unlimited ? null : Number(newValue.default_period_days),
-        unlimited: !!newValue.unlimited
+        unlimited: !!newValue.unlimited,
+        role_ids: Array.isArray(newValue.role_ids) ? newValue.role_ids.filter(Boolean) : []
       };
       const settingValue = JSON.stringify(payload);
       const existing = guestAccessData?.record;
@@ -511,6 +514,50 @@ export default function TeamSettingsPage() {
                       This is the default applied to new guests only. Admins can extend or shorten an
                       individual guest's access from the Team page, including beyond this default.
                     </p>
+
+                    <div className="space-y-2 border-t border-slate-100 pt-4">
+                      <Label className="text-sm font-medium text-slate-700">
+                        Notify these roles when a guest signs up
+                      </Label>
+                      <p className="text-xs text-slate-500 -mt-1">
+                        Members holding the selected roles get an email with one-click Approve/Deny
+                        links to enable or block the new guest's login.
+                      </p>
+                      {rolesLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-slate-500">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading roles…
+                        </div>
+                      ) : roles.length === 0 ? (
+                        <p className="text-sm text-slate-500">No roles available.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                          {roles.map((role) => {
+                            const checked = (guestAccess.role_ids || []).includes(role.id);
+                            return (
+                              <label
+                                key={role.id}
+                                className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer"
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(isChecked) => {
+                                    const current = guestAccess.role_ids || [];
+                                    const next = isChecked
+                                      ? [...current, role.id]
+                                      : current.filter((id) => id !== role.id);
+                                    persistGuestAccess({ ...guestAccess, role_ids: next });
+                                  }}
+                                  disabled={updateGuestAccessMutation.isPending}
+                                  data-testid={`checkbox-guest-notify-role-${role.id}`}
+                                />
+                                <span className="text-sm text-slate-700">{role.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>
