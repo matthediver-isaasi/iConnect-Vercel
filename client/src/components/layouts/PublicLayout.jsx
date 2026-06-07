@@ -359,7 +359,7 @@ export default function PublicLayout({ children, currentPageName }) {
             }
             
             .nav-link:hover {
-              color: #5C0085 !important;
+              color: ${tenantPrimaryColor} !important;
             }
           `}
         </style>
