@@ -65,7 +65,12 @@ export default function PublicLayout({ children, currentPageName }) {
   });
 
   const tenantFooterConfig = branding?.footerConfig || {};
-  const tenantPrimaryColor = branding?.primaryColor || '#5C0085';
+  // Neutral, tenant-agnostic placeholder used until branding loads (or when it is genuinely
+  // absent) so no GFI-specific identity flashes before the real branding arrives.
+  const NEUTRAL_PRIMARY_COLOR = '#64748B';
+  const NEUTRAL_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #F8FAFC, #E2E8F0)';
+  const NEUTRAL_GRADIENT_DIAGONAL = 'linear-gradient(to top right, #F8FAFC, #E2E8F0)';
+  const tenantPrimaryColor = branding?.primaryColor || NEUTRAL_PRIMARY_COLOR;
   const footerTextColor = tenantFooterConfig.textColor || '#FFFFFF';
   
   // Helper to adjust color opacity - with validation
@@ -92,6 +97,9 @@ export default function PublicLayout({ children, currentPageName }) {
   const footerSecondaryTextColor = tenantFooterConfig.textColor ? adjustColorOpacity(tenantFooterConfig.textColor, 0.7) : 'rgb(203, 213, 225)';
   
   const getGradientStyle = () => {
+    if (!branding) {
+      return NEUTRAL_GRADIENT_HORIZONTAL;
+    }
     if (tenantFooterConfig.gradientColors?.length > 0) {
       return `linear-gradient(to right, ${tenantFooterConfig.gradientColors.join(', ')})`;
     }
@@ -99,6 +107,9 @@ export default function PublicLayout({ children, currentPageName }) {
   };
   
   const getButtonGradientStyle = () => {
+    if (!branding) {
+      return NEUTRAL_GRADIENT_DIAGONAL;
+    }
     if (tenantFooterConfig.gradientColors?.length > 0) {
       return `linear-gradient(to top right, ${tenantFooterConfig.gradientColors.join(', ')})`;
     }

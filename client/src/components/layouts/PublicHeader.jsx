@@ -47,6 +47,13 @@ const DEFAULT_GRADIENT_STOPS = [
   { color: '#FF4229', position: 90 },
   { color: '#FFB000', position: 100 }
 ];
+// Neutral, tenant-agnostic placeholder shown while branding is still loading so
+// no tenant-specific identity (e.g. GFI's purple) flashes before the real branding arrives.
+const NEUTRAL_GRADIENT_STOPS = [
+  { color: '#F8FAFC', position: 0 },
+  { color: '#E2E8F0', position: 100 }
+];
+const NEUTRAL_SOCIAL_ICON_COLOR = '#64748B';
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
@@ -218,9 +225,9 @@ const getColorStopsOnly = (stops) => {
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
-  const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || '#5C0085';
+  const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
   const headerLogoUrl = branding?.headerLogoUrl || null;
-  const tenantName = branding?.name || "Graduate Futures Institute";
+  const tenantName = branding?.name || "";
   const hasLogoUrl = !!headerLogoUrl;
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
@@ -235,7 +242,7 @@ export default function PublicHeader() {
   const logoPadding = branding?.headerConfig?.logoPadding;
   const logoMarginTop = branding?.headerConfig?.logoMarginTop;
   const logoMarginLeft = branding?.headerConfig?.logoMarginLeft;
-  const gradientStops = getGradientStops(branding?.headerConfig);
+  const gradientStops = branding ? getGradientStops(branding.headerConfig) : NEUTRAL_GRADIENT_STOPS;
   
   const getShadowStyle = (shadowType) => {
     switch (shadowType) {
@@ -964,7 +971,7 @@ export default function PublicHeader() {
   const renderSocialIcons = () => {
     if (!socialIcons) return null;
 
-    const headerSocialColor = branding?.brandingConfig?.headerSocialIconColor || '#5C0085';
+    const headerSocialColor = branding?.brandingConfig?.headerSocialIconColor || NEUTRAL_SOCIAL_ICON_COLOR;
     const icons = [];
     
     if (socialIcons.linkedin?.enabled && socialIcons.linkedin?.url) {
