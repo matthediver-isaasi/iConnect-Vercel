@@ -38,6 +38,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
+import SubmissionReplies from "@/components/forms/SubmissionReplies";
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -1426,6 +1427,13 @@ export default function FormSubmissionsPage() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <SubmissionReplies
+                        submissionId={submission.id}
+                        defaultEmail={getSubmitterEmail(submission)}
+                        formName={resolveFormName(submission)}
+                      />
                     </div>
                   </CardHeader>
                 </Card>

@@ -9,6 +9,7 @@ import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, C
 import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
+import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { format } from "date-fns";
 
 const SUBMISSION_STATUSES = [
@@ -462,6 +463,22 @@ export default function FormSubmissionView() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6 border-slate-200 dark:border-slate-700" data-testid="card-submission-replies">
+          <CardHeader>
+            <CardTitle className="text-lg">Replies</CardTitle>
+            <CardDescription>
+              Send a reply email to the submitter and review previously sent replies.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SubmissionReplies
+              submissionId={submission.id}
+              defaultEmail={submission.submitted_by_email || ''}
+              formName={form?.name || ''}
+            />
           </CardContent>
         </Card>
       </div>

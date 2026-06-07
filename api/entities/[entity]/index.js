@@ -269,6 +269,7 @@ const entityToTable = {
   'RedirectMapping': 'redirect_mapping',
   'FormDueDiligenceConfig': 'form_due_diligence_config',
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
+  'FormSubmissionEmail': 'form_submission_email',
   'ContractDocument': 'contract_document',
   'ContractSigner': 'contract_signer',
   'ContractReminder': 'contract_reminder',

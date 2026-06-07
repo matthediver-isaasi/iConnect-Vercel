@@ -101,6 +101,7 @@ export const entityTenantScope = {
   'DiscountCodeUsage': TENANT_SCOPE.TENANT,
   'Form': TENANT_SCOPE.TENANT,
   'FormSubmission': TENANT_SCOPE.TENANT,
+  'FormSubmissionEmail': TENANT_SCOPE.TENANT,
   'EmailTemplate': TENANT_SCOPE.TENANT,
   'JobPosting': TENANT_SCOPE.TENANT,
   'Resource': TENANT_SCOPE.TENANT,
