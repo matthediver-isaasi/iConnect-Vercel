@@ -31,6 +31,7 @@ import {
 import {
   AlertTriangle,
   Copy,
+  Download,
   GripVertical,
   MoreVertical,
   PencilLine,
@@ -44,6 +45,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/use-toast";
+import { rowsToCsv, slugifyFilename, downloadCsv } from "@/lib/csvExport";
 
 const COLOUR_MAP = {
   default: "hsl(var(--chart-1))",
@@ -85,6 +88,33 @@ function formatNumber(value) {
 const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
 const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
+// Build the rows that drive the CSV export from the already-loaded widget
+// payload. Returns an array of row arrays (first row is the header). Chart
+// widgets export one row per data point (Label,Value) plus a Total row when
+// the widget view shows one; stat widgets export a single metric row.
+function buildExportRows(widget, payload) {
+  if (!payload) return [];
+  const type = widget.widget_type;
+  if (type === "stat") {
+    const value =
+      payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
+    const aggregator = widget.config?.measure?.aggregator || "count";
+    return [
+      ["Metric", "Value", "Records"],
+      [aggregator, value ?? "", payload.total ?? 0],
+    ];
+  }
+  const rows = payload.rows || [];
+  const out = [["Label", "Value"]];
+  rows.forEach((r) => out.push([r.key, r.value]));
+  // Bar, pie and donut views display a total; line views do not.
+  if (type === "bar" || type === "pie" || type === "donut") {
+    const total = rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
+    out.push(["Total", total]);
+  }
+  return out;
+}
+
 export default function WidgetCard({
   widget,
   canEdit = false,
@@ -94,6 +124,7 @@ export default function WidgetCard({
   onDuplicate,
   onResize,
 }) {
+  const { toast } = useToast();
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["/api/dashboard/widgets", widget.id, "data"],
     queryFn: async () => {
@@ -110,6 +141,19 @@ export default function WidgetCard({
       return res.json();
     },
   });
+
+  const canExport = !isLoading && !isError && !!data;
+  const handleExportCsv = () => {
+    if (!canExport) return;
+    const exportRows = buildExportRows(widget, data.data);
+    const rows = exportRows.length > 0 ? exportRows : [["Label", "Value"]];
+    const filename = `${slugifyFilename(widget.title, "widget")}.csv`;
+    downloadCsv(rowsToCsv(rows), filename);
+    toast({
+      title: "Export complete",
+      description: `Downloaded ${filename}`,
+    });
+  };
 
   return (
     <Card
@@ -157,47 +201,58 @@ export default function WidgetCard({
             </Tooltip>
           </TooltipProvider>
         )}
-        {canEdit && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Widget actions"
-                data-testid={`button-widget-menu-${widget.id}`}
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => onEdit?.(widget)}
-                data-testid={`menuitem-edit-widget-${widget.id}`}
-              >
-                <PencilLine className="mr-2 h-4 w-4" />
-                Edit widget
-              </DropdownMenuItem>
-              {onDuplicate && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Widget actions"
+              data-testid={`button-widget-menu-${widget.id}`}
+            >
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={handleExportCsv}
+              disabled={!canExport}
+              data-testid={`menuitem-export-csv-${widget.id}`}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </DropdownMenuItem>
+            {canEdit && (
+              <>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onSelect={() => onDuplicate?.(widget)}
-                  data-testid={`menuitem-duplicate-widget-${widget.id}`}
+                  onSelect={() => onEdit?.(widget)}
+                  data-testid={`menuitem-edit-widget-${widget.id}`}
                 >
-                  <Copy className="mr-2 h-4 w-4" />
-                  Duplicate widget
+                  <PencilLine className="mr-2 h-4 w-4" />
+                  Edit widget
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => onDelete?.(widget)}
-                className="text-destructive focus:text-destructive"
-                data-testid={`menuitem-delete-widget-${widget.id}`}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete widget
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                {onDuplicate && (
+                  <DropdownMenuItem
+                    onSelect={() => onDuplicate?.(widget)}
+                    data-testid={`menuitem-duplicate-widget-${widget.id}`}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Duplicate widget
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => onDelete?.(widget)}
+                  className="text-destructive focus:text-destructive"
+                  data-testid={`menuitem-delete-widget-${widget.id}`}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete widget
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
         {isLoading && (
