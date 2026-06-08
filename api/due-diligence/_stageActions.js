@@ -17,6 +17,50 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Apply a value transformation. Mirrors FormBuilder's applyTransformation
+// (api/forms/process-application.js) exactly so DD stage-action field mappings
+// produce identical output for the same input/transformation.
+function applyTransformation(value, transformation) {
+  if (value === null || value === undefined) return value;
+  const strValue = String(value);
+
+  switch (transformation) {
+    case 'trim':
+      return strValue.trim();
+    case 'uppercase':
+      return strValue.toUpperCase();
+    case 'lowercase':
+      return strValue.toLowerCase();
+    case 'titlecase':
+      return strValue.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    case 'extract_domain':
+      if (strValue.includes('@')) {
+        return strValue.split('@')[1] || strValue;
+      }
+      return strValue;
+    case 'extract_username':
+      if (strValue.includes('@')) {
+        return strValue.split('@')[0] || strValue;
+      }
+      return strValue;
+    case 'first_word':
+      return strValue.trim().split(/\s+/)[0] || strValue;
+    case 'last_word': {
+      const words = strValue.trim().split(/\s+/);
+      return words[words.length - 1] || strValue;
+    }
+    case 'remove_spaces':
+      return strValue.replace(/\s+/g, '');
+    case 'numbers_only':
+      return strValue.replace(/[^0-9]/g, '');
+    case 'current_date':
+      return new Date().toISOString().split('T')[0]; // Returns YYYY-MM-DD format
+    case 'none':
+    default:
+      return strValue;
+  }
+}
+
 // Build the set of candidate keys a value might be stored under for a given
 // source field identifier. Looks up the form field definition (if provided) so
 // id/name/key aliases all resolve to the same value. Only exact matches +
@@ -2019,7 +2063,7 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
       const mappingResults = [];
       
       for (const mapping of mappings) {
-        const { source_type, source_field_id, target_type, target_field, static_value } = mapping;
+        const { source_type, source_field_id, target_type, target_field, static_value, transformation } = mapping;
         
         let sourceValue;
         let valueSource;
@@ -2061,14 +2105,29 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           sourceValue = resolved.value;
           valueSource = resolved.source;
 
-          // Note: 0 and false are valid values; only undefined/null/empty-string means "not set".
-          const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
-          if (isValueEmpty) {
-            console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} source=${valueSource} value=empty, skipping`);
-            continue;
-          }
+          // The current_date transformation ignores the source field entirely
+          // (mirrors FormBuilder), so resolve it before the empty-value guard.
+          if (transformation === 'current_date') {
+            sourceValue = applyTransformation('', 'current_date');
+            valueSource = 'current_date';
+            console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} resolved current_date transformation to "${sourceValue}"`);
+          } else {
+            // Note: 0 and false are valid values; only undefined/null/empty-string means "not set".
+            const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
+            if (isValueEmpty) {
+              console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} source=${valueSource} value=empty, skipping`);
+              continue;
+            }
 
-          console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} resolvedKey=${resolved.key} source=${valueSource} value=${previewFieldValue(sourceValue)}`);
+            // Apply the configured transformation (trim/uppercase/etc) to the
+            // resolved value before it is converted/stored. 'none'/missing is a
+            // pass-through. Matches FormBuilder's runtime behaviour exactly.
+            if (transformation && transformation !== 'none') {
+              sourceValue = applyTransformation(sourceValue, transformation);
+            }
+
+            console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} resolvedKey=${resolved.key} source=${valueSource} transform=${transformation || 'none'} value=${previewFieldValue(sourceValue)}`);
+          }
         }
         
         

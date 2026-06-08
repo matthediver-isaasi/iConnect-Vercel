@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus, Copy } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus, Copy, Wand2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -24,6 +24,21 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { cn } from "@/lib/utils";
+
+const TRANSFORMATIONS = [
+  { value: 'none', label: 'No transformation', description: 'Use value as-is' },
+  { value: 'trim', label: 'Trim whitespace', description: 'Remove leading/trailing spaces' },
+  { value: 'uppercase', label: 'UPPERCASE', description: 'Convert to uppercase' },
+  { value: 'lowercase', label: 'lowercase', description: 'Convert to lowercase' },
+  { value: 'titlecase', label: 'Title Case', description: 'Capitalize first letter of each word' },
+  { value: 'extract_domain', label: 'Extract domain', description: 'Get domain from email (after @)' },
+  { value: 'extract_username', label: 'Extract username', description: 'Get username from email (before @)' },
+  { value: 'first_word', label: 'First word', description: 'Extract first word only' },
+  { value: 'last_word', label: 'Last word', description: 'Extract last word only' },
+  { value: 'remove_spaces', label: 'Remove spaces', description: 'Strip all spaces' },
+  { value: 'numbers_only', label: 'Numbers only', description: 'Keep only numeric characters' },
+  { value: 'current_date', label: 'Current date', description: 'Use current date (ignores source field)' },
+];
 
 const DEFAULT_WORKFLOW_STAGES = [
   { id: "new", label: "New", color: "#f97316", is_initial: true, include_in_housekeeping: true, order: 0 },
@@ -2920,6 +2935,36 @@ export default function DueDiligenceConfigPage() {
                                                               </SelectContent>
                                                             </Select>
                                                           )}
+
+                                                          {/* Transformation row - only show for field-sourced mappings */}
+                                                          {sourceType === 'field' && (
+                                                            <div className="flex items-center gap-2 pt-2 border-t">
+                                                              <Wand2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                                                              <Label className="text-xs text-muted-foreground whitespace-nowrap">Transform:</Label>
+                                                              <Select
+                                                                value={mapping.transformation || 'none'}
+                                                                onValueChange={(v) => {
+                                                                  setPendingFieldMappingAction(prev => {
+                                                                    const newMappings = [...(prev.mappings || [])];
+                                                                    newMappings[mapIdx] = { ...newMappings[mapIdx], transformation: v };
+                                                                    return { ...prev, mappings: newMappings };
+                                                                  });
+                                                                }}
+                                                              >
+                                                                <SelectTrigger className="flex-1" data-testid={`select-transformation-${mapIdx}`}>
+                                                                  <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                  {TRANSFORMATIONS.map(t => (
+                                                                    <SelectItem key={t.value} value={t.value}>
+                                                                      <span>{t.label}</span>
+                                                                      <span className="text-xs text-muted-foreground ml-2">- {t.description}</span>
+                                                                    </SelectItem>
+                                                                  ))}
+                                                                </SelectContent>
+                                                              </Select>
+                                                            </div>
+                                                          )}
                                                           </div>
                                                         </div>
                                                         
@@ -2947,7 +2992,7 @@ export default function DueDiligenceConfigPage() {
                                                       onClick={() => {
                                                         setPendingFieldMappingAction(prev => ({
                                                           ...prev,
-                                                          mappings: [...(prev.mappings || []), { source_type: 'field', source_field_id: '', target_type: '', target_field: '', static_value: '' }]
+                                                          mappings: [...(prev.mappings || []), { source_type: 'field', source_field_id: '', target_type: '', target_field: '', static_value: '', transformation: 'none' }]
                                                         }));
                                                       }}
                                                       data-testid={`button-add-mapping-row-${index}`}
