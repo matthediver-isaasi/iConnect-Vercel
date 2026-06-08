@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
-  ChevronLeft, ChevronRight, Images, User,
+  ChevronLeft, ChevronRight, Images, User, Mic,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { sanitizeRichText } from './sanitize';
 import {
   BLOCK_TYPES,
   resolveResponsiveValue,
@@ -1369,6 +1374,502 @@ function EventCarouselInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// SPEAKER CAROUSEL
+// ============================================================================
+
+function speakerInitials(name) {
+  return String(name || '')
+    .split(' ')
+    .map((n) => n[0])
+    .filter(Boolean)
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function speakerSubtitle(speaker, c) {
+  return [
+    c.showJobTitle !== false ? speaker.job_title : null,
+    c.showOrganization !== false ? speaker.organization : null,
+  ].filter(Boolean).join(', ');
+}
+
+// Resolve the selected event (picker stores a slug-or-id) to its assigned
+// speakers, preserving the event's stored speaker order. Reuses the cached
+// public-events list (same as the picker) to map the value to a real event id,
+// then fetches the event detail for `speaker_ids` and the speakers themselves.
+function useEventSpeakers(eventValue) {
+  const value = eventValue ? String(eventValue) : '';
+  const { data: allEvents } = useQuery({
+    queryKey: ['canvas', 'public-events'],
+    queryFn: () => publicClient.listEvents(),
+    staleTime: 60_000,
+    enabled: !!value,
+  });
+  const resolvedId = useMemo(() => {
+    if (!value || !Array.isArray(allEvents)) return null;
+    const match = allEvents.find(
+      (e) => String(e.slug) === value || String(e.id) === value,
+    );
+    return match ? match.id : null;
+  }, [allEvents, value]);
+
+  const { data: event, isLoading: eventLoading, isError: eventError } = useQuery({
+    queryKey: ['canvas', 'speaker-carousel-event', resolvedId],
+    queryFn: () => publicClient.getEvent(resolvedId),
+    staleTime: 60_000,
+    enabled: !!resolvedId,
+  });
+
+  const speakerIds = useMemo(() => {
+    const ids = event?.speaker_ids;
+    return Array.isArray(ids) ? ids.filter(Boolean) : [];
+  }, [event]);
+
+  const idsKey = speakerIds.join(',');
+  const { data: speakers, isLoading: speakersLoading, isError: speakersError } = useQuery({
+    queryKey: ['canvas', 'speaker-carousel-speakers', idsKey],
+    queryFn: () => publicClient.listSpeakers(speakerIds),
+    staleTime: 60_000,
+    enabled: speakerIds.length > 0,
+  });
+
+  const ordered = useMemo(() => {
+    if (speakerIds.length === 0) return [];
+    const list = Array.isArray(speakers) ? speakers : [];
+    const byId = new Map(list.map((s) => [String(s.id), s]));
+    return speakerIds.map((id) => byId.get(String(id))).filter(Boolean);
+  }, [speakers, speakerIds]);
+
+  const resolvingEvent = !!value && (!Array.isArray(allEvents) || (!!resolvedId && eventLoading));
+  const loadingSpeakers = speakerIds.length > 0 && speakersLoading;
+
+  return {
+    hasEvent: !!value,
+    speakers: ordered,
+    isLoading: resolvingEvent || loadingSpeakers,
+    isError: eventError || speakersError,
+  };
+}
+
+// Shared full-detail body for a single speaker — used by both the click-to-open
+// detail dialog and the "See all speakers" modal's per-card detail view.
+function SpeakerDetail({ speaker, content }) {
+  if (!speaker) return null;
+  const subtitle = speakerSubtitle(speaker, content || {});
+  const bioHtml = speaker.biography ? sanitizeRichText(speaker.biography) : '';
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <Avatar className="w-16 h-16">
+          {speaker.profile_photo_url ? (
+            <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
+          ) : null}
+          <AvatarFallback>{speakerInitials(speaker.full_name)}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-slate-900 m-0" data-testid="text-speaker-carousel-detail-name">
+            {speaker.full_name}
+          </h3>
+          {subtitle ? (
+            <p className="text-sm text-slate-500 m-0" data-testid="text-speaker-carousel-detail-role">{subtitle}</p>
+          ) : null}
+        </div>
+      </div>
+      {bioHtml ? (
+        <div>
+          <h4 className="text-sm font-medium text-slate-900 mb-1">Biography</h4>
+          <div
+            className="text-sm text-slate-600 leading-relaxed"
+            data-testid="text-speaker-carousel-detail-bio"
+            dangerouslySetInnerHTML={{ __html: bioHtml }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// A compact speaker card used inside the "See all speakers" modal list.
+function SpeakerListCard({ speaker, content, onClick }) {
+  const subtitle = speakerSubtitle(speaker, content || {});
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 p-3 rounded-md border border-slate-200 bg-white text-left hover-elevate"
+      data-testid={`button-speaker-carousel-all-${speaker.id}`}
+    >
+      <Avatar className="w-12 h-12 shrink-0">
+        {speaker.profile_photo_url ? (
+          <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
+        ) : null}
+        <AvatarFallback>{speakerInitials(speaker.full_name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-slate-900 truncate">{speaker.full_name}</div>
+        {subtitle ? <div className="text-xs text-slate-500 truncate">{subtitle}</div> : null}
+      </div>
+    </button>
+  );
+}
+
+function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const { hasEvent, speakers, isLoading, isError } = useEventSpeakers(c.eventId);
+
+  const [index, setIndex] = useState(0);
+  const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const touchStartRef = useRef(null);
+
+  const count = speakers.length;
+  const hasMany = count > 1;
+
+  useEffect(() => {
+    if (index > Math.max(0, count - 1)) setIndex(0);
+  }, [count, index]);
+
+  useEffect(() => {
+    if (asEditor) return;
+    if (!c.autoplay || count < 2) return;
+    // Pause autoplay while a dialog is open so the slide doesn't move under
+    // the user as they read a profile.
+    if (selected || showAll) return;
+    const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
+    const pauseMs = Math.max(ms, 4000);
+    const t = setInterval(() => {
+      if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setIndex((i) => (i + 1) % count);
+    }, ms);
+    return () => clearInterval(t);
+  }, [asEditor, c.autoplay, c.autoplayMs, count, autoplayPausedAt, selected, showAll]);
+
+  const goPrev = () => setIndex((i) => (i - 1 + count) % count);
+  const goNext = () => setIndex((i) => (i + 1) % count);
+
+  const handleTouchStart = (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (!t) return;
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (ev) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || count < 2) return;
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const SWIPE_THRESHOLD = 40;
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) goNext(); else goPrev();
+    setAutoplayPausedAt(Date.now());
+  };
+  const handleKeyDown = (ev) => {
+    if (count < 2) return;
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      goPrev();
+      setAutoplayPausedAt(Date.now());
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      goNext();
+      setAutoplayPausedAt(Date.now());
+    }
+  };
+
+  // Empty / no-speaker states show an editor placeholder, but render nothing
+  // disruptive on the published public page.
+  if (!hasEvent) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Mic} text={c.emptyText || 'Pick an event with assigned speakers in the inspector.'} />;
+  }
+  if (isLoading) return <ListSkeleton count={1} columns={1} gap={0} />;
+  if (isError) {
+    if (!asEditor) return null;
+    return <ErrorState message="Couldn't load speakers right now." />;
+  }
+  if (count === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Mic} text="The selected event has no speakers yet." />;
+  }
+
+  const speaker = speakers[Math.min(index, count - 1)];
+  const showArrows = hasMany && c.showArrows !== false;
+  const showIndicators = hasMany && c.showIndicators !== false;
+  const ctaLabel = c.ctaLabel || 'See all speakers';
+
+  // Responsive font sizing — inline px literal in forced-breakpoint preview,
+  // CSS var (driven by buildCanvasCss @media rules) on real public pages.
+  const isForcedPreview = !!breakpoint;
+  const nameFontSize = resolveResponsiveValue(c.nameFontSize, breakpoint);
+  const titleFontSize = resolveResponsiveValue(c.titleFontSize, breakpoint);
+  const orgFontSize = resolveResponsiveValue(c.orgFontSize, breakpoint);
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+
+  const nameStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(nameFontSize)) nameStyle.fontSize = `${nameFontSize}px`;
+  } else {
+    const v = cssVar(c.nameFontSize, '--cb-sp-name-fs');
+    if (v) nameStyle.fontSize = v;
+  }
+  const titleStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(titleFontSize)) titleStyle.fontSize = `${titleFontSize}px`;
+  } else {
+    const v = cssVar(c.titleFontSize, '--cb-sp-title-fs');
+    if (v) titleStyle.fontSize = v;
+  }
+  const orgStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(orgFontSize)) orgStyle.fontSize = `${orgFontSize}px`;
+  } else {
+    const v = cssVar(c.orgFontSize, '--cb-sp-org-fs');
+    if (v) orgStyle.fontSize = v;
+  }
+
+  const openSpeaker = (s) => { setSelected(s); setAutoplayPausedAt(Date.now()); };
+
+  return (
+    <div
+      className="relative w-full h-full overflow-hidden flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      aria-label={block.a11y?.ariaLabel || 'Speaker carousel'}
+      data-testid="speaker-carousel"
+      role="region"
+      aria-roledescription="carousel"
+      tabIndex={hasMany ? 0 : -1}
+      onTouchStart={hasMany ? handleTouchStart : undefined}
+      onTouchEnd={hasMany ? handleTouchEnd : undefined}
+      onKeyDown={hasMany ? handleKeyDown : undefined}
+      style={hasMany ? { touchAction: 'pan-y' } : undefined}
+    >
+      <div className="relative flex-1 min-h-0">
+        <button
+          type="button"
+          onClick={() => openSpeaker(speaker)}
+          className="w-full h-full flex flex-col items-center justify-center text-center gap-3 px-8 py-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          data-testid={`button-speaker-carousel-${speaker.id}`}
+          aria-label={`View details for ${speaker.full_name || 'speaker'}`}
+        >
+          <Avatar className="w-24 h-24">
+            {speaker.profile_photo_url ? (
+              <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
+            ) : null}
+            <AvatarFallback className="text-xl">{speakerInitials(speaker.full_name)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 w-full">
+            <div
+              className="text-lg font-semibold text-slate-900 truncate"
+              style={nameStyle}
+              data-testid={`text-speaker-carousel-name-${speaker.id}`}
+            >
+              {speaker.full_name}
+            </div>
+            {c.showJobTitle !== false && speaker.job_title ? (
+              <div className="text-sm text-slate-600 truncate" style={titleStyle}>{speaker.job_title}</div>
+            ) : null}
+            {c.showOrganization !== false && speaker.organization ? (
+              <div className="text-sm text-slate-500 truncate" style={orgStyle}>{speaker.organization}</div>
+            ) : null}
+          </div>
+        </button>
+
+        {showArrows ? (
+          <>
+            <button
+              type="button"
+              onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              aria-label="Previous speaker"
+              data-testid="button-speaker-carousel-prev"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              aria-label="Next speaker"
+              data-testid="button-speaker-carousel-next"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+
+        {showIndicators ? (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+            {speakers.map((s, i) => {
+              const active = i === index;
+              return (
+                <button
+                  key={s.id || i}
+                  type="button"
+                  onClick={() => { setIndex(i); setAutoplayPausedAt(Date.now()); }}
+                  aria-label={`Show speaker ${i + 1} of ${count}`}
+                  aria-current={active ? 'true' : undefined}
+                  className={`w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
+                  data-testid={`button-speaker-carousel-indicator-${i}`}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+
+      {ctaLabel ? (
+        <div className="shrink-0 flex justify-center px-4 py-3 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => { setShowAll(true); setAutoplayPausedAt(Date.now()); }}
+            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+            data-testid="button-speaker-carousel-see-all"
+          >
+            {ctaLabel} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Single-speaker detail dialog */}
+      <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-speaker-carousel-detail">
+          <DialogHeader>
+            <DialogTitle>Speaker</DialogTitle>
+            <DialogDescription className="sr-only">Speaker profile details</DialogDescription>
+          </DialogHeader>
+          <SpeakerDetail speaker={selected} content={c} />
+        </DialogContent>
+      </Dialog>
+
+      {/* "See all speakers" modal — scrollable list of every speaker */}
+      <Dialog open={showAll} onOpenChange={setShowAll}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-speaker-carousel-all">
+          <DialogHeader>
+            <DialogTitle>{ctaLabel}</DialogTitle>
+            <DialogDescription className="sr-only">All speakers for this event</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {speakers.map((s) => (
+              <SpeakerListCard
+                key={s.id}
+                speaker={s}
+                content={c}
+                onClick={() => { setShowAll(false); setSelected(s); }}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SpeakerCarouselInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <EventCarouselPickerRow
+        value={c.eventId || ''}
+        onChange={(v) => set({ eventId: v })}
+        testId="select-speaker-carousel-event"
+      />
+      <TextField
+        label="CTA label"
+        value={c.ctaLabel}
+        onChange={(v) => set({ ctaLabel: v })}
+        testId="input-speaker-carousel-cta-label"
+        hint="Shown below the carousel; leave blank to hide the “See all” link."
+      />
+      <ToggleField
+        label="Show job title"
+        value={c.showJobTitle !== false}
+        onChange={(v) => set({ showJobTitle: v })}
+        testId="toggle-speaker-carousel-job-title"
+      />
+      <ToggleField
+        label="Show organization"
+        value={c.showOrganization !== false}
+        onChange={(v) => set({ showOrganization: v })}
+        testId="toggle-speaker-carousel-org"
+      />
+      <ToggleField
+        label="Autoplay"
+        value={c.autoplay !== false}
+        onChange={(v) => set({ autoplay: v })}
+        testId="toggle-speaker-carousel-autoplay"
+      />
+      <NumberField
+        label="Autoplay interval (ms)"
+        min={1500}
+        value={c.autoplayMs || 5000}
+        onChange={(v) => set({ autoplayMs: Math.max(1500, Number(v) || 5000) })}
+        testId="input-speaker-carousel-autoplay-ms"
+      />
+      <ToggleField
+        label="Show prev/next arrows"
+        value={c.showArrows !== false}
+        onChange={(v) => set({ showArrows: v })}
+        testId="toggle-speaker-carousel-arrows"
+      />
+      <ToggleField
+        label="Show slide indicators"
+        value={c.showIndicators !== false}
+        onChange={(v) => set({ showIndicators: v })}
+        testId="toggle-speaker-carousel-indicators"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Name</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Name font size (px)"
+        min={1}
+        value={c.nameFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ nameFontSize: v })}
+        testId="input-speaker-carousel-name-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Job title</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Job title font size (px)"
+        min={1}
+        value={c.titleFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ titleFontSize: v })}
+        testId="input-speaker-carousel-title-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Organization</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Organization font size (px)"
+        min={1}
+        value={c.orgFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ orgFontSize: v })}
+        testId="input-speaker-carousel-org-font-size"
+      />
+
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(v) => set({ emptyText: v })}
+        testId="input-speaker-carousel-empty"
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // ARTICLE / NEWS LIST
 // ============================================================================
 function ArticleListRender({ block, breakpoint, asEditor }) {
@@ -2329,6 +2830,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <EventCarouselRender {...props} asEditor />,
     Renderer: EventCarouselRender,
     Inspector: EventCarouselInspector,
+  },
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: {
+    label: 'Speaker carousel',
+    icon: Mic,
+    category: 'data',
+    Editor: (props) => <SpeakerCarouselRender {...props} asEditor />,
+    Renderer: SpeakerCarouselRender,
+    Inspector: SpeakerCarouselInspector,
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
     label: 'Article / news list',

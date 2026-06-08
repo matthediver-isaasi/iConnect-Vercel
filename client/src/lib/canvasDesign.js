@@ -157,6 +157,7 @@ export const BLOCK_TYPES = {
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
   EVENT_CAROUSEL: 'event-carousel',
+  SPEAKER_CAROUSEL: 'speaker-carousel',
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
   FORM_EMBED: 'form-embed',
@@ -609,6 +610,22 @@ export const BLOCK_DEFAULTS = {
       showArrows: true,
       showIndicators: true,
       emptyText: 'Pick one or more events in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: {
+    name: 'Speaker carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      ctaLabel: 'See all speakers',
+      showJobTitle: true,
+      showOrganization: true,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      emptyText: 'Pick an event with assigned speakers in the inspector.',
     },
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
@@ -1146,6 +1163,9 @@ export function validateBlock(block) {
     case BLOCK_TYPES.EVENT_TEASER:
       if (!c.eventId && !c.eventSlug) errors.push('Event teaser requires an event.');
       break;
+    case BLOCK_TYPES.SPEAKER_CAROUSEL:
+      if (!c.eventId) errors.push('Speaker carousel requires an event.');
+      break;
     case BLOCK_TYPES.FORM_EMBED:
       if (!c.formSlug) errors.push('Form embed requires a form.');
       break;
@@ -1258,6 +1278,11 @@ const RESPONSIVE_VAR_FIELDS = {
     { contentKey: 'summaryLineHeight',   varName: '--cb-ev-summary-lh', unit: '' },
     { contentKey: 'dateIconSize',        varName: '--cb-ev-date-icon',  unit: 'px' },
     { contentKey: 'placeholderIconSize', varName: '--cb-ev-ph-icon',    unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: [
+    { contentKey: 'nameFontSize',  varName: '--cb-sp-name-fs',  unit: 'px' },
+    { contentKey: 'titleFontSize', varName: '--cb-sp-title-fs', unit: 'px' },
+    { contentKey: 'orgFontSize',   varName: '--cb-sp-org-fs',   unit: 'px' },
   ],
   [BLOCK_TYPES.ICON]: [
     { contentKey: 'size', varName: '--cb-icon-size', unit: 'px' },
