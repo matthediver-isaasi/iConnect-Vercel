@@ -474,6 +474,46 @@ export default async function handler(req, res) {
         }
       }
 
+      // Enforce per-organisation role capacity (role.max_members) when a member's
+      // role is changed. Mirrors the form-application capacity logic so the limit
+      // cannot be bypassed via this update path. Uses beforeData (fetched above for
+      // member entities) for the member's organisation and previous role.
+      if (entityNormalized === 'member' && 'role_id' in sanitizedBody && sanitizedBody.role_id) {
+        const newRoleId = sanitizedBody.role_id;
+        const previousRoleId = beforeData?.role_id || null;
+        if (newRoleId !== previousRoleId) {
+          const { data: roleRow, error: roleFetchError } = await supabase
+            .from('role')
+            .select('id, name, max_members')
+            .eq('id', newRoleId)
+            .single();
+
+          if (!roleFetchError && roleRow && roleRow.max_members !== null && roleRow.max_members !== undefined) {
+            const organizationId = beforeData?.organization_id || null;
+            if (!organizationId) {
+              return res.status(400).json({ error: 'Organization context required to assign a capacity-limited role' });
+            }
+
+            const { count, error: countError } = await supabase
+              .from('member')
+              .select('id', { count: 'exact', head: true })
+              .eq('role_id', newRoleId)
+              .eq('organization_id', organizationId)
+              .eq('login_enabled', true)
+              .neq('id', id);
+
+            if (!countError) {
+              const currentCount = count || 0;
+              if (currentCount >= roleRow.max_members) {
+                return res.status(409).json({
+                  error: `The "${roleRow.name}" role is full (${currentCount}/${roleRow.max_members}) for this organisation.`
+                });
+              }
+            }
+          }
+        }
+      }
+
       // Build PATCH query with tenant isolation
       let patchQuery = supabase
         .from(tableName)

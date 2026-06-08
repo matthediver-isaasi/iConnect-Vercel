@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus, Link, Copy, Check, UserCheck, Infinity as InfinityIcon, AlertTriangle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatDistanceToNow, differenceInCalendarDays } from "date-fns";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { formatDistanceToNow, differenceInCalendarDays, format } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -35,7 +36,7 @@ export default function TeamPage({ hasBanner }) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSubject, setInviteSubject] = useState("");
   const [inviteBody, setInviteBody] = useState("");
-  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "" });
+  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "", role_id: "none", role_effective_from: null });
   const [signupLinkCopied, setSignupLinkCopied] = useState(false);
   // Local edit state for the per-org Guest Access card. Mirrors the
   // organisation row but lets the admin tweak the period without saving on
@@ -379,7 +380,8 @@ export default function TeamPage({ hasBanner }) {
       setEditingMember(null);
     },
     onError: (error) => {
-      toast.error('Failed to update member');
+      const serverMsg = error?.response?.data?.error || error?.message;
+      toast.error(serverMsg || 'Failed to update member');
     }
   });
 
@@ -503,7 +505,9 @@ export default function TeamPage({ hasBanner }) {
       job_title: member.job_title || "",
       email: member.email || "",
       profile_photo_url: member.profile_photo_url || "",
-      linkedin_url: member.linkedin_url || ""
+      linkedin_url: member.linkedin_url || "",
+      role_id: member.role_id || "none",
+      role_effective_from: member.role_effective_from || null
     });
   };
 
@@ -511,7 +515,7 @@ export default function TeamPage({ hasBanner }) {
     setEditForm({ ...editForm, profile_photo_url: "" });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     // Validate email uniqueness
     const emailExists = teamMembers.some(
       m => m.id !== editingMember.id && m.email.toLowerCase() === editForm.email.toLowerCase()
@@ -527,16 +531,60 @@ export default function TeamPage({ hasBanner }) {
       return;
     }
 
+    const newRoleId = editForm.role_id === "none" ? null : editForm.role_id;
+    const roleChanged = (newRoleId || null) !== (editingMember.role_id || null);
+    const selectedRole = newRoleId ? roles.find(r => r.id === newRoleId) : null;
+
+    // When assigning a role that requires an Effective From date, enforce it.
+    let effectiveFrom = editForm.role_effective_from || null;
+    if (newRoleId && selectedRole?.requires_effective_from_date) {
+      if (!effectiveFrom) {
+        toast.error('Please select an Effective From date for this role');
+        return;
+      }
+    } else {
+      // Roles that don't require a date should not carry one.
+      effectiveFrom = null;
+    }
+
+    // Client-side capacity pre-check (per-organisation) when the role changes to
+    // a capacity-limited role. The server enforces this too.
+    if (roleChanged && newRoleId && selectedRole?.max_members != null) {
+      const orgId = editingMember.organization_id || memberInfo?.organization_id;
+      if (orgId) {
+        try {
+          const resp = await fetch(`/api/public/role/${newRoleId}/capacity?orgId=${encodeURIComponent(orgId)}`);
+          if (resp.ok) {
+            const cap = await resp.json();
+            if (cap && cap.hasCapacity === false) {
+              toast.error(`The "${selectedRole.name}" role is full (${cap.currentCount ?? selectedRole.max_members}/${cap.maxMembers ?? selectedRole.max_members}) for this organisation.`);
+              return;
+            }
+          }
+        } catch (err) {
+          // Network error: let the server-side check be the source of truth.
+          console.error('Role capacity pre-check failed:', err);
+        }
+      }
+    }
+
+    const data = {
+      first_name: editForm.first_name,
+      last_name: editForm.last_name,
+      job_title: editForm.job_title,
+      email: editForm.email,
+      profile_photo_url: editForm.profile_photo_url,
+      linkedin_url: editForm.linkedin_url
+    };
+
+    if (roleChanged || effectiveFrom !== (editingMember.role_effective_from || null)) {
+      data.role_id = newRoleId;
+      data.role_effective_from = effectiveFrom;
+    }
+
     updateMemberMutation.mutate({
       memberId: editingMember.id,
-      data: {
-        first_name: editForm.first_name,
-        last_name: editForm.last_name,
-        job_title: editForm.job_title,
-        email: editForm.email,
-        profile_photo_url: editForm.profile_photo_url,
-        linkedin_url: editForm.linkedin_url
-      }
+      data
     });
   };
 
@@ -1179,6 +1227,76 @@ export default function TeamPage({ hasBanner }) {
                 placeholder="https://www.linkedin.com/in/username"
               />
             </div>
+
+            {!isFeatureExcluded('element_TeamEditMember') && (
+              <div className="space-y-2">
+                <Label htmlFor="role_id">Role</Label>
+                <Select
+                  value={editForm.role_id}
+                  onValueChange={(value) => {
+                    const nextRole = value === "none" ? null : roles.find(r => r.id === value);
+                    setEditForm({
+                      ...editForm,
+                      role_id: value,
+                      // Clear any stale effective-from when switching to a role
+                      // that doesn't require one (or to no role).
+                      role_effective_from: nextRole?.requires_effective_from_date ? editForm.role_effective_from : null
+                    });
+                  }}
+                >
+                  <SelectTrigger id="role_id" data-testid="select-edit-member-role">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      <span className="text-slate-500">No Role</span>
+                    </SelectItem>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id} data-testid={`option-role-${role.id}`}>
+                        <div className="flex items-center gap-2">
+                          <Shield className="w-3 h-3" />
+                          {role.name}
+                          {role.is_default && (
+                            <span className="text-xs text-green-600">(Default)</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {editForm.role_id !== "none" && roles.find(r => r.id === editForm.role_id)?.requires_effective_from_date && (
+                  <div className="space-y-1 pt-1">
+                    <Label className="text-xs text-slate-600">Effective From Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full justify-start text-left font-normal"
+                          data-testid="button-role-effective-from"
+                        >
+                          <Calendar className="mr-2 h-4 w-4" />
+                          {editForm.role_effective_from ? (
+                            format(new Date(editForm.role_effective_from), 'dd MMM yyyy')
+                          ) : (
+                            <span className="text-slate-500">Pick a date</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarPicker
+                          mode="single"
+                          selected={editForm.role_effective_from ? new Date(editForm.role_effective_from) : undefined}
+                          onSelect={(d) => setEditForm({ ...editForm, role_effective_from: d ? format(d, 'yyyy-MM-dd') : null })}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
