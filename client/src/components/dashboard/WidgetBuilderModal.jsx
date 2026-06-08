@@ -150,6 +150,7 @@ function buildFieldOptions(source) {
     fieldId: null,
     type: f.type,
     aggregatable: !!f.aggregatable,
+    options: Array.isArray(f.options) ? f.options : null,
   }));
   const custom = (source.customFields || []).map(f => ({
     value: `custom:${f.id}`,
@@ -159,6 +160,7 @@ function buildFieldOptions(source) {
     fieldId: f.id,
     type: f.type,
     aggregatable: !!f.aggregatable,
+    options: Array.isArray(f.options) ? f.options : null,
   }));
   return [...system, ...custom];
 }
@@ -814,7 +816,30 @@ export default function WidgetBuilderModal({
                             ))}
                         </SelectContent>
                       </Select>
-                      {!["is_null", "is_not_null", "lmic"].includes(filter.operator) ? (
+                      {["is_null", "is_not_null", "lmic"].includes(filter.operator) ? (
+                        <div />
+                      ) : opt?.options?.length &&
+                        ["eq", "neq"].includes(filter.operator) ? (
+                        <Select
+                          value={
+                            filter.value === null || filter.value === undefined
+                              ? ""
+                              : String(filter.value)
+                          }
+                          onValueChange={value => updateFilter(idx, { value })}
+                        >
+                          <SelectTrigger data-testid={`select-filter-value-${idx}`}>
+                            <SelectValue placeholder="Choose value" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {opt.options.map(o => (
+                              <SelectItem key={o.value} value={String(o.value)}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
                         <Input
                           value={
                             Array.isArray(filter.value)
@@ -831,8 +856,6 @@ export default function WidgetBuilderModal({
                           }
                           data-testid={`input-filter-value-${idx}`}
                         />
-                      ) : (
-                        <div />
                       )}
                       <Button
                         type="button"

@@ -114,15 +114,66 @@ export const DASHBOARD_SOURCES = {
  * Returns serialisable source descriptors enriched with custom fields for
  * the supplied tenant. Falls back gracefully when preference lookups fail.
  */
+/**
+ * For the DD Submissions source, the `form_id` system field is a
+ * reference with no fixed option set. The widget builder can't render a
+ * meaningful picker without knowing the tenant's Due Diligence forms, so
+ * we hydrate the field's `options` here with the tenant's DD-configured
+ * forms (id + name). Only forms that have an active DD config are
+ * returned — these are exactly the forms the aggregation engine counts.
+ */
+async function getDdFormOptions(tenantId) {
+  if (!supabase || !tenantId) return [];
+  try {
+    const { data: configs, error: cfgErr } = await supabase
+      .from('form_due_diligence_config')
+      .select('form_id')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+    if (cfgErr) throw cfgErr;
+    const formIds = Array.from(
+      new Set((configs || []).map(c => c.form_id).filter(Boolean)),
+    );
+    if (formIds.length === 0) return [];
+    const { data: forms, error: formErr } = await supabase
+      .from('form')
+      .select('id, name')
+      .eq('tenant_id', tenantId)
+      .in('id', formIds);
+    if (formErr) throw formErr;
+    return (forms || [])
+      .map(f => ({ value: f.id, label: f.name || f.id }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  } catch (err) {
+    console.error('[Dashboard Sources] Failed to load DD form options:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Returns a copy of `systemFields` with dynamic, tenant-specific option
+ * sets injected. Currently only the DD source's `form_id` field needs
+ * this (its options are the tenant's DD forms). Other sources/fields are
+ * returned unchanged.
+ */
+async function resolveSystemFields(def, tenantId) {
+  if (!def.isDd) return def.systemFields;
+  const formOptions = await getDdFormOptions(tenantId);
+  return def.systemFields.map(f =>
+    f.name === 'form_id' ? { ...f, options: formOptions } : f,
+  );
+}
+
 export async function getSourceCatalog(tenantId) {
   const sources = [];
   for (const def of Object.values(DASHBOARD_SOURCES)) {
     const customFields = await getCustomFieldsForSource(def, tenantId);
+    const systemFields = await resolveSystemFields(def, tenantId);
     sources.push({
       id: def.id,
       label: def.label,
       timestampField: def.timestampField,
-      systemFields: def.systemFields,
+      systemFields,
       customFields,
     });
   }
