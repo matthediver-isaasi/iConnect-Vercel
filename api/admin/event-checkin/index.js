@@ -213,7 +213,7 @@ async function dashboard(req, res, context) {
 
   const { data: bookings } = await supabase
     .from('booking')
-    .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference, check_in_token, checked_in_at, checked_in_by')
+    .select('id, attendee_first_name, attendee_last_name, attendee_email, designation, buddy, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference, check_in_token, checked_in_at, checked_in_by')
     .eq('event_id', eventId)
     .eq('tenant_id', context.tenantId)
     .eq('status', 'confirmed')
@@ -257,6 +257,7 @@ async function dashboard(req, res, context) {
       last_name: b.attendee_last_name,
       email: b.attendee_email,
       designation: b.designation || null,
+      buddy: !!b.buddy,
       dietary_selections: b.dietary_selections || null,
       allergy_selections: b.allergy_selections || null,
       accessibility_selections: b.accessibility_selections || null,
@@ -308,7 +309,7 @@ async function complexDashboard(req, res, context, eventId, filters) {
   // dashboard reflects every registered attendee/session.
   const { data: confirmedBookings } = await supabase
     .from('complex_event_booking')
-    .select('id, tenant_id, event_id, ticket_class_id, attendee_first_name, attendee_last_name, attendee_email, designation, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference')
+    .select('id, tenant_id, event_id, ticket_class_id, attendee_first_name, attendee_last_name, attendee_email, designation, buddy, dietary_selections, allergy_selections, accessibility_selections, ticket_class_name, booking_reference')
     .eq('event_id', eventId)
     .eq('tenant_id', context.tenantId)
     .eq('status', 'confirmed');
@@ -391,6 +392,7 @@ async function complexDashboard(req, res, context, eventId, filters) {
         last_name: cb.attendee_last_name,
         email: cb.attendee_email,
         designation: cb.designation || null,
+        buddy: !!cb.buddy,
         dietary_selections: cb.dietary_selections || null,
         allergy_selections: cb.allergy_selections || null,
         accessibility_selections: cb.accessibility_selections || null,

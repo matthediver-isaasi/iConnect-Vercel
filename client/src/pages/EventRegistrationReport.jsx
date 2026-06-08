@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -305,6 +306,84 @@ export default function EventRegistrationReport() {
       toast.error(error.message || 'Failed to update designation');
     },
   });
+
+  const updateBuddyMutation = useMutation({
+    mutationFn: async ({ eventId, bookingId, buddy }) => {
+      const response = await fetch(`/api/admin/events/${eventId}/attendees/buddy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId, buddy }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update buddy');
+      return data;
+    },
+    onMutate: async ({ bookingId, buddy }) => {
+      const key = ['event-registration-report', appliedFilters];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old) => {
+        if (!old?.bookingGroups) return old;
+        return {
+          ...old,
+          bookingGroups: old.bookingGroups.map(group => ({
+            ...group,
+            attendees: group.attendees.map(a =>
+              a.id === bookingId ? { ...a, buddy } : a
+            ),
+          })),
+        };
+      });
+      return { previous, key };
+    },
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous && ctx?.key) {
+        queryClient.setQueryData(ctx.key, ctx.previous);
+      }
+      toast.error(error.message || 'Failed to update buddy');
+    },
+    onSuccess: (data, _vars, ctx) => {
+      queryClient.setQueryData(ctx?.key || ['event-registration-report', appliedFilters], (old) => {
+        if (!old?.bookingGroups) return old;
+        return {
+          ...old,
+          bookingGroups: old.bookingGroups.map(group => ({
+            ...group,
+            attendees: group.attendees.map(a =>
+              a.id === data.bookingId ? { ...a, buddy: !!data.buddy } : a
+            ),
+          })),
+        };
+      });
+    },
+  });
+
+  const renderBuddyCell = (attendee, eventId) => {
+    const pending =
+      updateBuddyMutation.isPending &&
+      updateBuddyMutation.variables?.bookingId === attendee.id;
+    return (
+      <div className="flex items-center gap-1.5">
+        <Switch
+          checked={!!attendee.buddy}
+          onCheckedChange={(checked) => {
+            if (!attendee.id || !eventId) return;
+            updateBuddyMutation.mutate({ eventId, bookingId: attendee.id, buddy: checked });
+          }}
+          disabled={!attendee.id || !eventId || pending}
+          aria-label={attendee.buddy ? 'Unmark as buddy' : 'Mark as buddy'}
+          data-testid={`switch-buddy-${attendee.id}`}
+        />
+        {attendee.buddy && (
+          <Badge variant="secondary" className="gap-1" data-testid={`badge-buddy-${attendee.id}`}>
+            <UserPlus className="w-3 h-3" />
+            Buddy
+          </Badge>
+        )}
+      </div>
+    );
+  };
 
   const startEditingDesignation = (attendee) => {
     setEditingDesignationId(attendee.id);
@@ -616,6 +695,7 @@ export default function EventRegistrationReport() {
       'Name',
       'Email',
       'Designation',
+      'Buddy',
       'Dietary Requirements',
       'Allergies',
       'Accessibility Needs',
@@ -663,6 +743,7 @@ export default function EventRegistrationReport() {
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
           a.attendee_email || '',
           a.designation || '',
+          a.buddy ? 'Yes' : 'No',
           formatDietarySelections(a.dietary_selections),
           formatAllergySelections(a.allergy_selections),
           formatAccessibilitySelections(a.accessibility_selections),
@@ -1274,6 +1355,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">3rd Party Consent</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Designation</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Buddy</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Dietary &amp; Access</th>
                           {showAttendanceColumn && (
                             <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
@@ -1368,6 +1450,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {renderDesignationCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap" data-testid={`cell-buddy-${attendee.id}`}>
+                                  {renderBuddyCell(attendee, group.eventId)}
                                 </td>
                                 <td className="py-3 pr-3 align-top">
                                   {renderOptionsCell(attendee)}
@@ -1481,6 +1566,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
                                 <td className="py-2 pr-3"></td>
+                                <td className="py-2 pr-3"></td>
                                 {showAttendanceColumn && <td className="py-2"></td>}
                               </tr>
                             );
@@ -1553,6 +1639,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   {renderDesignationCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap" data-testid={`cell-buddy-${attendee.id}`}>
+                                  {renderBuddyCell(attendee, group.eventId)}
                                 </td>
                                 <td className="py-2 pr-3 align-top">
                                   {renderOptionsCell(attendee)}
