@@ -235,6 +235,22 @@ export default function CommunicationsManagementPage() {
     staleTime: 30000,
   });
 
+  const { data: audienceListCounts = {}, isLoading: audienceCountsLoading } = useQuery({
+    queryKey: ['audience-list-counts'],
+    queryFn: async () => {
+      const response = await fetch('/api/audience-lists/counts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) return {};
+      const data = await response.json();
+      return data.counts || {};
+    },
+    enabled: audienceLists.length > 0,
+    staleTime: 30000,
+  });
+
   const { data: blankPageSetting } = useQuery({
     queryKey: ['email-preferences-blank-page-setting'],
     queryFn: async () => {
@@ -1352,9 +1368,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-base font-semibold text-slate-900" data-testid={`text-list-name-${list.id}`}>
-                                {list.name}
-                              </h4>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-base font-semibold text-slate-900" data-testid={`text-list-name-${list.id}`}>
+                                  {list.name}
+                                </h4>
+                                {audienceCountsLoading && audienceListCounts[list.id] === undefined ? (
+                                  <Badge variant="secondary" className="text-xs" data-testid={`badge-list-count-loading-${list.id}`}>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  </Badge>
+                                ) : audienceListCounts[list.id] !== undefined ? (
+                                  <Badge variant="secondary" className="text-xs" data-testid={`badge-list-count-${list.id}`}>
+                                    {audienceListCounts[list.id]} {audienceListCounts[list.id] === 1 ? 'recipient' : 'recipients'}
+                                  </Badge>
+                                ) : null}
+                              </div>
                               <div className="flex flex-wrap gap-1 mt-2" data-testid={`text-list-rules-${list.id}`}>
                                 {(list.target_audiences || []).length === 0 ? (
                                   <span className="text-sm text-slate-400 italic">No audience rules defined</span>
