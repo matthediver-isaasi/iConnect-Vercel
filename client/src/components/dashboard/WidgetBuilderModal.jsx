@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -200,6 +201,7 @@ export default function WidgetBuilderModal({
           measure: seed.config?.measure || cloneDraft(DEFAULT_DRAFT).config.measure,
           groupBy: seed.config?.groupBy || null,
           timeBucket: seed.config?.timeBucket || null,
+          cumulative: !!seed.config?.cumulative,
           filters: seed.config?.filters || [],
         },
       });
@@ -412,7 +414,19 @@ export default function WidgetBuilderModal({
                 <Label>Chart type</Label>
                 <Select
                   value={draft.widget_type}
-                  onValueChange={value => setDraft(prev => ({ ...prev, widget_type: value }))}
+                  onValueChange={value =>
+                    setDraft(prev => ({
+                      ...prev,
+                      widget_type: value,
+                      // Cumulative only applies to line charts; clear the
+                      // flag when switching to any other type so an invalid
+                      // combination can never be saved.
+                      config:
+                        value === "line"
+                          ? prev.config
+                          : { ...prev.config, cumulative: false },
+                    }))
+                  }
                 >
                   <SelectTrigger data-testid="select-widget-type">
                     <SelectValue />
@@ -527,6 +541,7 @@ export default function WidgetBuilderModal({
                       measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
                       groupBy: null,
                       timeBucket: null,
+                      cumulative: false,
                       filters: [],
                     },
                   }))
@@ -670,7 +685,9 @@ export default function WidgetBuilderModal({
                   })()}
                   onValueChange={value => {
                     if (value === "__none__") {
-                      updateConfig({ timeBucket: null });
+                      // Clearing the bucket invalidates a cumulative line, so
+                      // drop the flag alongside it.
+                      updateConfig({ timeBucket: null, cumulative: false });
                       return;
                     }
                     const opt = fieldOptions.find(o => o.value === value);
@@ -731,6 +748,28 @@ export default function WidgetBuilderModal({
                 </Select>
               </div>
             </div>
+
+            {draft.widget_type === "line" && draft.config.timeBucket?.field && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="switch-widget-cumulative">
+                    Cumulative (running total)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Plot a running total across buckets instead of the
+                    value per bucket.
+                  </p>
+                </div>
+                <Switch
+                  id="switch-widget-cumulative"
+                  data-testid="switch-widget-cumulative"
+                  checked={!!draft.config.cumulative}
+                  onCheckedChange={checked =>
+                    updateConfig({ cumulative: checked })
+                  }
+                />
+              </div>
+            )}
 
             <Separator />
 

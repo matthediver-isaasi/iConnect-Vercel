@@ -285,13 +285,26 @@ export async function runWidgetConfig(config, tenantId) {
       `Use a coarser granularity or add a date filter.`,
     );
   }
+  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
   return {
     type: 'time',
     total: workingRows.length,
     categories: ['value'],
-    rows: sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) })),
+    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
     granularity: timeBucket.granularity,
   };
+}
+
+// Transform sorted per-bucket rows into a running total: each row's value
+// becomes the sum of its own aggregate plus every preceding bucket. Used by
+// time-bucketed line widgets when `config.cumulative` is enabled so the chart
+// plots a monotonically rising total instead of per-bucket values.
+function applyCumulative(rows) {
+  let runningTotal = 0;
+  return rows.map(row => {
+    runningTotal += Number(row.value) || 0;
+    return { ...row, value: runningTotal };
+  });
 }
 
 function needsLmicResolution(config) {
@@ -984,11 +997,12 @@ async function runDdWidgetConfig(config, tenantId, source) {
       `Use a coarser granularity or add a date filter.`,
     );
   }
+  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
   return {
     type: 'time',
     total: workingRows.length,
     categories: ['value'],
-    rows: sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) })),
+    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
     granularity: timeBucket.granularity,
   };
 }

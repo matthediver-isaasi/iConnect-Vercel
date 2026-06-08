@@ -56,6 +56,11 @@ export const widgetConfigSchema = z.object({
   measure: measureSchema,
   groupBy: groupBySchema.nullable().optional(),
   timeBucket: timeBucketSchema.nullable().optional(),
+  // When true, time-bucketed line charts plot a running total across
+  // buckets (each point = its own aggregate + all earlier buckets)
+  // instead of the per-bucket value. Defaults to off; ignored for
+  // scalar and grouped widgets.
+  cumulative: z.boolean().optional(),
   filters: z.array(filterSchema).default([]),
 }).passthrough();
 
