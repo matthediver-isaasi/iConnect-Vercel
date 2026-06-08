@@ -256,22 +256,22 @@ function parseAddressLinesQbo(addressText) {
   if (!addressText) return null;
   const lines = addressText.split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return null;
+
+  // QuickBooks' BillAddr (PhysicalAddress) supports Line1–Line5, which render
+  // verbatim, one per line, in the order given. Mapping each input line
+  // straight to Line1…Line5 preserves exactly what the user entered. (The
+  // old approach spread lines across the semantic City/PostalCode/Country
+  // fields, which QBO re-orders on its own display, scrambling the address.)
   const address = {};
-  if (lines.length === 1) {
-    address.Line1 = lines[0];
-  } else if (lines.length === 2) {
-    address.Line1 = lines[0];
-    address.City = lines[1];
-  } else if (lines.length === 3) {
-    address.Line1 = lines[0];
-    address.City = lines[1];
-    address.PostalCode = lines[2];
-  } else {
-    address.Line1 = lines[0];
-    address.Line2 = lines[1];
-    address.City = lines[2];
-    address.PostalCode = lines[3];
-    if (lines[4]) address.Country = lines[4];
+  const MAX_LINES = 5;
+  const capped = lines.slice(0, MAX_LINES);
+  capped.forEach((line, i) => {
+    address[`Line${i + 1}`] = line;
+  });
+  // If there are more than 5 lines, fold the overflow into Line5 rather than
+  // dropping data.
+  if (lines.length > MAX_LINES) {
+    address.Line5 = lines.slice(MAX_LINES - 1).join(', ');
   }
   return address;
 }
