@@ -1870,6 +1870,289 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// SPONSOR GRID
+// ============================================================================
+function useEventSponsors(eventValue) {
+  const value = eventValue ? String(eventValue) : '';
+  const { data: allEvents } = useQuery({
+    queryKey: ['canvas', 'public-events'],
+    queryFn: () => publicClient.listEvents(),
+    staleTime: 60_000,
+    enabled: !!value,
+  });
+  const resolved = useMemo(() => {
+    if (!value || !Array.isArray(allEvents)) return null;
+    const match = allEvents.find(
+      (e) => String(e.slug) === value || String(e.id) === value,
+    );
+    if (!match) return null;
+    const eventType = (match.event_type === 'complex' || match.is_complex) ? 'complex' : 'simple';
+    return { id: match.id, eventType };
+  }, [allEvents, value]);
+
+  const { data, isLoading: sponsorsLoading, isError } = useQuery({
+    queryKey: ['canvas', 'sponsor-grid', resolved?.id, resolved?.eventType],
+    queryFn: () => publicClient.getEventSponsors(resolved.id, resolved.eventType),
+    staleTime: 60_000,
+    enabled: !!resolved?.id,
+  });
+
+  const groups = useMemo(() => {
+    const sponsors = Array.isArray(data?.sponsors) ? data.sponsors : [];
+    const categories = Array.isArray(data?.categories) ? data.categories : [];
+    const assignments = Array.isArray(data?.assignments) ? data.assignments : [];
+    if (sponsors.length === 0) return [];
+    const sponsorById = new Map(sponsors.map((s) => [String(s.id), s]));
+    const catMeta = new Map();
+    categories.forEach((cat, i) => {
+      catMeta.set(String(cat.id), {
+        name: cat.name || '',
+        order: Number.isFinite(cat.display_order) ? cat.display_order : i,
+      });
+    });
+    const byCat = new Map();
+    const pushTo = (key, sponsor) => {
+      if (!byCat.has(key)) byCat.set(key, []);
+      byCat.get(key).push(sponsor);
+    };
+    // Category membership is event-scoped: use the assignment rows
+    // (sponsor_id -> category_id for THIS event), not the sponsor's global
+    // category. A sponsor assigned to multiple categories appears in each.
+    if (assignments.length > 0) {
+      for (const a of assignments) {
+        const sponsor = sponsorById.get(String(a.sponsor_id));
+        if (!sponsor) continue;
+        pushTo(a.category_id ? String(a.category_id) : '__none__', sponsor);
+      }
+    } else {
+      for (const s of sponsors) {
+        pushTo(s.category_id ? String(s.category_id) : '__none__', s);
+      }
+    }
+    const result = [];
+    for (const [key, list] of byCat.entries()) {
+      if (key === '__none__') continue;
+      const meta = catMeta.get(key);
+      result.push({ id: key, name: meta?.name || '', order: meta?.order ?? 9998, sponsors: list });
+    }
+    result.sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name));
+    if (byCat.has('__none__')) {
+      result.push({ id: '__none__', name: 'Other', order: 9999, sponsors: byCat.get('__none__') });
+    }
+    return result;
+  }, [data]);
+
+  const resolvingEvent = !!value && !Array.isArray(allEvents);
+  const loadingSponsors = !!resolved?.id && sponsorsLoading;
+
+  return {
+    hasEvent: !!value,
+    groups,
+    totalSponsors: Array.isArray(data?.sponsors) ? data.sponsors.length : 0,
+    isLoading: resolvingEvent || loadingSponsors,
+    isError,
+  };
+}
+
+function SponsorCard({ sponsor, showDescription, nameStyle, descStyle }) {
+  const inner = (
+    <>
+      <div className="aspect-[16/9] bg-white flex items-center justify-center p-4 border-b border-slate-100">
+        {sponsor.logo_url ? (
+          <img
+            src={sponsor.logo_url}
+            alt={sponsor.name || ''}
+            className="max-w-full max-h-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <Building2 className="w-8 h-8 text-slate-300" aria-hidden="true" />
+        )}
+      </div>
+      <div className="p-3 flex flex-col gap-1">
+        <div
+          className="text-sm font-semibold text-slate-900"
+          style={nameStyle}
+          data-testid={`text-sponsor-name-${sponsor.id}`}
+        >
+          {sponsor.name}
+        </div>
+        {showDescription && sponsor.description ? (
+          <div className="text-xs text-slate-500" style={descStyle}>{sponsor.description}</div>
+        ) : null}
+      </div>
+    </>
+  );
+  const className = 'rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full';
+  if (sponsor.website_url) {
+    return (
+      <a
+        href={sponsor.website_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+        data-testid={`link-sponsor-${sponsor.id}`}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <div className={className} data-testid={`card-sponsor-${sponsor.id}`}>{inner}</div>;
+}
+
+function SponsorGridRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const gap = c.gap ?? 16;
+
+  // Empty / no-sponsor states show an editor placeholder, but render nothing
+  // disruptive on the published public page.
+  if (!hasEvent) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text={c.emptyText || 'Pick an event with assigned sponsors in the inspector.'} />;
+  }
+  if (isLoading) return <ListSkeleton count={Math.min(totalSponsors || 4, 4)} columns={cols} gap={gap} />;
+  if (isError) {
+    if (!asEditor) return null;
+    return <ErrorState message="Couldn't load sponsors right now." />;
+  }
+  if (totalSponsors === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text="The selected event has no sponsors yet." />;
+  }
+
+  // Responsive font sizing — inline px literal in forced-breakpoint preview,
+  // CSS var (driven by buildCanvasCss @media rules) on real public pages.
+  const isForcedPreview = !!breakpoint;
+  const nameFontSize = resolveResponsiveValue(c.nameFontSize, breakpoint);
+  const descFontSize = resolveResponsiveValue(c.descFontSize, breakpoint);
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+  const nameStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(nameFontSize)) nameStyle.fontSize = `${nameFontSize}px`;
+  } else {
+    const v = cssVar(c.nameFontSize, '--cb-spg-name-fs');
+    if (v) nameStyle.fontSize = v;
+  }
+  const descStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(descFontSize)) descStyle.fontSize = `${descFontSize}px`;
+  } else {
+    const v = cssVar(c.descFontSize, '--cb-spg-desc-fs');
+    if (v) descStyle.fontSize = v;
+  }
+
+  const showHeadings = c.showCategoryHeadings !== false;
+  const showDescription = c.showDescription !== false;
+
+  if (!showHeadings) {
+    const seen = new Set();
+    const all = [];
+    for (const g of groups) {
+      for (const s of g.sponsors) {
+        if (seen.has(String(s.id))) continue;
+        seen.add(String(s.id));
+        all.push(s);
+      }
+    }
+    return (
+      <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
+        <div style={gridStyle(cols, gap)}>
+          {all.map((s) => (
+            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
+      <div className="flex flex-col gap-6">
+        {groups.map((g) => (
+          <div key={g.id} data-testid={`sponsor-group-${g.id}`}>
+            {g.name ? (
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">{g.name}</h3>
+            ) : null}
+            <div style={gridStyle(cols, gap)}>
+              {g.sponsors.map((s) => (
+                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SponsorGridInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <EventCarouselPickerRow
+        value={c.eventId || ''}
+        onChange={(v) => set({ eventId: v })}
+        testId="select-sponsor-grid-event"
+      />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField
+        label="Gap (px)"
+        min={0}
+        value={c.gap ?? 16}
+        onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
+        testId="input-sponsor-grid-gap"
+      />
+      <ToggleField
+        label="Show description"
+        value={c.showDescription !== false}
+        onChange={(v) => set({ showDescription: v })}
+        testId="toggle-sponsor-grid-description"
+      />
+      <ToggleField
+        label="Group by category"
+        value={c.showCategoryHeadings !== false}
+        onChange={(v) => set({ showCategoryHeadings: v })}
+        testId="toggle-sponsor-grid-headings"
+      />
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(v) => set({ emptyText: v })}
+        testId="input-sponsor-grid-empty-text"
+        hint="Shown in the editor when no event or no sponsors are found."
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Sponsor name</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Name font size (px)"
+        min={1}
+        value={c.nameFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ nameFontSize: v })}
+        testId="input-sponsor-grid-name-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Description</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Description font size (px)"
+        min={1}
+        value={c.descFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ descFontSize: v })}
+        testId="input-sponsor-grid-desc-font-size"
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // ARTICLE / NEWS LIST
 // ============================================================================
 function ArticleListRender({ block, breakpoint, asEditor }) {
@@ -2838,6 +3121,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <SpeakerCarouselRender {...props} asEditor />,
     Renderer: SpeakerCarouselRender,
     Inspector: SpeakerCarouselInspector,
+  },
+  [BLOCK_TYPES.SPONSOR_GRID]: {
+    label: 'Sponsor grid',
+    icon: Building2,
+    category: 'data',
+    Editor: (props) => <SponsorGridRender {...props} asEditor />,
+    Renderer: SponsorGridRender,
+    Inspector: SponsorGridInspector,
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
     label: 'Article / news list',
