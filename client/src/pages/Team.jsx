@@ -1251,7 +1251,9 @@ export default function TeamPage({ hasBanner }) {
                     <SelectItem value="none">
                       <span className="text-slate-500">No Role</span>
                     </SelectItem>
-                    {roles.map((role) => (
+                    {roles
+                      .filter((role) => !role.is_tenant_admin || role.id === editForm.role_id)
+                      .map((role) => (
                       <SelectItem key={role.id} value={role.id} data-testid={`option-role-${role.id}`}>
                         <div className="flex items-center gap-2">
                           <Shield className="w-3 h-3" />

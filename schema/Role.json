@@ -28,6 +28,11 @@
         "default": false,
         "description": "Whether this role has administrator privileges"
       },
+      "is_tenant_admin": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this is a tenant-level admin role. When true, the role is hidden from the Role selector in the Edit Member modal on /Team."
+      },
       "show_tours": {
         "type": "boolean",
         "default": true,
