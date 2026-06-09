@@ -2251,8 +2251,15 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
   const bpForInline = isPreview ? breakpoint : 'desktop';
   const headingInline = headingStyleObj
-    ? { margin: 0, marginTop: c.imageUrl ? 12 : 0, ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
-    : { margin: 0, marginTop: c.imageUrl ? 12 : 0, fontSize: '1.125rem', fontWeight: 600 };
+    ? { margin: 0, ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
+    : { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
+  // Inner padding applied to the text/CTA area only — the image stays
+  // full-bleed against the card edges. Defaults to 16; an explicit 0 is
+  // honoured so authors can opt back into a flush layout.
+  const contentPadding = c.contentPadding == null ? 16 : (Number(c.contentPadding) || 0);
+  const ctaJustify = c.ctaAlign === 'center'
+    ? 'center'
+    : c.ctaAlign === 'right' ? 'flex-end' : 'flex-start';
   const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
   const cardResponsiveCss = !isPreview && headingStyleObj && hasResponsiveTypographyOverride(headingStyleObj)
     ? buildTenantTypographyResponsiveCss(`[data-cb="${safeBlockId}"] [data-tg-r="card-heading"]`, headingStyleObj)
@@ -2264,6 +2271,9 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
       )}
       {c.imageUrl && (() => {
         const r = buildResponsiveImage(c.imageUrl, { sizes: '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw' });
+        // Full-bleed header image: round its top corners to match the card
+        // radius and square the bottom, since the padded text area sits below.
+        const cardRadius = (block.style && block.style.borderRadius) || 0;
         return (
           <img
             src={r.src}
@@ -2274,33 +2284,40 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
             decoding="async"
             fetchpriority={priority ? 'high' : undefined}
             className="w-full"
-            style={{ height: 160, objectFit: 'cover', borderRadius: 4 }}
+            style={{
+              height: 160,
+              objectFit: 'cover',
+              borderTopLeftRadius: cardRadius,
+              borderTopRightRadius: cardRadius,
+            }}
           />
         );
       })()}
-      <Heading style={headingInline} data-tg-r="card-heading">
-        {c.heading}
-      </Heading>
-      <div
-        className="prose prose-sm max-w-none mt-1 flex-1 [&_p:last-child]:mb-0"
-        dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
-      />
-      {c.ctaLabel && (() => {
-        const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
-        const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
-        return (
-          <div className="mt-2">
-            <a
-              href={asEditor ? undefined : (c.ctaHref || '#')}
-              className={buttonClasses(c.ctaVariant || 'outline', 'default')}
-              onClick={(e) => { if (asEditor) e.preventDefault(); }}
-            >
-              <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
-              <ArrowRight className="w-4 h-4" />
-            </a>
-          </div>
-        );
-      })()}
+      <div className="flex-1 flex flex-col min-h-0" style={{ padding: contentPadding }}>
+        <Heading style={headingInline} data-tg-r="card-heading">
+          {c.heading}
+        </Heading>
+        <div
+          className="prose prose-sm max-w-none mt-1 flex-1 [&_p:last-child]:mb-0"
+          dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(c.body || '')) }}
+        />
+        {c.ctaLabel && (() => {
+          const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
+          const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
+          return (
+            <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
+              <a
+                href={asEditor ? undefined : (c.ctaHref || '#')}
+                className={buttonClasses(c.ctaVariant || 'outline', 'default')}
+                onClick={(e) => { if (asEditor) e.preventDefault(); }}
+              >
+                <span style={ctaLabelInline || undefined}>{c.ctaLabel}</span>
+                <ArrowRight className="w-4 h-4" />
+              </a>
+            </div>
+          );
+        })()}
+      </div>
     </div>
   );
 }
@@ -2343,6 +2360,14 @@ function CardInspector({ block, update }) {
         testId="select-card-heading-typography"
       />
       <RichTextField label="Body" value={c.body} onChange={(v) => set({ body: v })} testId="input-card-body" />
+      <NumberField
+        label="Content padding (px)"
+        value={c.contentPadding == null ? 16 : c.contentPadding}
+        onChange={(v) => set({ contentPadding: v })}
+        min={0}
+        max={64}
+        testId="input-card-content-padding"
+      />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-card-cta-label" />
       <TypographyStyleField
         label="CTA label style"
@@ -2362,6 +2387,17 @@ function CardInspector({ block, update }) {
           { value: 'ghost', label: 'Ghost' },
         ]}
         testId="select-card-cta-variant"
+      />
+      <SelectField
+        label="CTA alignment"
+        value={c.ctaAlign || 'left'}
+        onChange={(v) => set({ ctaAlign: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-card-cta-align"
       />
     </>
   );

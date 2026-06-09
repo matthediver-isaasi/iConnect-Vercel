@@ -385,16 +385,18 @@ export const BLOCK_DEFAULTS = {
   [BLOCK_TYPES.CARD]: {
     name: 'Card',
     geom: { w: 320, h: 380 },
-    style: { background: 'var(--cb-color-surface, #ffffff)', borderWidth: 1, borderColor: 'var(--cb-color-border, #e2e8f0)', borderRadius: 8, paddingTop: 16, paddingRight: 16, paddingBottom: 16, paddingLeft: 16 },
+    style: { background: 'var(--cb-color-surface, #ffffff)', borderWidth: 1, borderColor: 'var(--cb-color-border, #e2e8f0)', borderRadius: 8, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0 },
     content: {
       imageUrl: '',
       imageAlt: '',
       heading: 'Card heading',
       headingLevel: 3,
       body: '<p>A short description for this card.</p>',
+      contentPadding: 16,
       ctaLabel: 'Learn more',
       ctaHref: '#',
       ctaVariant: 'outline',
+      ctaAlign: 'left',
     },
   },
   [BLOCK_TYPES.STAT]: {
@@ -1024,7 +1026,7 @@ function normalizeBlock(block) {
     hidden: false,
     ...(bp.desktop && typeof bp.desktop === 'object' ? bp.desktop : {}),
   };
-  return {
+  const normalized = {
     id: block.id || generateId(),
     type,
     name: block.name || defaults.name || 'Block',
@@ -1039,6 +1041,35 @@ function normalizeBlock(block) {
       mobile: bp.mobile && typeof bp.mobile === 'object' ? bp.mobile : {},
     },
   };
+
+  // CARD compatibility shim: cards used to carry their inset as outer block
+  // padding (old default 16 all round), which also pushed the header image
+  // off the edges. The card now keeps the image full-bleed and insets only
+  // the text/CTA via `content.contentPadding`. For legacy cards saved with
+  // outer padding but no `contentPadding`, move that padding inward and zero
+  // the outer padding so they render with a single inset + full-bleed image.
+  if (type === BLOCK_TYPES.CARD) {
+    const savedContentPadding = block.content && block.content.contentPadding;
+    const savedStyle = block.style || {};
+    const legacyOuter = Math.max(
+      Number(savedStyle.paddingTop) || 0,
+      Number(savedStyle.paddingRight) || 0,
+      Number(savedStyle.paddingBottom) || 0,
+      Number(savedStyle.paddingLeft) || 0,
+    );
+    if (savedContentPadding == null && legacyOuter > 0) {
+      normalized.content.contentPadding = legacyOuter;
+      normalized.style = {
+        ...normalized.style,
+        paddingTop: 0,
+        paddingRight: 0,
+        paddingBottom: 0,
+        paddingLeft: 0,
+      };
+    }
+  }
+
+  return normalized;
 }
 
 // Resolve geometry/visibility for a block at a given breakpoint by
