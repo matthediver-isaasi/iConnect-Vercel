@@ -49,6 +49,8 @@ import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 
 // Lazy-load the rich text editor — it's heavy (tiptap) and not needed for blocks
 // that don't use it.
@@ -2898,6 +2900,9 @@ function useMegaMenuNarrow(breakpoint) {
 }
 
 function megaItemHasPanel(item) {
+  // An explicit per-item toggle wins; otherwise infer a panel from populated
+  // dropdown/featured content (keeps older blocks without the flag working).
+  if (typeof item?.hasPanel === 'boolean') return item.hasPanel;
   const cols = Array.isArray(item?.columns) ? item.columns : [];
   return cols.length > 0
     || !!item?.featuredImage
@@ -2905,15 +2910,45 @@ function megaItemHasPanel(item) {
     || !!(item?.featuredText && String(item.featuredText).trim());
 }
 
+// Internal paths route through react-router (SPA navigation); external,
+// protocol, mailto/tel and in-page anchors render as a plain <a>. Mirrors the
+// internal-vs-external convention used elsewhere in the app.
+function isExternalHref(href) {
+  if (!href) return false;
+  return /^(https?:)?\/\//i.test(href) || /^(mailto:|tel:)/i.test(href);
+}
+
 function MegaLink({ href, openInNewTab, asEditor, className, style, children, testId }) {
+  const target = openInNewTab ? '_blank' : undefined;
+  const rel = openInNewTab ? 'noopener noreferrer' : undefined;
+  // In the editor, links never navigate — render an inert anchor.
+  if (asEditor) {
+    return (
+      <a
+        className={className}
+        style={style}
+        onClick={(e) => e.preventDefault()}
+        data-testid={testId}
+      >
+        {children}
+      </a>
+    );
+  }
+  if (href && !isExternalHref(href) && !href.startsWith('#')) {
+    const to = href.startsWith('/') ? href : createPageUrl(href);
+    return (
+      <Link to={to} target={target} rel={rel} className={className} style={style} data-testid={testId}>
+        {children}
+      </Link>
+    );
+  }
   return (
     <a
-      href={asEditor ? undefined : (href || '#')}
-      target={openInNewTab ? '_blank' : undefined}
-      rel={openInNewTab ? 'noopener noreferrer' : undefined}
+      href={href || '#'}
+      target={target}
+      rel={rel}
       className={className}
       style={style}
-      onClick={(e) => { if (asEditor) e.preventDefault(); }}
       data-testid={testId}
     >
       {children}
@@ -2928,8 +2963,8 @@ function MegaPanel({ item, asEditor, panelBg, panelFg, accent }) {
     || !!(item?.featuredText && String(item.featuredText).trim());
   return (
     <div
-      className="flex flex-wrap gap-6 rounded-md border border-slate-200 p-5 shadow-lg"
-      style={{ backgroundColor: panelBg, color: panelFg, minWidth: '320px', maxWidth: '720px' }}
+      className="flex w-full flex-wrap gap-6 rounded-md border border-slate-200 p-5 shadow-lg"
+      style={{ backgroundColor: panelBg, color: panelFg }}
     >
       {cols.map((col, ci) => (
         <div key={ci} className="min-w-[160px] flex-1 space-y-2">
@@ -3117,12 +3152,15 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
     );
   }
 
-  // ---- Desktop layout: horizontal bar with overlay dropdowns ----
+  // ---- Desktop layout: horizontal bar with a single full-width dropdown ----
+  const openItem = openIndex != null ? items[openIndex] : null;
+  const panelOpen = !!openItem && megaItemHasPanel(openItem);
   return (
     <div
-      className="w-full h-full rounded-md"
+      className="relative w-full h-full rounded-md"
       style={{ backgroundColor: barBg, color: barFg }}
       onKeyDown={(e) => { if (e.key === 'Escape') setOpenIndex(null); }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpenIndex(null); }}
       data-testid="block-mega-menu"
     >
       <ul className={`flex h-full items-center gap-1 px-3 ${justify}`}>
@@ -3151,9 +3189,6 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
               onMouseEnter={() => openPanel(idx)}
               onMouseLeave={scheduleClose}
               onFocus={() => openPanel(idx)}
-              onBlur={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget)) setOpenIndex(null);
-              }}
             >
               <button
                 type="button"
@@ -3169,29 +3204,34 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
                   className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
                 />
               </button>
-              {/* Overlay panel — toggled via visibility/opacity so opening never
-                  reflows the bar (layout-shift-safe per design guidelines). */}
-              <div
-                className="absolute left-0 top-full z-50 pt-2 transition-opacity duration-150"
-                style={{
-                  visibility: isOpen ? 'visible' : 'hidden',
-                  opacity: isOpen ? 1 : 0,
-                  pointerEvents: isOpen ? 'auto' : 'none',
-                }}
-                data-testid={`mega-panel-${idx}`}
-              >
-                <MegaPanel
-                  item={item}
-                  asEditor={asEditor}
-                  panelBg={panelBg}
-                  panelFg={panelFg}
-                  accent={accent}
-                />
-              </div>
             </li>
           );
         })}
       </ul>
+      {/* Single full-width overlay panel — toggled via visibility/opacity so
+          opening never reflows the bar (layout-shift-safe per design
+          guidelines). Hovering the panel keeps it open. */}
+      <div
+        className="absolute left-0 right-0 top-full z-50 pt-2 transition-opacity duration-150"
+        style={{
+          visibility: panelOpen ? 'visible' : 'hidden',
+          opacity: panelOpen ? 1 : 0,
+          pointerEvents: panelOpen ? 'auto' : 'none',
+        }}
+        onMouseEnter={() => { if (openIndex != null) openPanel(openIndex); }}
+        onMouseLeave={scheduleClose}
+        data-testid="mega-panel"
+      >
+        {openItem && (
+          <MegaPanel
+            item={openItem}
+            asEditor={asEditor}
+            panelBg={panelBg}
+            panelFg={panelFg}
+            accent={accent}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -3248,6 +3288,7 @@ function MegaMenuInspector({ block, update }) {
           onChange={(next) => set({ items: next })}
           makeNew={() => ({
             label: 'New item',
+            hasPanel: false,
             href: '',
             openInNewTab: false,
             columns: [],
@@ -3260,7 +3301,9 @@ function MegaMenuInspector({ block, update }) {
           })}
           addLabel="Add menu item"
           testIdPrefix="mega-item"
-          renderItem={(item, idx, patch) => (
+          renderItem={(item, idx, patch) => {
+            const itemHasPanel = megaItemHasPanel(item);
+            return (
             <div className="space-y-2">
               <TextField
                 label="Label"
@@ -3268,19 +3311,31 @@ function MegaMenuInspector({ block, update }) {
                 onChange={(v) => patch({ label: v })}
                 testId={`mega-item-${idx}-label`}
               />
-              <TextField
-                label="Link URL (used when no dropdown)"
-                value={item.href}
-                onChange={(v) => patch({ href: v })}
-                placeholder="/Home or https://…"
-                testId={`mega-item-${idx}-href`}
-              />
               <ToggleField
-                label="Open link in new tab"
-                value={item.openInNewTab}
-                onChange={(v) => patch({ openInNewTab: v })}
-                testId={`mega-item-${idx}-newtab`}
+                label="Opens a dropdown panel"
+                value={itemHasPanel}
+                onChange={(v) => patch({ hasPanel: v })}
+                testId={`mega-item-${idx}-haspanel`}
               />
+              {!itemHasPanel && (
+                <>
+                  <TextField
+                    label="Link URL"
+                    value={item.href}
+                    onChange={(v) => patch({ href: v })}
+                    placeholder="/Home or https://…"
+                    testId={`mega-item-${idx}-href`}
+                  />
+                  <ToggleField
+                    label="Open link in new tab"
+                    value={item.openInNewTab}
+                    onChange={(v) => patch({ openInNewTab: v })}
+                    testId={`mega-item-${idx}-newtab`}
+                  />
+                </>
+              )}
+              {itemHasPanel && (
+              <>
               <Field label="Dropdown columns">
                 <ArrayList
                   items={item.columns || []}
@@ -3377,8 +3432,11 @@ function MegaMenuInspector({ block, update }) {
                   />
                 </div>
               </Field>
+              </>
+              )}
             </div>
-          )}
+            );
+          }}
         />
       </Field>
     </>

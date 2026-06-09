@@ -606,6 +606,7 @@ export const BLOCK_DEFAULTS = {
       items: [
         {
           label: 'Home',
+          hasPanel: false,
           href: '/Home',
           openInNewTab: false,
           columns: [],
@@ -618,6 +619,7 @@ export const BLOCK_DEFAULTS = {
         },
         {
           label: 'Products',
+          hasPanel: true,
           href: '',
           openInNewTab: false,
           columns: [
@@ -645,6 +647,7 @@ export const BLOCK_DEFAULTS = {
         },
         {
           label: 'Contact',
+          hasPanel: false,
           href: '/Contact',
           openInNewTab: false,
           columns: [],
@@ -1325,10 +1328,15 @@ export function validateBlock(block) {
           errors.push(`Menu item #${i + 1} requires a label.`);
         }
         const cols = Array.isArray(it?.columns) ? it.columns : [];
-        const hasPanel = cols.length > 0
-          || !!it?.featuredImage
-          || !!(it?.featuredTitle && String(it.featuredTitle).trim())
-          || !!(it?.featuredText && String(it.featuredText).trim());
+        // An explicit per-item toggle wins; otherwise infer a panel from
+        // populated dropdown/featured content (keep in sync with
+        // megaItemHasPanel in registry.jsx).
+        const hasPanel = typeof it?.hasPanel === 'boolean'
+          ? it.hasPanel
+          : (cols.length > 0
+            || !!it?.featuredImage
+            || !!(it?.featuredTitle && String(it.featuredTitle).trim())
+            || !!(it?.featuredText && String(it.featuredText).trim()));
         if (!hasPanel && !it?.href) {
           errors.push(`Menu item #${i + 1} needs a link or a dropdown.`);
         }
