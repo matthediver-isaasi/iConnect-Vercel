@@ -153,6 +153,7 @@ export const BLOCK_TYPES = {
   MAP: 'map',
   PRICING_TABLE: 'pricing-table',
   TESTIMONIAL_GRID: 'testimonial-grid',
+  NEWS_TICKER: 'news-ticker',
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
@@ -561,6 +562,28 @@ export const BLOCK_DEFAULTS = {
       query: 'London, UK',
       zoom: 12,
       title: 'Location',
+    },
+  },
+  [BLOCK_TYPES.NEWS_TICKER]: {
+    name: 'News Ticker',
+    geom: { w: 720, h: 48 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 4 },
+    content: {
+      // Free-form text items typed by the editor (NOT linked to news
+      // articles — that's the portal-wide NewsTickerBar's job).
+      items: [
+        { text: 'Welcome — share your latest announcement here.' },
+        { text: 'Add, edit, reorder, or remove items in the Inspector.' },
+        { text: 'Switch between cycling and scrolling display modes.' },
+      ],
+      label: 'Latest:',
+      mode: 'cycling', // cycling | scrolling
+      // Cycling: seconds each item is shown. Scrolling: seconds per item
+      // as it travels across the bar (drives marquee duration).
+      intervalSeconds: 5,
+      // Defaults echo the portal ticker's purple bar.
+      backgroundColor: '#9333ea',
+      textColor: '#ffffff',
     },
   },
   // ---- Dynamic blocks ----

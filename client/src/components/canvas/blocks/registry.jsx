@@ -26,6 +26,7 @@ import {
   RotateCcw,
   Table as TableIcon,
   MessageSquareQuote,
+  Megaphone,
   X,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -2682,6 +2683,185 @@ function MapInspector({ block, update }) {
   );
 }
 
+// NEWS TICKER ----------------------------------------------------------------
+// A static-text ticker bar: editors type their own items in the Inspector
+// (unlike the portal-wide NewsTickerBar.jsx which pulls from published news
+// articles). Two modes share one hook so the editor preview and the public
+// renderer behave identically: `cycling` (one item at a time, vertical slide)
+// and `scrolling` (continuous horizontal marquee).
+
+// Shared cycling logic — advances an index every `intervalSeconds`. Disabled
+// when there are 0/1 items or when the caller opts out (scrolling mode uses a
+// pure-CSS marquee instead). Resets when the item count shrinks so a deleted
+// item never leaves the index out of range.
+function useTickerCycle(count, intervalSeconds, enabled) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!enabled || count <= 1) return undefined;
+    const ms = Math.max(1, Number(intervalSeconds) || 5) * 1000;
+    const t = setInterval(() => setIndex((p) => (p + 1) % count), ms);
+    return () => clearInterval(t);
+  }, [count, intervalSeconds, enabled]);
+  useEffect(() => {
+    setIndex((p) => (p >= count ? 0 : p));
+  }, [count]);
+  return count > 0 ? index % count : 0;
+}
+
+// Pure-CSS marquee: the item run is duplicated so translateX(-50%) loops
+// seamlessly. Loop duration scales with item count * seconds-per-item so the
+// inspector's single speed control feels consistent in both modes. Respects
+// prefers-reduced-motion (animation paused for users who opt out).
+function NewsTickerScroller({ items, intervalSeconds, separatorColor }) {
+  const perItem = Math.max(1, Number(intervalSeconds) || 5);
+  const loopSeconds = Math.max(4, items.length * perItem);
+  const renderRun = (runKey) => items.map((it, i) => (
+    <span key={`${runKey}-${i}`} className="inline-flex items-center whitespace-nowrap">
+      <span>{it.text}</span>
+      <span aria-hidden="true" className="mx-4 opacity-60" style={{ color: separatorColor }}>•</span>
+    </span>
+  ));
+  return (
+    <div className="relative flex-1 overflow-hidden">
+      <style>{`@keyframes cb-ticker-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}@media (prefers-reduced-motion: reduce){.cb-ticker-track{animation:none !important}}`}</style>
+      <div
+        className="cb-ticker-track inline-flex whitespace-nowrap"
+        style={{ animation: `cb-ticker-marquee ${loopSeconds}s linear infinite`, willChange: 'transform' }}
+      >
+        {renderRun('a')}
+        {renderRun('b')}
+      </div>
+    </div>
+  );
+}
+
+function NewsTickerRender({ block }) {
+  const c = block.content || {};
+  const items = (c.items || []).filter(
+    (it) => it && typeof it.text === 'string' && it.text.trim() !== '',
+  );
+  const mode = c.mode === 'scrolling' ? 'scrolling' : 'cycling';
+  const intervalSeconds = Math.max(1, Number(c.intervalSeconds) || 5);
+  const bg = c.backgroundColor || '#9333ea';
+  const fg = c.textColor || '#ffffff';
+  const label = (c.label || '').trim();
+  const index = useTickerCycle(items.length, intervalSeconds, mode === 'cycling');
+
+  if (items.length === 0) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center text-xs"
+        style={{ background: bg, color: fg }}
+        data-testid="news-ticker-empty"
+      >
+        Add ticker items in the Inspector
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-full h-full overflow-hidden flex items-center"
+      style={{ background: bg, color: fg }}
+      role="marquee"
+      aria-label={label || 'News ticker'}
+    >
+      <div className="flex items-center gap-3 w-full h-full px-4">
+        {label ? (
+          <span
+            className="text-xs font-semibold uppercase tracking-wider shrink-0 rounded px-2 py-1"
+            style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+          >
+            {label}
+          </span>
+        ) : null}
+        {mode === 'cycling' ? (
+          <div className="relative flex-1 h-6 overflow-hidden">
+            {items.map((it, i) => (
+              <div
+                key={i}
+                className="absolute inset-0 flex items-center transition-all duration-500"
+                style={{
+                  transform: `translateY(${(i - index) * 100}%)`,
+                  opacity: i === index ? 1 : 0,
+                }}
+              >
+                <span className="truncate">{it.text}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <NewsTickerScroller items={items} intervalSeconds={intervalSeconds} separatorColor={fg} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewsTickerInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const mode = c.mode === 'scrolling' ? 'scrolling' : 'cycling';
+  return (
+    <>
+      <TextField
+        label="Label / prefix"
+        value={c.label}
+        onChange={(v) => set({ label: v })}
+        placeholder="e.g. Latest: (leave blank for none)"
+        testId="input-ticker-label"
+      />
+      <SelectField
+        label="Display mode"
+        value={mode}
+        onChange={(v) => set({ mode: v })}
+        options={[
+          { value: 'cycling', label: 'Cycling (one at a time)' },
+          { value: 'scrolling', label: 'Scrolling (marquee)' },
+        ]}
+        testId="select-ticker-mode"
+      />
+      <NumberField
+        label={mode === 'scrolling' ? 'Speed (seconds per item)' : 'Interval (seconds between items)'}
+        min={1}
+        max={60}
+        value={c.intervalSeconds || 5}
+        onChange={(v) => set({ intervalSeconds: Math.max(1, Math.min(60, Number(v) || 5)) })}
+        testId="input-ticker-interval"
+      />
+      <ColorField
+        label="Background colour"
+        value={c.backgroundColor || '#9333ea'}
+        onChange={(v) => set({ backgroundColor: v })}
+        testId="input-ticker-bg"
+      />
+      <ColorField
+        label="Text colour"
+        value={c.textColor || '#ffffff'}
+        onChange={(v) => set({ textColor: v })}
+        testId="input-ticker-fg"
+      />
+      <Field label="Ticker items">
+        <ArrayList
+          items={c.items || []}
+          onChange={(next) => set({ items: next })}
+          makeNew={() => ({ text: 'New ticker item' })}
+          addLabel="Add item"
+          testIdPrefix="ticker"
+          renderItem={(item, idx, patch) => (
+            <TextField
+              label={`Item ${idx + 1}`}
+              value={item.text}
+              onChange={(v) => patch({ text: v })}
+              testId={`ticker-${idx}-text`}
+            />
+          )}
+        />
+      </Field>
+    </>
+  );
+}
+
 // PRICING TABLE --------------------------------------------------------------
 // Author-friendly pricing layout with 2-4 tiers. Each tier carries its own
 // monthly/annual price strings; when `billingToggle` is on, a small inline
@@ -3722,6 +3902,7 @@ const REGISTRY = {
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
   [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
+  [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
