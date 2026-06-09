@@ -35,7 +35,7 @@ export default async function handler(req, res) {
       .select('id, tenant_id, status')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc'])
+      .in('status', ['published', 'tbc', 'draft'])
       .single();
 
     if (eventError || !event) {
