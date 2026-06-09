@@ -1582,7 +1582,7 @@ export function buildCanvasCss(blocks, scope) {
   const hT = stageHeightForBreakpoint(blocks, 'tablet');
   const hM = stageHeightForBreakpoint(blocks, 'mobile');
   const stageSel = `${sc} .canvas-stage`;
-  lines.push(`${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;height:${fmtPx(hD)};}`);
+  lines.push(`${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;height:${fmtPx(hD)};--cb-content-width:${BREAKPOINT_WIDTHS.desktop}px;}`);
 
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
@@ -1644,11 +1644,11 @@ export function buildCanvasCss(blocks, scope) {
   }
   if (tabletRules.length) {
     lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){`);
-    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};}`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};--cb-content-width:${BREAKPOINT_WIDTHS.tablet}px;}`);
     lines.push(tabletRules.join(''));
     lines.push('}');
   } else {
-    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};}}`);
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};--cb-content-width:${BREAKPOINT_WIDTHS.tablet}px;}}`);
   }
 
   // Mobile overrides.
@@ -1685,11 +1685,11 @@ export function buildCanvasCss(blocks, scope) {
   }
   if (mobileRules.length) {
     lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){`);
-    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};}`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};--cb-content-width:${BREAKPOINT_WIDTHS.mobile}px;}`);
     lines.push(mobileRules.join(''));
     lines.push('}');
   } else {
-    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};}}`);
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};--cb-content-width:${BREAKPOINT_WIDTHS.mobile}px;}}`);
   }
 
   return lines.join('\n');

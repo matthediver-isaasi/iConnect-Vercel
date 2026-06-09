@@ -2791,6 +2791,12 @@ function NewsTickerRender({ block }) {
   const fg = c.textColor || '#ffffff';
   const label = (c.label || '').trim();
   const index = useTickerCycle(items.length, intervalSeconds, mode === 'cycling');
+  // When full-bleed, the bar spans 100vw but its content should re-align to
+  // the page's centered content column. `--cb-content-width` is published by
+  // the stage stylesheet per breakpoint (1200/768/375); falls back to 1200.
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
 
   if (items.length === 0) {
     return (
@@ -2811,7 +2817,7 @@ function NewsTickerRender({ block }) {
       role="marquee"
       aria-label={label || 'News ticker'}
     >
-      <div className="flex items-center gap-3 w-full h-full px-4">
+      <div className="flex items-center gap-3 w-full h-full px-4" style={railStyle}>
         {label ? (
           <span
             className="text-xs font-semibold uppercase tracking-wider shrink-0 rounded px-2 py-1"
@@ -3098,6 +3104,13 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
     ? 'justify-center'
     : c.align === 'right' ? 'justify-end' : 'justify-start';
 
+  // When full-bleed, the bar spans 100vw but its menu row should re-align to
+  // the page's centered content column. `--cb-content-width` is published by
+  // the stage stylesheet per breakpoint (1200/768/375); falls back to 1200.
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
+
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
   const openPanel = (idx) => {
@@ -3213,7 +3226,7 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpenIndex(null); }}
       data-testid="block-mega-menu"
     >
-      <ul className={`flex h-full items-center gap-1 px-3 ${justify}`}>
+      <ul className={`flex h-full items-center gap-1 px-3 w-full ${justify}`} style={railStyle}>
         {items.map((item, idx) => {
           const hasPanel = megaItemHasPanel(item);
           const isOpen = openIndex === idx;
