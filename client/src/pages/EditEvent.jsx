@@ -1528,12 +1528,17 @@ export default function EditEvent() {
           for (const a of existingAssignments) {
             await base44.entities.EventSponsorAssignment.delete(a.id);
           }
+          let sponsorCategoryMap = {};
+          if (selectedSponsors.length > 0) {
+            const allSponsors = await base44.entities.EventSponsor.list();
+            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
+          }
           for (const sponsorId of selectedSponsors) {
             await base44.entities.EventSponsorAssignment.create({
               event_id: eventId,
               event_type: 'simple',
               sponsor_id: sponsorId,
-              category_id: null
+              category_id: sponsorCategoryMap[sponsorId] || null
             });
           }
         } catch (sponsorErr) {

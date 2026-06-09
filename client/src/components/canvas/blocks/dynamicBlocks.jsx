@@ -1991,7 +1991,11 @@ function useEventSponsors(eventValue) {
       for (const a of assignments) {
         const sponsor = sponsorById.get(String(a.sponsor_id));
         if (!sponsor) continue;
-        pushTo(a.category_id ? String(a.category_id) : '__none__', sponsor);
+        // Prefer the category stored on the assignment; for events saved
+        // before levels were persisted, fall back to the sponsor's global
+        // category so they still group correctly without a re-save.
+        const catId = a.category_id || sponsor.category_id;
+        pushTo(catId ? String(catId) : '__none__', sponsor);
       }
     } else {
       for (const s of sponsors) {
