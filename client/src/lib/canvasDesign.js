@@ -158,6 +158,7 @@ export const BLOCK_TYPES = {
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
+  EVENT_SESSIONS: 'event-sessions',
   EVENT_CAROUSEL: 'event-carousel',
   SPEAKER_CAROUSEL: 'speaker-carousel',
   SPONSOR_GRID: 'sponsor-grid',
@@ -694,6 +695,15 @@ export const BLOCK_DEFAULTS = {
       showSummary: true,
       showCta: true,
       ctaLabel: 'Find out more',
+    },
+  },
+  [BLOCK_TYPES.EVENT_SESSIONS]: {
+    name: 'Event sessions',
+    geom: { w: 800, h: 600 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      emptyText: 'No sessions have been published for this event yet.',
     },
   },
   [BLOCK_TYPES.EVENT_CAROUSEL]: {
@@ -1308,6 +1318,9 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.EVENT_TEASER:
       if (!c.eventId && !c.eventSlug) errors.push('Event teaser requires an event.');
+      break;
+    case BLOCK_TYPES.EVENT_SESSIONS:
+      if (!c.eventId) errors.push('Event sessions block requires a multi-session event.');
       break;
     case BLOCK_TYPES.SPEAKER_CAROUSEL:
       if (!c.eventId) errors.push('Speaker carousel requires an event.');

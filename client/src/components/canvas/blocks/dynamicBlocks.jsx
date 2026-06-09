@@ -38,6 +38,7 @@ import {
 } from '@/lib/canvasDesign';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
+import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import {
   TypographyStyleField,
   useTenantTypographyStyles,
@@ -592,6 +593,66 @@ function EventTeaserInspector({ block, update }) {
       <ToggleField label="Show summary" value={c.showSummary !== false} onChange={(v) => set({ showSummary: v })} testId="toggle-event-teaser-summary" />
       <ToggleField label="Show CTA" value={c.showCta !== false} onChange={(v) => set({ showCta: v })} testId="toggle-event-teaser-cta" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-event-teaser-cta-label" />
+    </>
+  );
+}
+
+// ============================================================================
+// EVENT SESSIONS (session + track schedule for a single multi-session event)
+// ============================================================================
+function EventSessionsRender({ block, asEditor }) {
+  const c = block.content || {};
+  if (!c.eventId) {
+    return <EmptyState icon={CalendarDays} text="Pick a multi-session event in the inspector." />;
+  }
+  const blockHeight = block.geom?.h || 600;
+  const maxHeight = Math.max(240, blockHeight - 80);
+  return (
+    <div className="w-full h-full overflow-auto">
+      <ComplexEventProgramme
+        eventId={c.eventId}
+        emptyText={c.emptyText}
+        maxHeight={maxHeight}
+        asEditor={asEditor}
+      />
+    </div>
+  );
+}
+
+function ComplexEventPickerField({ value, onChange, testId }) {
+  const { data: events, isLoading } = useQuery({
+    queryKey: ['canvas', 'public-complex-events'],
+    queryFn: () => publicClient.listComplexEvents(),
+    staleTime: 60_000,
+  });
+  const options = (events || [])
+    .filter((e) => (e.session_count || 0) > 0)
+    .map((e) => ({ value: String(e.id), label: e.title || e.name || 'Untitled event' }));
+  return (
+    <Field label="Event" hint={isLoading ? 'Loading events…' : 'Only multi-session events with a published programme appear here.'}>
+      <Select value={value || ''} onValueChange={onChange}>
+        <SelectTrigger className="h-8" data-testid={testId}><SelectValue placeholder="Select an event" /></SelectTrigger>
+        <SelectContent>
+          {options.length === 0 ? (
+            <SelectItem value="__none__" disabled>No multi-session events available</SelectItem>
+          ) : options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+function EventSessionsInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <ComplexEventPickerField
+        value={c.eventId}
+        onChange={(v) => set({ eventId: v })}
+        testId="select-event-sessions"
+      />
+      <TextField label="Empty message" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-event-sessions-empty" />
     </>
   );
 }
@@ -3213,6 +3274,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <EventTeaserRender {...props} asEditor />,
     Renderer: EventTeaserRender,
     Inspector: EventTeaserInspector,
+  },
+  [BLOCK_TYPES.EVENT_SESSIONS]: {
+    label: 'Event sessions',
+    icon: CalendarDays,
+    category: 'data',
+    Editor: (props) => <EventSessionsRender {...props} asEditor />,
+    Renderer: EventSessionsRender,
+    Inspector: EventSessionsInspector,
   },
   [BLOCK_TYPES.EVENT_CAROUSEL]: {
     label: 'Event carousel',
