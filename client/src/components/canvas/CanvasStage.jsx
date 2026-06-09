@@ -157,7 +157,7 @@ function CanvasBlockView({
         paddingBottom: style.paddingBottom || 0,
         paddingLeft: style.paddingLeft || 0,
         boxSizing: 'border-box',
-        overflow: 'hidden',
+        overflow: def.allowOverflow ? 'visible' : 'hidden',
       }}
       onPointerDown={(e) => onPointerDownBlock(e, block.id)}
       data-testid={`canvas-block-${block.id}`}

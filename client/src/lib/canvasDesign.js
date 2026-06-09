@@ -603,6 +603,7 @@ export const BLOCK_DEFAULTS = {
       panelBackgroundColor: '#ffffff',
       panelTextColor: '#0f172a',
       accentColor: '#9333ea',
+      labelFontSize: 14,
       items: [
         {
           label: 'Home',

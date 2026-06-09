@@ -152,7 +152,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
         paddingBottom: style.paddingBottom || 0,
         paddingLeft: style.paddingLeft || 0,
         boxSizing: 'border-box',
-        overflow: isSection ? 'visible' : 'hidden',
+        overflow: (isSection || def?.allowOverflow) ? 'visible' : 'hidden',
       }}
       tabIndex={typeof a11y?.tabIndex === 'number' ? a11y.tabIndex : undefined}
       aria-hidden={a11y?.ariaHidden ? true : undefined}

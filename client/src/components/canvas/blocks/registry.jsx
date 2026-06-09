@@ -3044,6 +3044,7 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
   const panelBg = c.panelBackgroundColor || '#ffffff';
   const panelFg = c.panelTextColor || '#0f172a';
   const accent = c.accentColor || '#9333ea';
+  const labelFontSize = Math.min(48, Math.max(10, Number(c.labelFontSize) || 14));
 
   const justify = c.align === 'center'
     ? 'justify-center'
@@ -3114,7 +3115,7 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
                           aria-expanded={expanded}
                           data-testid={`button-mega-mobile-item-${idx}`}
                         >
-                          <span className="text-sm font-medium">{item?.label || 'Item'}</span>
+                          <span className="font-medium" style={{ fontSize: labelFontSize }}>{item?.label || 'Item'}</span>
                           <ChevronDown
                             className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
                           />
@@ -3136,7 +3137,8 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
                         href={item?.href}
                         openInNewTab={item?.openInNewTab}
                         asEditor={asEditor}
-                        className="block p-3 text-sm font-medium hover-elevate"
+                        className="block p-3 font-medium hover-elevate"
+                        style={{ fontSize: labelFontSize }}
                         testId={`mega-mobile-link-${idx}`}
                       >
                         {item?.label || 'Item'}
@@ -3174,7 +3176,8 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
                   href={item?.href}
                   openInNewTab={item?.openInNewTab}
                   asEditor={asEditor}
-                  className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium hover-elevate"
+                  className="inline-flex items-center rounded-md px-3 py-2 font-medium hover-elevate"
+                  style={{ fontSize: labelFontSize }}
                   testId={`mega-item-link-${idx}`}
                 >
                   {item?.label || 'Item'}
@@ -3192,8 +3195,8 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
             >
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium hover-elevate"
-                style={{ color: barFg }}
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 font-medium hover-elevate"
+                style={{ color: barFg, fontSize: labelFontSize }}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
                 onClick={() => setOpenIndex(isOpen ? null : idx)}
@@ -3281,6 +3284,14 @@ function MegaMenuInspector({ block, update }) {
         value={c.accentColor || '#9333ea'}
         onChange={(v) => set({ accentColor: v })}
         testId="input-mega-accent"
+      />
+      <NumberField
+        label="Label font size (px)"
+        value={c.labelFontSize || 14}
+        onChange={(v) => set({ labelFontSize: v })}
+        min={10}
+        max={48}
+        testId="input-mega-label-font-size"
       />
       <Field label="Menu items">
         <ArrayList
@@ -4484,7 +4495,7 @@ const REGISTRY = {
   [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
-  [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector },
+  [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
