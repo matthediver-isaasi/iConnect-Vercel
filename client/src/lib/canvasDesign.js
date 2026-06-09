@@ -154,6 +154,7 @@ export const BLOCK_TYPES = {
   PRICING_TABLE: 'pricing-table',
   TESTIMONIAL_GRID: 'testimonial-grid',
   NEWS_TICKER: 'news-ticker',
+  MEGA_MENU: 'mega-menu',
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
@@ -584,6 +585,77 @@ export const BLOCK_DEFAULTS = {
       // Defaults echo the portal ticker's purple bar.
       backgroundColor: '#9333ea',
       textColor: '#ffffff',
+    },
+  },
+  [BLOCK_TYPES.MEGA_MENU]: {
+    name: 'Mega Menu',
+    geom: { w: 960, h: 56 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 4 },
+    content: {
+      // A manually-built navigation bar placed on a specific page. Fully
+      // independent of the site-wide portal navigation (navigation_item /
+      // PublicHeader.jsx). Each top-level item is either a plain link (uses
+      // `href`) or opens a rich dropdown panel built from `columns` and/or a
+      // featured block. All links are typed URLs.
+      align: 'left', // left | center | right
+      barBackgroundColor: '#ffffff',
+      barTextColor: '#0f172a',
+      panelBackgroundColor: '#ffffff',
+      panelTextColor: '#0f172a',
+      accentColor: '#9333ea',
+      items: [
+        {
+          label: 'Home',
+          href: '/Home',
+          openInNewTab: false,
+          columns: [],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: '',
+          featuredText: '',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+        {
+          label: 'Products',
+          href: '',
+          openInNewTab: false,
+          columns: [
+            {
+              heading: 'Popular',
+              links: [
+                { label: 'Overview', href: '/products', description: 'See everything we offer', openInNewTab: false },
+                { label: 'Pricing', href: '/pricing', description: 'Plans for every team', openInNewTab: false },
+              ],
+            },
+            {
+              heading: 'Resources',
+              links: [
+                { label: 'Guides', href: '/guides', description: 'Step-by-step help', openInNewTab: false },
+                { label: 'Blog', href: '/blog', description: 'News and updates', openInNewTab: false },
+              ],
+            },
+          ],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: 'Featured',
+          featuredText: 'Highlight something special here.',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+        {
+          label: 'Contact',
+          href: '/Contact',
+          openInNewTab: false,
+          columns: [],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: '',
+          featuredText: '',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+      ],
     },
   },
   // ---- Dynamic blocks ----
@@ -1242,6 +1314,36 @@ export function validateBlock(block) {
         }
         if (t?.companyLogoUrl && !String(t.companyLogoAlt || '').trim()) {
           errors.push(`Testimonial #${i + 1} company logo requires alt text.`);
+        }
+      });
+      break;
+    }
+    case BLOCK_TYPES.MEGA_MENU: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((it, i) => {
+        if (!it?.label || !String(it.label).trim()) {
+          errors.push(`Menu item #${i + 1} requires a label.`);
+        }
+        const cols = Array.isArray(it?.columns) ? it.columns : [];
+        const hasPanel = cols.length > 0
+          || !!it?.featuredImage
+          || !!(it?.featuredTitle && String(it.featuredTitle).trim())
+          || !!(it?.featuredText && String(it.featuredText).trim());
+        if (!hasPanel && !it?.href) {
+          errors.push(`Menu item #${i + 1} needs a link or a dropdown.`);
+        }
+        cols.forEach((col, ci) => {
+          (Array.isArray(col?.links) ? col.links : []).forEach((ln, li) => {
+            if (!ln?.label || !String(ln.label).trim()) {
+              errors.push(`Menu item #${i + 1} column #${ci + 1} link #${li + 1} requires a label.`);
+            }
+            if (!ln?.href) {
+              errors.push(`Menu item #${i + 1} column #${ci + 1} link #${li + 1} requires a URL.`);
+            }
+          });
+        });
+        if (it?.featuredImage && !String(it?.featuredAlt || '').trim()) {
+          errors.push(`Menu item #${i + 1} featured image requires alt text.`);
         }
       });
       break;

@@ -27,6 +27,7 @@ import {
   Table as TableIcon,
   MessageSquareQuote,
   Megaphone,
+  Menu,
   X,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -2862,6 +2863,528 @@ function NewsTickerInspector({ block, update }) {
   );
 }
 
+// MEGA MENU ------------------------------------------------------------------
+// A manually-built navigation bar dropped onto a single page. It is fully
+// independent of the site-wide portal navigation (navigation_item /
+// PublicHeader.jsx) — authors type every label and URL by hand. Each
+// top-level item is either a plain link (uses `href`) or opens a rich
+// dropdown panel made of columns (heading + links with short descriptions)
+// plus an optional featured block (image + title + text + link).
+//
+// Layout-shift safety (per the design guidelines): the desktop dropdown is an
+// absolutely-positioned overlay toggled via visibility/opacity, so opening it
+// never reflows the bar or the page. On narrow screens the bar collapses to a
+// hamburger that expands an accordion overlay.
+
+// Resolve whether to render the narrow (mobile) layout. In the editor we honour
+// the forced device preview via `breakpoint`; on real public pages there is no
+// breakpoint, so we track the viewport with matchMedia.
+function useMegaMenuNarrow(breakpoint) {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    // Match the canvas "mobile" breakpoint exactly so the public viewport
+    // collapses to the hamburger at the same width the editor's mobile
+    // preview does (avoids editor/public divergence).
+    const mq = window.matchMedia(`(max-width: ${BREAKPOINT_MAX_PX.mobile}px)`);
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  if (breakpoint === 'mobile') return true;
+  if (breakpoint === 'tablet' || breakpoint === 'desktop') return false;
+  return narrow;
+}
+
+function megaItemHasPanel(item) {
+  const cols = Array.isArray(item?.columns) ? item.columns : [];
+  return cols.length > 0
+    || !!item?.featuredImage
+    || !!(item?.featuredTitle && String(item.featuredTitle).trim())
+    || !!(item?.featuredText && String(item.featuredText).trim());
+}
+
+function MegaLink({ href, openInNewTab, asEditor, className, style, children, testId }) {
+  return (
+    <a
+      href={asEditor ? undefined : (href || '#')}
+      target={openInNewTab ? '_blank' : undefined}
+      rel={openInNewTab ? 'noopener noreferrer' : undefined}
+      className={className}
+      style={style}
+      onClick={(e) => { if (asEditor) e.preventDefault(); }}
+      data-testid={testId}
+    >
+      {children}
+    </a>
+  );
+}
+
+function MegaPanel({ item, asEditor, panelBg, panelFg, accent }) {
+  const cols = Array.isArray(item?.columns) ? item.columns : [];
+  const hasFeatured = !!item?.featuredImage
+    || !!(item?.featuredTitle && String(item.featuredTitle).trim())
+    || !!(item?.featuredText && String(item.featuredText).trim());
+  return (
+    <div
+      className="flex flex-wrap gap-6 rounded-md border border-slate-200 p-5 shadow-lg"
+      style={{ backgroundColor: panelBg, color: panelFg, minWidth: '320px', maxWidth: '720px' }}
+    >
+      {cols.map((col, ci) => (
+        <div key={ci} className="min-w-[160px] flex-1 space-y-2">
+          {col?.heading && String(col.heading).trim() && (
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: accent }}
+            >
+              {col.heading}
+            </div>
+          )}
+          <ul className="space-y-1.5">
+            {(Array.isArray(col?.links) ? col.links : []).map((ln, li) => (
+              <li key={li}>
+                <MegaLink
+                  href={ln?.href}
+                  openInNewTab={ln?.openInNewTab}
+                  asEditor={asEditor}
+                  className="block rounded-md p-1.5 hover-elevate"
+                  testId={`mega-panel-link-${ci}-${li}`}
+                >
+                  <span className="block text-sm font-medium">{ln?.label || 'Link'}</span>
+                  {ln?.description && String(ln.description).trim() && (
+                    <span className="block text-xs opacity-70">{ln.description}</span>
+                  )}
+                </MegaLink>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {hasFeatured && (
+        <div className="min-w-[180px] max-w-[220px] flex-1 space-y-2">
+          {item?.featuredImage && (
+            <img
+              src={item.featuredImage}
+              alt={item.featuredAlt || ''}
+              className="w-full rounded-md object-cover"
+              style={{ maxHeight: '120px' }}
+            />
+          )}
+          {item?.featuredTitle && String(item.featuredTitle).trim() && (
+            <div className="text-sm font-semibold">{item.featuredTitle}</div>
+          )}
+          {item?.featuredText && String(item.featuredText).trim() && (
+            <div className="text-xs opacity-70">{item.featuredText}</div>
+          )}
+          {item?.featuredHref && (
+            <MegaLink
+              href={item.featuredHref}
+              openInNewTab={item.featuredOpenInNewTab}
+              asEditor={asEditor}
+              className="inline-flex items-center gap-1 text-xs font-medium hover-elevate rounded-md px-1.5 py-1"
+              style={{ color: accent }}
+              testId="mega-panel-featured-link"
+            >
+              Learn more <ArrowRight className="w-3 h-3" />
+            </MegaLink>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MegaMenuRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const items = Array.isArray(c.items) ? c.items : [];
+  const narrow = useMegaMenuNarrow(breakpoint);
+  const [openIndex, setOpenIndex] = useState(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileExpanded, setMobileExpanded] = useState({});
+  const closeTimer = useRef(null);
+
+  const barBg = c.barBackgroundColor || '#ffffff';
+  const barFg = c.barTextColor || '#0f172a';
+  const panelBg = c.panelBackgroundColor || '#ffffff';
+  const panelFg = c.panelTextColor || '#0f172a';
+  const accent = c.accentColor || '#9333ea';
+
+  const justify = c.align === 'center'
+    ? 'justify-center'
+    : c.align === 'right' ? 'justify-end' : 'justify-start';
+
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
+  const openPanel = (idx) => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setOpenIndex(idx);
+  };
+  const scheduleClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpenIndex(null), 120);
+  };
+
+  if (items.length === 0) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center rounded-md border border-dashed border-slate-300 text-sm text-slate-500"
+        data-testid="mega-menu-empty"
+      >
+        Add menu items in the Inspector to build your mega menu.
+      </div>
+    );
+  }
+
+  // ---- Narrow / mobile layout: hamburger + accordion overlay ----
+  if (narrow) {
+    return (
+      <div
+        className="w-full h-full rounded-md"
+        style={{ backgroundColor: barBg, color: barFg }}
+        data-testid="block-mega-menu"
+      >
+        <div className="flex items-center justify-between h-full px-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md p-2 hover-elevate"
+            style={{ color: barFg }}
+            onClick={() => setMobileOpen((v) => !v)}
+            aria-expanded={mobileOpen}
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            data-testid="button-mega-menu-toggle"
+          >
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            <span className="text-sm font-medium">Menu</span>
+          </button>
+        </div>
+        {mobileOpen && (
+          <div
+            className="relative z-50 mx-2 mb-2 max-h-[60vh] overflow-auto rounded-md border border-slate-200 shadow-lg"
+            style={{ backgroundColor: panelBg, color: panelFg }}
+            data-testid="mega-menu-mobile-panel"
+          >
+            <ul className="divide-y divide-slate-100">
+              {items.map((item, idx) => {
+                const hasPanel = megaItemHasPanel(item);
+                const expanded = !!mobileExpanded[idx];
+                return (
+                  <li key={idx}>
+                    {hasPanel ? (
+                      <>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 p-3 text-left hover-elevate"
+                          onClick={() => setMobileExpanded((m) => ({ ...m, [idx]: !m[idx] }))}
+                          aria-expanded={expanded}
+                          data-testid={`button-mega-mobile-item-${idx}`}
+                        >
+                          <span className="text-sm font-medium">{item?.label || 'Item'}</span>
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                        {expanded && (
+                          <div className="px-3 pb-3">
+                            <MegaPanel
+                              item={item}
+                              asEditor={asEditor}
+                              panelBg={panelBg}
+                              panelFg={panelFg}
+                              accent={accent}
+                            />
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <MegaLink
+                        href={item?.href}
+                        openInNewTab={item?.openInNewTab}
+                        asEditor={asEditor}
+                        className="block p-3 text-sm font-medium hover-elevate"
+                        testId={`mega-mobile-link-${idx}`}
+                      >
+                        {item?.label || 'Item'}
+                      </MegaLink>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---- Desktop layout: horizontal bar with overlay dropdowns ----
+  return (
+    <div
+      className="w-full h-full rounded-md"
+      style={{ backgroundColor: barBg, color: barFg }}
+      onKeyDown={(e) => { if (e.key === 'Escape') setOpenIndex(null); }}
+      data-testid="block-mega-menu"
+    >
+      <ul className={`flex h-full items-center gap-1 px-3 ${justify}`}>
+        {items.map((item, idx) => {
+          const hasPanel = megaItemHasPanel(item);
+          const isOpen = openIndex === idx;
+          if (!hasPanel) {
+            return (
+              <li key={idx} className="relative">
+                <MegaLink
+                  href={item?.href}
+                  openInNewTab={item?.openInNewTab}
+                  asEditor={asEditor}
+                  className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium hover-elevate"
+                  testId={`mega-item-link-${idx}`}
+                >
+                  {item?.label || 'Item'}
+                </MegaLink>
+              </li>
+            );
+          }
+          return (
+            <li
+              key={idx}
+              className="relative"
+              onMouseEnter={() => openPanel(idx)}
+              onMouseLeave={scheduleClose}
+              onFocus={() => openPanel(idx)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setOpenIndex(null);
+              }}
+            >
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium hover-elevate"
+                style={{ color: barFg }}
+                aria-expanded={isOpen}
+                aria-haspopup="true"
+                onClick={() => setOpenIndex(isOpen ? null : idx)}
+                data-testid={`button-mega-item-${idx}`}
+              >
+                {item?.label || 'Item'}
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {/* Overlay panel — toggled via visibility/opacity so opening never
+                  reflows the bar (layout-shift-safe per design guidelines). */}
+              <div
+                className="absolute left-0 top-full z-50 pt-2 transition-opacity duration-150"
+                style={{
+                  visibility: isOpen ? 'visible' : 'hidden',
+                  opacity: isOpen ? 1 : 0,
+                  pointerEvents: isOpen ? 'auto' : 'none',
+                }}
+                data-testid={`mega-panel-${idx}`}
+              >
+                <MegaPanel
+                  item={item}
+                  asEditor={asEditor}
+                  panelBg={panelBg}
+                  panelFg={panelFg}
+                  accent={accent}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function MegaMenuInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <SelectField
+        label="Alignment"
+        value={c.align || 'left'}
+        onChange={(v) => set({ align: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-mega-align"
+      />
+      <ColorField
+        label="Bar background"
+        value={c.barBackgroundColor || '#ffffff'}
+        onChange={(v) => set({ barBackgroundColor: v })}
+        testId="input-mega-bar-bg"
+      />
+      <ColorField
+        label="Bar text colour"
+        value={c.barTextColor || '#0f172a'}
+        onChange={(v) => set({ barTextColor: v })}
+        testId="input-mega-bar-fg"
+      />
+      <ColorField
+        label="Dropdown background"
+        value={c.panelBackgroundColor || '#ffffff'}
+        onChange={(v) => set({ panelBackgroundColor: v })}
+        testId="input-mega-panel-bg"
+      />
+      <ColorField
+        label="Dropdown text colour"
+        value={c.panelTextColor || '#0f172a'}
+        onChange={(v) => set({ panelTextColor: v })}
+        testId="input-mega-panel-fg"
+      />
+      <ColorField
+        label="Accent colour"
+        value={c.accentColor || '#9333ea'}
+        onChange={(v) => set({ accentColor: v })}
+        testId="input-mega-accent"
+      />
+      <Field label="Menu items">
+        <ArrayList
+          items={c.items || []}
+          onChange={(next) => set({ items: next })}
+          makeNew={() => ({
+            label: 'New item',
+            href: '',
+            openInNewTab: false,
+            columns: [],
+            featuredImage: '',
+            featuredAlt: '',
+            featuredTitle: '',
+            featuredText: '',
+            featuredHref: '',
+            featuredOpenInNewTab: false,
+          })}
+          addLabel="Add menu item"
+          testIdPrefix="mega-item"
+          renderItem={(item, idx, patch) => (
+            <div className="space-y-2">
+              <TextField
+                label="Label"
+                value={item.label}
+                onChange={(v) => patch({ label: v })}
+                testId={`mega-item-${idx}-label`}
+              />
+              <TextField
+                label="Link URL (used when no dropdown)"
+                value={item.href}
+                onChange={(v) => patch({ href: v })}
+                placeholder="/Home or https://…"
+                testId={`mega-item-${idx}-href`}
+              />
+              <ToggleField
+                label="Open link in new tab"
+                value={item.openInNewTab}
+                onChange={(v) => patch({ openInNewTab: v })}
+                testId={`mega-item-${idx}-newtab`}
+              />
+              <Field label="Dropdown columns">
+                <ArrayList
+                  items={item.columns || []}
+                  onChange={(next) => patch({ columns: next })}
+                  makeNew={() => ({ heading: 'New column', links: [] })}
+                  addLabel="Add column"
+                  testIdPrefix={`mega-item-${idx}-col`}
+                  renderItem={(col, ci, patchCol) => (
+                    <div className="space-y-2">
+                      <TextField
+                        label="Column heading"
+                        value={col.heading}
+                        onChange={(v) => patchCol({ heading: v })}
+                        testId={`mega-item-${idx}-col-${ci}-heading`}
+                      />
+                      <Field label="Links">
+                        <ArrayList
+                          items={col.links || []}
+                          onChange={(next) => patchCol({ links: next })}
+                          makeNew={() => ({ label: 'New link', href: '', description: '', openInNewTab: false })}
+                          addLabel="Add link"
+                          testIdPrefix={`mega-item-${idx}-col-${ci}-link`}
+                          renderItem={(ln, li, patchLink) => (
+                            <div className="space-y-2">
+                              <TextField
+                                label="Label"
+                                value={ln.label}
+                                onChange={(v) => patchLink({ label: v })}
+                                testId={`mega-item-${idx}-col-${ci}-link-${li}-label`}
+                              />
+                              <TextField
+                                label="URL"
+                                value={ln.href}
+                                onChange={(v) => patchLink({ href: v })}
+                                placeholder="/page or https://…"
+                                testId={`mega-item-${idx}-col-${ci}-link-${li}-href`}
+                              />
+                              <TextField
+                                label="Description"
+                                value={ln.description}
+                                onChange={(v) => patchLink({ description: v })}
+                                multiline
+                                testId={`mega-item-${idx}-col-${ci}-link-${li}-desc`}
+                              />
+                              <ToggleField
+                                label="Open in new tab"
+                                value={ln.openInNewTab}
+                                onChange={(v) => patchLink({ openInNewTab: v })}
+                                testId={`mega-item-${idx}-col-${ci}-link-${li}-newtab`}
+                              />
+                            </div>
+                          )}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                />
+              </Field>
+              <Field label="Featured block (optional)">
+                <div className="space-y-2">
+                  <ImageField
+                    label="Featured image"
+                    value={item.featuredImage}
+                    alt={item.featuredAlt}
+                    onChangeSrc={(v) => patch({ featuredImage: v })}
+                    onChangeAlt={(v) => patch({ featuredAlt: v })}
+                    testId={`mega-item-${idx}-featured-img`}
+                  />
+                  <TextField
+                    label="Featured title"
+                    value={item.featuredTitle}
+                    onChange={(v) => patch({ featuredTitle: v })}
+                    testId={`mega-item-${idx}-featured-title`}
+                  />
+                  <TextField
+                    label="Featured text"
+                    value={item.featuredText}
+                    onChange={(v) => patch({ featuredText: v })}
+                    multiline
+                    testId={`mega-item-${idx}-featured-text`}
+                  />
+                  <TextField
+                    label="Featured link URL"
+                    value={item.featuredHref}
+                    onChange={(v) => patch({ featuredHref: v })}
+                    placeholder="/page or https://…"
+                    testId={`mega-item-${idx}-featured-href`}
+                  />
+                  <ToggleField
+                    label="Open featured link in new tab"
+                    value={item.featuredOpenInNewTab}
+                    onChange={(v) => patch({ featuredOpenInNewTab: v })}
+                    testId={`mega-item-${idx}-featured-newtab`}
+                  />
+                </div>
+              </Field>
+            </div>
+          )}
+        />
+      </Field>
+    </>
+  );
+}
+
 // PRICING TABLE --------------------------------------------------------------
 // Author-friendly pricing layout with 2-4 tiers. Each tier carries its own
 // monthly/annual price strings; when `billingToggle` is on, a small inline
@@ -3903,6 +4426,7 @@ const REGISTRY = {
   [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
+  [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
