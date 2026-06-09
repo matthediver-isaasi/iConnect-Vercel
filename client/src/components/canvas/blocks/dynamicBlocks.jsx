@@ -19,6 +19,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
@@ -146,6 +147,43 @@ function ToggleField({ label, value, onChange, testId }) {
       <div className="flex items-center gap-2">
         <Switch checked={!!value} onCheckedChange={onChange} data-testid={testId} />
         <span className="text-xs text-slate-600">{value ? 'On' : 'Off'}</span>
+      </div>
+    </Field>
+  );
+}
+// Simple checkbox-style multi-select. `value` is an array of selected ids;
+// `options` is [{ value, label }]. Toggling adds/removes an id. No selection
+// (empty array) is a meaningful state handled by callers.
+function MultiCheckboxField({ label, value, onChange, options, testId, hint }) {
+  const selected = Array.isArray(value) ? value.map(String) : [];
+  const toggle = (id) => {
+    const key = String(id);
+    const next = selected.includes(key)
+      ? selected.filter((v) => v !== key)
+      : [...selected, key];
+    onChange(next);
+  };
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex flex-col gap-1.5" data-testid={testId}>
+        {options.map((o) => {
+          const id = `${testId}-${o.value}`;
+          return (
+            <label
+              key={o.value}
+              htmlFor={id}
+              className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer"
+            >
+              <Checkbox
+                id={id}
+                checked={selected.includes(String(o.value))}
+                onCheckedChange={() => toggle(o.value)}
+                data-testid={`${testId}-option-${o.value}`}
+              />
+              <span>{o.label}</span>
+            </label>
+          );
+        })}
       </div>
     </Field>
   );
@@ -2077,10 +2115,28 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   const showHeadings = c.showCategoryHeadings !== false;
   const showDescription = c.showDescription !== false;
 
+  // Optional category filter. Empty selection => show every group (today's
+  // behaviour). When categories are selected, keep only those groups; the
+  // "Other" bucket (id '__none__') is itself a selectable option. Stale ids
+  // (e.g. a category removed after the event was changed) are dropped so they
+  // can never silently hide every sponsor.
+  const availableIds = new Set(groups.map((g) => String(g.id)));
+  const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
+    .filter((id) => availableIds.has(id));
+  const filteredGroups = selectedCats.length === 0
+    ? groups
+    : groups.filter((g) => selectedCats.includes(String(g.id)));
+
+  // A filter selection that matches no sponsors behaves like the empty state.
+  if (filteredGroups.length === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text="No sponsors match the selected categories." />;
+  }
+
   if (!showHeadings) {
     const seen = new Set();
     const all = [];
-    for (const g of groups) {
+    for (const g of filteredGroups) {
       for (const s of g.sponsors) {
         if (seen.has(String(s.id))) continue;
         seen.add(String(s.id));
@@ -2101,7 +2157,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
       <div className="flex flex-col gap-6">
-        {groups.map((g) => (
+        {filteredGroups.map((g) => (
           <div key={g.id} data-testid={`sponsor-group-${g.id}`}>
             {g.name ? (
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">{g.name}</h3>
@@ -2121,13 +2177,30 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
 function SponsorGridInspector({ block, update, breakpoint }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  // Derive category options from the same sponsor data the renderer loads,
+  // including the "Other" bucket (id '__none__') when present.
+  const { hasEvent, groups } = useEventSponsors(c.eventId);
+  const categoryOptions = groups.map((g) => ({
+    value: g.id,
+    label: g.id === '__none__' ? (g.name || 'Other') : (g.name || 'Untitled category'),
+  }));
   return (
     <>
       <EventCarouselPickerRow
         value={c.eventId || ''}
-        onChange={(v) => set({ eventId: v })}
+        onChange={(v) => set({ eventId: v, categoryIds: [] })}
         testId="select-sponsor-grid-event"
       />
+      {hasEvent && categoryOptions.length > 0 ? (
+        <MultiCheckboxField
+          label="Filter by category"
+          value={c.categoryIds}
+          onChange={(v) => set({ categoryIds: v })}
+          options={categoryOptions}
+          testId="multiselect-sponsor-grid-categories"
+          hint="Leave all unchecked to show every sponsor for the event."
+        />
+      ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField
         label="Gap (px)"
