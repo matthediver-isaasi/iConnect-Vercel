@@ -72,9 +72,9 @@ function TextField({ label, value, onChange, placeholder, testId, multiline, hin
     </Field>
   );
 }
-function NumberField({ label, value, onChange, min, max, step, testId }) {
+function NumberField({ label, value, onChange, min, max, step, testId, hint }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <Input
         type="number"
         value={Number.isFinite(value) ? value : ''}
@@ -1525,15 +1525,17 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const touchStartRef = useRef(null);
 
   const count = speakers.length;
-  const hasMany = count > 1;
+  const perView = Math.max(1, Number(c.speakersPerView) || 1);
+  const pageCount = Math.max(1, Math.ceil(count / perView));
+  const hasMany = pageCount > 1;
 
   useEffect(() => {
-    if (index > Math.max(0, count - 1)) setIndex(0);
-  }, [count, index]);
+    if (index > Math.max(0, pageCount - 1)) setIndex(0);
+  }, [pageCount, index]);
 
   useEffect(() => {
     if (asEditor) return;
-    if (!c.autoplay || count < 2) return;
+    if (!c.autoplay || pageCount < 2) return;
     // Pause autoplay while a dialog is open so the slide doesn't move under
     // the user as they read a profile.
     if (selected || showAll) return;
@@ -1541,13 +1543,13 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
     const pauseMs = Math.max(ms, 4000);
     const t = setInterval(() => {
       if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
-      setIndex((i) => (i + 1) % count);
+      setIndex((i) => (i + 1) % pageCount);
     }, ms);
     return () => clearInterval(t);
-  }, [asEditor, c.autoplay, c.autoplayMs, count, autoplayPausedAt, selected, showAll]);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, showAll]);
 
-  const goPrev = () => setIndex((i) => (i - 1 + count) % count);
-  const goNext = () => setIndex((i) => (i + 1) % count);
+  const goPrev = () => setIndex((i) => (i - 1 + pageCount) % pageCount);
+  const goNext = () => setIndex((i) => (i + 1) % pageCount);
 
   const handleTouchStart = (ev) => {
     const t = ev.touches && ev.touches[0];
@@ -1557,7 +1559,7 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const handleTouchEnd = (ev) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start || count < 2) return;
+    if (!start || pageCount < 2) return;
     const t = ev.changedTouches && ev.changedTouches[0];
     if (!t) return;
     const dx = t.clientX - start.x;
@@ -1569,7 +1571,7 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
     setAutoplayPausedAt(Date.now());
   };
   const handleKeyDown = (ev) => {
-    if (count < 2) return;
+    if (pageCount < 2) return;
     if (ev.key === 'ArrowLeft') {
       ev.preventDefault();
       goPrev();
@@ -1634,6 +1636,45 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
 
   const openSpeaker = (s) => { setSelected(s); setAutoplayPausedAt(Date.now()); };
 
+  const renderCard = (s, paddingClass = 'px-8 py-4') => (
+    <button
+      type="button"
+      onClick={() => openSpeaker(s)}
+      className={`w-full h-full flex flex-col items-center justify-center text-center gap-3 ${paddingClass} focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+      data-testid={`button-speaker-carousel-${s.id}`}
+      aria-label={`View details for ${s.full_name || 'speaker'}`}
+    >
+      <Avatar className="w-24 h-24">
+        {s.profile_photo_url ? (
+          <AvatarImage src={s.profile_photo_url} alt={s.full_name} />
+        ) : null}
+        <AvatarFallback className="text-xl">{speakerInitials(s.full_name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 w-full">
+        <div
+          className="text-lg font-semibold text-slate-900 truncate"
+          style={nameStyle}
+          data-testid={`text-speaker-carousel-name-${s.id}`}
+        >
+          {s.full_name}
+        </div>
+        {c.showJobTitle !== false && s.job_title ? (
+          <div className="text-sm text-slate-600 truncate" style={titleStyle}>{s.job_title}</div>
+        ) : null}
+        {c.showOrganization !== false && s.organization ? (
+          <div className="text-sm text-slate-500 truncate" style={orgStyle}>{s.organization}</div>
+        ) : null}
+      </div>
+    </button>
+  );
+
+  // Current page's speakers; padded to `perView` so the last (short) page keeps
+  // equal-width slots instead of stretching the remaining cards.
+  const pageSpeakers = speakers.slice(index * perView, index * perView + perView);
+  const pageSlice = perView > 1
+    ? Array.from({ length: perView }, (_, i) => pageSpeakers[i] || null)
+    : pageSpeakers;
+
   return (
     <div
       className="relative w-full h-full overflow-hidden flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
@@ -1648,35 +1689,17 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
       style={hasMany ? { touchAction: 'pan-y' } : undefined}
     >
       <div className="relative flex-1 min-h-0">
-        <button
-          type="button"
-          onClick={() => openSpeaker(speaker)}
-          className="w-full h-full flex flex-col items-center justify-center text-center gap-3 px-8 py-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          data-testid={`button-speaker-carousel-${speaker.id}`}
-          aria-label={`View details for ${speaker.full_name || 'speaker'}`}
-        >
-          <Avatar className="w-24 h-24">
-            {speaker.profile_photo_url ? (
-              <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
-            ) : null}
-            <AvatarFallback className="text-xl">{speakerInitials(speaker.full_name)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 w-full">
-            <div
-              className="text-lg font-semibold text-slate-900 truncate"
-              style={nameStyle}
-              data-testid={`text-speaker-carousel-name-${speaker.id}`}
-            >
-              {speaker.full_name}
-            </div>
-            {c.showJobTitle !== false && speaker.job_title ? (
-              <div className="text-sm text-slate-600 truncate" style={titleStyle}>{speaker.job_title}</div>
-            ) : null}
-            {c.showOrganization !== false && speaker.organization ? (
-              <div className="text-sm text-slate-500 truncate" style={orgStyle}>{speaker.organization}</div>
-            ) : null}
+        {perView === 1 ? (
+          renderCard(speaker)
+        ) : (
+          <div className="w-full h-full flex items-stretch gap-4 px-8 py-4">
+            {pageSlice.map((s, i) => (
+              <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
+                {s ? renderCard(s, 'px-2 py-2') : null}
+              </div>
+            ))}
           </div>
-        </button>
+        )}
 
         {showArrows ? (
           <>
@@ -1703,14 +1726,14 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
 
         {showIndicators ? (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
-            {speakers.map((s, i) => {
+            {Array.from({ length: pageCount }).map((_, i) => {
               const active = i === index;
               return (
                 <button
-                  key={s.id || i}
+                  key={i}
                   type="button"
                   onClick={() => { setIndex(i); setAutoplayPausedAt(Date.now()); }}
-                  aria-label={`Show speaker ${i + 1} of ${count}`}
+                  aria-label={`Show page ${i + 1} of ${pageCount}`}
                   aria-current={active ? 'true' : undefined}
                   className={`w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
                   data-testid={`button-speaker-carousel-indicator-${i}`}
@@ -1777,6 +1800,14 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
         value={c.eventId || ''}
         onChange={(v) => set({ eventId: v })}
         testId="select-speaker-carousel-event"
+      />
+      <NumberField
+        label="Speakers per view"
+        min={1}
+        value={c.speakersPerView || 1}
+        onChange={(v) => set({ speakersPerView: Math.max(1, Math.floor(Number(v) || 1)) })}
+        testId="input-speaker-carousel-per-view"
+        hint="How many speaker cards to show side-by-side in one slide."
       />
       <TextField
         label="CTA label"

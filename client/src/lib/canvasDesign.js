@@ -620,6 +620,7 @@ export const BLOCK_DEFAULTS = {
     content: {
       eventId: '',
       ctaLabel: 'See all speakers',
+      speakersPerView: 1,
       showJobTitle: true,
       showOrganization: true,
       autoplay: true,
