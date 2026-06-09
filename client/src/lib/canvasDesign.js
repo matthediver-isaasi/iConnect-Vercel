@@ -189,6 +189,18 @@ export function blockSupportsFullBleed(type) {
   return FULL_BLEED_BLOCK_TYPES.has(type);
 }
 
+// True when a block should behave like a full-width block for *editor*
+// geometry purposes: either the generic `fullWidth` flag is set, or the
+// block opts into `fullBleed` (a viewport-edge breakout that the editor
+// approximates by spanning the full canvas width). The published CSS path
+// renders true `fullBleed` as 100vw via geomRule; this helper only governs
+// how the block is laid out / locked inside the design canvas.
+export function blockIsFullWidthLike(block) {
+  if (!block) return false;
+  if (block.fullWidth) return true;
+  return blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
+}
+
 const DEFAULT_STYLE = {
   background: 'transparent',
   borderColor: '#cbd5e1',
@@ -1122,7 +1134,7 @@ export function resolveBlockAtBreakpoint(block, breakpoint, options) {
   } else {
     geom = { ...base, ...stripUndefined(t), ...stripUndefined(m) };
   }
-  if (block.fullWidth) {
+  if (blockIsFullWidthLike(block)) {
     const cw = options && Number.isFinite(options.canvasWidth)
       ? options.canvasWidth
       : (BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop);
@@ -1604,10 +1616,15 @@ export function buildCanvasCss(blocks, scope) {
     const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
-    if (
-      tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h ||
-      !!tG.hidden !== !!dG.hidden
-    ) {
+    // Full-width / full-bleed blocks have their x/w forced by geomRule
+    // (100% or 100vw), so per-breakpoint x/w differences (which only come
+    // from the breakpoint stage width) must not trigger a redundant
+    // override — compare y/h/hidden only for those.
+    const fwLike = fullWidth || fullBleed;
+    const geomDiffers = fwLike
+      ? (tG.y !== dG.y || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden)
+      : (tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden);
+    if (geomDiffers) {
       tabletRules.push(`${sel}{${geomRule(tG, { fullBleed, fullWidth })}}`);
     }
   }
@@ -1643,10 +1660,11 @@ export function buildCanvasCss(blocks, scope) {
     const fullWidth = !!b.fullWidth;
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     const mG = resolveBlockAtBreakpoint(b, 'mobile');
-    if (
-      mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h ||
-      !!mG.hidden !== !!tG.hidden
-    ) {
+    const fwLike = fullWidth || fullBleed;
+    const geomDiffers = fwLike
+      ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
+      : (mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden);
+    if (geomDiffers) {
       mobileRules.push(`${sel}{${geomRule(mG, { fullBleed, fullWidth })}}`);
     }
   }

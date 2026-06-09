@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { resolveBlockAtBreakpoint } from '@/lib/canvasDesign';
+import { resolveBlockAtBreakpoint, blockIsFullWidthLike } from '@/lib/canvasDesign';
 import { getBlockDefinition } from './blocks/registry';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -122,7 +122,7 @@ function CanvasBlockView({
   const { style, a11y } = block;
   const def = getBlockDefinition(block.type);
   const EditorComponent = def.Editor;
-  const fullWidth = !!block.fullWidth;
+  const fullWidth = blockIsFullWidthLike(block);
   const cursor = block.locked
     ? 'cursor-not-allowed'
     : (fullWidth ? 'cursor-ns-resize' : 'cursor-move');
@@ -326,7 +326,7 @@ export default function CanvasStage({
       handle,
       start,
       initialGeom: geom,
-      fullWidth: !!block.fullWidth,
+      fullWidth: blockIsFullWidthLike(block),
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
   }, [blocks, getStageCoords, breakpoint, canvasWidth]);
@@ -361,7 +361,7 @@ export default function CanvasStage({
         // move sideways.
         const allFullWidth = interactionState.ids.every((id) => {
           const b = blocks.find((bb) => bb.id === id);
-          return b && b.fullWidth;
+          return b && blockIsFullWidthLike(b);
         });
         const dx = allFullWidth ? 0 : dxRaw;
 
@@ -403,7 +403,7 @@ export default function CanvasStage({
         for (const id of interactionState.ids) {
           const init = interactionState.initialGeoms[id];
           const b = blocks.find((bb) => bb.id === id);
-          const lockX = !!(b && b.fullWidth);
+          const lockX = blockIsFullWidthLike(b);
           previews[id] = {
             x: lockX ? init.x : clamp(init.x + finalDx, 0, Math.max(0, canvasWidth - init.w)),
             y: Math.max(0, init.y + finalDy),
