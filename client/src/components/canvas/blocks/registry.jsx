@@ -949,6 +949,12 @@ function HeroInspector({ block, update }) {
         onChange={(v) => set({ darkWash: Math.max(0, Math.min(1, Number(v) || 0)) })}
         testId="input-hero-dark-wash"
       />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-hero-full-bleed"
+      />
       <ColorField label="Text colour" value={c.textColor} onChange={(v) => set({ textColor: v })} testId="input-hero-text-color" />
       <SelectField
         label="Alignment"

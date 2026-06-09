@@ -252,6 +252,7 @@ export const BLOCK_DEFAULTS = {
       bgImageUrl: '',
       bgVideoUrl: '',
       darkWash: 0.4,
+      fullBleed: false,
       alignment: 'center',
       textColor: 'var(--cb-color-on-primary, #ffffff)',
       ctas: [
@@ -1557,7 +1558,7 @@ export function buildCanvasCss(blocks, scope) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth })}}`);
@@ -1583,7 +1584,7 @@ export function buildCanvasCss(blocks, scope) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
@@ -1623,7 +1624,7 @@ export function buildCanvasCss(blocks, scope) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
     const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = isSection && !!(b.content && b.content.fullBleed);
+    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     const mG = resolveBlockAtBreakpoint(b, 'mobile');
