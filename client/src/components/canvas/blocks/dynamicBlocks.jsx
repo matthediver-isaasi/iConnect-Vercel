@@ -620,31 +620,37 @@ function EventSessionsRender({ block, asEditor }) {
 }
 
 function ComplexEventPickerField({ value, onChange, testId }) {
-  // Published/tbc events come with a session_count from the public endpoint.
-  const { data: publicEvents, isLoading: loadingPublic } = useQuery({
-    queryKey: ['canvas', 'public-complex-events'],
-    queryFn: () => publicClient.listComplexEvents(),
-    staleTime: 60_000,
-  });
   // All complex events (incl. drafts) from the authenticated entity API.
-  const { data: allEvents, isLoading: loadingAll } = useQuery({
+  const { data: allEvents, isLoading: loadingEvents } = useQuery({
     queryKey: ['canvas', 'admin-complex-events'],
     queryFn: () => base44.entities.ComplexEvent.list(),
     staleTime: 60_000,
   });
-  const isLoading = loadingPublic || loadingAll;
-  const sessionCountById = new Map((publicEvents || []).map((e) => [String(e.id), e.session_count || 0]));
+  // Session counts for every event (covers draft-state events the public list omits).
+  const { data: allSessions, isLoading: loadingSessions } = useQuery({
+    queryKey: ['canvas', 'admin-complex-event-sessions'],
+    queryFn: () => base44.entities.ComplexEventSession.listAll(),
+    staleTime: 60_000,
+  });
+  const isLoading = loadingEvents || loadingSessions;
+  const sessionCountById = new Map();
+  (allSessions || []).forEach((s) => {
+    const key = String(s.complex_event_id);
+    sessionCountById.set(key, (sessionCountById.get(key) || 0) + 1);
+  });
+  // An event is a "draft" if either its publication status or lifecycle state says so.
+  const isDraft = (e) => e.status === 'draft' || e.event_state === 'draft';
   const options = (allEvents || [])
     .filter((e) => {
       if (!['draft', 'published', 'tbc'].includes(e.status)) return false;
-      if (e.event_state && !['active', 'closed'].includes(e.event_state)) return false;
+      if (e.event_state && !['active', 'closed', 'draft'].includes(e.event_state)) return false;
       // Drafts are still being built, so allow them even without a programme yet.
-      if (e.status === 'draft') return true;
+      if (isDraft(e)) return true;
       return (sessionCountById.get(String(e.id)) || 0) > 0;
     })
     .map((e) => ({
       value: String(e.id),
-      label: (e.title || e.name || 'Untitled event') + (e.status === 'draft' ? ' (Draft)' : ''),
+      label: (e.title || e.name || 'Untitled event') + (isDraft(e) ? ' (Draft)' : ''),
     }));
   return (
     <Field label="Event" hint={isLoading ? 'Loading events…' : 'Pick a multi-session event. Drafts are included so you can set this up before the event goes live.'}>

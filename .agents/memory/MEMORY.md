@@ -4,4 +4,5 @@
 - [Dynamic Text slot injection](dynamic-text-slots.md) — visual-builder slots live in design_json.slotValues; every send path must applyDynamicSlotValues to html+subject or raw {{dynamic_N}} leaks.
 - [Adding a new entity to generic API](entity-registration.md) — a new entity needs registering in 3 places (tenantContext scope map, entityToTable map, base44Client getter) + a schema JSON.
 - [Adding a Canvas Builder block](canvas-block-registration.md) — new /canvasbuilder block: BLOCK_TYPES+BLOCK_DEFAULTS+validateBlock in canvasDesign.js, Render/Inspector+DYNAMIC_BLOCK_DEFINITIONS in dynamicBlocks.jsx (auto-merged into registry).
+- [complex_event draft fields](complex-event-draft-fields.md) — complex_event has TWO independent draft signals (status vs event_state); public list hides event_state=draft, so admin features must use the authenticated entity API.
 - [Canvas block overflow clipping](canvas-block-overflow.md) — every canvas block box is overflow:hidden in both renderers; dropdowns/popovers need an allowOverflow flag in the registry or they render invisibly clipped.
