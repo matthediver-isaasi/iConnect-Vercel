@@ -9,6 +9,7 @@ import {
   resolveSymbolsInDesign,
   buildThemeCssVars,
   BLOCK_TYPES,
+  blockSupportsFullBleed,
 } from "@/lib/canvasDesign";
 import { getBlockDefinition } from "./blocks/registry";
 
@@ -113,7 +114,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
   if (forcedBreakpoint) {
     const g = resolveBlockAtBreakpoint(block, forcedBreakpoint);
     if (g.hidden) return null;
-    const fullBleed = (isSection || block.type === BLOCK_TYPES.HERO) && !!(block.content && block.content.fullBleed);
+    const fullBleed = blockSupportsFullBleed(block.type) && !!(block.content && block.content.fullBleed);
     const fullWidth = !!block.fullWidth;
     if (fullBleed) {
       forcedStyle = { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100vw', top: g.y, height: g.h };
@@ -137,7 +138,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
       data-cb={block.id}
       data-block-id={block.id}
       data-block-type={block.type}
-      data-full-bleed={(isSection || block.type === BLOCK_TYPES.HERO) && block.content?.fullBleed ? 'true' : undefined}
+      data-full-bleed={blockSupportsFullBleed(block.type) && block.content?.fullBleed ? 'true' : undefined}
       style={{
         ...(forcedStyle || null),
         background: style.background,

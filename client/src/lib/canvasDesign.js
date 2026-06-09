@@ -173,6 +173,22 @@ export const BLOCK_TYPES = {
   SYMBOL: 'symbol',
 };
 
+// Block types that support the "full-bleed" treatment — a true 100vw
+// viewport-edge breakout (vs. the generic `fullWidth`, which only fills the
+// centered design stage). fullBleed lives on `block.content.fullBleed` and is
+// rendered by geomRule() (static stylesheet) AND CanvasPageRenderer (forced
+// breakpoint path); keep BOTH consumers driven off this single list.
+export const FULL_BLEED_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.HERO,
+  BLOCK_TYPES.NEWS_TICKER,
+  BLOCK_TYPES.MEGA_MENU,
+]);
+
+export function blockSupportsFullBleed(type) {
+  return FULL_BLEED_BLOCK_TYPES.has(type);
+}
+
 const DEFAULT_STYLE = {
   background: 'transparent',
   borderColor: '#cbd5e1',
@@ -589,6 +605,7 @@ export const BLOCK_DEFAULTS = {
       // Defaults echo the portal ticker's purple bar.
       backgroundColor: '#9333ea',
       textColor: '#ffffff',
+      fullBleed: false,
     },
   },
   [BLOCK_TYPES.MEGA_MENU]: {
@@ -602,6 +619,7 @@ export const BLOCK_DEFAULTS = {
       // `href`) or opens a rich dropdown panel built from `columns` and/or a
       // featured block. All links are typed URLs.
       align: 'left', // left | center | right
+      fullBleed: false,
       barBackgroundColor: '#ffffff',
       barTextColor: '#0f172a',
       panelBackgroundColor: '#ffffff',
@@ -1557,8 +1575,7 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
+    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     lines.push(`${sel}{${geomRule(dG, { fullBleed, fullWidth })}}`);
@@ -1583,8 +1600,7 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
+    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const dG = resolveBlockAtBreakpoint(b, 'desktop');
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
@@ -1623,8 +1639,7 @@ export function buildCanvasCss(blocks, scope) {
   for (const b of blocks) {
     const id = escapeCssIdent(b.id);
     const sel = `${sc} [data-cb="${id}"]`;
-    const isSection = b.type === BLOCK_TYPES.SECTION;
-    const fullBleed = (isSection || b.type === BLOCK_TYPES.HERO) && !!(b.content && b.content.fullBleed);
+    const fullBleed = blockSupportsFullBleed(b.type) && !!(b.content && b.content.fullBleed);
     const fullWidth = !!b.fullWidth;
     const tG = resolveBlockAtBreakpoint(b, 'tablet');
     const mG = resolveBlockAtBreakpoint(b, 'mobile');

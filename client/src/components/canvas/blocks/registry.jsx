@@ -2886,6 +2886,12 @@ function NewsTickerInspector({ block, update }) {
         onChange={(v) => set({ textColor: v })}
         testId="input-ticker-fg"
       />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-ticker-full-bleed"
+      />
       <Field label="Ticker items">
         <ArrayList
           items={c.items || []}
@@ -3296,6 +3302,12 @@ function MegaMenuInspector({ block, update }) {
           { value: 'right', label: 'Right' },
         ]}
         testId="select-mega-align"
+      />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-mega-full-bleed"
       />
       <ColorField
         label="Bar background"
