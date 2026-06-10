@@ -411,8 +411,11 @@ export default async function handler(req, res) {
       
       // SECURITY: Strip tenant linkage fields from PATCH body to prevent tenant reassignment attacks
       // tenant_id and member_id should never be changed via PATCH
-      // organization_id is allowed for specific tenant-scoped entities where it's a reference field
-      const entitiesAllowingOrgReassign = ['Voucher', 'VoucherTransaction', 'DiscountCode'];
+      // organization_id is allowed for specific tenant-scoped entities where it's a reference field.
+      // Member (Task #1312): admins may detach a member from their organisation
+      // ("No Organisation") or move them between organisations — but only within
+      // the same tenant. Tenant safety for non-null targets is enforced below.
+      const entitiesAllowingOrgReassign = ['Voucher', 'VoucherTransaction', 'DiscountCode', 'Member'];
       const entitiesAllowingMemberReassign = ['DiscountCode'];
       if (shouldApplyTenantFilter) {
         delete sanitizedBody.tenant_id;
@@ -421,6 +424,24 @@ export default async function handler(req, res) {
         }
         if (!entitiesAllowingMemberReassign.includes(entity)) {
           delete sanitizedBody.member_id;
+        }
+      }
+
+      // SECURITY (Task #1312): When reassigning a member to a non-null organisation,
+      // verify the target organisation belongs to the same tenant as the member.
+      // Clearing the link (null) is always permitted.
+      if (entityNormalized === 'member' && 'organization_id' in sanitizedBody && sanitizedBody.organization_id) {
+        const memberTenantId = beforeData?.tenant_id || tenantCtx?.tenantId || null;
+        if (!memberTenantId) {
+          return res.status(400).json({ error: 'Tenant context required to reassign a member to an organisation' });
+        }
+        const { data: targetOrg, error: targetOrgError } = await supabase
+          .from('organization')
+          .select('id, tenant_id')
+          .eq('id', sanitizedBody.organization_id)
+          .single();
+        if (targetOrgError || !targetOrg || targetOrg.tenant_id !== memberTenantId) {
+          return res.status(403).json({ error: 'Organisation not found in this tenant' });
         }
       }
 
