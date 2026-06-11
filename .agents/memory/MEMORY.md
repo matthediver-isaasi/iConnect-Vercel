@@ -8,3 +8,4 @@
 - [Canvas block overflow clipping](canvas-block-overflow.md) — every canvas block box is overflow:hidden in both renderers; dropdowns/popovers need an allowOverflow flag in the registry or they render invisibly clipped.
 - [Canvas full-width vs full-bleed](canvas-fullwidth-vs-fullbleed.md) — fullWidth=100% (fills centered stage only), fullBleed=100vw (true screen edge); gate duplicated in canvasDesign.js geomRule callers + CanvasPageRenderer.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
+- [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).

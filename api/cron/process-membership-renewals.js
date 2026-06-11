@@ -61,6 +61,14 @@ export default async function handler(req, res) {
         }
 
         try {
+          await activateScheduledRecords(tenantId, results);
+        } catch (activateErr) {
+          console.error(`[cron/process-membership-renewals] Error activating scheduled records for tenant ${tenantId}:`, activateErr);
+          results.errors++;
+          results.details.push({ tenantId, error: `Scheduled activation: ${activateErr.message}` });
+        }
+
+        try {
           await processTenantRenewals(tenantId, results);
         } catch (tenantErr) {
           console.error(`[cron/process-membership-renewals] Error processing tenant ${tenantId}:`, tenantErr);
@@ -157,6 +165,88 @@ export default async function handler(req, res) {
   }
 }
 
+// Activate advance-invoiced ("Invoice Now") membership records on their normal
+// start date. These rows were created with status='scheduled' and an invoice
+// already attached, so activation must NOT generate another invoice or email.
+async function activateScheduledRecords(tenantId, results) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+
+  const { data: rows, error } = await supabase
+    .from('organisation_membership_history')
+    .select('id, organization_id, membership_year, scheduled_activation_date, xero_invoice_id, accounting_invoice_id')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'scheduled')
+    .lte('scheduled_activation_date', todayStr);
+
+  if (error) {
+    // Table or column not yet present — nothing to activate.
+    if (error.code === '42P01' || error.code === '42703') return;
+    throw error;
+  }
+
+  if (!rows || rows.length === 0) return;
+
+  for (const row of rows) {
+    // Defense in depth: an advance-invoiced row must have a linked invoice
+    // before we activate it. Activating a 'scheduled' row with no invoice would
+    // create a membership year that is active but never billed. The advance
+    // handler is strict (it rolls back when no invoice is produced), so this
+    // should not normally happen — but never silently activate an unbilled row.
+    if (!row.xero_invoice_id && !row.accounting_invoice_id) {
+      results.skipped++;
+      results.details.push({
+        tenantId,
+        orgId: row.organization_id,
+        status: 'skipped',
+        reason: `Scheduled membership for ${row.membership_year} has no linked invoice — not activated (needs attention)`,
+      });
+      continue;
+    }
+
+    const { data: updated, error: upErr } = await supabase
+      .from('organisation_membership_history')
+      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'scheduled')
+      .select('id');
+
+    if (upErr) {
+      results.errors++;
+      results.details.push({
+        tenantId,
+        orgId: row.organization_id,
+        status: 'error',
+        reason: `Failed to activate advance-invoiced record for ${row.membership_year}: ${upErr.message}`,
+      });
+      continue;
+    }
+
+    // Another run may have already flipped it (guarded by status='scheduled').
+    if (!updated || updated.length === 0) continue;
+
+    results.processed++;
+    results.details.push({
+      tenantId,
+      orgId: row.organization_id,
+      status: 'processed',
+      reason: `Activated advance-invoiced membership for ${row.membership_year} (no new invoice generated)`,
+    });
+
+    try {
+      await supabase.from('organization_note').insert({
+        organization_id: row.organization_id,
+        member_id: null,
+        content: `[Membership Renewal - Scheduled Activation] Advance-invoiced membership for ${row.membership_year} activated on its start date. No new invoice was generated.`,
+        attachments: [],
+      });
+    } catch (noteErr) {
+      console.error('[cron/process-membership-renewals] Failed to create activation note (non-fatal):', noteErr.message);
+    }
+  }
+}
+
 async function processTenantRenewals(tenantId, results) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -238,7 +328,7 @@ async function processTenantRenewals(tenantId, results) {
         if (!simResult.existingRecord && renewalDue) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
           await processOrgRenewal(tenantId, orgId, simResult, mode, invoiceDue, results);
-        } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id) {
+        } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id && !simResult.existingRecord.accounting_invoice_id) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
           if (invoiceDue) {
             await invoiceExistingRecord(tenantId, orgId, simResult, results);

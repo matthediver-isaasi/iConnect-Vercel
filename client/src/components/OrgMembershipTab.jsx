@@ -98,6 +98,10 @@ function YearCostSection({
   onUnapprove,
   approvePending,
   isFlat,
+  showAdvanceInvoice,
+  onAdvanceInvoice,
+  advanceInvoicePending,
+  advanceInvoiceRecord,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -105,6 +109,14 @@ function YearCostSection({
   if (!yearData) return null;
 
   const hasOverride = !!yearData.overrideType;
+  const invoiceSent = !!advanceInvoiceRecord;
+  const advanceInvoiceNumber = advanceInvoiceRecord?.accounting_invoice_number || advanceInvoiceRecord?.xero_invoice_number || null;
+  const advanceInvoiceDate = advanceInvoiceRecord?.created_at
+    ? new Date(advanceInvoiceRecord.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const advanceActivationDate = advanceInvoiceRecord?.scheduled_activation_date
+    ? new Date(advanceInvoiceRecord.scheduled_activation_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
 
   return (
     <div data-testid={`section-${testIdPrefix}`} className={approvalRequired && feesApproved ? 'rounded-md border border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/30 p-3 -m-1' : ''}>
@@ -396,12 +408,29 @@ function YearCostSection({
               <FileText className="w-3 h-3" />
               Invoicing
             </p>
+            {invoiceSent && (
+              <div
+                className="mb-3 flex items-start gap-2 p-3 rounded-md border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30"
+                data-testid={`text-advance-invoice-sent-${testIdPrefix}`}
+              >
+                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-green-800 dark:text-green-300">Invoice sent</p>
+                  <p className="text-muted-foreground">
+                    {advanceInvoiceNumber ? `Invoice ${advanceInvoiceNumber}` : 'Invoice'}
+                    {advanceInvoiceDate ? ` sent on ${advanceInvoiceDate}` : ' sent'}.
+                    {advanceActivationDate ? ` Membership will activate on ${advanceActivationDate}.` : ''}
+                  </p>
+                </div>
+              </div>
+            )}
             <RadioGroup
               value={invoicingMode}
               onValueChange={(val) => {
                 onInvoicingModeChange(val);
               }}
               className="space-y-2"
+              disabled={invoiceSent}
               data-testid={`radio-invoicing-mode-${testIdPrefix}`}
             >
               <div className="flex items-start gap-2">
@@ -427,6 +456,7 @@ function YearCostSection({
                       onChange={(e) => onInvoiceDateChange(e.target.value)}
                       min={new Date().toISOString().split('T')[0]}
                       className="mt-2 w-48"
+                      disabled={invoiceSent}
                       data-testid={`input-invoice-date-${testIdPrefix}`}
                     />
                   )}
@@ -449,7 +479,7 @@ function YearCostSection({
                   onChange={(e) => onPurchaseOrderChange(e.target.value)}
                   placeholder="e.g. PO-12345"
                   className="w-48"
-                  disabled={isPoLocked}
+                  disabled={isPoLocked || invoiceSent}
                   data-testid={`input-po-number-${testIdPrefix}`}
                 />
                 {poSuppliedByMember && (
@@ -473,7 +503,7 @@ function YearCostSection({
                 size="sm"
                 variant="outline"
                 onClick={onSaveInvoicing}
-                disabled={invoicingSaving}
+                disabled={invoicingSaving || invoiceSent}
                 data-testid={`button-save-invoicing-${testIdPrefix}`}
               >
                 {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
@@ -485,7 +515,7 @@ function YearCostSection({
                     size="sm"
                     variant="outline"
                     onClick={onUnapprove}
-                    disabled={approvePending}
+                    disabled={approvePending || invoiceSent}
                     data-testid={`button-unapprove-${testIdPrefix}`}
                   >
                     {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
@@ -496,7 +526,7 @@ function YearCostSection({
                     size="sm"
                     variant="default"
                     onClick={onApprove}
-                    disabled={approvePending}
+                    disabled={approvePending || invoiceSent}
                     data-testid={`button-approve-${testIdPrefix}`}
                   >
                     {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
@@ -509,11 +539,22 @@ function YearCostSection({
                   size="sm"
                   variant="outline"
                   onClick={onEmailFees}
-                  disabled={emailFeesPending || (approvalRequired && !feesApproved)}
+                  disabled={emailFeesPending || invoiceSent || (approvalRequired && !feesApproved)}
                   data-testid={`button-email-fees-${testIdPrefix}`}
                 >
                   {emailFeesPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
                   Email Fees
+                </Button>
+              )}
+              {showAdvanceInvoice && onAdvanceInvoice && !invoiceSent && (
+                <Button
+                  size="sm"
+                  onClick={onAdvanceInvoice}
+                  disabled={advanceInvoicePending || (approvalRequired && !feesApproved)}
+                  data-testid={`button-invoice-now-${testIdPrefix}`}
+                >
+                  {advanceInvoicePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                  Invoice Now
                 </Button>
               )}
               {invoicingMode === 'manual' && onManualRenewal && (
@@ -994,6 +1035,31 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     },
   });
 
+  const advanceInvoiceMutation = useMutation({
+    mutationFn: async ({ membershipYear, asOfDate }) => {
+      const response = await fetch('/api/membership/org-membership-invoicing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organizationId, membershipYear, asOfDate, advance: true }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to send advance invoice');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-notes'] });
+      toast.success(data.message || 'Advance invoice sent');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
   const emailFeesMutation = useMutation({
     mutationFn: async ({ membershipYear, recipientEmails }) => {
       const response = await fetch('/api/membership/email-fees', {
@@ -1186,6 +1252,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const isFlat = config.pricing_model === 'flat';
 
   const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label);
+
+  const nextYearAdvanceRecord = history?.find(h =>
+    h.membership_year === nextYearPreview?.membershipYear &&
+    (h.accounting_invoice_id || h.xero_invoice_id)
+  ) || null;
 
   const overrideTargetData = overrideTargetYear === currentYearCost?.membershipYear
     ? currentYearCost
@@ -1474,6 +1545,10 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onApprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'approve' })}
                 onUnapprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'unapprove' })}
                 approvePending={approvalMutation.isPending}
+                showAdvanceInvoice={true}
+                onAdvanceInvoice={() => advanceInvoiceMutation.mutate({ membershipYear: nextYearPreview.membershipYear, asOfDate: nextYearPreview.startDate })}
+                advanceInvoicePending={advanceInvoiceMutation.isPending}
+                advanceInvoiceRecord={nextYearAdvanceRecord}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
