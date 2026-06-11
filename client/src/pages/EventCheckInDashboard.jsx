@@ -72,6 +72,9 @@ export default function EventCheckInDashboard() {
   const [trackFilter, setTrackFilter] = useState("all");
   const [sessionFilter, setSessionFilter] = useState("all");
   const [ticketTypeFilter, setTicketTypeFilter] = useState([]);
+  const [buddyFilter, setBuddyFilter] = useState("all");
+  const [badgeFilter, setBadgeFilter] = useState("all");
+  const [speakerFilter, setSpeakerFilter] = useState("all");
   const [busyToken, setBusyToken] = useState(null);
   const [deregisterTarget, setDeregisterTarget] = useState(null);
   const [deregisterReason, setDeregisterReason] = useState("");
@@ -126,13 +129,16 @@ export default function EventCheckInDashboard() {
   // Reset to the first page whenever the view or search changes.
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, trackFilter, sessionFilter, ticketTypeFilter, selectedEventId]);
+  }, [search, statusFilter, trackFilter, sessionFilter, ticketTypeFilter, buddyFilter, badgeFilter, speakerFilter, selectedEventId]);
 
   // Keep the page in range if the list shrinks (e.g. after a deregister or a
   // realtime update reduces how many rows match the current filters).
   const matchingCount = (data?.attendees || []).filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
     if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
+    if (buddyFilter !== "all" && !!a.buddy !== (buddyFilter === "yes")) return false;
+    if (badgeFilter !== "all" && (a.badge !== false) !== (badgeFilter === "yes")) return false;
+    if (speakerFilter !== "all" && !!a.isSpeaker !== (speakerFilter === "yes")) return false;
     if (!search.trim()) return true;
     const t = search.trim().toLowerCase();
     return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
@@ -174,6 +180,9 @@ export default function EventCheckInDashboard() {
     setTrackFilter("all");
     setSessionFilter("all");
     setTicketTypeFilter([]);
+    setBuddyFilter("all");
+    setBadgeFilter("all");
+    setSpeakerFilter("all");
     setSearch("");
     setStatusFilter("all");
     setPage(1);
@@ -280,6 +289,9 @@ export default function EventCheckInDashboard() {
   const filteredAttendees = allAttendees.filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
     if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
+    if (buddyFilter !== "all" && !!a.buddy !== (buddyFilter === "yes")) return false;
+    if (badgeFilter !== "all" && (a.badge !== false) !== (badgeFilter === "yes")) return false;
+    if (speakerFilter !== "all" && !!a.isSpeaker !== (speakerFilter === "yes")) return false;
     if (!term) return true;
     return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
       .filter(Boolean)
@@ -479,6 +491,39 @@ export default function EventCheckInDashboard() {
                   data-testid="select-ticket-type"
                 />
               )}
+
+              <Select value={buddyFilter} onValueChange={setBuddyFilter}>
+                <SelectTrigger className="w-[160px]" data-testid="select-buddy">
+                  <SelectValue placeholder="Buddy" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All buddies</SelectItem>
+                  <SelectItem value="yes">Has buddy</SelectItem>
+                  <SelectItem value="no">No buddy</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={badgeFilter} onValueChange={setBadgeFilter}>
+                <SelectTrigger className="w-[160px]" data-testid="select-badge">
+                  <SelectValue placeholder="Badge" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All badges</SelectItem>
+                  <SelectItem value="yes">Badge required</SelectItem>
+                  <SelectItem value="no">No badge</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={speakerFilter} onValueChange={setSpeakerFilter}>
+                <SelectTrigger className="w-[160px]" data-testid="select-speaker">
+                  <SelectValue placeholder="Speaker" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All speakers</SelectItem>
+                  <SelectItem value="yes">Speaker</SelectItem>
+                  <SelectItem value="no">Not speaker</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {loading ? (
