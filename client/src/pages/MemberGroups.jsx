@@ -1,22 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Users, UserPlus, Loader2, ImageIcon, Check, LogOut } from "lucide-react";
-import { toast } from "sonner";
+import { Users, Loader2, ImageIcon, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -25,9 +14,7 @@ export default function MemberGroupsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [leavingGroup, setLeavingGroup] = useState(null);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
@@ -47,65 +34,6 @@ export default function MemberGroupsPage() {
     refetchOnMount: true,
   });
 
-  const { data: myAssignments = [], isLoading: loadingAssignments } = useQuery({
-    queryKey: ['member-group-assignments-self', memberInfo?.id],
-    queryFn: async () => {
-      if (!memberInfo?.id) return [];
-      return base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
-    },
-    enabled: accessChecked && !!memberInfo?.id,
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const joinMutation = useMutation({
-    mutationFn: async (group) => {
-      if (!memberInfo?.id) {
-        throw new Error('You must be signed in to join a group');
-      }
-      if (!group.default_self_join_role) {
-        throw new Error('This group has no default role configured');
-      }
-      return base44.entities.MemberGroupAssignment.create({
-        group_id: group.id,
-        member_id: memberInfo.id,
-        group_role: group.default_self_join_role,
-      });
-    },
-    onSuccess: (_data, group) => {
-      queryClient.invalidateQueries({ queryKey: ['member-group-assignments-self', memberInfo?.id] });
-      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
-      toast.success(`You've joined "${group.name}"`);
-    },
-    onError: (error) => {
-      toast.error('Failed to join group: ' + (error?.message || 'Unknown error'));
-    }
-  });
-
-  const leaveMutation = useMutation({
-    mutationFn: async (group) => {
-      const assignment = myAssignments.find((a) => a.group_id === group.id);
-      if (!assignment) {
-        throw new Error('You are not a member of this group');
-      }
-      return base44.entities.MemberGroupAssignment.delete(assignment.id);
-    },
-    onSuccess: (_data, group) => {
-      queryClient.invalidateQueries({ queryKey: ['member-group-assignments-self', memberInfo?.id] });
-      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
-      toast.success(`You've left "${group.name}"`);
-      setLeavingGroup(null);
-    },
-    onError: (error) => {
-      toast.error('Failed to leave group: ' + (error?.message || 'Unknown error'));
-    }
-  });
-
-  const joinedGroupIds = useMemo(
-    () => new Set(myAssignments.map((a) => a.group_id)),
-    [myAssignments]
-  );
-
   const visibleGroups = useMemo(() => {
     return groups
       .filter((g) => g.allow_self_join && g.is_active !== false)
@@ -120,7 +48,7 @@ export default function MemberGroupsPage() {
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [groups, searchQuery]);
 
-  const isLoading = !accessChecked || loadingGroups || loadingAssignments;
+  const isLoading = !accessChecked || loadingGroups;
 
   if (isLoading) {
     return (
@@ -175,10 +103,6 @@ export default function MemberGroupsPage() {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {visibleGroups.map((group) => {
-              const alreadyJoined = joinedGroupIds.has(group.id);
-              const isPending =
-                joinMutation.isPending && joinMutation.variables?.id === group.id;
-
               return (
                 <Card
                   key={group.id}
@@ -233,46 +157,18 @@ export default function MemberGroupsPage() {
                       </div>
                     )}
                     <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
-                      {alreadyJoined ? (
-                        <div className="flex flex-col gap-2">
-                          <div
-                            className="flex items-center justify-center text-sm text-slate-600"
-                            data-testid={`text-joined-${group.id}`}
-                          >
-                            <Check className="w-4 h-4 mr-2 text-green-600" />
-                            Already a member
-                          </div>
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setLeavingGroup(group);
-                            }}
-                            data-testid={`button-leave-${group.id}`}
-                          >
-                            <LogOut className="w-4 h-4 mr-2" />
-                            Leave Group
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button
-                          className="w-full bg-blue-600 hover:bg-blue-700"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            joinMutation.mutate(group);
-                          }}
-                          disabled={isPending || !memberInfo?.id || !group.default_self_join_role}
-                          data-testid={`button-join-${group.id}`}
-                        >
-                          {isPending ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <UserPlus className="w-4 h-4 mr-2" />
-                          )}
-                          Join Group
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`${createPageUrl('MemberGroupDetail')}?id=${group.id}`);
+                        }}
+                        data-testid={`button-find-out-more-${group.id}`}
+                      >
+                        Find out more
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -281,50 +177,6 @@ export default function MemberGroupsPage() {
           </div>
         )}
       </div>
-
-      <AlertDialog
-        open={!!leavingGroup}
-        onOpenChange={(open) => {
-          if (!open && !leaveMutation.isPending) {
-            setLeavingGroup(null);
-          }
-        }}
-      >
-        <AlertDialogContent data-testid="dialog-leave-group">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave Group</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to leave "{leavingGroup?.name}"? You can rejoin at any time
-              while this group remains open for self-join.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              disabled={leaveMutation.isPending}
-              data-testid="button-cancel-leave"
-            >
-              Stay in Group
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                if (leavingGroup) {
-                  leaveMutation.mutate(leavingGroup);
-                }
-              }}
-              disabled={leaveMutation.isPending}
-              data-testid="button-confirm-leave"
-            >
-              {leaveMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <LogOut className="w-4 h-4 mr-2" />
-              )}
-              Leave Group
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
