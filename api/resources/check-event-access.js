@@ -58,13 +58,21 @@ export default async function handler(req, res) {
       return res.json({ accessible_event_ids: [], accessible_session_ids: [] });
     }
 
-    const { data: standardBookings } = await supabase
+    // Match bookings owned by this member OR where the member's email is the
+    // attendee email — covers attendees added to a colleague's group booking
+    // (the row is owned by the booker's member_id, not the attendee's).
+    let standardBookingsQuery = supabase
       .from('booking')
       .select('event_id')
       .eq('tenant_id', session.tenantId)
-      .eq('member_id', member.id)
       .eq('status', 'confirmed')
       .in('event_id', eventIds);
+
+    standardBookingsQuery = member.email
+      ? standardBookingsQuery.or(`member_id.eq.${member.id},attendee_email.ilike.${member.email}`)
+      : standardBookingsQuery.eq('member_id', member.id);
+
+    const { data: standardBookings } = await standardBookingsQuery;
 
     if (standardBookings) {
       standardBookings.forEach(b => accessibleEventIds.add(b.event_id));
