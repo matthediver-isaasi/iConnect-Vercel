@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getFlagColorClasses } from "@/lib/flagColors";
-import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText, UserPlus } from "lucide-react";
+import { CheckCircle2, XCircle, LogIn, Loader2, CalendarClock, MapPin, Ticket, Mic, Star, Utensils, AlertTriangle, Accessibility, Flag, FileText, UserPlus, Tag } from "lucide-react";
 
 function getInitials(first, last, email) {
   const a = (first || "").trim();
@@ -183,8 +183,17 @@ export default function EventCheckIn() {
                   })}
                 </div>
               )}
-              {(resolved.attendee?.isSpeaker || resolved.attendee?.designation || resolved.attendee?.buddy) && (
+              {(resolved.attendee?.isSpeaker || resolved.attendee?.designation || resolved.attendee?.buddy || resolved.attendee?.badge) && (
                 <div className="space-y-2" data-testid="container-attendee-indicators">
+                  {resolved.attendee?.badge && (
+                    <div
+                      className="flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-secondary-foreground"
+                      data-testid="banner-badge"
+                    >
+                      <Tag className="h-5 w-5 shrink-0" />
+                      <span className="font-semibold">Badge</span>
+                    </div>
+                  )}
                   {resolved.attendee?.buddy && (
                     <div
                       className="flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-secondary-foreground"

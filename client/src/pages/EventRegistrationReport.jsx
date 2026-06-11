@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -385,6 +385,85 @@ export default function EventRegistrationReport() {
     );
   };
 
+  const updateBadgeMutation = useMutation({
+    mutationFn: async ({ eventId, bookingId, badge }) => {
+      const response = await fetch(`/api/admin/events/${eventId}/attendees/badge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bookingId, badge }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update badge');
+      return data;
+    },
+    onMutate: async ({ bookingId, badge }) => {
+      const key = ['event-registration-report', appliedFilters];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old) => {
+        if (!old?.bookingGroups) return old;
+        return {
+          ...old,
+          bookingGroups: old.bookingGroups.map(group => ({
+            ...group,
+            attendees: group.attendees.map(a =>
+              a.id === bookingId ? { ...a, badge } : a
+            ),
+          })),
+        };
+      });
+      return { previous, key };
+    },
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous && ctx?.key) {
+        queryClient.setQueryData(ctx.key, ctx.previous);
+      }
+      toast.error(error.message || 'Failed to update badge');
+    },
+    onSuccess: (data, _vars, ctx) => {
+      queryClient.setQueryData(ctx?.key || ['event-registration-report', appliedFilters], (old) => {
+        if (!old?.bookingGroups) return old;
+        return {
+          ...old,
+          bookingGroups: old.bookingGroups.map(group => ({
+            ...group,
+            attendees: group.attendees.map(a =>
+              a.id === data.bookingId ? { ...a, badge: data.badge !== false } : a
+            ),
+          })),
+        };
+      });
+    },
+  });
+
+  const renderBadgeCell = (attendee, eventId) => {
+    const badgeOn = attendee.badge !== false;
+    const pending =
+      updateBadgeMutation.isPending &&
+      updateBadgeMutation.variables?.bookingId === attendee.id;
+    return (
+      <div className="flex items-center gap-1.5">
+        <Switch
+          checked={badgeOn}
+          onCheckedChange={(checked) => {
+            if (!attendee.id || !eventId) return;
+            updateBadgeMutation.mutate({ eventId, bookingId: attendee.id, badge: checked });
+          }}
+          disabled={!attendee.id || !eventId || pending}
+          aria-label={badgeOn ? 'Mark as not requiring a badge' : 'Mark as requiring a badge'}
+          data-testid={`switch-badge-${attendee.id}`}
+        />
+        {badgeOn && (
+          <Badge variant="outline" className="gap-1" data-testid={`badge-badge-${attendee.id}`}>
+            <Tag className="w-3 h-3" />
+            Badge
+          </Badge>
+        )}
+      </div>
+    );
+  };
+
   const startEditingDesignation = (attendee) => {
     setEditingDesignationId(attendee.id);
     setDesignationDraft(attendee.designation || "");
@@ -696,6 +775,7 @@ export default function EventRegistrationReport() {
       'Email',
       'Designation',
       'Buddy',
+      'Badge',
       'Dietary Requirements',
       'Allergies',
       'Accessibility Needs',
@@ -744,6 +824,7 @@ export default function EventRegistrationReport() {
           a.attendee_email || '',
           a.designation || '',
           a.buddy ? 'Yes' : 'No',
+          a.badge !== false ? 'Yes' : 'No',
           formatDietarySelections(a.dietary_selections),
           formatAllergySelections(a.allergy_selections),
           formatAccessibilitySelections(a.accessibility_selections),
@@ -1356,6 +1437,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">3rd Party Consent</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Designation</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Buddy</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Badge</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Dietary &amp; Access</th>
                           {showAttendanceColumn && (
                             <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
@@ -1453,6 +1535,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap" data-testid={`cell-buddy-${attendee.id}`}>
                                   {renderBuddyCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap" data-testid={`cell-badge-${attendee.id}`}>
+                                  {renderBadgeCell(attendee, group.eventId)}
                                 </td>
                                 <td className="py-3 pr-3 align-top">
                                   {renderOptionsCell(attendee)}
@@ -1642,6 +1727,9 @@ export default function EventRegistrationReport() {
                                 </td>
                                 <td className="py-2 pr-3 whitespace-nowrap" data-testid={`cell-buddy-${attendee.id}`}>
                                   {renderBuddyCell(attendee, group.eventId)}
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap" data-testid={`cell-badge-${attendee.id}`}>
+                                  {renderBadgeCell(attendee, group.eventId)}
                                 </td>
                                 <td className="py-2 pr-3 align-top">
                                   {renderOptionsCell(attendee)}

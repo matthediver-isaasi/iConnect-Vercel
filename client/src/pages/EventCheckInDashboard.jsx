@@ -29,7 +29,7 @@ import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
 import { getFlagColorClasses } from "@/lib/flagColors";
 import { createPageUrl } from "@/utils";
-import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star, Flag, UserPlus } from "lucide-react";
+import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star, Flag, UserPlus, Tag } from "lucide-react";
 
 const PAGE_SIZE = 25;
 const NO_TICKET_TYPE = "__none__";
@@ -533,8 +533,18 @@ export default function EventCheckInDashboard() {
                             Ticket: {a.ticket_class_name}
                           </div>
                         )}
-                        {(a.isSpeaker || a.designation || a.buddy) && (
+                        {(a.isSpeaker || a.designation || a.buddy || a.badge) && (
                           <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`indicators-${a.token}`}>
+                            {a.badge && (
+                              <Badge
+                                variant="outline"
+                                className="gap-1"
+                                data-testid={`badge-badge-${a.token}`}
+                              >
+                                <Tag className="h-3 w-3" />
+                                Badge
+                              </Badge>
+                            )}
                             {a.buddy && (
                               <Badge
                                 className="gap-1 bg-secondary text-secondary-foreground"

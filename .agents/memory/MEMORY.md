@@ -7,3 +7,4 @@
 - [complex_event draft fields](complex-event-draft-fields.md) — complex_event has TWO independent draft signals (status vs event_state); public list hides event_state=draft, so admin features must use the authenticated entity API.
 - [Canvas block overflow clipping](canvas-block-overflow.md) — every canvas block box is overflow:hidden in both renderers; dropdowns/popovers need an allowOverflow flag in the registry or they render invisibly clipped.
 - [Canvas full-width vs full-bleed](canvas-fullwidth-vs-fullbleed.md) — fullWidth=100% (fills centered stage only), fullBleed=100vw (true screen edge); gate duplicated in canvasDesign.js geomRule callers + CanvasPageRenderer.
+- [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
