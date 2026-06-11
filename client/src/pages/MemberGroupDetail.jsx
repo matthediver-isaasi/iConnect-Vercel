@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +64,8 @@ export default function MemberGroupDetailPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -136,11 +139,15 @@ export default function MemberGroupDetailPage() {
       if (!group?.default_self_join_role) {
         throw new Error("This group has no default role configured");
       }
-      return base44.entities.MemberGroupAssignment.create({
+      const payload = {
         group_id: group.id,
         member_id: memberInfo.id,
         group_role: group.default_self_join_role,
-      });
+      };
+      if (hasTermsOfReference) {
+        payload.terms_agreed = true;
+      }
+      return base44.entities.MemberGroupAssignment.create(payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -150,6 +157,8 @@ export default function MemberGroupDetailPage() {
       queryClient.invalidateQueries({
         queryKey: ["member-group-assignments-group", groupId],
       });
+      setShowTerms(false);
+      setAgreedToTerms(false);
       toast.success(`You've joined "${group?.name}"`);
     },
     onError: (error) => {
@@ -182,6 +191,10 @@ export default function MemberGroupDetailPage() {
   const isJoined = useMemo(
     () => myAssignments.some((a) => a.group_id === groupId),
     [myAssignments, groupId]
+  );
+
+  const hasTermsOfReference = !!(
+    group?.terms_of_reference && group.terms_of_reference.trim()
   );
 
   const [memberSearch, setMemberSearch] = useState("");
@@ -384,7 +397,14 @@ export default function MemberGroupDetailPage() {
               ) : (
                 <Button
                   className="bg-blue-600 hover:bg-blue-700"
-                  onClick={() => joinMutation.mutate()}
+                  onClick={() => {
+                    if (hasTermsOfReference) {
+                      setAgreedToTerms(false);
+                      setShowTerms(true);
+                    } else {
+                      joinMutation.mutate();
+                    }
+                  }}
                   disabled={
                     joinMutation.isPending ||
                     !memberInfo?.id ||
@@ -636,6 +656,63 @@ export default function MemberGroupDetailPage() {
                 <LogOut className="w-4 h-4 mr-2" />
               )}
               Leave Group
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showTerms}
+        onOpenChange={(open) => {
+          if (joinMutation.isPending) return;
+          setShowTerms(open);
+          if (!open) setAgreedToTerms(false);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-terms-of-reference">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Terms of reference</AlertDialogTitle>
+            <AlertDialogDescription>
+              Please read and agree to the terms of reference before joining "{group.name}".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div
+            className="max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 whitespace-pre-wrap"
+            data-testid="text-terms-of-reference"
+          >
+            {group.terms_of_reference}
+          </div>
+          <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+            <Checkbox
+              checked={agreedToTerms}
+              onCheckedChange={(v) => setAgreedToTerms(v === true)}
+              disabled={joinMutation.isPending}
+              className="mt-0.5"
+              data-testid="checkbox-agree-terms"
+            />
+            <span>I have read and agree to the terms of reference.</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={joinMutation.isPending}
+              data-testid="button-cancel-terms"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                joinMutation.mutate();
+              }}
+              disabled={!agreedToTerms || joinMutation.isPending}
+              data-testid="button-confirm-join-terms"
+            >
+              {joinMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <UserPlus className="w-4 h-4 mr-2" />
+              )}
+              Agree and join
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

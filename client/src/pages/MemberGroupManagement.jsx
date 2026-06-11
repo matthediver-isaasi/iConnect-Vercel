@@ -80,7 +80,8 @@ export default function MemberGroupManagementPage() {
     projects_enabled: false,
     projects_enabled_roles: [],
     classification_id: '',
-    linkedin_url: ''
+    linkedin_url: '',
+    terms_of_reference: ''
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -347,7 +348,8 @@ export default function MemberGroupManagementPage() {
       events_enabled: false,
       events_enabled_roles: [],
       classification_id: '',
-      linkedin_url: ''
+      linkedin_url: '',
+      terms_of_reference: ''
     });
     setEditingGroup(null);
   };
@@ -369,7 +371,8 @@ export default function MemberGroupManagementPage() {
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : [],
       classification_id: group.classification_id || '',
-      linkedin_url: group.linkedin_url || ''
+      linkedin_url: group.linkedin_url || '',
+      terms_of_reference: group.terms_of_reference || ''
     });
     setShowGroupDialog(true);
   };
@@ -391,7 +394,8 @@ export default function MemberGroupManagementPage() {
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : [],
       classification_id: group.classification_id || '',
-      linkedin_url: group.linkedin_url || ''
+      linkedin_url: group.linkedin_url || '',
+      terms_of_reference: group.terms_of_reference || ''
     });
     setShowGroupDialog(true);
   };
@@ -496,6 +500,9 @@ export default function MemberGroupManagementPage() {
       }
     }
 
+    // Normalise the optional terms of reference: trim and treat blank as null.
+    const trimmedTerms = (groupForm.terms_of_reference || '').trim();
+
     // Prune leadership_roles / ems_enabled_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
     const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
@@ -513,7 +520,8 @@ export default function MemberGroupManagementPage() {
       events_enabled: !!groupForm.events_enabled,
       events_enabled_roles: groupForm.events_enabled ? prunedEvents : [],
       classification_id: groupForm.classification_id || null,
-      linkedin_url: trimmedLinkedin || null
+      linkedin_url: trimmedLinkedin || null,
+      terms_of_reference: trimmedTerms || null
     };
 
     if (editingGroup) {
@@ -1197,6 +1205,19 @@ export default function MemberGroupManagementPage() {
                   placeholder="Description of this group..."
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="terms_of_reference">Terms of reference</Label>
+                <Textarea
+                  id="terms_of_reference"
+                  value={groupForm.terms_of_reference}
+                  onChange={(e) => setGroupForm({ ...groupForm, terms_of_reference: e.target.value })}
+                  placeholder="Terms of reference members must agree to before joining..."
+                  rows={5}
+                  data-testid="input-group-terms-of-reference"
+                />
+                <p className="text-xs text-slate-500 mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
               </div>
 
               <div>

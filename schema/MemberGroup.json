@@ -51,6 +51,10 @@
       "linkedin_url": {
         "type": "string",
         "description": "Optional LinkedIn profile URL for this group, shown as a link on the Member Group Detail page"
+      },
+      "terms_of_reference": {
+        "type": "string",
+        "description": "Optional multi-line terms of reference shown to members when self-joining; the member must agree before the join completes"
       }
     },
     "required": [

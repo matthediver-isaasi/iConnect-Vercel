@@ -1029,6 +1029,14 @@ export default async function handler(req, res) {
         delete sanitizedBody.authors;
       }
 
+      // MemberGroupAssignment terms agreement: `terms_agreed` is not a column on
+      // member_group_assignment; pop it here and use it for self-join enforcement.
+      let memberGroupTermsAgreed = false;
+      if (entityNorm === 'membergroupassignment' && 'terms_agreed' in sanitizedBody) {
+        memberGroupTermsAgreed = sanitizedBody.terms_agreed === true;
+        delete sanitizedBody.terms_agreed;
+      }
+
       // Apply tenant context for tenant-scoped entities
       // SECURITY: Force-set tenant_id/organization_id/member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
@@ -1244,7 +1252,7 @@ export default async function handler(req, res) {
           const effectiveTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
           const { data: group, error: groupErr } = await supabase
             .from('member_group')
-            .select('id, tenant_id, is_active, allow_self_join, default_self_join_role, roles')
+            .select('id, tenant_id, is_active, allow_self_join, default_self_join_role, roles, terms_of_reference')
             .eq('id', sanitizedBody.group_id)
             .single();
 
@@ -1268,6 +1276,9 @@ export default async function handler(req, res) {
           }
           if (Array.isArray(group.roles) && !group.roles.includes(group.default_self_join_role)) {
             return res.status(403).json({ error: 'Group default role is no longer valid' });
+          }
+          if (group.terms_of_reference && group.terms_of_reference.trim() && !memberGroupTermsAgreed) {
+            return res.status(403).json({ error: 'You must agree to the terms of reference to join this group' });
           }
 
           const { data: existingAssignment } = await supabase
