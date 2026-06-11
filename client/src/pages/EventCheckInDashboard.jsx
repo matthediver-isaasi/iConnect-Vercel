@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,6 +32,7 @@ import { createPageUrl } from "@/utils";
 import { CheckCircle2, UserMinus, Search, Loader2, Users, ChevronLeft, ChevronRight, Circle, CalendarClock, Mic, Star, Flag, UserPlus } from "lucide-react";
 
 const PAGE_SIZE = 25;
+const NO_TICKET_TYPE = "__none__";
 
 function formatDate(value) {
   if (!value) return "";
@@ -69,6 +71,7 @@ export default function EventCheckInDashboard() {
   const [page, setPage] = useState(1);
   const [trackFilter, setTrackFilter] = useState("all");
   const [sessionFilter, setSessionFilter] = useState("all");
+  const [ticketTypeFilter, setTicketTypeFilter] = useState([]);
   const [busyToken, setBusyToken] = useState(null);
   const [deregisterTarget, setDeregisterTarget] = useState(null);
   const [deregisterReason, setDeregisterReason] = useState("");
@@ -123,12 +126,13 @@ export default function EventCheckInDashboard() {
   // Reset to the first page whenever the view or search changes.
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, trackFilter, sessionFilter, selectedEventId]);
+  }, [search, statusFilter, trackFilter, sessionFilter, ticketTypeFilter, selectedEventId]);
 
   // Keep the page in range if the list shrinks (e.g. after a deregister or a
   // realtime update reduces how many rows match the current filters).
   const matchingCount = (data?.attendees || []).filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
     if (!search.trim()) return true;
     const t = search.trim().toLowerCase();
     return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
@@ -169,6 +173,7 @@ export default function EventCheckInDashboard() {
     setSelectedEventType(ev?.type || "simple");
     setTrackFilter("all");
     setSessionFilter("all");
+    setTicketTypeFilter([]);
     setSearch("");
     setStatusFilter("all");
     setPage(1);
@@ -255,14 +260,39 @@ export default function EventCheckInDashboard() {
   }
 
   const allAttendees = data?.attendees || [];
+
+  // Distinct ticket types present in the loaded attendee set, for the filter
+  // options. Attendees without a ticket type are surfaced under a clear label.
+  const ticketTypeOptions = (() => {
+    const seen = new Set();
+    const opts = [];
+    for (const a of allAttendees) {
+      const name = a.ticket_class_name || "";
+      const value = name || NO_TICKET_TYPE;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      opts.push({ value, label: name || "No ticket type" });
+    }
+    return opts.sort((x, y) => x.label.localeCompare(y.label));
+  })();
+
   const term = search.trim().toLowerCase();
   const filteredAttendees = allAttendees.filter((a) => {
     if (statusFilter === "checked-in" && !a.checked_in_at) return false;
+    if (ticketTypeFilter.length > 0 && !ticketTypeFilter.includes(a.ticket_class_name || NO_TICKET_TYPE)) return false;
     if (!term) return true;
     return [a.first_name, a.last_name, a.email, a.booking_reference, a.session_title]
       .filter(Boolean)
       .some((v) => v.toLowerCase().includes(term));
   });
+
+  // Stats track the active filters, so they describe what is currently shown.
+  const filteredAttendedCount = filteredAttendees.filter((a) => !!a.checked_in_at).length;
+  const filteredTotalCount = filteredAttendees.length;
+  const filteredRemaining = Math.max(0, filteredTotalCount - filteredAttendedCount);
+  const filteredPct = filteredTotalCount
+    ? (filteredAttendedCount / filteredTotalCount) * 100
+    : 0;
 
   const totalFiltered = filteredAttendees.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
@@ -337,7 +367,7 @@ export default function EventCheckInDashboard() {
                     <CheckCircle2 className="h-3.5 w-3.5" /> Checked in
                   </div>
                   <div className="mt-0.5 text-2xl font-semibold tabular-nums text-green-700 dark:text-green-200">
-                    {data.counts.attended}
+                    {filteredAttendedCount}
                   </div>
                 </div>
                 <div className="rounded-md border px-3 py-2" data-testid="stat-registered">
@@ -345,7 +375,7 @@ export default function EventCheckInDashboard() {
                     <Users className="h-3.5 w-3.5" /> Registered
                   </div>
                   <div className="mt-0.5 text-2xl font-semibold tabular-nums">
-                    {data.counts.total}
+                    {filteredTotalCount}
                   </div>
                 </div>
                 <div className="col-span-2 rounded-md border px-3 py-2 sm:col-span-1" data-testid="stat-remaining">
@@ -353,19 +383,19 @@ export default function EventCheckInDashboard() {
                     <Circle className="h-3.5 w-3.5" /> Yet to arrive
                   </div>
                   <div className="mt-0.5 text-2xl font-semibold tabular-nums">
-                    {Math.max(0, data.counts.total - data.counts.attended)}
+                    {filteredRemaining}
                   </div>
                 </div>
               </div>
               <div className="space-y-1">
                 <Progress
-                  value={data.counts.total ? (data.counts.attended / data.counts.total) * 100 : 0}
+                  value={filteredPct}
                   className="h-2"
                   data-testid="progress-attendance"
                 />
                 <p className="text-xs text-muted-foreground">
-                  {data.counts.total
-                    ? `${Math.round((data.counts.attended / data.counts.total) * 100)}% of registrants checked in`
+                  {filteredTotalCount
+                    ? `${Math.round(filteredPct)}% of registrants checked in`
                     : "No registrants yet"}
                 </p>
               </div>
@@ -437,6 +467,17 @@ export default function EventCheckInDashboard() {
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+
+              {ticketTypeOptions.length > 0 && (
+                <MultiSelectFilter
+                  options={ticketTypeOptions}
+                  selected={ticketTypeFilter}
+                  onChange={setTicketTypeFilter}
+                  placeholder="All ticket types"
+                  className="w-[200px]"
+                  data-testid="select-ticket-type"
+                />
               )}
             </div>
 
