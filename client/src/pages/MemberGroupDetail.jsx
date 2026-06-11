@@ -29,6 +29,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Crown,
+  Linkedin,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -340,6 +341,18 @@ export default function MemberGroupDetailPage() {
               >
                 {group.description}
               </p>
+            )}
+            {group.linkedin_url && (
+              <a
+                href={group.linkedin_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mb-4 font-medium"
+                data-testid="link-group-linkedin"
+              >
+                <Linkedin className="w-4 h-4" />
+                LinkedIn
+              </a>
             )}
             {group.default_self_join_role && !isJoined && (
               <div className="mb-4">

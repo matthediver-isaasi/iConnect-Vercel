@@ -47,6 +47,10 @@
       "classification_id": {
         "type": "string",
         "description": "Optional MemberGroupClassification this group belongs to (organisational label only, no behaviour)"
+      },
+      "linkedin_url": {
+        "type": "string",
+        "description": "Optional LinkedIn profile URL for this group, shown as a link on the Member Group Detail page"
       }
     },
     "required": [

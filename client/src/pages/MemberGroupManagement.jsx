@@ -79,7 +79,8 @@ export default function MemberGroupManagementPage() {
     ems_enabled_roles: [],
     projects_enabled: false,
     projects_enabled_roles: [],
-    classification_id: ''
+    classification_id: '',
+    linkedin_url: ''
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -345,7 +346,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: [],
       events_enabled: false,
       events_enabled_roles: [],
-      classification_id: ''
+      classification_id: '',
+      linkedin_url: ''
     });
     setEditingGroup(null);
   };
@@ -366,7 +368,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : [],
-      classification_id: group.classification_id || ''
+      classification_id: group.classification_id || '',
+      linkedin_url: group.linkedin_url || ''
     });
     setShowGroupDialog(true);
   };
@@ -387,7 +390,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : [],
-      classification_id: group.classification_id || ''
+      classification_id: group.classification_id || '',
+      linkedin_url: group.linkedin_url || ''
     });
     setShowGroupDialog(true);
   };
@@ -475,6 +479,23 @@ export default function MemberGroupManagementPage() {
       }
     }
 
+    // Normalise the optional LinkedIn URL: trim, treat blank as null, and
+    // validate it parses as a URL when present.
+    const trimmedLinkedin = (groupForm.linkedin_url || '').trim();
+    if (trimmedLinkedin) {
+      let validUrl = false;
+      try {
+        const parsed = new URL(trimmedLinkedin);
+        validUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        validUrl = false;
+      }
+      if (!validUrl) {
+        toast.error('Please enter a valid LinkedIn URL (including https://)');
+        return;
+      }
+    }
+
     // Prune leadership_roles / ems_enabled_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
     const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
@@ -491,7 +512,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
       events_enabled_roles: groupForm.events_enabled ? prunedEvents : [],
-      classification_id: groupForm.classification_id || null
+      classification_id: groupForm.classification_id || null,
+      linkedin_url: trimmedLinkedin || null
     };
 
     if (editingGroup) {
@@ -1175,6 +1197,19 @@ export default function MemberGroupManagementPage() {
                   placeholder="Description of this group..."
                   rows={3}
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="linkedin_url">LinkedIn URL</Label>
+                <Input
+                  id="linkedin_url"
+                  type="url"
+                  value={groupForm.linkedin_url}
+                  onChange={(e) => setGroupForm({ ...groupForm, linkedin_url: e.target.value })}
+                  placeholder="https://www.linkedin.com/company/..."
+                  data-testid="input-group-linkedin-url"
+                />
+                <p className="text-xs text-slate-500 mt-1">Optional. Shown as a link on the group's detail page.</p>
               </div>
 
               <div>
