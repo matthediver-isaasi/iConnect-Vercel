@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
+import DOMPurify from "dompurify";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -193,9 +194,15 @@ export default function MemberGroupDetailPage() {
     [myAssignments, groupId]
   );
 
-  const hasTermsOfReference = !!(
-    group?.terms_of_reference && group.terms_of_reference.trim()
-  );
+  const hasTermsOfReference = useMemo(() => {
+    const raw = group?.terms_of_reference;
+    if (!raw) return false;
+    const text = raw
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;|\u00A0/g, " ")
+      .trim();
+    return text.length > 0;
+  }, [group?.terms_of_reference]);
 
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPage, setMemberPage] = useState(1);
@@ -669,7 +676,10 @@ export default function MemberGroupDetailPage() {
           if (!open) setAgreedToTerms(false);
         }}
       >
-        <AlertDialogContent data-testid="dialog-terms-of-reference">
+        <AlertDialogContent
+          className="max-w-2xl"
+          data-testid="dialog-terms-of-reference"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Terms of reference</AlertDialogTitle>
             <AlertDialogDescription>
@@ -677,11 +687,12 @@ export default function MemberGroupDetailPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div
-            className="max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 whitespace-pre-wrap"
+            className="max-h-[55vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 prose prose-sm max-w-none"
             data-testid="text-terms-of-reference"
-          >
-            {group.terms_of_reference}
-          </div>
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(group.terms_of_reference || ""),
+            }}
+          />
           <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
             <Checkbox
               checked={agreedToTerms}

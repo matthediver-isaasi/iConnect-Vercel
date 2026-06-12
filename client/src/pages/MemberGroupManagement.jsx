@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 
 function isDuplicateClassificationError(error) {
   const msg = (error?.message || error?.error || '').toLowerCase();
@@ -500,8 +501,15 @@ export default function MemberGroupManagementPage() {
       }
     }
 
-    // Normalise the optional terms of reference: trim and treat blank as null.
-    const trimmedTerms = (groupForm.terms_of_reference || '').trim();
+    // Normalise the optional terms of reference (rich text / HTML): trim and
+    // treat visually-empty content (e.g. "<p></p>") as null so an empty editor
+    // doesn't count as having terms.
+    const rawTerms = (groupForm.terms_of_reference || '').trim();
+    const termsHasText = rawTerms
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const trimmedTerms = termsHasText ? rawTerms : '';
 
     // Prune leadership_roles / ems_enabled_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
@@ -1181,7 +1189,7 @@ export default function MemberGroupManagementPage() {
 
         {/* Create/Edit Group Dialog */}
         <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingGroup ? 'Edit Group' : 'Create New Group'}</DialogTitle>
             </DialogHeader>
@@ -1209,12 +1217,11 @@ export default function MemberGroupManagementPage() {
 
               <div>
                 <Label htmlFor="terms_of_reference">Terms of reference</Label>
-                <Textarea
-                  id="terms_of_reference"
-                  value={groupForm.terms_of_reference}
-                  onChange={(e) => setGroupForm({ ...groupForm, terms_of_reference: e.target.value })}
+                <SimpleRichTextEditor
+                  content={groupForm.terms_of_reference}
+                  onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
                   placeholder="Terms of reference members must agree to before joining..."
-                  rows={5}
+                  className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
                   data-testid="input-group-terms-of-reference"
                 />
                 <p className="text-xs text-slate-500 mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
