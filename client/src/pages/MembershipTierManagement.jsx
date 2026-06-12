@@ -1032,7 +1032,7 @@ export default function MembershipTierManagement() {
   };
 
   const handleSwitchActiveConfig = async (configId) => {
-    if (configId === selectedActiveConfigId) return;
+    if (configId === selectedActiveConfigId && !viewingHistorical && !isCreatingNew) return;
     try {
       const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch config');
@@ -3071,8 +3071,9 @@ export default function MembershipTierManagement() {
                 const status = item.status || (item.effective_to === null ? 'active' : 'historical');
                 const isActive = status === 'active';
                 const isScheduled = status === 'scheduled';
-                const isCurrent = isActive;
-                const isViewing = viewingHistorical === item.id || (!viewingHistorical && !isCreatingNew && isCurrent);
+                const isViewing = viewingHistorical
+                  ? viewingHistorical === item.id
+                  : (!isCreatingNew && selectedActiveConfigId === item.id);
                 return (
                   <div
                     key={item.id}
@@ -3107,7 +3108,7 @@ export default function MembershipTierManagement() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => isCurrent ? handleBackToCurrent() : handleViewHistorical(item.id)}
+                          onClick={() => isActive ? handleSwitchActiveConfig(item.id) : handleViewHistorical(item.id)}
                           data-testid={`button-view-history-${item.id}`}
                         >
                           <Eye className="w-3 h-3 mr-1" />
