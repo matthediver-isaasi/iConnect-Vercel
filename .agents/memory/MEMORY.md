@@ -10,3 +10,4 @@
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
 - [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
 - [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
+- [Dynamic email slots](dynamic-email-slots.md) — text/image/button dynamic blocks: token scheme, dual-mode previews via SlotEditContext, and DYN_BLOCK marker regions for hiding whole elements at send.

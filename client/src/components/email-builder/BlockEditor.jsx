@@ -1727,6 +1727,70 @@ function DynamicTextBlockEditor({ block, onChange, isChild }) {
   );
 }
 
+function DynamicImageBlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Image slot is filled in per send. Give it a clear label; the image
+        chosen below is the default shown until the sender changes (or hides) it.
+      </div>
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Header banner"
+          data-testid="dynamic-image-label"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Token</Label>
+        <Input
+          value={block.token ? `{{${block.token}}}` : ''}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-image-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned and used to fill in the image at send time.</p>
+      </div>
+      <ImageBlockEditor block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />
+    </div>
+  );
+}
+
+function DynamicButtonBlockEditor({ block, onChange, isChild, globalFontFamily }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Dynamic Button slot is filled in per send. Give it a clear label; the text
+        and link below are the defaults shown until the sender changes (or hides) it.
+      </div>
+      <div className="space-y-2">
+        <Label>Label</Label>
+        <Input
+          value={block.label || ''}
+          onChange={(e) => onChange({ ...block, label: e.target.value })}
+          placeholder="e.g. Call to action"
+          data-testid="dynamic-button-label"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Tokens</Label>
+        <Input
+          value={[block.token ? `{{${block.token}}}` : '', block.linkToken ? `{{${block.linkToken}}}` : ''].filter(Boolean).join('  ')}
+          readOnly
+          disabled
+          className="font-mono text-xs"
+          data-testid="dynamic-button-token"
+        />
+        <p className="text-xs text-muted-foreground">Automatically assigned — one for the text, one for the link — filled in at send time.</p>
+      </div>
+      <ButtonBlockEditor block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1739,6 +1803,8 @@ const blockEditors = {
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockEditor,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockEditor,
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockEditor,
+  [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {

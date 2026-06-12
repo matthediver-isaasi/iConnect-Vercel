@@ -16,7 +16,12 @@ const contentItems = [
   { type: BLOCK_TYPES.SOCIAL_ICONS, icon: Share2, label: 'Social' },
   { type: BLOCK_TYPES.UNSUBSCRIBE, icon: LinkIcon, label: 'Unsub' },
   { type: BLOCK_TYPES.EVENT_QR, icon: QrCode, label: 'Event QR' },
+];
+
+const dynamicDataItems = [
   { type: BLOCK_TYPES.DYNAMIC_TEXT, icon: Braces, label: 'Dynamic Text' },
+  { type: BLOCK_TYPES.DYNAMIC_IMAGE, icon: Image, label: 'Dynamic Image' },
+  { type: BLOCK_TYPES.DYNAMIC_BUTTON, icon: MousePointer2, label: 'Dynamic Button' },
 ];
 
 function DraggablePaletteItem({ type, icon: Icon, label }) {
@@ -51,8 +56,14 @@ export default function BlockPalette() {
         ))}
       </div>
       <h3 className="text-sm font-medium mb-3">Content</h3>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         {contentItems.map(item => (
+          <DraggablePaletteItem key={item.type} {...item} />
+        ))}
+      </div>
+      <h3 className="text-sm font-medium mb-3">Dynamic data</h3>
+      <div className="grid grid-cols-3 gap-2">
+        {dynamicDataItems.map(item => (
           <DraggablePaletteItem key={item.type} {...item} />
         ))}
       </div>

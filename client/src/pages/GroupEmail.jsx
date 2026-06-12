@@ -47,7 +47,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
 import { extractDynamicSlots } from "@/components/email-builder/types";
-import { FileText } from "lucide-react";
+import { ReadOnlyBlockPreview, SlotEditContext } from "@/components/email-builder/BlockRenderer";
+import { FileText, MousePointerClick } from "lucide-react";
 
 // design_json may be persisted as a JSON string or an object depending on the
 // source (entity REST vs. campaign row). Normalize to an object (or null).
@@ -115,6 +116,7 @@ function blankComposeState() {
     design_json: null,
     template_id: "",
     slotValues: {},
+    hiddenSlots: [],
     audience_roles: [],
   };
 }
@@ -225,6 +227,7 @@ export default function GroupEmailPage() {
         template_id: "",
         design_json: null,
         slotValues: {},
+        hiddenSlots: [],
         html_content: "",
       }));
       return;
@@ -234,12 +237,16 @@ export default function GroupEmailPage() {
     const design = normalizeDesign(tpl.design_json);
     const slots = design ? extractDynamicSlots(design) : [];
     const slotValues = {};
-    slots.forEach((s) => { slotValues[s.token] = ""; });
+    slots.forEach((s) => {
+      slotValues[s.token] = s.defaultValue ?? "";
+      if (s.linkToken) slotValues[s.linkToken] = s.defaultLink ?? "";
+    });
     setCompose((prev) => ({
       ...prev,
       template_id: String(templateId),
       design_json: design,
       slotValues,
+      hiddenSlots: [],
       html_content: tpl.body || "",
       subject: prev.subject || tpl.subject || "",
     }));
@@ -270,15 +277,27 @@ export default function GroupEmailPage() {
       const savedSlotValues = (design && design.slotValues && typeof design.slotValues === "object")
         ? design.slotValues
         : {};
-      // Ensure every slot present in the design has an entry (new slots default to empty).
+      // Ensure every slot present in the design has an entry (new slots fall back
+      // to their design-time default). Text/image slots use `token`; buttons also
+      // carry a `linkToken` for the link URL.
       const slotValues = {};
+      const validTokens = new Set();
       if (design) {
         extractDynamicSlots(design).forEach((s) => {
+          validTokens.add(s.token);
           slotValues[s.token] = Object.prototype.hasOwnProperty.call(savedSlotValues, s.token)
             ? savedSlotValues[s.token]
-            : "";
+            : (s.defaultValue ?? "");
+          if (s.linkToken) {
+            validTokens.add(s.linkToken);
+            slotValues[s.linkToken] = Object.prototype.hasOwnProperty.call(savedSlotValues, s.linkToken)
+              ? savedSlotValues[s.linkToken]
+              : (s.defaultLink ?? "");
+          }
         });
       }
+      const savedHidden = (design && Array.isArray(design.hiddenSlots)) ? design.hiddenSlots : [];
+      const hiddenSlots = savedHidden.filter((t) => validTokens.has(t));
       setCompose({
         id: full.id,
         name: full.name || "",
@@ -289,6 +308,7 @@ export default function GroupEmailPage() {
         design_json: design,
         template_id: full.email_template_id ? String(full.email_template_id) : "",
         slotValues,
+        hiddenSlots,
         audience_roles: segment && Array.isArray(segment.roles) ? segment.roles : [],
       });
     } else {
@@ -350,7 +370,7 @@ export default function GroupEmailPage() {
     // Fold the per-send slot values into the design so the server can inject
     // them at send time (parseCampaignDesign reads design_json.slotValues).
     const designToSave = compose.design_json
-      ? { ...compose.design_json, slotValues: compose.slotValues || {} }
+      ? { ...compose.design_json, slotValues: compose.slotValues || {}, hiddenSlots: compose.hiddenSlots || [] }
       : null;
     const body = isUpdate
       ? {
@@ -500,6 +520,27 @@ export default function GroupEmailPage() {
     setCompose({ ...compose, audience_roles: Array.from(set) });
   };
 
+  // Click-to-edit context for the interactive campaign preview. The dynamic
+  // block previews (BlockRenderer) read this off SlotEditContext to render the
+  // filled-in value with inline editing + a hide toggle.
+  const changeSlotValue = (token, value) =>
+    setCompose((prev) => ({ ...prev, slotValues: { ...(prev.slotValues || {}), [token]: value } }));
+  const toggleHiddenSlot = (token) =>
+    setCompose((prev) => {
+      const set = new Set(prev.hiddenSlots || []);
+      if (set.has(token)) set.delete(token);
+      else set.add(token);
+      return { ...prev, hiddenSlots: Array.from(set) };
+    });
+  const slotEditCtx = {
+    slotValues: compose.slotValues || {},
+    hiddenSlots: compose.hiddenSlots || [],
+    onChangeSlot: changeSlotValue,
+    onToggleHidden: toggleHiddenSlot,
+  };
+  const composeSlots = compose.design_json ? extractDynamicSlots(compose.design_json) : [];
+  const hiddenCount = (compose.hiddenSlots || []).length;
+
   if (!accessChecked || loadingGroups) {
     return (
       <div className="p-8 flex items-center justify-center">
@@ -625,153 +666,155 @@ export default function GroupEmailPage() {
       </Card>
 
       <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-[95vw] w-[1150px] max-h-[92vh] p-0 gap-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle>{compose.id ? "Edit campaign" : "New campaign"}</DialogTitle>
             <DialogDescription>
               Audience is locked to <strong>{activeGroup?.name}</strong>. Optionally narrow by role.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="campaign-name">Internal name *</Label>
-                <Input id="campaign-name" value={compose.name} onChange={(e) => setCompose({ ...compose, name: e.target.value })} data-testid="input-campaign-name" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 flex-1 min-h-0 overflow-hidden">
+            {/* Left column: campaign settings */}
+            <div className="overflow-y-auto px-6 py-5 space-y-4 lg:border-r">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="campaign-name">Internal name *</Label>
+                  <Input id="campaign-name" value={compose.name} onChange={(e) => setCompose({ ...compose, name: e.target.value })} data-testid="input-campaign-name" />
+                </div>
+                <div>
+                  <Label htmlFor="campaign-subject">Subject *</Label>
+                  <Input id="campaign-subject" value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })} data-testid="input-campaign-subject" />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="from-name">From name</Label>
+                  <Input id="from-name" value={compose.from_name} onChange={(e) => setCompose({ ...compose, from_name: e.target.value })} data-testid="input-from-name" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sender address is fixed to your tenant's verified email address — set by your admin.
+                  </p>
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="preheader">Preheader (optional)</Label>
+                  <Input id="preheader" value={compose.preheader} onChange={(e) => setCompose({ ...compose, preheader: e.target.value })} data-testid="input-preheader" />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="campaign-subject">Subject *</Label>
-                <Input id="campaign-subject" value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })} data-testid="input-campaign-subject" />
-              </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="from-name">From name</Label>
-                <Input id="from-name" value={compose.from_name} onChange={(e) => setCompose({ ...compose, from_name: e.target.value })} data-testid="input-from-name" />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Sender address is fixed to your tenant's verified email address — set by your admin.
+
+              <div className="space-y-2">
+                <Label htmlFor="template-select">Email template *</Label>
+                <Select
+                  value={compose.template_id || ""}
+                  onValueChange={(v) => applyTemplateToCompose(v)}
+                >
+                  <SelectTrigger id="template-select" data-testid="select-email-template">
+                    <SelectValue placeholder={loadingTemplates ? "Loading templates…" : "Choose a template"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visualTemplates.length === 0 && !loadingTemplates && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">No visual templates available.</div>
+                    )}
+                    {visualTemplates.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)} data-testid={`option-template-${t.id}`}>
+                        {t.name || t.subject || "Untitled template"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Pick one of your tenant's email templates. Templates built with the visual builder let you fill in or hide dynamic content directly in the preview.
                 </p>
               </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="preheader">Preheader (optional)</Label>
-                <Input id="preheader" value={compose.preheader} onChange={(e) => setCompose({ ...compose, preheader: e.target.value })} data-testid="input-preheader" />
+
+              {composeSlots.length > 0 && (
+                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground flex items-start gap-2" data-testid="hint-dynamic-editing">
+                  <MousePointerClick className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    This template has {composeSlots.length} dynamic {composeSlots.length === 1 ? "element" : "elements"}. Click any highlighted area in the preview to edit it, or use its hide control to remove it from the sent email.
+                    {hiddenCount > 0 && (
+                      <> <strong>{hiddenCount}</strong> currently hidden.</>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Label>Audience filter (optional)</Label>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    {previewLoading ? <Loader2 className="w-3 h-3 animate-spin" /> :
+                      recipientPreview?.recipientCount != null ? `${recipientPreview.recipientCount} recipients` : "—"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to email everyone in the group. Otherwise, only members with one of the selected roles will be emailed.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(activeGroup?.roles || []).map((r) => {
+                    const checked = (compose.audience_roles || []).includes(r);
+                    return (
+                      <label key={r} className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                        data-testid={`label-audience-role-${r}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAudienceRole(r)}
+                          className="w-4 h-4"
+                          data-testid={`checkbox-audience-role-${r}`}
+                        />
+                        <span>{r}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-end gap-3 border-t pt-4">
+                <div className="flex-1">
+                  <Label htmlFor="schedule-at">Schedule for</Label>
+                  <Input id="schedule-at" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} data-testid="input-schedule-at" />
+                </div>
+                <Button variant="outline" onClick={handleSchedule} disabled={scheduling || !scheduledAt} data-testid="button-schedule">
+                  {scheduling ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CalendarIcon className="w-4 h-4 mr-2" />}
+                  Schedule
+                </Button>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="template-select">Email template *</Label>
-              <Select
-                value={compose.template_id || ""}
-                onValueChange={(v) => applyTemplateToCompose(v)}
-              >
-                <SelectTrigger id="template-select" data-testid="select-email-template">
-                  <SelectValue placeholder={loadingTemplates ? "Loading templates…" : "Choose a template"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {visualTemplates.length === 0 && !loadingTemplates && (
-                    <div className="px-2 py-1.5 text-sm text-muted-foreground">No visual templates available.</div>
-                  )}
-                  {visualTemplates.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)} data-testid={`option-template-${t.id}`}>
-                      {t.name || t.subject || "Untitled template"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Pick one of your tenant's email templates. Templates built with the visual builder may include fill-in slots below.
-              </p>
-            </div>
-
-            {(() => {
-              if (!compose.design_json) return null;
-              const slots = extractDynamicSlots(compose.design_json);
-              if (slots.length === 0) return null;
-              return (
-                <div className="space-y-3 border rounded-md p-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                    <Label className="m-0">Fill in template values</Label>
+            {/* Right column: interactive preview */}
+            <div className="overflow-y-auto bg-muted/40 px-6 py-5">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="w-4 h-4 text-muted-foreground" />
+                <Label className="m-0">Preview</Label>
+              </div>
+              {compose.design_json ? (
+                <SlotEditContext.Provider value={slotEditCtx}>
+                  <div className="rounded-md overflow-hidden bg-white shadow-sm" data-testid="interactive-compose-preview">
+                    <ReadOnlyBlockPreview
+                      blocks={compose.design_json.blocks}
+                      globalStyles={compose.design_json.globalStyles}
+                    />
                   </div>
-                  {slots.map((slot) => (
-                    <div key={slot.token} className="space-y-1">
-                      <Label htmlFor={`slot-${slot.token}`} className="text-sm">{slot.label}</Label>
-                      <Input
-                        id={`slot-${slot.token}`}
-                        value={compose.slotValues?.[slot.token] ?? ""}
-                        onChange={(e) =>
-                          setCompose((prev) => ({
-                            ...prev,
-                            slotValues: { ...(prev.slotValues || {}), [slot.token]: e.target.value },
-                          }))
-                        }
-                        data-testid={`input-slot-${slot.token}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-
-            {compose.html_content && (
-              <div className="space-y-1">
-                <Label className="text-sm">Preview</Label>
+                </SlotEditContext.Provider>
+              ) : compose.html_content ? (
                 <div className="border rounded-md overflow-hidden bg-white">
                   <iframe
                     srcDoc={fillDynamicSlots(compose.html_content, compose.slotValues)}
                     title="Email preview"
                     className="w-full border-0"
-                    style={{ minHeight: 280 }}
+                    style={{ minHeight: 400 }}
                     sandbox="allow-same-origin"
                     data-testid="iframe-compose-preview"
                   />
                 </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label>Audience filter (optional)</Label>
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Users className="w-3 h-3" />
-                  {previewLoading ? <Loader2 className="w-3 h-3 animate-spin" /> :
-                    recipientPreview?.recipientCount != null ? `${recipientPreview.recipientCount} recipients` : "—"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Leave empty to email everyone in the group. Otherwise, only members with one of the selected roles will be emailed.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {(activeGroup?.roles || []).map((r) => {
-                  const checked = (compose.audience_roles || []).includes(r);
-                  return (
-                    <label key={r} className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
-                      data-testid={`label-audience-role-${r}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleAudienceRole(r)}
-                        className="w-4 h-4"
-                        data-testid={`checkbox-audience-role-${r}`}
-                      />
-                      <span>{r}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-end gap-3 border-t pt-4">
-              <div className="flex-1">
-                <Label htmlFor="schedule-at">Schedule for</Label>
-                <Input id="schedule-at" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} data-testid="input-schedule-at" />
-              </div>
-              <Button variant="outline" onClick={handleSchedule} disabled={scheduling || !scheduledAt} data-testid="button-schedule">
-                {scheduling ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CalendarIcon className="w-4 h-4 mr-2" />}
-                Schedule
-              </Button>
+              ) : (
+                <div className="flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground" style={{ minHeight: 400 }} data-testid="text-no-preview">
+                  Choose a template to see a preview.
+                </div>
+              )}
             </div>
           </div>
 
-          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 px-6 py-4 border-t">
             <div className="flex gap-2 flex-wrap">
               <Button variant="outline" onClick={() => setComposeOpen(false)} data-testid="button-cancel-compose">Cancel</Button>
               <Button variant="outline" onClick={handleSaveDraft} data-testid="button-save-draft">Save draft</Button>

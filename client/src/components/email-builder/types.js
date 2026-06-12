@@ -10,7 +10,18 @@ export const BLOCK_TYPES = {
   UNSUBSCRIBE: 'unsubscribe',
   EVENT_QR: 'event_qr',
   DYNAMIC_TEXT: 'dynamic_text',
+  DYNAMIC_IMAGE: 'dynamic_image',
+  DYNAMIC_BUTTON: 'dynamic_button',
 };
+
+// Block types whose content is filled in per-send (Dynamic data palette).
+export const DYNAMIC_BLOCK_TYPES = [
+  BLOCK_TYPES.DYNAMIC_TEXT,
+  BLOCK_TYPES.DYNAMIC_IMAGE,
+  BLOCK_TYPES.DYNAMIC_BUTTON,
+];
+
+export const isDynamicBlockType = (type) => DYNAMIC_BLOCK_TYPES.includes(type);
 
 export const SOCIAL_PLATFORMS = [
   { key: 'facebook', label: 'Facebook', defaultUrl: 'https://facebook.com/' },
@@ -271,25 +282,107 @@ export const createBlock = (type, props = {}) => {
           ...props.styles,
         },
       };
+    case BLOCK_TYPES.DYNAMIC_IMAGE:
+      return {
+        id,
+        type,
+        token: props.token || '',
+        label: props.label || '',
+        src: props.src || '',
+        alt: props.alt || 'Image',
+        href: props.href || '',
+        styles: {
+          width: '100%',
+          maxWidth: '600px',
+          imageSize: '100%',
+          imageSizeCustom: '',
+          paddingTop: '10',
+          paddingRight: '20',
+          paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
+          textAlign: 'center',
+          ...props.styles,
+        },
+      };
+    case BLOCK_TYPES.DYNAMIC_BUTTON:
+      return {
+        id,
+        type,
+        token: props.token || '',
+        linkToken: props.linkToken || '',
+        label: props.label || '',
+        content: props.content || 'Click Here',
+        href: props.href || '#',
+        styles: {
+          backgroundColor: '#007bff',
+          color: '#ffffff',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          innerPaddingTop: '12',
+          innerPaddingRight: '24',
+          innerPaddingBottom: '12',
+          innerPaddingLeft: '24',
+          paddingTop: '10',
+          paddingRight: '20',
+          paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
+          borderRadius: '4px',
+          textAlign: 'center',
+          ...props.styles,
+        },
+      };
     default:
       return { id, type, content: '', styles: {} };
   }
 };
 
 // Recursively walk a design's block tree (top-level blocks, section children,
-// and column blocks) and collect every Dynamic Text block's slot definition.
-// Returns a de-duplicated array of { token, label } keyed by token (first label
-// wins). Tokens are the stable substitution keys ({{token}}); labels are the
-// human-editable names shown when filling slots.
+// and column blocks) and collect every Dynamic block's slot definition.
+// Returns a de-duplicated array keyed by primary token (first definition wins).
+// Each slot is shaped:
+//   { token, label, type, defaultValue, linkToken?, defaultLink? }
+// - token is the primary substitution key ({{token}}): text content, image src,
+//   or button label depending on `type` ('text' | 'image' | 'button').
+// - linkToken (button only) is the secondary key ({{linkToken}}) for the href.
+// `type` defaults to 'text' so legacy text-only designs keep working unchanged.
 export const extractDynamicSlots = (design) => {
   const blocks = Array.isArray(design) ? design : (design?.blocks || []);
   const seen = new Map();
 
   const visit = (block) => {
     if (!block || typeof block !== 'object') return;
-    if (block.type === BLOCK_TYPES.DYNAMIC_TEXT && block.token) {
-      if (!seen.has(block.token)) {
-        seen.set(block.token, { token: block.token, label: block.label || block.token });
+    if (block.token && isDynamicBlockType(block.type) && !seen.has(block.token)) {
+      if (block.type === BLOCK_TYPES.DYNAMIC_IMAGE) {
+        seen.set(block.token, {
+          token: block.token,
+          label: block.label || block.token,
+          type: 'image',
+          defaultValue: block.src || '',
+        });
+      } else if (block.type === BLOCK_TYPES.DYNAMIC_BUTTON) {
+        seen.set(block.token, {
+          token: block.token,
+          label: block.label || block.token,
+          type: 'button',
+          defaultValue: block.content || '',
+          linkToken: block.linkToken || '',
+          defaultLink: block.href || '',
+        });
+      } else {
+        seen.set(block.token, {
+          token: block.token,
+          label: block.label || block.token,
+          type: 'text',
+          defaultValue: '',
+        });
       }
     }
     if (Array.isArray(block.children)) block.children.forEach(visit);

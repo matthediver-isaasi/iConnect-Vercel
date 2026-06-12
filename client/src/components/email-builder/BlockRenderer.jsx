@@ -1,10 +1,24 @@
+import { createContext, useContext, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, QrCode } from 'lucide-react';
+import { Plus, QrCode, EyeOff, Eye, Upload, Loader2 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { base44 } from '@/api/base44Client';
+import { toast } from 'sonner';
+import { showUploadErrorToast } from '@/lib/planQuotaError';
 import { BLOCK_TYPES } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues } from './SpacingControl';
+
+// When present, dynamic blocks render their actual filled-in values and become
+// click-to-edit (popover) + hideable. When absent (the visual builder canvas),
+// dynamic blocks render their design-time placeholder chips instead.
+// Shape: { slotValues, hiddenSlots, onChangeSlot(token,value), onToggleHidden(token) }
+export const SlotEditContext = createContext(null);
 
 function getSpacingStyle(styles, prefix, cssPrefix) {
   const vals = getIndividualValues(styles, prefix);
@@ -521,7 +535,169 @@ function EventQrBlockPreview({ block, isChild }) {
   return <div style={marginAsPadding}>{qrEl}</div>;
 }
 
+// Wraps a rendered dynamic element in campaign-edit mode: a dashed editable
+// outline that opens a popover (the `editor`) on click, plus a Hide action that
+// removes the element from the sent email entirely.
+function CampaignSlotWrapper({ block, slotCtx, label, isChild, children, editor }) {
+  const [open, setOpen] = useState(false);
+  const wrapped = (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div
+          className="relative cursor-pointer rounded-sm hover-elevate"
+          style={{ outline: '1px dashed rgba(59,130,246,0.6)', outlineOffset: '2px' }}
+          title={`Edit ${label}`}
+          data-testid={`campaign-slot-${block.token}`}
+        >
+          {children}
+        </div>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-3" data-testid={`campaign-slot-editor-${block.token}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-foreground truncate">{label}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => { slotCtx.onToggleHidden(block.token); setOpen(false); }}
+            data-testid={`button-hide-slot-${block.token}`}
+          >
+            <EyeOff className="w-3.5 h-3.5 mr-1" /> Hide
+          </Button>
+        </div>
+        {editor}
+      </PopoverContent>
+    </Popover>
+  );
+  if (isChild) return <div className="my-1">{wrapped}</div>;
+  return <div className="my-1">{wrapped}</div>;
+}
+
+// Replaces a hidden dynamic element in campaign-edit mode with a thin restore
+// strip so the sender can bring it back. Hidden elements are stripped entirely
+// from the sent/test email.
+function HiddenSlotStrip({ block, slotCtx }) {
+  const label = block.label || block.token || 'Dynamic element';
+  return (
+    <div className="my-1">
+      <div
+        className="flex items-center justify-between gap-2 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+        data-testid={`hidden-slot-${block.token}`}
+      >
+        <span className="truncate">Hidden: {label}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => slotCtx.onToggleHidden(block.token)}
+          data-testid={`button-restore-slot-${block.token}`}
+        >
+          <Eye className="w-3.5 h-3.5 mr-1" /> Show
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DynamicTextSlotEditor({ block, slotCtx }) {
+  const value = slotCtx.slotValues?.[block.token] ?? '';
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs text-muted-foreground">Text</span>
+      <Textarea
+        value={value}
+        rows={3}
+        placeholder="Type the text for this send…"
+        onChange={(e) => slotCtx.onChangeSlot(block.token, e.target.value)}
+        data-testid={`campaign-input-${block.token}`}
+      />
+    </div>
+  );
+}
+
+function DynamicImageSlotEditor({ block, slotCtx }) {
+  const [uploading, setUploading] = useState(false);
+  const value = slotCtx.slotValues?.[block.token] ?? '';
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be smaller than 10MB');
+      return;
+    }
+    setUploading(true);
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      if (response?.file_url) {
+        slotCtx.onChangeSlot(block.token, response.file_url);
+        toast.success('Image uploaded');
+      } else {
+        toast.error('Upload failed');
+      }
+    } catch (error) {
+      showUploadErrorToast(error, 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {value ? (
+        <img src={value} alt="" className="max-h-28 w-full rounded-sm border object-contain bg-muted/30" />
+      ) : null}
+      <div className="space-y-1.5">
+        <span className="text-xs text-muted-foreground">Image URL</span>
+        <Input
+          value={value}
+          placeholder="https://…"
+          onChange={(e) => slotCtx.onChangeSlot(block.token, e.target.value)}
+          data-testid={`campaign-input-${block.token}`}
+        />
+      </div>
+      <label className="inline-flex">
+        <input type="file" accept="image/*" className="hidden" onChange={handleUpload} data-testid={`campaign-upload-${block.token}`} />
+        <Button asChild size="sm" variant="outline" disabled={uploading}>
+          <span>
+            {uploading ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1" />}
+            Upload
+          </span>
+        </Button>
+      </label>
+    </div>
+  );
+}
+
+function DynamicButtonSlotEditor({ block, slotCtx }) {
+  const textVal = slotCtx.slotValues?.[block.token] ?? '';
+  const linkVal = block.linkToken ? (slotCtx.slotValues?.[block.linkToken] ?? '') : '';
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1.5">
+        <span className="text-xs text-muted-foreground">Button text</span>
+        <Input
+          value={textVal}
+          placeholder="Button label"
+          onChange={(e) => slotCtx.onChangeSlot(block.token, e.target.value)}
+          data-testid={`campaign-input-${block.token}`}
+        />
+      </div>
+      {block.linkToken ? (
+        <div className="space-y-1.5">
+          <span className="text-xs text-muted-foreground">Link URL</span>
+          <Input
+            value={linkVal}
+            placeholder="https://…"
+            onChange={(e) => slotCtx.onChangeSlot(block.linkToken, e.target.value)}
+            data-testid={`campaign-input-${block.linkToken}`}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DynamicTextBlockPreview({ block, isChild, globalFontFamily }) {
+  const slotCtx = useContext(SlotEditContext);
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
   const fontFamily = block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif';
   const fontSize = block.styles.fontSize || '14px';
@@ -529,6 +705,28 @@ function DynamicTextBlockPreview({ block, isChild, globalFontFamily }) {
   const textAlign = block.styles.textAlign || 'left';
   const lineHeight = block.styles.lineHeight || '1.5';
   const label = block.label || block.token || 'Dynamic Text';
+
+  // Campaign-edit mode: render the actual filled-in value + click-to-edit/hide.
+  if (slotCtx && block.token) {
+    if ((slotCtx.hiddenSlots || []).includes(block.token)) {
+      return <HiddenSlotStrip block={block} slotCtx={slotCtx} />;
+    }
+    const value = slotCtx.slotValues?.[block.token];
+    const display = value && String(value).trim() ? value : `[ ${label} ]`;
+    return (
+      <CampaignSlotWrapper
+        block={block}
+        slotCtx={slotCtx}
+        label={label}
+        isChild={isChild}
+        editor={<DynamicTextSlotEditor block={block} slotCtx={slotCtx} />}
+      >
+        <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight, whiteSpace: 'pre-wrap' }}>
+          {display}
+        </div>
+      </CampaignSlotWrapper>
+    );
+  }
 
   const dtEl = (
     <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color, lineHeight }}>
@@ -555,6 +753,85 @@ function DynamicTextBlockPreview({ block, isChild, globalFontFamily }) {
   return <div style={marginAsPadding}>{dtEl}</div>;
 }
 
+function DynamicImageBlockPreview({ block, isChild, globalFontFamily }) {
+  const slotCtx = useContext(SlotEditContext);
+  const label = block.label || block.token || 'Dynamic Image';
+
+  if (slotCtx && block.token) {
+    if ((slotCtx.hiddenSlots || []).includes(block.token)) {
+      return <HiddenSlotStrip block={block} slotCtx={slotCtx} />;
+    }
+    const value = slotCtx.slotValues?.[block.token];
+    const resolved = { ...block, type: BLOCK_TYPES.IMAGE, src: value || block.src || '' };
+    return (
+      <CampaignSlotWrapper
+        block={block}
+        slotCtx={slotCtx}
+        label={label}
+        isChild={isChild}
+        editor={<DynamicImageSlotEditor block={block} slotCtx={slotCtx} />}
+      >
+        <ImageBlockPreview block={resolved} isChild={true} globalFontFamily={globalFontFamily} />
+      </CampaignSlotWrapper>
+    );
+  }
+
+  // Builder mode: show the design-time default image, or a labelled placeholder.
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const phEl = block.src ? (
+    <ImageBlockPreview block={{ ...block, type: BLOCK_TYPES.IMAGE }} isChild={true} globalFontFamily={globalFontFamily} />
+  ) : (
+    <div style={paddingStyle}>
+      <div
+        className="flex items-center justify-center bg-blue-50 text-blue-700 border-2 border-dashed border-blue-300 rounded text-sm"
+        style={{ minHeight: '100px' }}
+        data-testid="dynamic-image-preview"
+      >
+        {`{{ ${label} }}`}
+      </div>
+    </div>
+  );
+
+  if (isChild) return phEl;
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{phEl}</div>;
+}
+
+function DynamicButtonBlockPreview({ block, isChild, globalFontFamily }) {
+  const slotCtx = useContext(SlotEditContext);
+  const label = block.label || block.token || 'Dynamic Button';
+
+  if (slotCtx && block.token) {
+    if ((slotCtx.hiddenSlots || []).includes(block.token)) {
+      return <HiddenSlotStrip block={block} slotCtx={slotCtx} />;
+    }
+    const text = slotCtx.slotValues?.[block.token];
+    const link = block.linkToken ? slotCtx.slotValues?.[block.linkToken] : block.href;
+    const resolved = {
+      ...block,
+      type: BLOCK_TYPES.BUTTON,
+      content: (text && String(text).trim()) ? text : (block.content || label),
+      href: link || block.href || '',
+    };
+    return (
+      <CampaignSlotWrapper
+        block={block}
+        slotCtx={slotCtx}
+        label={label}
+        isChild={isChild}
+        editor={<DynamicButtonSlotEditor block={block} slotCtx={slotCtx} />}
+      >
+        <ButtonBlockPreview block={resolved} isChild={true} globalFontFamily={globalFontFamily} />
+      </CampaignSlotWrapper>
+    );
+  }
+
+  // Builder mode: render the button with its design-time default text.
+  const resolved = { ...block, type: BLOCK_TYPES.BUTTON };
+  if (isChild) return <ButtonBlockPreview block={resolved} isChild={true} globalFontFamily={globalFontFamily} />;
+  return <ButtonBlockPreview block={resolved} isChild={false} globalFontFamily={globalFontFamily} />;
+}
+
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
@@ -565,6 +842,8 @@ const contentBlockPreviewComponents = {
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -579,6 +858,8 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
   [BLOCK_TYPES.EVENT_QR]: EventQrBlockPreview,
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockPreview,
+  [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockPreview,
 };
 
 function ReadOnlySectionPreview({ block, globalFontFamily }) {

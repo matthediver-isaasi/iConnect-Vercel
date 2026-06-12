@@ -216,10 +216,17 @@ export default function EmailBuilder({
     if (activeData?.fromPalette) {
       const newBlock = createBlock(activeData.type);
 
-      if (activeData.type === BLOCK_TYPES.DYNAMIC_TEXT) {
+      if (
+        activeData.type === BLOCK_TYPES.DYNAMIC_TEXT ||
+        activeData.type === BLOCK_TYPES.DYNAMIC_IMAGE ||
+        activeData.type === BLOCK_TYPES.DYNAMIC_BUTTON
+      ) {
         const n = nextDynamicTokenIndex(design.blocks);
         newBlock.token = `dynamic_${n}`;
         newBlock.label = `Slot ${n}`;
+        if (activeData.type === BLOCK_TYPES.DYNAMIC_BUTTON) {
+          newBlock.linkToken = `dynamic_${n}_link`;
+        }
       }
 
       setIsPageSelected(false);

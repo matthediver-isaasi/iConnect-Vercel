@@ -74,10 +74,12 @@ export default async function handler(req, res) {
     // server-side from that template. The client may only supply per-send slot
     // values (design_json.slotValues); freeform html_content is ignored.
     const requestedSlotValues = (design_json && typeof design_json === 'object') ? design_json.slotValues : null;
+    const requestedHiddenSlots = (design_json && typeof design_json === 'object') ? design_json.hiddenSlots : null;
     const resolved = await resolveMemberCampaignTemplateContent({
       templateId: email_template_id,
       tenantId: access.tenantContext.tenantId,
       requestedSlotValues,
+      requestedHiddenSlots,
     });
     if (!resolved.ok) {
       return res.status(400).json({ error: resolved.error });

@@ -186,11 +186,12 @@ function normalizeDesignJson(design) {
 }
 
 /**
- * Collect every Dynamic Text slot token from a design's block tree (top-level
+ * Collect every dynamic slot token from a design's block tree (top-level
  * blocks, section children, and column blocks). Server mirror of
- * extractDynamicSlots() in client/src/components/email-builder/types.js — only
- * `dynamic_text` blocks with a token count as fill-in slots. Returns a Set of
- * token strings.
+ * extractDynamicSlots() in client/src/components/email-builder/types.js.
+ * Dynamic blocks count as fill-in slots: `dynamic_text` and `dynamic_image`
+ * contribute their `token`; `dynamic_button` contributes both its `token`
+ * (button text) and its `linkToken` (link URL). Returns a Set of token strings.
  */
 export function extractDynamicSlotTokens(design) {
   const root = normalizeDesignJson(design);
@@ -198,7 +199,34 @@ export function extractDynamicSlotTokens(design) {
   const tokens = new Set();
   const visit = (block) => {
     if (!block || typeof block !== 'object') return;
-    if (block.type === 'dynamic_text' && block.token) tokens.add(block.token);
+    if ((block.type === 'dynamic_text' || block.type === 'dynamic_image' || block.type === 'dynamic_button') && block.token) {
+      tokens.add(block.token);
+    }
+    if (block.type === 'dynamic_button' && block.linkToken) tokens.add(block.linkToken);
+    if (Array.isArray(block.children)) block.children.forEach(visit);
+    if (Array.isArray(block.columns)) {
+      block.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(visit); });
+    }
+  };
+  blocks.forEach(visit);
+  return tokens;
+}
+
+/**
+ * Collect the set of PRIMARY dynamic tokens (the keys used in DYN_BLOCK markers
+ * and in the hiddenSlots list) — i.e. every dynamic block's `token`, but NOT a
+ * dynamic_button's `linkToken` (a link cannot be hidden independently of its
+ * button). Used to validate/filter a client-supplied hiddenSlots list.
+ */
+export function extractHideableSlotTokens(design) {
+  const root = normalizeDesignJson(design);
+  const blocks = Array.isArray(root) ? root : (root?.blocks || []);
+  const tokens = new Set();
+  const visit = (block) => {
+    if (!block || typeof block !== 'object') return;
+    if ((block.type === 'dynamic_text' || block.type === 'dynamic_image' || block.type === 'dynamic_button') && block.token) {
+      tokens.add(block.token);
+    }
     if (Array.isArray(block.children)) block.children.forEach(visit);
     if (Array.isArray(block.columns)) {
       block.columns.forEach((col) => { if (Array.isArray(col?.blocks)) col.blocks.forEach(visit); });
@@ -231,7 +259,7 @@ export async function assertVisualTemplateForCampaign(templateId, tenantId) {
  * Returns { ok, html_content, design_json, email_template_id } on success,
  * else { ok:false, error }.
  */
-export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues } = {}) {
+export async function resolveMemberCampaignTemplateContent({ templateId, tenantId, requestedSlotValues, requestedHiddenSlots } = {}) {
   if (!templateId || templateId === 'none' || templateId === '') {
     return { ok: false, error: 'A visual email template is required.' };
   }
@@ -260,11 +288,24 @@ export async function resolveMemberCampaignTemplateContent({ templateId, tenantI
       }
     }
 
+    // hiddenSlots: per-send list of primary dynamic tokens the sender chose to
+    // hide. Filter to tokens actually declared by the template so a client can
+    // never inject arbitrary marker keys.
+    const hideable = extractHideableSlotTokens(design);
+    const hiddenSlots = [];
+    if (Array.isArray(requestedHiddenSlots)) {
+      for (const token of requestedHiddenSlots) {
+        if (typeof token === 'string' && hideable.has(token) && !hiddenSlots.includes(token)) {
+          hiddenSlots.push(token);
+        }
+      }
+    }
+
     return {
       ok: true,
       email_template_id: data.id,
       html_content: data.body || '',
-      design_json: { ...design, slotValues },
+      design_json: { ...design, slotValues, hiddenSlots },
     };
   } catch (err) {
     console.error('[Campaign Service] Error resolving template content:', err);
@@ -2295,6 +2336,7 @@ function parseCampaignDesign(campaign) {
   let hasUnsubscribeBlock = false;
   let contentWidth = null;
   let slotValues = null;
+  let hiddenSlots = null;
   if (campaign.design_json) {
     skipFooter = true;
     try {
@@ -2304,6 +2346,9 @@ function parseCampaignDesign(campaign) {
       }
       if (designData?.slotValues && typeof designData.slotValues === 'object') {
         slotValues = designData.slotValues;
+      }
+      if (Array.isArray(designData?.hiddenSlots) && designData.hiddenSlots.length > 0) {
+        hiddenSlots = designData.hiddenSlots.filter((t) => typeof t === 'string');
       }
       const checkForUnsubscribe = (blocks) => {
         if (!Array.isArray(blocks)) return false;
@@ -2323,10 +2368,36 @@ function parseCampaignDesign(campaign) {
       }
     } catch (e) {}
   }
-  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues };
+  return { skipFooter, hasUnsubscribeBlock, contentWidth, slotValues, hiddenSlots };
 }
 
 const EVENT_QR_BLOCK_RE = /<!--\s*EVENT_QR_BLOCK:START\s*-->[\s\S]*?<!--\s*EVENT_QR_BLOCK:END\s*-->/gi;
+
+// Matches a single DYN_BLOCK region for a specific token, including the markers.
+function dynBlockRegionRe(token) {
+  const safe = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`<!--\\s*DYN_BLOCK:START:${safe}\\s*-->[\\s\\S]*?<!--\\s*DYN_BLOCK:END:${safe}\\s*-->`, 'gi');
+}
+
+// Strip any DYN_BLOCK START/END marker comments left in the html (for the
+// dynamic elements that were NOT hidden, the markers are just noise to remove).
+const DYN_BLOCK_MARKER_RE = /<!--\s*DYN_BLOCK:(START|END):[^>]*?-->/gi;
+
+// Remove the hidden dynamic regions entirely, then clean up the remaining
+// (non-hidden) markers so they never appear in the delivered email.
+export function stripHiddenDynamicRegions(html, hiddenSlots) {
+  if (!html) return html;
+  let out = html;
+  if (Array.isArray(hiddenSlots)) {
+    for (const token of hiddenSlots) {
+      if (typeof token === 'string' && token) {
+        out = out.replace(dynBlockRegionRe(token), '');
+      }
+    }
+  }
+  out = out.replace(DYN_BLOCK_MARKER_RE, '');
+  return out;
+}
 
 function buildQrReqFromHost(requestHost) {
   if (!requestHost) return null;
@@ -2447,6 +2518,11 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
   try {
     let html = campaign.html_content || '';
     let subject = campaign.subject || '';
+
+    // Hidden dynamic elements: remove their whole DYN_BLOCK region (and clean up
+    // the remaining non-hidden markers) BEFORE filling in slot values, so a
+    // hidden element never appears — and its tokens never resolve — in the send.
+    html = stripHiddenDynamicRegions(html, designInfo?.hiddenSlots);
 
     // Dynamic Text slots: single per-send values, identical for every recipient.
     // Resolve before any per-recipient placeholder substitution.

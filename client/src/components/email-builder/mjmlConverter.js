@@ -231,7 +231,14 @@ const childBlockToMjml = (block) => {
       return eventQrToMjml(block);
     }
     case BLOCK_TYPES.DYNAMIC_TEXT:
-      return dynamicTextToMjml(block);
+      return wrapDynMarkers(block.token, dynamicTextToMjml(block));
+    case BLOCK_TYPES.DYNAMIC_IMAGE:
+      return wrapDynMarkers(block.token, dynamicImageToMjml(block));
+    case BLOCK_TYPES.DYNAMIC_BUTTON:
+      return wrapDynMarkers(block.token, `<mj-text
+        align="${block.styles.textAlign || 'center'}"
+        padding="${getPaddingAttr(block.styles)}"
+      >${dynamicButtonToMjml(block)}</mj-text>`);
     default:
       return '';
   }
@@ -266,6 +273,42 @@ const eventQrToMjml = (block) => {
         align="${align}"
         padding="${getPaddingAttr(block.styles)}"
       />${captionMjml}`;
+};
+
+const dynamicImageToMjml = (block) => {
+  const src = block.token ? `{{${block.token}}}` : '';
+  const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
+  const dimgWidth = getImageMjmlWidth(block);
+  const dimgWidthAttr = dimgWidth ? `width="${dimgWidth}"` : '';
+  return `<mj-image
+        src="${src}"
+        alt="${escapeHtml(block.alt || '')}"
+        ${dimgWidthAttr}
+        align="${block.styles.textAlign || 'center'}"
+        padding="${getPaddingAttr(block.styles)}"
+        ${imgHref}
+      />`;
+};
+
+const dynamicButtonToMjml = (block) => {
+  const resolved = {
+    ...block,
+    content: block.token ? `{{${block.token}}}` : (block.content || ''),
+    href: block.linkToken ? `{{${block.linkToken}}}` : (block.href || '#'),
+  };
+  return buttonToMjml(resolved);
+};
+
+// Wraps top-level dynamic block MJML in raw HTML comment markers keyed by the
+// block's primary token, so the server can strip the whole region when the
+// sender hides that dynamic element. Mirrors the EVENT_QR marker pattern.
+const wrapDynMarkers = (token, inner) => {
+  if (!token) return inner;
+  return `
+        <mj-raw><!-- DYN_BLOCK:START:${token} --></mj-raw>
+        ${inner}
+        <mj-raw><!-- DYN_BLOCK:END:${token} --></mj-raw>
+      `;
 };
 
 const blockToMjml = (block) => {
@@ -418,13 +461,38 @@ const blockToMjml = (block) => {
 
     case BLOCK_TYPES.DYNAMIC_TEXT: {
       const dtSectionPad = getCombinedSectionPadding(block.styles);
-      return `
+      return wrapDynMarkers(block.token, `
         <mj-section padding="${dtSectionPad}">
           <mj-column>
             ${dynamicTextToMjml(block)}
           </mj-column>
         </mj-section>
-      `;
+      `);
+    }
+
+    case BLOCK_TYPES.DYNAMIC_IMAGE: {
+      const diSectionPad = getCombinedSectionPadding(block.styles);
+      return wrapDynMarkers(block.token, `
+        <mj-section padding="${diSectionPad}">
+          <mj-column>
+            ${dynamicImageToMjml(block)}
+          </mj-column>
+        </mj-section>
+      `);
+    }
+
+    case BLOCK_TYPES.DYNAMIC_BUTTON: {
+      const dbSectionPad = getCombinedSectionPadding(block.styles);
+      return wrapDynMarkers(block.token, `
+        <mj-section padding="${dbSectionPad}">
+          <mj-column>
+            <mj-text
+              align="${block.styles.textAlign || 'center'}"
+              padding="${getPaddingAttr(block.styles)}"
+            >${dynamicButtonToMjml(block)}</mj-text>
+          </mj-column>
+        </mj-section>
+      `);
     }
 
     case BLOCK_TYPES.COLUMNS: {
@@ -460,6 +528,12 @@ const blockToMjml = (block) => {
             return childBlockToMjml(b);
           }
           if (b.type === BLOCK_TYPES.DYNAMIC_TEXT) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.DYNAMIC_IMAGE) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.DYNAMIC_BUTTON) {
             return childBlockToMjml(b);
           }
           return '';
