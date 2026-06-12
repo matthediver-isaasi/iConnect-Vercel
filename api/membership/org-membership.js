@@ -234,6 +234,21 @@ function mapSimResultToYearData(sim, startDate) {
   };
 }
 
+// Recompute VAT and total-with-VAT from the (already correct) final cost so the
+// card is never internally inconsistent after an override mutates finalCost.
+// Uses the same rounding as the renewal simulation (membershipSimulation.js).
+function recomputeVatForYear(yearData) {
+  if (!yearData || yearData.finalCost == null) return;
+  const rate = yearData.vatRatePercent;
+  if (rate && rate > 0) {
+    yearData.vatAmount = parseFloat((yearData.finalCost * rate / 100).toFixed(2));
+    yearData.totalWithVat = parseFloat((yearData.finalCost + yearData.vatAmount).toFixed(2));
+  } else {
+    yearData.vatAmount = 0;
+    yearData.totalWithVat = yearData.finalCost;
+  }
+}
+
 async function handleGet(req, res, tenantId) {
   const { organizationId, action } = req.query;
 
@@ -430,94 +445,54 @@ async function handleGet(req, res, tenantId) {
     // Table may not exist yet
   }
 
+  // The financial figures on `yearData` already reflect the override:
+  //  - nextYearPreview and the (un-recorded) current year come from
+  //    simulateMembershipForOrg, which has already applied the override
+  //    (including the year-2 no-rollover rule and the VAT/total).
+  //  - the recorded current year reads the saved history values, which were
+  //    written with the override applied.
+  // Re-deriving cost here would apply the override a SECOND time (e.g. re-adding
+  // the percent/free-period incentive on top of the already-simulated final
+  // cost, and leaving VAT/total based on the pre-rollover figure). So this only
+  // attaches display metadata; VAT/total are recomputed from finalCost via
+  // recomputeVatForYear so the card is always internally consistent.
   async function applyOverrideToYear(yearData, override) {
     if (!override || !yearData) return;
     if (override.override_type === 'price' && override.manual_price !== null) {
       yearData.overrideType = 'price';
       yearData.overridePrice = parseFloat(override.manual_price);
       yearData.overrideNote = override.note;
-      yearData.originalAnnualCost = yearData.annualCost;
-      yearData.originalFinalCost = yearData.finalCost;
-      yearData.finalCost = parseFloat(override.manual_price);
-      yearData.annualCost = parseFloat(override.manual_price);
-      yearData.annualCostBeforeDiscounts = parseFloat(override.manual_price);
-      yearData.customDiscountTotal = 0;
-      yearData.customDiscountDetails = [];
-      yearData.dailyCost = null;
-      yearData.proRataEnabled = false;
-      yearData.prorataDays = null;
-      yearData.prorataCost = null;
-      yearData.freeDiscount = 0;
-      yearData.freePeriodDaysApplied = 0;
-      yearData.billableDays = null;
-    } else if (override.override_type === 'discount') {
-      const grossCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
-      let discountAmount = 0;
-      if (override.discount_type === 'percentage' && override.discount_value != null) {
-        discountAmount = parseFloat((grossCost * parseFloat(override.discount_value) / 100).toFixed(2));
-      } else if (override.discount_type === 'fixed' && override.discount_value != null) {
-        discountAmount = parseFloat(parseFloat(override.discount_value).toFixed(2));
+      if (yearData.originalAnnualCost === undefined) {
+        yearData.originalAnnualCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
       }
-      discountAmount = Math.min(discountAmount, grossCost);
-      const netCost = parseFloat((grossCost - discountAmount).toFixed(2));
+      if (yearData.originalFinalCost === undefined) {
+        yearData.originalFinalCost = yearData.finalCost;
+      }
+    } else if (override.override_type === 'discount') {
       yearData.overrideType = 'discount';
       yearData.overrideNote = override.note;
       yearData.overrideDiscountType = override.discount_type;
-      yearData.overrideDiscountValue = parseFloat(override.discount_value);
+      yearData.overrideDiscountValue = override.discount_value != null ? parseFloat(override.discount_value) : null;
       yearData.originalAnnualCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
       yearData.originalFinalCost = yearData.finalCost;
-      yearData.originalCustomDiscountTotal = yearData.customDiscountTotal;
-      yearData.customDiscountTotal = discountAmount;
-      yearData.annualCost = netCost;
-      const totalDays = yearData.totalDaysInYear || 365;
-      yearData.dailyCost = parseFloat((netCost / totalDays).toFixed(4));
-      const isPercentIncentive = yearData.freePeriodUnit === 'percent';
-      if (yearData.proRataEnabled && yearData.prorataDays != null) {
-        yearData.prorataCost = parseFloat((yearData.dailyCost * yearData.prorataDays).toFixed(2));
-        if (isPercentIncentive && yearData.freePeriodAmount) {
-          const fullDiscountAmount = parseFloat((netCost * yearData.freePeriodAmount / 100).toFixed(2));
-          const proportionUsed = yearData.prorataDays / totalDays;
-          yearData.freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
-          yearData.freeDiscount = Math.min(yearData.freeDiscount, yearData.prorataCost);
-          yearData.finalCost = parseFloat(Math.max(0, yearData.prorataCost - yearData.freeDiscount).toFixed(2));
-        } else if (yearData.freePeriodDaysApplied > 0) {
-          yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
-          yearData.billableDays = yearData.prorataDays - yearData.freePeriodDaysApplied;
-          yearData.finalCost = parseFloat((yearData.dailyCost * yearData.billableDays).toFixed(2));
-        } else {
-          yearData.finalCost = yearData.prorataCost;
-        }
-      } else if (isPercentIncentive && yearData.freePeriodAmount) {
-        yearData.freeDiscount = parseFloat((netCost * yearData.freePeriodAmount / 100).toFixed(2));
-        yearData.finalCost = parseFloat(Math.max(0, netCost - yearData.freeDiscount).toFixed(2));
-      } else if (yearData.freePeriodDaysApplied > 0) {
-        yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
-        yearData.finalCost = parseFloat((netCost - yearData.freeDiscount).toFixed(2));
-      } else {
-        yearData.finalCost = netCost;
-      }
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
-        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
-        const overrideBand = override.band_id
-          ? overrideBands.find(b => b.id === override.band_id)
-          : matchBand(fieldValue, overrideBands);
-
-        if (overrideBand) {
-          const overrideCost = parseFloat(overrideBand.annual_cost);
-          yearData.overrideType = 'structure';
-          yearData.overrideConfigId = overrideConfig.id;
-          yearData.overrideConfigName = overrideConfig.name;
-          yearData.overrideNote = override.note;
-          yearData.originalAnnualCost = yearData.annualCost;
+        yearData.overrideType = 'structure';
+        yearData.overrideConfigId = overrideConfig.id;
+        yearData.overrideConfigName = overrideConfig.name;
+        yearData.overrideNote = override.note;
+        if (yearData.originalAnnualCost === undefined) {
+          yearData.originalAnnualCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
+        }
+        if (yearData.originalFinalCost === undefined) {
           yearData.originalFinalCost = yearData.finalCost;
-          yearData.tierLabel = overrideBand.label;
-          yearData.annualCost = overrideCost;
-          yearData.finalCost = overrideCost;
         }
       }
+    } else {
+      return;
     }
+    recomputeVatForYear(yearData);
   }
 
   const currentYearOverride = overrides.find(o => o.membership_year === currentYear.label) || null;
@@ -533,6 +508,7 @@ async function handleGet(req, res, tenantId) {
     nextYearPreview.freePeriodUnit = null;
     const nextFull = nextYearPreview.annualCost;
     nextYearPreview.finalCost = parseFloat(Math.max(0, nextFull).toFixed(2));
+    recomputeVatForYear(nextYearPreview);
   }
 
   await applyOverrideToYear(nextYearPreview, nextYearOverride);
