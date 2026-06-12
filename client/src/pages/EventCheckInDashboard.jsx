@@ -481,17 +481,6 @@ export default function EventCheckInDashboard() {
                 </Select>
               )}
 
-              {ticketTypeOptions.length > 0 && (
-                <MultiSelectFilter
-                  options={ticketTypeOptions}
-                  selected={ticketTypeFilter}
-                  onChange={setTicketTypeFilter}
-                  placeholder="All ticket types"
-                  className="w-[200px]"
-                  data-testid="select-ticket-type"
-                />
-              )}
-
               <Select value={buddyFilter} onValueChange={setBuddyFilter}>
                 <SelectTrigger className="w-[160px]" data-testid="select-buddy">
                   <SelectValue placeholder="Buddy" />
@@ -525,6 +514,19 @@ export default function EventCheckInDashboard() {
                 </SelectContent>
               </Select>
             </div>
+
+            {ticketTypeOptions.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <MultiSelectFilter
+                  options={ticketTypeOptions}
+                  selected={ticketTypeFilter}
+                  onChange={setTicketTypeFilter}
+                  placeholder="All ticket types"
+                  className="w-full"
+                  data-testid="select-ticket-type"
+                />
+              </div>
+            )}
 
             {loading ? (
               <div className="flex items-center justify-center py-10 text-muted-foreground">
