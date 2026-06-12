@@ -321,7 +321,7 @@ export default function MemberGroupDetailPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-4">
-          <Link href={createPageUrl("MemberGroups")}>
+          <Link to={createPageUrl("MemberGroups")}>
             <Button variant="ghost" size="sm" data-testid="link-back-groups">
               <ArrowLeft className="w-4 h-4 mr-2" /> Back to Member Groups
             </Button>
