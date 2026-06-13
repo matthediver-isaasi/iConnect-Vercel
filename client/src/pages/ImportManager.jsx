@@ -216,8 +216,9 @@ export default function ImportManager() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Please upload a CSV file');
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith('.csv') && !lowerName.endsWith('.xlsx')) {
+      toast.error('Please upload a CSV or Excel (.xlsx) file');
       return;
     }
 
@@ -491,15 +492,15 @@ export default function ImportManager() {
                         >
                           <Upload className="w-12 h-12 mx-auto text-slate-400 mb-4" />
                           <p className="text-lg font-medium text-slate-700">
-                            {isUploading ? 'Parsing CSV...' : 'Click to upload CSV file'}
+                            {isUploading ? 'Parsing file...' : 'Click to upload CSV or Excel file'}
                           </p>
                           <p className="text-sm text-slate-500 mt-1">
-                            Maximum file size: 10MB
+                            Accepts .csv and .xlsx · Maximum file size: 10MB
                           </p>
                           <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".csv"
+                            accept=".csv,.xlsx"
                             onChange={handleFileSelect}
                             className="hidden"
                             disabled={isUploading}

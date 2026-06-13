@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
 import { parseMultipartForm } from '../_lib/multipart.js';
+import { parseImportFile } from '../_lib/importFileParser.js';
 
 export const config = {
   api: {
@@ -29,31 +30,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    let csvContent = file.buffer.toString('utf-8');
-    
-    // Remove BOM if present
-    if (csvContent.charCodeAt(0) === 0xFEFF) {
-      csvContent = csvContent.slice(1);
-    }
-    
-    // Auto-detect delimiter (semicolon or comma)
-    const firstLine = csvContent.split('\n')[0] || '';
-    const semicolonCount = (firstLine.match(/;/g) || []).length;
-    const commaCount = (firstLine.match(/,/g) || []).length;
-    const delimiter = semicolonCount > commaCount ? ';' : ',';
-    
-    const { parse } = await import('csv-parse/sync');
-    const records = parse(csvContent, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      delimiter,
-      relax_quotes: true,
-      relax_column_count: true
-    });
+    const { records, fileLabel } = await parseImportFile(file);
     
     if (records.length === 0) {
-      return res.status(400).json({ error: 'CSV file is empty' });
+      return res.status(400).json({ error: `The ${fileLabel} is empty` });
     }
     
     const columns = Object.keys(records[0]);
@@ -65,6 +45,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Import Parse] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to parse CSV' });
+    res.status(500).json({ error: error.message || 'Failed to parse file' });
   }
 }

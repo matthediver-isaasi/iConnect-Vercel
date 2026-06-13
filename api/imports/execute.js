@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
 import { parseMultipartForm } from '../_lib/multipart.js';
+import { parseImportFile } from '../_lib/importFileParser.js';
 
 // Parse boolean values (true/false/yes/no) case-insensitively
 function parseBoolean(value) {
@@ -122,34 +123,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    let csvContent = file.buffer.toString('utf-8');
+    const { records, isXlsx } = await parseImportFile(file);
     
-    if (csvContent.charCodeAt(0) === 0xFEFF) {
-      csvContent = csvContent.slice(1);
-    }
-    
-    csvContent = csvContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
-    const firstLine = csvContent.split('\n')[0] || '';
-    const semicolonCount = (firstLine.match(/;/g) || []).length;
-    const commaCount = (firstLine.match(/,/g) || []).length;
-    const delimiter = semicolonCount > commaCount ? ';' : ',';
-    
-    console.log(`[Import] Delimiter: "${delimiter}", rows parsing...`);
-    
-    const { parse } = await import('csv-parse/sync');
-    const records = parse(csvContent, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-      delimiter,
-      relax_quotes: true,
-      relax_column_count: true,
-      escape: '"',
-      quote: '"'
-    });
-    
-    console.log(`[Import] Parsed ${records.length} rows`);
+    console.log(`[Import] Parsed ${records.length} rows (${isXlsx ? 'xlsx' : 'csv'})`);
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
     
