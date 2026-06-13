@@ -76,6 +76,59 @@ function parseDate(dateStr, format) {
   return date.toISOString();
 }
 
+// --- Import job history helpers -------------------------------------------
+// Each import run is recorded in csv_import_job so the "Recent Imports" panel
+// can show history and offer "reuse setup". Writes are best-effort: a logging
+// failure must never abort the import itself.
+async function startImportJob({ tenantId, entityType, fileName, totalRows, mappings, identifierField }) {
+  try {
+    const activeMappings = (mappings || []).filter((m) => m && m.targetField);
+    const { data: job, error } = await supabase
+      .from('csv_import_job')
+      .insert({
+        tenant_id: tenantId,
+        entity_type: entityType,
+        status: 'running',
+        file_name: fileName,
+        total_rows: totalRows,
+        identifier_field: identifierField,
+        mappings: activeMappings,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      console.log('[Import] Could not create job record:', error.message);
+      return null;
+    }
+    return job?.id || null;
+  } catch (e) {
+    console.log('[Import] Could not create job record:', e.message);
+    return null;
+  }
+}
+
+async function finishImportJob(jobId, { created = 0, updated = 0, errors = 0, errorLog = [] } = {}) {
+  if (!jobId) return;
+  try {
+    const processed = created + updated;
+    await supabase
+      .from('csv_import_job')
+      .update({
+        status: errors > 0 ? 'completed_with_errors' : 'completed',
+        processed_count: processed,
+        success_count: processed,
+        created_count: created,
+        updated_count: updated,
+        error_count: errors,
+        errors: Array.isArray(errorLog) ? errorLog.slice(0, 100) : [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId);
+  } catch (e) {
+    console.log('[Import] Could not update job record:', e.message);
+  }
+}
+
 export const config = {
   api: {
     bodyParser: false,
@@ -118,6 +171,7 @@ export default async function handler(req, res) {
     });
   }
   
+  let jobId = null;
   try {
     const { file, fields } = await parseMultipartForm(req);
     
@@ -132,11 +186,31 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
+    // The identifier column must be mapped for both the fast and JS paths.
+    // Validate before we create a job record so we never leave a dangling
+    // "running" row.
+    const identifierMapping = mappings.find(m => m.targetField === identifierField);
+    if (!identifierMapping) {
+      return res.status(400).json({ error: `No mapping for identifier field: ${identifierField}` });
+    }
+    
     const { records, isXlsx } = await parseImportFile(file);
     
     console.log(`[Import] Parsed ${records.length} rows (${isXlsx ? 'xlsx' : 'csv'})`);
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
+    
+    // Record this run up-front so it appears in the "Recent Imports" panel and
+    // its mapping can be reused later. Shared by both the SQL fast path and the
+    // JS path so there is exactly one job row per import.
+    jobId = await startImportJob({
+      tenantId: importTenantId,
+      entityType,
+      fileName: file.originalname || 'import.csv',
+      totalRows: records.length,
+      mappings,
+      identifierField,
+    });
     
     // The SQL fast path only persists this fixed set of fields. Any mapping
     // outside this set (biography, social URLs, login flags, external_id, and
@@ -358,6 +432,12 @@ export default async function handler(req, res) {
             }
           }
           
+          await finishImportJob(jobId, {
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors,
+          });
+          
           return res.json({
             success: true,
             created: totalCreated,
@@ -384,11 +464,6 @@ export default async function handler(req, res) {
       ? 'organization_preference_value' 
       : 'member_preference_value';
     const entityIdField = entityType === 'organization' ? 'organization_id' : 'member_id';
-    
-    const identifierMapping = mappings.find(m => m.targetField === identifierField);
-    if (!identifierMapping) {
-      return res.status(400).json({ error: `No mapping for identifier field: ${identifierField}` });
-    }
     
     // Extract all identifier values for batch lookup
     const identifierValues = records
@@ -437,25 +512,6 @@ export default async function handler(req, res) {
       existingMap.set(key, e.id);
     });
     console.log(`[Import] Found ${existingMap.size} existing records`);
-    
-    let jobId = null;
-    try {
-      const { data: job } = await supabase
-        .from('csv_import_job')
-        .insert({
-          entity_type: entityType,
-          status: 'running',
-          file_name: file.originalname || 'import.csv',
-          total_rows: records.length,
-          created_by: session.data.memberId
-        })
-        .select()
-        .single();
-      
-      if (job) jobId = job.id;
-    } catch (e) {
-      console.log('[Import] Could not create job record');
-    }
     
     let createdRows = 0;
     let updatedRows = 0;
@@ -900,25 +956,12 @@ export default async function handler(req, res) {
     
     const processedRows = createdRows + updatedRows;
     
-    if (jobId) {
-      try {
-        await supabase
-          .from('csv_import_job')
-          .update({
-            status: 'completed',
-            processed_rows: processedRows,
-            created_rows: createdRows,
-            updated_rows: updatedRows,
-            skipped_rows: skippedRows,
-            error_rows: errorRows,
-            error_log: errorLog,
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', jobId);
-      } catch (e) {
-        console.log('[Import] Could not update job record');
-      }
-    }
+    await finishImportJob(jobId, {
+      created: createdRows,
+      updated: updatedRows,
+      errors: errorRows,
+      errorLog,
+    });
     
     console.log(`[Import] Complete: ${createdRows} created, ${updatedRows} updated, ${skippedRows} skipped, ${errorRows} errors`);
     
@@ -944,6 +987,17 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Import Execute] Error:', error);
+    // Don't leave a half-finished run stuck on "running" in the history panel.
+    if (jobId) {
+      try {
+        await supabase
+          .from('csv_import_job')
+          .update({ status: 'failed', updated_at: new Date().toISOString() })
+          .eq('id', jobId);
+      } catch (e) {
+        console.log('[Import] Could not mark job failed:', e.message);
+      }
+    }
     res.status(500).json({ error: error.message || 'Failed to execute import' });
   }
 }

@@ -36,7 +36,8 @@ import {
   Users,
   Filter,
   Eye,
-  Play
+  Play,
+  Copy
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -382,6 +383,61 @@ export default function ImportManager() {
     setStep(1);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleReuseSetup = (job) => {
+    const savedMappings = Array.isArray(job?.mappings) ? job.mappings : [];
+    if (savedMappings.length === 0) {
+      toast.error('This import has no saved setup to reuse');
+      return;
+    }
+    if (!csvData?.columns?.length) {
+      toast.error('Upload a file first, then reuse this setup');
+      return;
+    }
+
+    const savedByColumn = new Map(
+      savedMappings.filter(m => m && m.targetField).map(m => [m.sourceColumn, m])
+    );
+
+    // Compute the next mappings synchronously so the counts/toast reflect the
+    // actual result (reading state right after setMappings would be stale).
+    let applied = 0;
+    const nextMappings = mappings.map(m => {
+      const saved = savedByColumn.get(m.sourceColumn);
+      if (saved) {
+        applied += 1;
+        return {
+          ...m,
+          targetField: saved.targetField,
+          targetScope: saved.targetScope || '',
+          targetType: saved.targetType,
+          preferenceFieldId: saved.preferenceFieldId ?? null,
+          dateFormat: saved.dateFormat,
+          clearOnEmpty: !!saved.clearOnEmpty,
+        };
+      }
+      return m;
+    });
+    setMappings(nextMappings);
+
+    if (job.identifier_field) {
+      setIdentifierField(job.identifier_field);
+    }
+    setStep(2);
+
+    const currentColumns = new Set(csvData.columns);
+    const unmatched = savedMappings
+      .filter(m => m && m.targetField && !currentColumns.has(m.sourceColumn))
+      .map(m => m.sourceColumn);
+
+    if (applied === 0) {
+      toast.error('None of the saved columns match this file');
+    } else if (unmatched.length > 0) {
+      toast.success(`Applied ${applied} mappings. Not found in this file: ${unmatched.join(', ')}`);
+    } else {
+      toast.success(`Applied ${applied} saved mappings`);
     }
   };
 
@@ -877,15 +933,27 @@ export default function ImportManager() {
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-xs text-slate-500">
-                                <span className="text-green-600">+{job.created_rows || 0}</span>
-                                <span className="text-warning">~{job.updated_rows || 0}</span>
-                                {job.error_rows > 0 && (
-                                  <span className="text-red-600">!{job.error_rows}</span>
+                                <span className="text-green-600" data-testid={`text-created-${job.id}`}>+{job.created_count || 0}</span>
+                                <span className="text-warning" data-testid={`text-updated-${job.id}`}>~{job.updated_count || 0}</span>
+                                {job.error_count > 0 && (
+                                  <span className="text-red-600" data-testid={`text-errors-${job.id}`}>!{job.error_count}</span>
                                 )}
                               </div>
                               <p className="text-xs text-slate-400">
                                 {new Date(job.created_at).toLocaleDateString()} {new Date(job.created_at).toLocaleTimeString()}
                               </p>
+                              {Array.isArray(job.mappings) && job.mappings.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full gap-2"
+                                  onClick={() => handleReuseSetup(job)}
+                                  data-testid={`button-reuse-setup-${job.id}`}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  Reuse setup
+                                </Button>
+                              )}
                             </div>
                           ))}
                         </div>

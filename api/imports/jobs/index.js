@@ -15,12 +15,29 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   
+  // Resolve the caller's tenant so each tenant only sees its own import history.
+  let tenantId = null;
+  try {
+    const { data: member } = await supabase
+      .from('member')
+      .select('tenant_id')
+      .eq('id', session.data.memberId)
+      .single();
+    tenantId = member?.tenant_id || null;
+  } catch (e) {
+    console.log('[Import Jobs] Could not resolve tenant_id:', e.message);
+  }
+  if (!tenantId) {
+    return res.json([]);
+  }
+  
   try {
     const entityType = req.query.entity;
     
     let query = supabase
       .from('csv_import_job')
       .select('*')
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(20);
     
