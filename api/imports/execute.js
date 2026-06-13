@@ -576,7 +576,12 @@ export default async function handler(req, res) {
             continue;
           }
           
-          if (mapping.targetField.startsWith('custom:')) {
+          if (mapping.targetField.startsWith('custom:') || mapping.targetField.startsWith('comm:')) {
+            // custom:* values go to *_preference_value and comm:* values go to
+            // member_communication_preference, handled by their own blocks
+            // below. They are NOT columns on the member/organization table, so
+            // they must never be written into coreData (doing so makes the
+            // insert/update fail with "column does not exist").
             continue;
           } else if (mapping.targetField === 'id') {
             continue;
