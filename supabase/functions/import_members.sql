@@ -112,9 +112,12 @@ BEGIN
       LIMIT 1;
 
       IF existing_id IS NOT NULL THEN
-        -- Update existing member
+        -- Update existing member. Email is normalized to lowercase so a
+        -- re-import repairs any pre-existing mixed-case email and keeps it
+        -- consistent with the login resolver's lower(email) lookup.
         UPDATE member
         SET 
+          email = lower(trim(rec.email)),
           first_name = COALESCE(NULLIF(trim(rec.first_name), ''), first_name),
           last_name = COALESCE(NULLIF(trim(rec.last_name), ''), last_name),
           mobile = COALESCE(NULLIF(trim(rec.mobile), ''), mobile),
