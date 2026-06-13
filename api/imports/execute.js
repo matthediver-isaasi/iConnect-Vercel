@@ -138,8 +138,20 @@ export default async function handler(req, res) {
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
     
+    // The SQL fast path only persists this fixed set of fields. Any mapping
+    // outside this set (biography, social URLs, login flags, external_id, and
+    // all custom:* / comm:* fields) would be silently dropped by the fast path,
+    // so when the import maps any such field we MUST take the JS path instead.
+    const SQL_FASTPATH_FIELDS = new Set([
+      'email', 'first_name', 'last_name', 'mobile', 'landline', 'job_title',
+      'role_id', 'role_effective_from', 'organization_id', 'created_on', '__add_note__',
+    ]);
+    const allMappingsFastPathSafe = mappings.every(
+      (m) => !m.targetField || SQL_FASTPATH_FIELDS.has(m.targetField)
+    );
+
     // For member imports with email identifier, try using the SQL function (much faster)
-    if (entityType === 'member' && identifierField === 'email') {
+    if (entityType === 'member' && identifierField === 'email' && allMappingsFastPathSafe) {
       console.log('[Import] Attempting SQL function import...');
       
       // Debug: Log all mappings to see what we're working with
@@ -203,8 +215,11 @@ export default async function handler(req, res) {
           
           // Map to SQL function expected fields
           if (mapping.targetField === 'email') {
-            record.email = value;
-            recordEmail = value;
+            // Normalize to lowercase so imported members match the app-wide
+            // convention and resolve in the login flow (lower(email) lookup).
+            const normalizedEmail = value ? value.toLowerCase() : value;
+            record.email = normalizedEmail;
+            recordEmail = normalizedEmail;
           }
           else if (mapping.targetField === 'first_name') record.first_name = value;
           else if (mapping.targetField === 'last_name') record.last_name = value;
@@ -567,7 +582,13 @@ export default async function handler(req, res) {
             continue;
           } else {
             if (value === null || (typeof value === 'string' && value.trim() !== '')) {
-              coreData[mapping.targetField] = value === null ? null : value.trim();
+              let normalized = value === null ? null : value.trim();
+              // Normalize email to lowercase to match the app-wide convention
+              // and the login resolver's lower(email) lookup.
+              if (normalized !== null && mapping.targetField === 'email') {
+                normalized = normalized.toLowerCase();
+              }
+              coreData[mapping.targetField] = normalized;
             }
           }
         }
@@ -831,7 +852,11 @@ export default async function handler(req, res) {
         const identifierValue = row[identifierMapping.sourceColumn]?.trim();
         if (!identifierValue) continue;
         
-        const entityId = existingMap.get(identifierValue);
+        // Look up the entity using the same normalized (lowercased for email)
+        // key the core upsert uses. The raw identifier never matched because
+        // existingMap is keyed by the lowercased email.
+        const lookupKey = isEmailIdentifier ? identifierValue.toLowerCase() : identifierValue;
+        const entityId = existingMap.get(lookupKey);
         if (!entityId) continue;
         
         for (const mapping of customMappings) {
@@ -847,15 +872,18 @@ export default async function handler(req, res) {
             if (parsedDate) value = parsedDate;
           }
           
-          // Upsert custom field value
+          // Upsert custom field value. The real column on
+          // member_preference_value / organization_preference_value is
+          // `field_id` (NOT `preference_field_id`); the unique constraint is on
+          // (entity_id, field_id).
           const { error: upsertError } = await supabase
             .from(customValueTable)
             .upsert({
               [entityIdField]: entityId,
-              preference_field_id: mapping.preferenceFieldId,
+              field_id: mapping.preferenceFieldId,
               value: value?.trim?.() || value
             }, {
-              onConflict: `${entityIdField},preference_field_id`
+              onConflict: `${entityIdField},field_id`
             });
           
           if (upsertError) {

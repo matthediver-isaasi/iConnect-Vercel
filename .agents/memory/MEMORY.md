@@ -8,6 +8,7 @@
 - [Canvas block overflow clipping](canvas-block-overflow.md) — every canvas block box is overflow:hidden in both renderers; dropdowns/popovers need an allowOverflow flag in the registry or they render invisibly clipped.
 - [Canvas full-width vs full-bleed](canvas-fullwidth-vs-fullbleed.md) — fullWidth=100% (fills centered stage only), fullBleed=100vw (true screen edge); gate duplicated in canvasDesign.js geomRule callers + CanvasPageRenderer.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
+- [Member/org import pitfalls](member-import-pitfalls.md) — import SQL fast path silently drops non-core fields; preference_value column is `field_id`; emails must be stored lowercased or login shows "No Member Record".
 - [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
 - [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
 - [Dynamic email slots](dynamic-email-slots.md) — text/image/button dynamic blocks: token scheme, dual-mode previews via SlotEditContext, and DYN_BLOCK marker regions for hiding whole elements at send.

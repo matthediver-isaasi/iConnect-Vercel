@@ -136,10 +136,12 @@ BEGIN
         
         updated_count := updated_count + 1;
       ELSE
-        -- Insert new member (stamped with the importing tenant)
+        -- Insert new member (stamped with the importing tenant).
+        -- Email is lowercased to match the app-wide convention and the login
+        -- resolver's lower(email) lookup, so imported members always resolve.
         INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, role_effective_from, organization_id, created_on, tenant_id)
         VALUES (
-          trim(rec.email),
+          lower(trim(rec.email)),
           NULLIF(trim(rec.first_name), ''),
           NULLIF(trim(rec.last_name), ''),
           NULLIF(trim(rec.mobile), ''),
