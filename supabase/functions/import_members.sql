@@ -1,12 +1,18 @@
 -- Supabase SQL function for bulk member imports
--- Run this in Supabase SQL Editor to create the function
+-- Run this in Supabase SQL Editor, or apply via scripts/apply-import-members-function.mjs
 
--- Drop existing function if exists
+-- Drop any previous signatures (the original took only the batch and did NOT
+-- set tenant_id, which created tenant-less members invisible to /members).
 DROP FUNCTION IF EXISTS process_member_import_batch(JSONB);
+DROP FUNCTION IF EXISTS process_member_import_batch(JSONB, UUID);
 
--- Function to process a batch of member records
+-- Function to process a batch of member records for a single tenant.
+-- p_tenant_id is REQUIRED: every inserted member is stamped with it, and all
+-- lookups (existing members, roles, organizations) are scoped to that tenant so
+-- an import can never read or modify another tenant's data.
 CREATE OR REPLACE FUNCTION process_member_import_batch(
-  batch JSONB
+  batch JSONB,
+  p_tenant_id UUID
 )
 RETURNS JSON
 LANGUAGE plpgsql
@@ -26,6 +32,11 @@ DECLARE
   err_msg TEXT;
   first_error TEXT := NULL;
 BEGIN
+  -- A tenant is mandatory; without it members would be orphaned.
+  IF p_tenant_id IS NULL THEN
+    RAISE EXCEPTION 'process_member_import_batch requires a non-null p_tenant_id';
+  END IF;
+
   -- Drop temp tables if they exist from previous calls
   DROP TABLE IF EXISTS temp_import;
   DROP TABLE IF EXISTS temp_roles;
@@ -48,21 +59,23 @@ BEGIN
     (row_data->>'row_index')::integer as row_index
   FROM jsonb_array_elements(batch) AS row_data;
 
-  -- Build role lookup
+  -- Build role lookup (scoped to this tenant)
   CREATE TEMP TABLE temp_roles AS
   SELECT id as role_id, lower(trim(name)) as role_name_lower
-  FROM role;
+  FROM role
+  WHERE tenant_id = p_tenant_id;
 
-  -- Build organization lookup  
+  -- Build organization lookup (scoped to this tenant)
   CREATE TEMP TABLE temp_orgs AS
   SELECT id as org_id, lower(trim(name)) as org_name_lower
-  FROM organization;
+  FROM organization
+  WHERE tenant_id = p_tenant_id;
 
-  -- Build existing member lookup (case-insensitive email)
+  -- Build existing member lookup (case-insensitive email, scoped to this tenant)
   CREATE TEMP TABLE temp_existing AS
   SELECT id as member_id, lower(trim(email)) as email_lower
   FROM member
-  WHERE email IS NOT NULL AND trim(email) != '';
+  WHERE tenant_id = p_tenant_id AND email IS NOT NULL AND trim(email) != '';
 
   -- Process each row
   FOR rec IN SELECT * FROM temp_import LOOP
@@ -91,7 +104,7 @@ BEGIN
         LIMIT 1;
       END IF;
 
-      -- Check if member exists (case-insensitive email)
+      -- Check if member exists (case-insensitive email, within this tenant)
       existing_id := NULL;
       SELECT member_id INTO existing_id
       FROM temp_existing
@@ -123,8 +136,8 @@ BEGIN
         
         updated_count := updated_count + 1;
       ELSE
-        -- Insert new member
-        INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, role_effective_from, organization_id, created_on)
+        -- Insert new member (stamped with the importing tenant)
+        INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, role_effective_from, organization_id, created_on, tenant_id)
         VALUES (
           trim(rec.email),
           NULLIF(trim(rec.first_name), ''),
@@ -135,7 +148,8 @@ BEGIN
           role_id_val,
           CASE WHEN rec.role_effective_from IS NOT NULL AND trim(rec.role_effective_from) != '' THEN rec.role_effective_from::date ELSE NULL END,
           org_id_val,
-          CASE WHEN rec.created_on IS NOT NULL AND trim(rec.created_on) != '' THEN rec.created_on::timestamptz ELSE NULL END
+          CASE WHEN rec.created_on IS NOT NULL AND trim(rec.created_on) != '' THEN rec.created_on::timestamptz ELSE NULL END,
+          p_tenant_id
         )
         RETURNING id INTO new_member_id;
         
@@ -177,5 +191,5 @@ END;
 $$;
 
 -- Grant execute permissions
-GRANT EXECUTE ON FUNCTION process_member_import_batch(JSONB) TO authenticated;
-GRANT EXECUTE ON FUNCTION process_member_import_batch(JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION process_member_import_batch(JSONB, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION process_member_import_batch(JSONB, UUID) TO service_role;

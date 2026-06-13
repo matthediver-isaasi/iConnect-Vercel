@@ -108,6 +108,15 @@ export default async function handler(req, res) {
   } catch (e) {
     console.log('[Import] Could not resolve tenant_id from session member:', e.message);
   }
+
+  // Members and organizations are tenant-scoped. Without a tenant we would
+  // create rows invisible to every tenant-scoped view (the original bug), so
+  // fail clearly instead of silently importing orphaned records.
+  if (!importTenantId) {
+    return res.status(400).json({
+      error: 'Could not determine your organisation for this import. Please sign out and back in, then try again.'
+    });
+  }
   
   try {
     const { file, fields } = await parseMultipartForm(req);
@@ -252,7 +261,8 @@ export default async function handler(req, res) {
         console.log(`[Import] SQL batch ${i + 1}-${Math.min(i + SQL_BATCH_SIZE, batch.length)} of ${batch.length}`);
         
         const { data, error } = await supabase.rpc('process_member_import_batch', {
-          batch: chunk
+          batch: chunk,
+          p_tenant_id: importTenantId
         });
         
         console.log(`[Import] RPC response:`, JSON.stringify({ data, error }));
@@ -286,6 +296,7 @@ export default async function handler(req, res) {
             const { data: membersWithNotes, error: memberLookupError } = await supabase
               .from('member')
               .select('id, email')
+              .eq('tenant_id', importTenantId)
               .not('email', 'is', null);
             
             if (memberLookupError) {
@@ -385,6 +396,7 @@ export default async function handler(req, res) {
       const { data, error } = await supabase
         .from(tableName)
         .select('id, email')
+        .eq('tenant_id', importTenantId)
         .not('email', 'is', null)
         .neq('email', '');
       
@@ -396,6 +408,7 @@ export default async function handler(req, res) {
       const { data } = await supabase
         .from(tableName)
         .select('id, ' + identifierField)
+        .eq('tenant_id', importTenantId)
         .in(identifierField, identifierValues);
       existingEntities = data || [];
     }
@@ -445,7 +458,8 @@ export default async function handler(req, res) {
       console.log('[Import] Fetching roles for lookup...');
       const { data: roles } = await supabase
         .from('role')
-        .select('id, name');
+        .select('id, name')
+        .eq('tenant_id', importTenantId);
       
       if (roles) {
         roles.forEach(role => {
@@ -464,7 +478,8 @@ export default async function handler(req, res) {
       console.log('[Import] Fetching organizations for lookup...');
       const { data: orgs } = await supabase
         .from('organization')
-        .select('id, name');
+        .select('id, name')
+        .eq('tenant_id', importTenantId);
       
       if (orgs) {
         orgs.forEach(org => {
@@ -570,7 +585,7 @@ export default async function handler(req, res) {
       
       // Batch insert new records
       if (toInsert.length > 0) {
-        const insertData = toInsert.map(r => r.data);
+        const insertData = toInsert.map(r => ({ ...r.data, tenant_id: importTenantId }));
         const { data: inserted, error: insertError } = await supabase
           .from(tableName)
           .insert(insertData)
@@ -584,7 +599,7 @@ export default async function handler(req, res) {
             for (const record of toInsert) {
               const { data: singleInserted, error: singleError } = await supabase
                 .from(tableName)
-                .insert(record.data)
+                .insert({ ...record.data, tenant_id: importTenantId })
                 .select('id, ' + identifierField)
                 .single();
               
@@ -594,6 +609,7 @@ export default async function handler(req, res) {
                   const { data: existing } = await supabase
                     .from(tableName)
                     .select('id')
+                    .eq('tenant_id', importTenantId)
                     .ilike('email', record.data.email)
                     .single();
                   
