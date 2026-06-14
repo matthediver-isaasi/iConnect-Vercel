@@ -52,6 +52,27 @@ code, widen the CHECK constraint in the same change (idempotent DROP IF EXISTS +
 ADD). Current full set: pending, initializing, queued, running, processing,
 completed, completed_with_errors, failed, cancelled.
 
+## PostgREST .or() does NOT work on an UPDATE/DELETE (only SELECT)
+Calling `.or(...)` on a supabase-js `.update()` (PATCH) — e.g.
+`.update({...}).eq('id',x).or('status.eq.queued,heartbeat_at.lt.Y')` — fails at
+runtime with `column csv_import_job.status does not exist`, even though every
+column exists and the IDENTICAL `.or()` works fine on a `.select()`. It is not a
+column or schema-cache problem; PostgREST just can't compile an `or` filter into
+a mutation's WHERE here. `.not('status','in','(...)')` is unrelated (works on
+PATCH).
+
+**Why:** PostgREST mutation queries qualify the column as `<table>.<col>` inside
+the generated `or` predicate, which the UPDATE's statement can't resolve.
+
+**How to apply:** never use `.or()` on a csv_import_job (or any) UPDATE. Express
+an OR-of-conditions claim as SEQUENTIAL single-predicate atomic UPDATEs (try
+`status='queued'`; else `status='processing' AND heartbeat IS NULL`; else
+`status='processing' AND heartbeat < staleBefore`), stopping at the first that
+updates a row. Each is its own compare-and-swap, so the exactly-one-claimer
+guarantee is preserved, and pinning status to queued/processing per branch
+inherently excludes terminal + 'initializing' (no separate guard needed). For a
+genuinely atomic multi-condition claim, use a Postgres RPC instead.
+
 ## Worker claim must guard terminal status, not just heartbeat
 The worker's compare-and-swap claim in process.js originally matched only on
 heartbeat (handoff) or queued/stale (kick). A cancel that lands in the

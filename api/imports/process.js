@@ -154,56 +154,63 @@ export default async function handler(req, res) {
 
   const nowIso = new Date().toISOString();
 
-  // Atomic claim (compare-and-swap). The claim is a single conditional UPDATE
-  // with RETURNING; only the invocation whose predicate still holds at write
-  // time wins, which guarantees exactly one worker processes each cursor slice
-  // even under overlapping enqueue / cron / handoff kicks.
-  //  - handoff: the continuation must match the EXACT heartbeat it observed
-  //    (the predecessor's). Concurrent duplicate handoffs race on the same
-  //    heartbeat value; the first flips it, the rest match zero rows and defer.
-  //  - otherwise (enqueue/cron/manual): claim only if the job is still queued
-  //    or its heartbeat is stale (the prior owner is presumed dead).
-  // started_at is set only on the first claim.
-  let claimQuery = supabase
-    .from('csv_import_job')
-    .update({
-      status: 'processing',
-      heartbeat_at: nowIso,
-      started_at: job.started_at || nowIso,
-      updated_at: nowIso,
-    })
-    .eq('id', jobId)
-    // Never claim a job that reached a terminal state. The early return above
-    // handles a terminal status observed at load; this guard closes the
-    // load->claim window where a user cancels (or the job finishes) AFTER we
-    // read it but BEFORE we claim. Without it, a handoff matching the unchanged
-    // heartbeat — or a stale-revival kick — would flip 'cancelled' back to
-    // 'processing' and resume a cancelled import.
-    .not('status', 'in', '(completed,completed_with_errors,failed,cancelled)');
+  // Atomic claim (compare-and-swap): only the invocation whose predicate still
+  // holds at write time wins, guaranteeing exactly one worker processes each
+  // cursor slice even under overlapping enqueue / cron / handoff / browser kicks.
+  // PostgREST does NOT support .or() on an UPDATE (it fails with "column
+  // csv_import_job.status does not exist"), so each runnable state is claimed by
+  // its own single-predicate UPDATE; a concurrent claimer then sees the freshly
+  // written status/heartbeat and matches zero rows. started_at is set only on
+  // the first claim.
+  const claimPayload = {
+    status: 'processing',
+    heartbeat_at: nowIso,
+    started_at: job.started_at || nowIso,
+    updated_at: nowIso,
+  };
+  const attemptClaim = async (apply) => {
+    const { data, error } = await apply(
+      supabase.from('csv_import_job').update(claimPayload).eq('id', jobId)
+    ).select('id');
+    if (error) return { error };
+    return { claimed: !!(data && data.length) };
+  };
 
+  let result_claim = { claimed: false };
   if (isHandoff) {
-    claimQuery = job.heartbeat_at
-      ? claimQuery.eq('heartbeat_at', job.heartbeat_at)
-      : claimQuery.is('heartbeat_at', null);
+    // Trusted server-chain continuation: claim only by matching the EXACT
+    // heartbeat we observed. The non-terminal guard closes the load->claim
+    // window where the job was cancelled/finished after we read it but before
+    // we claim (cancel changes status but leaves the heartbeat unchanged).
+    result_claim = await attemptClaim((q) => {
+      q = q.not('status', 'in', '(completed,completed_with_errors,failed,cancelled)');
+      return job.heartbeat_at ? q.eq('heartbeat_at', job.heartbeat_at) : q.is('heartbeat_at', null);
+    });
   } else {
-    // Fresh kick (enqueue / cron / browser driver): claim a runnable job that no
-    // live worker owns — still 'queued', its heartbeat RELEASED (null) by a
-    // previous browser-driven slice, or its heartbeat gone stale (prior owner
-    // presumed dead). An active slice keeps a fresh heartbeat (< STALE_AFTER_MS)
-    // and is therefore never preempted. 'initializing' (file not yet stored) is
-    // excluded by the status filter even though its heartbeat is null.
+    // Fresh kick (enqueue / cron / browser driver): claim a runnable job no live
+    // worker owns. Each branch pins status to 'queued' or 'processing', which
+    // inherently excludes terminal AND 'initializing' rows — so no separate
+    // guard is needed, and a cancelled job can never be revived. An active slice
+    // keeps a fresh heartbeat and matches none of these, so it is never
+    // preempted.
     const staleBefore = new Date(Date.now() - STALE_AFTER_MS).toISOString();
-    claimQuery = claimQuery
-      .in('status', ['queued', 'processing'])
-      .or(`status.eq.queued,heartbeat_at.is.null,heartbeat_at.lt.${staleBefore}`);
+    // 1) still queued (any heartbeat)
+    result_claim = await attemptClaim((q) => q.eq('status', 'queued'));
+    // 2) processing with a RELEASED (null) heartbeat — left by a prior browser slice
+    if (!result_claim.error && !result_claim.claimed) {
+      result_claim = await attemptClaim((q) => q.eq('status', 'processing').is('heartbeat_at', null));
+    }
+    // 3) processing with a STALE heartbeat — prior owner presumed dead
+    if (!result_claim.error && !result_claim.claimed) {
+      result_claim = await attemptClaim((q) => q.eq('status', 'processing').lt('heartbeat_at', staleBefore));
+    }
   }
 
-  const { data: claimedRows, error: claimError } = await claimQuery.select('id');
-  if (claimError) {
-    console.error('[Import Worker] Could not claim job:', claimError.message);
+  if (result_claim.error) {
+    console.error('[Import Worker] Could not claim job:', result_claim.error.message);
     return res.status(500).json({ error: 'Could not claim job' });
   }
-  if (!claimedRows || claimedRows.length === 0) {
+  if (!result_claim.claimed) {
     // Lost the race: another invocation owns this job (or it advanced/finished
     // between our read and our claim). Defer — never process without the claim.
     return res.status(200).json({ ok: true, status: job.status, skipped: 'already-running' });
