@@ -161,6 +161,52 @@ export default function ImportManager() {
     },
   });
 
+  // Remove a single terminal (completed/failed/cancelled) job from the list.
+  const removeJobMutation = useMutation({
+    mutationFn: async (jobId) => {
+      const response = await fetch(`/api/imports/jobs/${jobId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not remove the import');
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Import removed');
+      refetchJobs();
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Could not remove the import');
+      refetchJobs();
+    },
+  });
+
+  // Clear all terminal jobs for the active entity tab in one go.
+  const clearJobsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/imports/jobs?entity=${activeTab}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not clear imports');
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Finished imports cleared');
+      refetchJobs();
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Could not clear imports');
+      refetchJobs();
+    },
+  });
+
   // Fetch organizations for deduplication exclusion filter
   const { data: organizations = [] } = useQuery({
     queryKey: ['/api/admin/organizations'],
@@ -1113,10 +1159,47 @@ export default function ImportManager() {
               <div className="lg:col-span-1">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <History className="w-5 h-5" />
-                      Recent Imports
-                    </CardTitle>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <History className="w-5 h-5" />
+                        Recent Imports
+                      </CardTitle>
+                      {recentJobs.some((job) => isJobTerminal(job.status)) && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1.5 text-slate-500"
+                              disabled={clearJobsMutation.isPending}
+                              data-testid="button-clear-jobs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Clear finished
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Clear finished imports?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This removes all completed, failed, and cancelled imports from this list. Imports still running are kept. This cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel data-testid="button-clear-jobs-dismiss">
+                                Keep them
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => clearJobsMutation.mutate()}
+                                data-testid="button-clear-jobs-confirm"
+                              >
+                                Clear finished
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {jobsLoading ? (
@@ -1140,16 +1223,32 @@ export default function ImportManager() {
                                 <p className="text-sm font-medium truncate" title={job.file_name}>
                                   {job.file_name || 'Import'}
                                 </p>
-                                <Badge 
-                                  variant={
-                                    job.status === 'completed' ? 'default' :
-                                    job.status === 'completed_with_errors' ? 'secondary' :
-                                    job.status === 'failed' ? 'destructive' : 'outline'
-                                  }
-                                  className="text-xs"
-                                >
-                                  {job.status}
-                                </Badge>
+                                <div className="flex items-center gap-1">
+                                  <Badge 
+                                    variant={
+                                      job.status === 'completed' ? 'default' :
+                                      job.status === 'completed_with_errors' ? 'secondary' :
+                                      job.status === 'failed' ? 'destructive' : 'outline'
+                                    }
+                                    className="text-xs"
+                                  >
+                                    {job.status}
+                                  </Badge>
+                                  {isJobTerminal(job.status) && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-slate-400"
+                                      disabled={removeJobMutation.isPending}
+                                      onClick={() => removeJobMutation.mutate(job.id)}
+                                      title="Remove from list"
+                                      aria-label="Remove from list"
+                                      data-testid={`button-remove-job-${job.id}`}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex items-center gap-3 text-xs text-slate-500">
                                 <span className="text-green-600" data-testid={`text-created-${job.id}`}>+{job.created_count || 0}</span>

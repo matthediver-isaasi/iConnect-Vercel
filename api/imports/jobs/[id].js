@@ -5,8 +5,11 @@ import { cleanupImportJobFile } from '../../_lib/importFileCleanup.js';
 // Non-terminal statuses a job can be cancelled from.
 const CANCELLABLE_STATUSES = ['initializing', 'queued', 'processing'];
 
+// Terminal statuses a job can be removed from the Recent Imports list once in.
+const TERMINAL_STATUSES = ['completed', 'completed_with_errors', 'failed', 'cancelled'];
+
 export default async function handler(req, res) {
-  if (req.method !== 'GET' && req.method !== 'PATCH') {
+  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
@@ -51,6 +54,28 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
       return res.json(job);
+    }
+
+    if (req.method === 'DELETE') {
+      // Only terminal jobs can be removed from the list; in-flight jobs must be
+      // cancelled first.
+      if (!TERMINAL_STATUSES.includes(job.status)) {
+        return res.status(409).json({ error: 'Cannot remove a running import. Cancel it first.', job });
+      }
+
+      const { error: deleteError } = await supabase
+        .from('csv_import_job')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .in('status', TERMINAL_STATUSES);
+
+      if (deleteError) {
+        console.error('[Import Job] Delete failed:', deleteError.message);
+        return res.status(500).json({ error: 'Could not remove the import job' });
+      }
+
+      return res.json({ success: true, id });
     }
 
     // PATCH: only cancellation is supported.
