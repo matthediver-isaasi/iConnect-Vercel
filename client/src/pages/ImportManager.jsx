@@ -448,7 +448,7 @@ export default function ImportManager() {
     // the file once (enqueue), then poll the job for live status. The worker
     // chews through the whole file headlessly, so the user can safely close the
     // tab — they'll see the up-to-date status in Recent Imports when they return.
-    const TERMINAL = ['completed', 'completed_with_errors', 'failed'];
+    const TERMINAL = ['completed', 'completed_with_errors', 'failed', 'cancelled'];
     const POLL_INTERVAL_MS = 2000;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -561,6 +561,9 @@ export default function ImportManager() {
             setImportResult({ ...buildResultFromJob(job), failed: true, failedReason: lastError });
             setStep(4);
             toast.error(`Import failed: ${lastError}`);
+          } else if (job.status === 'cancelled') {
+            // The cancel action already toasts "Import cancelled"; just stop the
+            // foreground poll loop so the network tab quietens.
           } else {
             setImportResult(buildResultFromJob(job));
             setStep(4);

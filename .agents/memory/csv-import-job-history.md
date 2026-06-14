@@ -51,3 +51,36 @@ code without a matching migration to the CHECK constraint.
 code, widen the CHECK constraint in the same change (idempotent DROP IF EXISTS +
 ADD). Current full set: pending, initializing, queued, running, processing,
 completed, completed_with_errors, failed, cancelled.
+
+## Background imports must self-drive without cron (Vercel preview)
+The background import worker chain is started by enqueue's fire-and-forget kick
+and kept alive by a worker->worker self-trigger; a Vercel cron
+(run-import-jobs) is the only backstop that revives a stuck/queued job.
+
+**Why:** Vercel runs scheduled crons ONLY on production deployments, never on
+preview deployments. On preview, a job whose initial kick failed sits queued
+forever (heartbeat/started_at null, cursor 0) — there is nothing to revive it.
+This looked like "the import repeatedly attempts the same record" but was really
+the foreground poll hammering a job that never started.
+
+**How to apply:** don't rely on cron alone to start/revive import jobs. The
+session-authed job-status endpoints (GET /api/imports/jobs and
+/api/imports/jobs/[id]) nudge the worker when a job is queued or has a stale
+heartbeat (see api/_lib/importWorkerDispatch.js). Any new "background job +
+cron backstop" feature needs an equivalent foreground nudge to work on preview.
+
+## Worker claim must guard terminal status, not just heartbeat
+The worker's compare-and-swap claim in process.js originally matched only on
+heartbeat (handoff) or queued/stale (kick). A cancel that lands in the
+load->claim window (status read as processing, then flipped to cancelled, with
+heartbeat unchanged) would be silently undone — the claim flipped cancelled
+back to processing and the import resumed.
+
+**Why:** cancel updates status (+completed_at) but NOT heartbeat, so a
+heartbeat-only predicate still matched the row.
+
+**How to apply:** every claim/continue UPDATE on csv_import_job must include a
+non-terminal status guard (NOT IN completed/completed_with_errors/failed/
+cancelled) in addition to its heartbeat/queued predicate. Also: any client-side
+poll loop that watches for "done" must treat 'cancelled' as terminal or it
+polls forever.

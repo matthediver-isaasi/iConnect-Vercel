@@ -143,7 +143,14 @@ export default async function handler(req, res) {
       started_at: job.started_at || nowIso,
       updated_at: nowIso,
     })
-    .eq('id', jobId);
+    .eq('id', jobId)
+    // Never claim a job that reached a terminal state. The early return above
+    // handles a terminal status observed at load; this guard closes the
+    // load->claim window where a user cancels (or the job finishes) AFTER we
+    // read it but BEFORE we claim. Without it, a handoff matching the unchanged
+    // heartbeat — or a stale-revival kick — would flip 'cancelled' back to
+    // 'processing' and resume a cancelled import.
+    .not('status', 'in', '(completed,completed_with_errors,failed,cancelled)');
 
   if (isHandoff) {
     claimQuery = job.heartbeat_at

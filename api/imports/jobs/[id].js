@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
 import { cleanupImportJobFile } from '../../_lib/importFileCleanup.js';
+import { jobNeedsKick, dispatchImportWorker } from '../../_lib/importWorkerDispatch.js';
 
 // Non-terminal statuses a job can be cancelled from.
 const CANCELLABLE_STATUSES = ['initializing', 'queued', 'processing'];
@@ -53,6 +54,13 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
+      // Self-drive without cron: if this job is queued or has a stale heartbeat,
+      // nudge the worker. Safe to repeat — the worker's atomic claim defers when
+      // a live worker already owns the job. This is what keeps imports moving on
+      // Vercel preview deployments (no scheduled cron) while the tab polls.
+      if (jobNeedsKick(job)) {
+        await dispatchImportWorker(req, job);
+      }
       return res.json(job);
     }
 
