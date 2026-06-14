@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info, Copy, X } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send, Info, Copy, X, Bell } from "lucide-react";
 // Note: email template picker removed; reminders use a hardwired in-code template.
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -1054,6 +1054,12 @@ export default function PendingPurchaseOrdersReport() {
                               Paid in Xero
                             </Badge>
                           )}
+                          <Badge variant="outline" className="flex items-center gap-1" data-testid={`badge-reminders-sent-${record.id}`}>
+                            <Bell className="h-3 w-3" />
+                            {(record.remindersSent || 0) > 0
+                              ? `${record.remindersSent} reminder${record.remindersSent !== 1 ? 's' : ''} sent`
+                              : 'No reminders sent yet'}
+                          </Badge>
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
@@ -1069,6 +1075,16 @@ export default function PendingPurchaseOrdersReport() {
                                 ? format(new Date(record.created_date), 'dd MMM yyyy')
                                 : 'Unknown date'}
                             </span>
+                          </span>
+                          <span className="flex items-center gap-1" data-testid={`text-next-reminder-${record.id}`}>
+                            <Bell className="h-3 w-3" />
+                            {record.nextReminderStatus === 'no_days'
+                              ? 'Automatic reminders off'
+                              : record.nextReminderStatus === 'max_reached'
+                                ? 'All reminders sent'
+                                : record.nextReminderAt
+                                  ? `Next reminder: ${format(new Date(record.nextReminderAt), 'dd MMM yyyy')}`
+                                  : 'Next reminder: pending'}
                           </span>
                           {record.quantity ? (
                             <span data-testid={`text-quantity-${record.id}`}>

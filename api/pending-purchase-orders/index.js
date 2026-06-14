@@ -9,6 +9,7 @@ import {
   resolveReminderGreetingName,
   computePendingPoInvoices,
   prepareReminderForInvoice,
+  evaluateReminderSchedule,
 } from '../_lib/pendingPoInvoice.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -207,6 +208,70 @@ export default async function handler(req, res) {
       } catch (computeError) {
         console.error('[PendingPO] Failed to compute pending invoices:', computeError);
         return res.status(500).json({ error: 'Failed to load pending purchase orders' });
+      }
+
+      // Annotate each invoice line with how many reminders have been sent and
+      // when the next one is due, using the same schedule logic the cron uses.
+      try {
+        const { data: tenantRow } = await supabase
+          .from('tenant')
+          .select('settings')
+          .eq('id', tenantId)
+          .single();
+        const reminderSettings = tenantRow?.settings?.poReminderSettings || {};
+
+        const invoiceKeys = computed.records.map((r) => r.id).filter(Boolean);
+        const sendCountByKey = new Map();
+        const lastSentByKey = new Map();
+
+        // Batch the reminder-log lookup (chunked to keep the IN list short)
+        // rather than querying per invoice row.
+        const KEY_CHUNK = 200;
+        for (let i = 0; i < invoiceKeys.length; i += KEY_CHUNK) {
+          const chunk = invoiceKeys.slice(i, i + KEY_CHUNK);
+          const { data: logRows, error: logErr } = await supabase
+            .from('po_reminder_log')
+            .select('invoice_key, sent_at')
+            .eq('tenant_id', tenantId)
+            .in('invoice_key', chunk)
+            .order('sent_at', { ascending: false });
+          if (logErr) {
+            console.error('[PendingPO] Failed to load reminder log:', logErr);
+            continue;
+          }
+          (logRows || []).forEach((row) => {
+            sendCountByKey.set(row.invoice_key, (sendCountByKey.get(row.invoice_key) || 0) + 1);
+            // Rows are sent_at DESC, so the first seen per key is the latest.
+            if (!lastSentByKey.has(row.invoice_key)) {
+              lastSentByKey.set(row.invoice_key, row.sent_at);
+            }
+          });
+        }
+
+        const nowForSchedule = new Date();
+        computed.records.forEach((r) => {
+          const priorCount = sendCountByKey.get(r.id) || 0;
+          const lastSentAt = lastSentByKey.get(r.id) || null;
+          const schedule = evaluateReminderSchedule({
+            reminderDays: reminderSettings.reminderDays,
+            sendAfterDays: reminderSettings.sendAfterDays,
+            repeatEveryDays: reminderSettings.repeatEveryDays,
+            maxSends: reminderSettings.maxSends,
+            createdDate: r.created_date,
+            now: nowForSchedule,
+            priorCount,
+            lastSentAt,
+          });
+          r.remindersSent = priorCount;
+          r.lastReminderAt = lastSentAt;
+          r.nextReminderStatus = schedule.status;
+          r.nextReminderAt = schedule.nextReminderAt
+            ? schedule.nextReminderAt.toISOString()
+            : null;
+        });
+      } catch (reminderAnnotateError) {
+        console.error('[PendingPO] Failed to annotate reminder status:', reminderAnnotateError);
+        // Non-fatal: fall back to records without reminder annotations.
       }
 
       console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${computed.records.length} invoices, xeroChecked=${computed.xeroCheckPerformed}, paidInXero=${computed.paidInXero}`);

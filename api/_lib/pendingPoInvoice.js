@@ -532,6 +532,113 @@ export async function resolveReminderGreetingName(client, summary) {
 // bookings/transactions filtered by account payment / po_to_follow, with a Xero
 // paid/voided status check that drops voided invoices and backfills PO numbers
 // already present in Xero.
+// Default cadence settings, mirrored from the reminder settings UI/cron.
+export const PO_REMINDER_DEFAULTS = {
+  sendAfterDays: 7,
+  repeatEveryDays: 7,
+  maxSends: 3,
+};
+
+// Whole-day difference between two dates measured in UTC calendar days, so the
+// timing checks are independent of server timezone.
+export function utcDaysBetween(earlier, later) {
+  const a = Date.UTC(earlier.getUTCFullYear(), earlier.getUTCMonth(), earlier.getUTCDate());
+  const b = Date.UTC(later.getUTCFullYear(), later.getUTCMonth(), later.getUTCDate());
+  return Math.floor((b - a) / 86400000);
+}
+
+// Normalise a positive-integer setting, falling back when invalid.
+export function toPositiveIntSetting(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && Number.isInteger(n) && n >= 1 ? n : fallback;
+}
+
+// Pure, shared reminder-schedule evaluation used by BOTH the daily cron (to
+// decide whether to send today) and the report GET (to show the next reminder
+// date per invoice). Keeping it in one place means the date shown on the report
+// can never disagree with the day the cron actually fires.
+//
+// Returns:
+//   {
+//     remindersSent: number,        // prior send count
+//     status: 'scheduled' | 'max_reached' | 'no_days',
+//     nextReminderAt: Date | null,  // next eligible UTC send date (>= today)
+//     dueToday: boolean,            // nextReminderAt is today (cron should send)
+//   }
+export function evaluateReminderSchedule({
+  reminderDays,
+  sendAfterDays,
+  repeatEveryDays,
+  maxSends,
+  createdDate,
+  now = new Date(),
+  priorCount = 0,
+  lastSentAt = null,
+}) {
+  const days = Array.isArray(reminderDays)
+    ? reminderDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : [];
+  const repeat = toPositiveIntSetting(repeatEveryDays, PO_REMINDER_DEFAULTS.repeatEveryDays);
+  const after = toPositiveIntSetting(sendAfterDays, PO_REMINDER_DEFAULTS.sendAfterDays);
+  const cap = toPositiveIntSetting(maxSends, PO_REMINDER_DEFAULTS.maxSends);
+
+  const base = {
+    remindersSent: priorCount,
+    status: 'scheduled',
+    nextReminderAt: null,
+    dueToday: false,
+  };
+
+  // No weekdays selected -> automatic reminders are off.
+  if (days.length === 0) {
+    return { ...base, status: 'no_days' };
+  }
+
+  // Reached the per-invoice cap -> nothing more will be sent.
+  if (priorCount >= cap) {
+    return { ...base, status: 'max_reached' };
+  }
+
+  const created = createdDate ? new Date(createdDate) : null;
+  if (!created || Number.isNaN(created.getTime())) {
+    // Without a usable created date the cron skips it; not schedulable.
+    return base;
+  }
+
+  const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+  // Earliest UTC calendar date eligibility is met:
+  //  - first send: created + sendAfterDays
+  //  - subsequent: lastSent + repeatEveryDays
+  let earliest;
+  if (priorCount > 0 && lastSentAt) {
+    earliest = startOfUtcDay(new Date(lastSentAt));
+    earliest.setUTCDate(earliest.getUTCDate() + repeat);
+  } else {
+    earliest = startOfUtcDay(created);
+    earliest.setUTCDate(earliest.getUTCDate() + after);
+  }
+
+  const today = startOfUtcDay(now);
+  // The cron only fires from today onwards; never show a past date.
+  let candidate = earliest.getTime() < today.getTime() ? today : earliest;
+
+  // Walk forward to the first selected weekday on/after the candidate.
+  for (let i = 0; i < 371; i++) {
+    if (days.includes(candidate.getUTCDay())) {
+      return {
+        remindersSent: priorCount,
+        status: 'scheduled',
+        nextReminderAt: candidate,
+        dueToday: candidate.getTime() === today.getTime(),
+      };
+    }
+    candidate = new Date(candidate.getTime() + 86400000);
+  }
+
+  return base;
+}
+
 export async function computePendingPoInvoices({ client = defaultSupabase, tenantId }) {
   const empty = {
     records: [],

@@ -3,24 +3,14 @@ import { sendTenantEmail } from '../_lib/tenantEmailService.js';
 import {
   computePendingPoInvoices,
   prepareReminderForInvoice,
+  evaluateReminderSchedule,
+  toPositiveIntSetting,
+  PO_REMINDER_DEFAULTS,
 } from '../_lib/pendingPoInvoice.js';
 
-const DEFAULT_SEND_AFTER_DAYS = 7;
-const DEFAULT_REPEAT_EVERY_DAYS = 7;
-const DEFAULT_MAX_SENDS = 3;
-
-// Whole-day difference between two dates, measured in UTC calendar days so the
-// timing checks are independent of server timezone.
-function utcDaysBetween(earlier, later) {
-  const a = Date.UTC(earlier.getUTCFullYear(), earlier.getUTCMonth(), earlier.getUTCDate());
-  const b = Date.UTC(later.getUTCFullYear(), later.getUTCMonth(), later.getUTCDate());
-  return Math.floor((b - a) / 86400000);
-}
-
-function toPositiveInt(value, fallback) {
-  const n = Number(value);
-  return Number.isFinite(n) && Number.isInteger(n) && n >= 1 ? n : fallback;
-}
+const DEFAULT_SEND_AFTER_DAYS = PO_REMINDER_DEFAULTS.sendAfterDays;
+const DEFAULT_REPEAT_EVERY_DAYS = PO_REMINDER_DEFAULTS.repeatEveryDays;
+const DEFAULT_MAX_SENDS = PO_REMINDER_DEFAULTS.maxSends;
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -78,9 +68,9 @@ export default async function handler(req, res) {
     for (const tenant of scheduledTenants) {
       const tenantId = tenant.id;
       const settings = tenant?.settings?.poReminderSettings || {};
-      const sendAfterDays = toPositiveInt(settings.sendAfterDays, DEFAULT_SEND_AFTER_DAYS);
-      const repeatEveryDays = toPositiveInt(settings.repeatEveryDays, DEFAULT_REPEAT_EVERY_DAYS);
-      const maxSends = toPositiveInt(settings.maxSends, DEFAULT_MAX_SENDS);
+      const sendAfterDays = toPositiveIntSetting(settings.sendAfterDays, DEFAULT_SEND_AFTER_DAYS);
+      const repeatEveryDays = toPositiveIntSetting(settings.repeatEveryDays, DEFAULT_REPEAT_EVERY_DAYS);
+      const maxSends = toPositiveIntSetting(settings.maxSends, DEFAULT_MAX_SENDS);
 
       let invoicesConsidered = 0;
       let sentForTenant = 0;
@@ -94,12 +84,6 @@ export default async function handler(req, res) {
         for (const record of records) {
           const invoiceKey = record.id;
           if (!invoiceKey) continue;
-
-          // Age gate: only chase invoices at least sendAfterDays old.
-          const createdDate = record.created_date ? new Date(record.created_date) : null;
-          if (!createdDate || Number.isNaN(createdDate.getTime())) continue;
-          const ageDays = utcDaysBetween(createdDate, now);
-          if (ageDays < sendAfterDays) continue;
 
           // Prior-send history for this invoice (most recent first).
           const { data: priorSends, error: priorError } = await supabase
@@ -115,17 +99,21 @@ export default async function handler(req, res) {
           }
 
           const priorCount = priorSends?.length || 0;
+          const lastSentAt = priorCount > 0 ? priorSends[0].sent_at : null;
 
-          // Cap total sends per invoice.
-          if (priorCount >= maxSends) continue;
-
-          if (priorCount > 0) {
-            const lastSent = new Date(priorSends[0].sent_at);
-            // Already sent today — never double up.
-            if (utcDaysBetween(lastSent, now) === 0) continue;
-            // Respect the repeat cadence.
-            if (utcDaysBetween(lastSent, now) < repeatEveryDays) continue;
-          }
+          // Single source of truth for all timing/cap/weekday gates, shared with
+          // the report's "next reminder date" so the two can never disagree.
+          const schedule = evaluateReminderSchedule({
+            reminderDays: settings.reminderDays,
+            sendAfterDays,
+            repeatEveryDays,
+            maxSends,
+            createdDate: record.created_date,
+            now,
+            priorCount,
+            lastSentAt,
+          });
+          if (!schedule.dueToday) continue;
 
           // All timing checks pass — now mint the token and build the email.
           const prepared = await prepareReminderForInvoice({ client: supabase, tenantId, invoiceKey });
