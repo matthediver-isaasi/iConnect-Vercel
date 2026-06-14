@@ -1,6 +1,5 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
-import { nudgeStuckJobs } from '../../_lib/importWorkerDispatch.js';
 
 // Terminal statuses eligible for bulk removal from the Recent Imports list.
 const TERMINAL_STATUSES = ['completed', 'completed_with_errors', 'failed', 'cancelled'];
@@ -94,11 +93,6 @@ export default async function handler(req, res) {
       }
       throw error;
     }
-
-    // Self-drive without cron: nudge any queued/stale jobs so the Recent Imports
-    // poll keeps imports moving on Vercel preview (no scheduled cron). The
-    // worker's atomic claim makes repeated nudges safe.
-    await nudgeStuckJobs(req, jobs);
 
     res.json(jobs || []);
   } catch (error) {

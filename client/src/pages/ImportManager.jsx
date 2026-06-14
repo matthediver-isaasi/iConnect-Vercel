@@ -511,8 +511,30 @@ export default function ImportManager() {
       refetchJobs();
 
       // Poll the job until it reaches a terminal state. The server keeps
-      // processing even if this loop stops (e.g. tab closed).
+      // processing even if this loop stops (e.g. tab closed) — on production via
+      // the worker self-trigger chain and cron backstop.
+      //
+      // On Vercel PREVIEW deployments those server-to-server kicks can't reach
+      // the protection-gated deployment, so nothing would drive the worker. To
+      // make imports run on preview too, we drive each slice straight from the
+      // browser: an authenticated POST to the worker. The worker claims one
+      // time-budgeted slice, then RELEASES its lease so this loop's next drive
+      // can claim the following slice. Only one of these runs at a time
+      // (driverInFlight), and the worker's atomic claim never preempts an active
+      // slice, so this is safe even alongside a server-side chain on production.
       let consecutiveErrors = 0;
+      let driverInFlight = false;
+      const driveSlice = () => {
+        if (driverInFlight) return;
+        driverInFlight = true;
+        fetch(`/api/imports/process?jobId=${encodeURIComponent(jobId)}`, {
+          method: 'POST',
+          credentials: 'include',
+        })
+          .catch(() => { /* the status poll reflects the real state */ })
+          .finally(() => { driverInFlight = false; });
+      };
+
       while (true) {
         await sleep(POLL_INTERVAL_MS);
 
@@ -570,6 +592,13 @@ export default function ImportManager() {
             toast.success(`Import complete: ${job.created_count || 0} created, ${job.updated_count || 0} updated`);
           }
           break;
+        }
+
+        // Drive the next slice from the browser (no-op while one is already in
+        // flight, or when a server-side worker already owns the job — the
+        // worker defers those). This is what advances the import on preview.
+        if (job.status === 'queued' || job.status === 'processing') {
+          driveSlice();
         }
       }
     } catch (error) {

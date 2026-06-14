@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { getSession } from '../_lib/session.js';
 import { parseImportFile } from '../_lib/importFileParser.js';
 import { processImportSlice } from '../_lib/importProcessor.js';
 import { cleanupImportJobFile } from '../_lib/importFileCleanup.js';
@@ -30,14 +31,34 @@ function getOrigin(req) {
   return (process.env.VITE_APP_URL || headerOrigin || '').replace(/\/+$/, '');
 }
 
-function isAuthorized(req, job) {
-  // Either the per-job worker token (used by enqueue + cron dispatch) or the
-  // platform CRON_SECRET (defence in depth for direct cron invocation).
+// Returns the authorization mode for this invocation, or null if unauthorized:
+//   'token'   per-job worker token (enqueue kick / cron / self-trigger)
+//   'cron'    platform CRON_SECRET (defence in depth for direct cron)
+//   'session' a signed-in member of the job's OWN tenant
+async function authorizeWorker(req, job) {
   const token = req.query?.token || '';
-  if (job?.worker_token && token && token === job.worker_token) return true;
+  if (job?.worker_token && token && token === job.worker_token) return 'token';
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && req.headers.authorization === `Bearer ${cronSecret}`) return true;
-  return false;
+  if (cronSecret && req.headers.authorization === `Bearer ${cronSecret}`) return 'cron';
+  // Session callers are how imports run on Vercel preview deployments:
+  // server-to-server worker kicks (enqueue kick, cron, self-trigger) can't
+  // reach the protection-gated preview, but the user's authenticated browser
+  // request can, so the Import Manager drives each slice itself.
+  try {
+    const session = await getSession(req);
+    const memberId = session?.data?.memberId;
+    if (memberId && job?.tenant_id) {
+      const { data: member } = await supabase
+        .from('member')
+        .select('tenant_id')
+        .eq('id', memberId)
+        .single();
+      if (member?.tenant_id && member.tenant_id === job.tenant_id) return 'session';
+    }
+  } catch {
+    /* fall through to deny */
+  }
+  return null;
 }
 
 async function triggerSelf(req, job) {
@@ -106,9 +127,12 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: 'Job not found' });
   }
 
-  if (!isAuthorized(req, job)) {
+  const authMode = await authorizeWorker(req, job);
+  if (!authMode) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  // A session caller is the user's browser driving its own import (preview).
+  const browserDriven = authMode === 'session';
 
   // Terminal jobs need no work. 'cancelled' is terminal: a user aborted the
   // import, so the chain must stop advancing the cursor.
@@ -116,7 +140,12 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, status: job.status, alreadyDone: true });
   }
 
-  const isHandoff = (req.query?.handoff || '') === '1';
+  // The handoff fast-path claims by matching the EXACT current heartbeat, which
+  // during an active slice would let a kick preempt a worker mid-slice and
+  // double-process. Only trusted server-side chain continuations (self-trigger /
+  // cron) may use it; the browser driver always takes the safe non-handoff path
+  // (which never preempts a fresh heartbeat).
+  const isHandoff = !browserDriven && (req.query?.handoff || '') === '1';
 
   if (!job.storage_bucket || !job.storage_path) {
     await failJob(jobId, 'Import file reference is missing; cannot process.');
@@ -157,14 +186,16 @@ export default async function handler(req, res) {
       ? claimQuery.eq('heartbeat_at', job.heartbeat_at)
       : claimQuery.is('heartbeat_at', null);
   } else {
-    // Only a runnable job is claimable here: still 'queued', or 'processing'
-    // with a stale heartbeat (prior owner presumed dead). A non-runnable row
-    // (e.g. 'initializing' before its file is stored) is never claimed, even
-    // though its heartbeat is null.
+    // Fresh kick (enqueue / cron / browser driver): claim a runnable job that no
+    // live worker owns — still 'queued', its heartbeat RELEASED (null) by a
+    // previous browser-driven slice, or its heartbeat gone stale (prior owner
+    // presumed dead). An active slice keeps a fresh heartbeat (< STALE_AFTER_MS)
+    // and is therefore never preempted. 'initializing' (file not yet stored) is
+    // excluded by the status filter even though its heartbeat is null.
     const staleBefore = new Date(Date.now() - STALE_AFTER_MS).toISOString();
-    claimQuery = claimQuery.or(
-      `status.eq.queued,heartbeat_at.lt.${staleBefore}`
-    );
+    claimQuery = claimQuery
+      .in('status', ['queued', 'processing'])
+      .or(`status.eq.queued,heartbeat_at.is.null,heartbeat_at.lt.${staleBefore}`);
   }
 
   const { data: claimedRows, error: claimError } = await claimQuery.select('id');
@@ -222,6 +253,12 @@ export default async function handler(req, res) {
     const processed = result.created + result.updated;
     const heartbeatIso = new Date().toISOString();
 
+    // A browser-driven, non-final slice RELEASES the lease (null heartbeat) so
+    // the user's next poll-drive can immediately claim the following slice
+    // without waiting out the staleness window. Server chains keep a fresh
+    // heartbeat and hand off via self-trigger instead.
+    const releaseLease = browserDriven && !result.done;
+
     const update = {
       cursor_offset: result.done ? records.length : result.offset,
       processed_count: processed,
@@ -231,7 +268,7 @@ export default async function handler(req, res) {
       skipped_count: result.skipped,
       error_count: result.errors,
       notes_created: result.notes,
-      heartbeat_at: heartbeatIso,
+      heartbeat_at: releaseLease ? null : heartbeatIso,
       updated_at: heartbeatIso,
       status: result.done ? (result.errors > 0 ? 'completed_with_errors' : 'completed') : 'processing',
     };
@@ -298,8 +335,13 @@ export default async function handler(req, res) {
     }
 
     if (!result.done) {
-      // Keep the loop going. Use the freshest token in case it changed.
-      await triggerSelf(req, { id: jobId, worker_token: job.worker_token });
+      // Server chain (enqueue/cron) hands off to the next slice immediately via
+      // a self-trigger. The browser driver instead relies on its own next poll
+      // (the lease was just released above), so it must NOT self-trigger — a
+      // server-to-server kick can't reach a protected preview deployment anyway.
+      if (!browserDriven) {
+        await triggerSelf(req, { id: jobId, worker_token: job.worker_token });
+      }
       return res.status(200).json({ ok: true, status: 'processing', offset: update.cursor_offset });
     }
 

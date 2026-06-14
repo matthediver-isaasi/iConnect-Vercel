@@ -52,23 +52,6 @@ code, widen the CHECK constraint in the same change (idempotent DROP IF EXISTS +
 ADD). Current full set: pending, initializing, queued, running, processing,
 completed, completed_with_errors, failed, cancelled.
 
-## Background imports must self-drive without cron (Vercel preview)
-The background import worker chain is started by enqueue's fire-and-forget kick
-and kept alive by a worker->worker self-trigger; a Vercel cron
-(run-import-jobs) is the only backstop that revives a stuck/queued job.
-
-**Why:** Vercel runs scheduled crons ONLY on production deployments, never on
-preview deployments. On preview, a job whose initial kick failed sits queued
-forever (heartbeat/started_at null, cursor 0) — there is nothing to revive it.
-This looked like "the import repeatedly attempts the same record" but was really
-the foreground poll hammering a job that never started.
-
-**How to apply:** don't rely on cron alone to start/revive import jobs. The
-session-authed job-status endpoints (GET /api/imports/jobs and
-/api/imports/jobs/[id]) nudge the worker when a job is queued or has a stale
-heartbeat (see api/_lib/importWorkerDispatch.js). Any new "background job +
-cron backstop" feature needs an equivalent foreground nudge to work on preview.
-
 ## Worker claim must guard terminal status, not just heartbeat
 The worker's compare-and-swap claim in process.js originally matched only on
 heartbeat (handoff) or queued/stale (kick). A cancel that lands in the
@@ -84,3 +67,50 @@ non-terminal status guard (NOT IN completed/completed_with_errors/failed/
 cancelled) in addition to its heartbeat/queued predicate. Also: any client-side
 poll loop that watches for "done" must treat 'cancelled' as terminal or it
 polls forever.
+
+## Server-to-server worker kicks DON'T work on Vercel preview
+A background-job design that relies on a deployment calling its OWN functions
+(enqueue's fire-and-forget kick, a worker->worker self-trigger, or even a
+"nudge" fired from a status endpoint) silently does nothing on a Vercel PREVIEW
+deployment: previews sit behind deployment protection, so the outbound
+server-to-server call can't reach them, and Vercel runs scheduled crons ONLY on
+production. A job whose kick failed then sits queued forever (heartbeat_at /
+started_at null, cursor 0) — which presents as "the import keeps retrying the
+same first record" but is really the foreground poll watching a job that never
+started.
+
+**Why:** only requests carrying the user's auth (the browser) get through a
+protected preview; nothing server-originated does, and there's no cron backstop.
+
+**How to apply:** drive the work from the authenticated BROWSER. The import
+worker accepts a session caller whose member tenant matches the job's tenant and
+treats it as `browserDriven`; the Import Manager poll loop POSTs to the worker
+(one in-flight at a time) to run each slice. Crucially the browser must use the
+SAFE non-handoff claim, NOT the exact-heartbeat handoff fast-path — see next
+section.
+
+## Never let the browser driver use the heartbeat "handoff" fast-path
+The worker has two claim modes: a handoff claim that matches the EXACT current
+heartbeat (used by trusted server self-trigger/cron continuations) and a
+non-handoff claim that matches queued / released(null) / stale heartbeats. The
+heartbeat is written only at slice START and END, never mid-slice, so during an
+active slice the heartbeat is unchanged. If the browser driver were allowed to
+use handoff, a browser kick fired while a server worker is mid-slice would match
+that unchanged heartbeat and claim the SAME cursor window → two workers process
+the same rows → inflated counts + duplicate insert-only note writes.
+
+**Why:** "heartbeat unchanged" can't distinguish "worker actively processing"
+from "slice finished, ready for next" — so exact-heartbeat matching from an
+untrusted/uncoordinated caller is unsafe.
+
+**How to apply:** force browser/session callers onto the non-handoff path
+(`isHandoff = !browserDriven && handoff==='1'`). A browser-driven non-final
+slice RELEASES its lease (writes `heartbeat_at=null`) and does NOT self-trigger,
+so the next browser poll's non-handoff claim picks up the following slice
+immediately without waiting out the staleness window. An active slice keeps a
+fresh heartbeat and is never matched by the non-handoff predicate, and the claim
+is one atomic conditional UPDATE, so a browser claim and a production
+self-trigger/cron can coexist — the loser re-evaluates against the now-fresh row
+and matches zero rows. The non-handoff predicate must also exclude
+'initializing' (file not yet stored) by status, since released jobs and
+'initializing' both have a null heartbeat.
