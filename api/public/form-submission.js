@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id')
+      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -64,6 +64,17 @@ export default async function handler(req, res) {
         code: formError?.code 
       });
       return res.status(404).json({ error: 'Form not found' });
+    }
+
+    // Scheduled deactivation: reject submissions once the configured time has
+    // passed, even though is_active is still true. Mirrors the read-time guard
+    // in api/public/form/[slug].js so a known form_id can't be POSTed after the
+    // deadline.
+    if (form.deactivate_at) {
+      const deactivateTime = new Date(form.deactivate_at).getTime();
+      if (!Number.isNaN(deactivateTime) && deactivateTime <= Date.now()) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
     }
 
     // Forms that require authentication cannot be submitted publicly

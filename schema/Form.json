@@ -55,6 +55,14 @@
         "default": true,
         "description": "Whether the form is currently active"
       },
+      "deactivate_at": {
+        "type": "string",
+        "description": "Optional scheduled deactivation timestamp (UTC ISO string). When set and in the past, the public form stops being served even while is_active is true. Null/empty means no scheduled deactivation."
+      },
+      "deactivate_timezone": {
+        "type": "string",
+        "description": "IANA timezone (e.g. Europe/London) used to display and interpret deactivate_at in the FormBuilder picker."
+      },
       "is_event_related": {
         "type": "boolean",
         "default": false,

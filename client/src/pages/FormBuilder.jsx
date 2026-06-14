@@ -35,6 +35,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
+import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import TimezoneSelect from "@/components/TimezoneSelect";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -4743,6 +4745,8 @@ export default function FormBuilderPage() {
     redirect_url: "",
     require_authentication: false,
     is_active: true,
+    deactivate_at: null,
+    deactivate_timezone: "Europe/London",
     is_event_related: false,
     related_event_id: null,
     due_diligence_required: false,
@@ -5221,6 +5225,8 @@ export default function FormBuilderPage() {
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
         is_active: existingForm.is_active ?? true,
+        deactivate_at: existingForm.deactivate_at || null,
+        deactivate_timezone: existingForm.deactivate_timezone || "Europe/London",
         is_event_related: existingForm.is_event_related ?? false,
         related_event_id: existingForm.related_event_id || null,
         due_diligence_required: existingForm.due_diligence_required ?? false,
@@ -5797,6 +5803,39 @@ export default function FormBuilderPage() {
                   onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                 />
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
+              </div>
+
+              <div className="flex flex-col gap-2 min-w-[260px]" title="Optionally schedule the form to stop accepting submissions at a specific date and time. Leave empty to keep the form active until you turn off the Active toggle.">
+                <Label htmlFor="deactivate_at" className="text-sm">Deactivate at (optional)</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <TimezoneAwareDateTimeInput
+                    id="deactivate_at"
+                    tz={formData.deactivate_timezone || "Europe/London"}
+                    value={formData.deactivate_at || ""}
+                    onChange={(iso) => setFormData({ ...formData, deactivate_at: iso || null })}
+                    className="sm:w-[220px]"
+                    data-testid="input-deactivate-at"
+                  />
+                  {formData.deactivate_at && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFormData({ ...formData, deactivate_at: null })}
+                      data-testid="button-clear-deactivate-at"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <div className="w-full sm:w-[260px]">
+                  <TimezoneSelect
+                    id="deactivate_timezone"
+                    value={formData.deactivate_timezone || "Europe/London"}
+                    onChange={(tz) => setFormData({ ...formData, deactivate_timezone: tz })}
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-2">

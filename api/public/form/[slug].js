@@ -7,6 +7,7 @@ const PUBLIC_FORM_FIELDS = [
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source',
   'visibility_rules', 'pages',
+  'deactivate_at', 'deactivate_timezone',
   'entity_pipelines',
   'uniqueness_checks', 'application_level',
   'blank_layout',
@@ -66,6 +67,15 @@ export default async function handler(req, res) {
 
     if (!form) {
       return res.status(404).json({ error: 'Form not found' });
+    }
+
+    // Scheduled deactivation: once the configured time has passed, treat the
+    // form as inactive even though is_active is still true.
+    if (form.deactivate_at) {
+      const deactivateTime = new Date(form.deactivate_at).getTime();
+      if (!Number.isNaN(deactivateTime) && deactivateTime <= Date.now()) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
     }
 
     const isAuthenticatedRequest = req.query.authenticated === '1';
