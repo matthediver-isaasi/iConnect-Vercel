@@ -441,6 +441,13 @@ export default function OrganisationsListPage() {
     }
   }, [accessChecked, filterPrefKey, savedDbFilters, filtersReady, debouncedSearch]);
 
+  // On a warm remount the saved-view queryFn does not re-run (cached), so recover
+  // the persisted row id from the cache; otherwise a subsequent Save would create a
+  // duplicate row instead of updating the existing one.
+  useEffect(() => {
+    if (savedDbFilters?.id) savedFilterPrefIdRef.current = savedDbFilters.id;
+  }, [savedDbFilters]);
+
   const saveViewMutation = useMutation({
     mutationFn: async () => {
       if (!columnPrefKey || !filterPrefKey) {
@@ -479,6 +486,17 @@ export default function OrganisationsListPage() {
         });
         if (createdFilters?.id) savedFilterPrefIdRef.current = createdFilters.id;
       }
+      // Keep the cached saved-view query in sync so an in-app remount (warm React
+      // Query cache, no refetch) restores the just-saved view instead of the stale
+      // pre-save value. Without this, the saved view only applies after a refresh.
+      if (filterPrefKey) {
+        queryClient.setQueryData(['crm-org-filter-prefs', filterPrefKey], {
+          id: savedFilterPrefIdRef.current,
+          setting_key: filterPrefKey,
+          setting_value: filterStr,
+          description: 'CRM organisation list filter preferences'
+        });
+      }
       return true;
     },
     onSuccess: () => {
@@ -502,6 +520,10 @@ export default function OrganisationsListPage() {
       if (savedFilterPrefIdRef.current) {
         await base44.entities.SystemSettings.delete(savedFilterPrefIdRef.current);
         savedFilterPrefIdRef.current = null;
+      }
+      // Clear the cached saved-view so an in-app remount no longer restores it.
+      if (filterPrefKey) {
+        queryClient.setQueryData(['crm-org-filter-prefs', filterPrefKey], null);
       }
       return true;
     },
