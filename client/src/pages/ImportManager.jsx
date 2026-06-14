@@ -12,6 +12,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -37,12 +48,13 @@ import {
   Filter,
   Eye,
   Play,
-  Copy
+  Copy,
+  XCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
-const TERMINAL_JOB_STATUSES = ['completed', 'completed_with_errors', 'failed'];
+const TERMINAL_JOB_STATUSES = ['completed', 'completed_with_errors', 'failed', 'cancelled'];
 const isJobTerminal = (status) => TERMINAL_JOB_STATUSES.includes(status);
 
 export default function ImportManager() {
@@ -120,6 +132,33 @@ export default function ImportManager() {
       }
       return false;
     }
+  });
+
+  // Cancel a queued/processing import job. The worker checks the cancelled
+  // status and stops advancing the cursor; the panel reflects the terminal
+  // state and stops polling on the next refetch.
+  const cancelJobMutation = useMutation({
+    mutationFn: async (jobId) => {
+      const response = await fetch(`/api/imports/jobs/${jobId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not cancel the import');
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Import cancelled');
+      refetchJobs();
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Could not cancel the import');
+      refetchJobs();
+    },
   });
 
   // Fetch organizations for deduplication exclusion filter
@@ -1138,6 +1177,39 @@ export default function ImportManager() {
                                       />
                                     </div>
                                   )}
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full gap-2"
+                                        disabled={cancelJobMutation.isPending}
+                                        data-testid={`button-cancel-job-${job.id}`}
+                                      >
+                                        <XCircle className="w-3 h-3" />
+                                        Cancel import
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Cancel this import?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          The import will stop processing further rows. Rows already imported will remain. This cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel data-testid={`button-cancel-dismiss-${job.id}`}>
+                                          Keep importing
+                                        </AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => cancelJobMutation.mutate(job.id)}
+                                          data-testid={`button-cancel-confirm-${job.id}`}
+                                        >
+                                          Cancel import
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
                                 </div>
                               )}
                               <p className="text-xs text-slate-400">

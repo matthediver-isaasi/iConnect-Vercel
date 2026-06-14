@@ -110,8 +110,9 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // Terminal jobs need no work.
-  if (['completed', 'completed_with_errors', 'failed'].includes(job.status)) {
+  // Terminal jobs need no work. 'cancelled' is terminal: a user aborted the
+  // import, so the chain must stop advancing the cursor.
+  if (['completed', 'completed_with_errors', 'failed', 'cancelled'].includes(job.status)) {
     return res.status(200).json({ ok: true, status: job.status, alreadyDone: true });
   }
 
@@ -240,10 +241,17 @@ export default async function handler(req, res) {
       update.errors = prev.concat(result.errorLog).slice(0, 100);
     }
 
-    const { error: updateError } = await supabase
+    // Conditional on the job NOT having been cancelled mid-slice: a user may
+    // have cancelled while this slice was running. The cancel endpoint flips the
+    // status to 'cancelled'; without this guard our 'processing' write would
+    // revert that and the chain would keep going. Excluding 'cancelled' here
+    // leaves the terminal state intact and stops the loop.
+    const { data: updatedRows, error: updateError } = await supabase
       .from('csv_import_job')
       .update(update)
-      .eq('id', jobId);
+      .eq('id', jobId)
+      .neq('status', 'cancelled')
+      .select('id');
 
     // The progress write must not be swallowed: if the cursor/totals for this
     // slice did not persist, self-triggering would reprocess the same rows and
@@ -253,6 +261,33 @@ export default async function handler(req, res) {
       await failJob(jobId, `Failed to persist import progress: ${updateError.message}`);
       await cleanupImportJobFile(supabase, job);
       return res.status(200).json({ ok: false, status: 'failed' });
+    }
+
+    // Zero rows updated means the job was cancelled during this slice. The rows
+    // processed this slice are already committed; persist their counts WITHOUT
+    // touching the terminal status, then stop the chain (no self-trigger).
+    if (!updatedRows || updatedRows.length === 0) {
+      try {
+        await supabase
+          .from('csv_import_job')
+          .update({
+            processed_count: update.processed_count,
+            success_count: update.success_count,
+            created_count: update.created_count,
+            updated_count: update.updated_count,
+            skipped_count: update.skipped_count,
+            error_count: update.error_count,
+            notes_created: update.notes_created,
+            cursor_offset: update.cursor_offset,
+            ...(update.errors ? { errors: update.errors } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', jobId)
+          .eq('status', 'cancelled');
+      } catch (e) {
+        console.warn('[Import Worker] Could not record counts on cancelled job:', e.message);
+      }
+      return res.status(200).json({ ok: true, status: 'cancelled', cancelled: true });
     }
 
     if (!result.done) {
