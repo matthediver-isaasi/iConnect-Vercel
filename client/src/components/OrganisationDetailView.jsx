@@ -1851,17 +1851,23 @@ export default function OrganisationDetailView({
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('members')}
+                        className="flex items-center justify-between w-full text-left rounded-md p-2 -m-2 hover-elevate active-elevate-2 cursor-pointer"
+                        data-testid="button-total-members"
+                      >
                         <span className="text-slate-500">Total Members</span>
                         <span className="font-medium">{orgMembers.length}</span>
-                      </div>
+                      </button>
                       <Separator />
                       {featuredMembers.length > 0 && (
                         <div className="space-y-2">
                           {featuredMembers.map(member => (
-                            <div
+                            <Link
                               key={member.id}
-                              className="flex items-center gap-2 text-sm p-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900"
+                              to={`/members/${member.id}`}
+                              className="flex items-center gap-2 text-sm p-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 hover-elevate active-elevate-2 cursor-pointer"
                               data-testid={`featured-member-${member.id}`}
                             >
                               <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
@@ -1871,26 +1877,36 @@ export default function OrganisationDetailView({
                                 <p className="font-medium text-slate-700 dark:text-slate-200 truncate">{getMemberName(member) || member.email}</p>
                                 <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{roleNameById[String(member.role_id)] || member.job_title || 'Member'}</p>
                               </div>
-                            </div>
+                            </Link>
                           ))}
                         </div>
                       )}
                       <div className="space-y-2">
                         {summaryMembers.slice(0, 5).map(member => (
-                          <div key={member.id} className="flex items-center gap-2 text-sm">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                          <Link
+                            key={member.id}
+                            to={`/members/${member.id}`}
+                            className="flex items-center gap-2 text-sm p-2 rounded-md -mx-2 hover-elevate active-elevate-2 cursor-pointer"
+                            data-testid={`summary-member-${member.id}`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
                               <User className="w-4 h-4 text-slate-400" />
                             </div>
-                            <div>
-                              <p className="font-medium text-slate-700">{getMemberName(member) || member.email}</p>
-                              <p className="text-xs text-slate-400">{member.job_title || 'Member'}</p>
+                            <div className="min-w-0">
+                              <p className="font-medium text-slate-700 truncate">{getMemberName(member) || member.email}</p>
+                              <p className="text-xs text-slate-400 truncate">{member.job_title || 'Member'}</p>
                             </div>
-                          </div>
+                          </Link>
                         ))}
                         {summaryMembers.length > 5 && (
-                          <p className="text-xs text-slate-400 text-center pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('members')}
+                            className="text-xs text-slate-400 text-center pt-2 w-full rounded-md hover-elevate active-elevate-2 cursor-pointer"
+                            data-testid="button-more-members"
+                          >
                             +{summaryMembers.length - 5} more members
-                          </p>
+                          </button>
                         )}
                       </div>
                       {organization?.id && (
