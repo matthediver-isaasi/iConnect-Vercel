@@ -219,7 +219,7 @@ export default function ImportManager() {
 
     const lowerName = file.name.toLowerCase();
     if (!lowerName.endsWith('.csv') && !lowerName.endsWith('.xlsx')) {
-      toast.error('Please upload a CSV or Excel (.xlsx) file');
+      toast.error('Please upload a CSV or XLS (.xlsx) file');
       return;
     }
 
@@ -238,7 +238,7 @@ export default function ImportManager() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to parse CSV');
+        throw new Error(error.error || 'Failed to parse file');
       }
 
       const data = await response.json();
@@ -253,9 +253,9 @@ export default function ImportManager() {
       }));
       setMappings(initialMappings);
       setStep(2);
-      toast.success(`CSV loaded: ${data.rowCount} rows, ${data.columns.length} columns`);
+      toast.success(`File loaded: ${data.rowCount} rows, ${data.columns.length} columns`);
     } catch (error) {
-      toast.error(error.message || 'Failed to parse CSV');
+      toast.error(error.message || 'Failed to parse file');
       setCsvFile(null);
     } finally {
       setIsUploading(false);
@@ -469,10 +469,10 @@ export default function ImportManager() {
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2 flex items-center gap-3" data-testid="text-page-title">
               <FileSpreadsheet className="w-8 h-8 text-blue-600" />
-              CSV Import Manager
+              Import Manager
             </h1>
             <p className="text-slate-600">
-              Import members and organisations from CSV files
+              Import members and organisations from CSV and XLS files
             </p>
           </div>
         </div>
@@ -506,7 +506,7 @@ export default function ImportManager() {
                         </CardTitle>
                         <CardDescription>
                           Step {step} of 4: {
-                            step === 1 ? 'Upload CSV' :
+                            step === 1 ? 'Upload File' :
                             step === 2 ? 'Map Columns' :
                             step === 3 ? 'Preview Changes' :
                             'Import Complete'
@@ -548,7 +548,7 @@ export default function ImportManager() {
                         >
                           <Upload className="w-12 h-12 mx-auto text-slate-400 mb-4" />
                           <p className="text-lg font-medium text-slate-700">
-                            {isUploading ? 'Parsing file...' : 'Click to upload CSV or Excel file'}
+                            {isUploading ? 'Parsing file...' : 'Click to upload CSV or XLS file'}
                           </p>
                           <p className="text-sm text-slate-500 mt-1">
                             Accepts .csv and .xlsx · Maximum file size: 10MB
@@ -568,7 +568,7 @@ export default function ImportManager() {
                         <Alert>
                           <AlertCircle className="w-4 h-4" />
                           <AlertDescription>
-                            Your CSV file should have column headers in the first row. 
+                            Your file should have column headers in the first row. 
                             Each row represents one {activeTab === 'organization' ? 'organisation' : 'member'} record.
                           </AlertDescription>
                         </Alert>
@@ -967,7 +967,7 @@ export default function ImportManager() {
                     <div className="text-sm text-blue-800 space-y-2">
                       <p className="font-medium">Tips:</p>
                       <ul className="list-disc pl-5 space-y-1">
-                        <li><strong>Clear if empty:</strong> When checked, empty CSV values will clear existing data</li>
+                        <li><strong>Clear if empty:</strong> When checked, empty file values will clear existing data</li>
                         <li><strong>Identifier:</strong> Used to match existing records for updates</li>
                         <li><strong>Custom fields:</strong> Map to fields defined in Custom Fields admin</li>
                       </ul>

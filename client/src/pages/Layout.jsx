@@ -510,7 +510,7 @@ const adminNavigationItems = [
     featureId: "page_DataExport"
   },
   {
-    title: "CSV Import",
+    title: "Import Manager",
     url: createPageUrl("ImportManager"),
     icon: Upload,
     featureId: "page_ImportManager"
