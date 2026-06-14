@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,20 @@ export default function ImportManager() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(null);
   const fileInputRef = useRef(null);
+
+  // While an import is running we cannot safely resume after the tab closes, so
+  // warn the user before they navigate away or close the tab. The native prompt
+  // only appears when there is genuinely an import in flight.
+  useEffect(() => {
+    if (!isImporting) return;
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isImporting]);
 
   // Fetch available fields for mapping
   const { data: availableFields, isLoading: fieldsLoading } = useQuery({
@@ -358,6 +372,14 @@ export default function ImportManager() {
     let errorDetails = [];
     let safety = 0;
 
+    // Transient failures (a dropped connection, a Vercel 504 gateway HTML page,
+    // a brief 429/503) should NOT abort the whole import. We retry the SAME
+    // cursor — offset, jobId, totals and forcePath are all unchanged — up to
+    // MAX_RETRIES times with linear backoff. Because chunks are resumable and
+    // idempotent on the server, re-sending the same cursor is safe.
+    const MAX_RETRIES = 4;
+    const TRANSIENT_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
     try {
       while (true) {
         safety += 1;
@@ -379,27 +401,66 @@ export default function ImportManager() {
         formData.append('errors', String(totals.errors));
         formData.append('notesCreated', String(totals.notesCreated));
 
-        const response = await fetch('/api/imports/execute', {
-          method: 'POST',
-          credentials: 'include',
-          body: formData
-        });
-
-        // Vercel returns an HTML gateway page (not JSON) when a function hits
-        // the time ceiling. Parse defensively so the user sees a useful message
-        // instead of "Unexpected token <".
+        // Attempt this chunk, retrying transient failures from the same cursor.
         let result = null;
-        let parseError = null;
-        try {
-          result = await response.json();
-        } catch (e) {
-          parseError = e;
-        }
+        let attempt = 0;
+        while (true) {
+          let response = null;
+          let parseError = null;
+          let networkError = null;
+          try {
+            response = await fetch('/api/imports/execute', {
+              method: 'POST',
+              credentials: 'include',
+              body: formData
+            });
+          } catch (e) {
+            networkError = e;
+          }
 
-        if (parseError || !response.ok) {
-          const msg = parseError
-            ? `Server error (${response.status}) — the import may have timed out. Please try again.`
-            : (result?.error || 'Import failed');
+          // Vercel returns an HTML gateway page (not JSON) when a function hits
+          // the time ceiling. Parse defensively so the user sees a useful message
+          // instead of "Unexpected token <".
+          if (!networkError) {
+            try {
+              result = await response.json();
+            } catch (e) {
+              parseError = e;
+              result = null;
+            }
+          }
+
+          const status = response?.status ?? 0;
+          const isTransient =
+            !!networkError ||
+            !!parseError ||
+            (response && !response.ok && TRANSIENT_STATUSES.has(status));
+
+          if (!networkError && !parseError && response && response.ok) {
+            break; // success — proceed with `result`
+          }
+
+          if (isTransient && attempt < MAX_RETRIES) {
+            attempt += 1;
+            setImportProgress((prev) => ({
+              processed: totalRows != null ? Math.min(offset, totalRows) : offset,
+              total: totalRows,
+              ...totals,
+              retrying: true,
+              retryAttempt: attempt,
+            }));
+            // Linear backoff: 0.8s, 1.6s, 2.4s, 3.2s.
+            await new Promise((r) => setTimeout(r, 800 * attempt));
+            continue;
+          }
+
+          // Non-transient (a structured 4xx like bad mappings), or we have
+          // exhausted retries — abort with the most useful message available.
+          const msg = networkError
+            ? 'Network error — the import was interrupted. Please check your connection and try again.'
+            : parseError
+              ? `Server error (${status}) — the import may have timed out. Please try again.`
+              : (result?.error || 'Import failed');
           throw new Error(msg);
         }
 
@@ -901,6 +962,17 @@ export default function ImportManager() {
                           </Button>
                         </div>
 
+                        {isImporting && (
+                          <Alert variant="warning" data-testid="alert-import-in-progress">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>
+                              Import in progress — please keep this tab open and do
+                              not navigate away or refresh until it finishes. Closing
+                              the tab will interrupt the import.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
                         {isImporting && importProgress && (
                           <div className="space-y-2" data-testid="import-progress">
                             <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
@@ -914,6 +986,14 @@ export default function ImportManager() {
                                 {importProgress.errors > 0 ? ` · ${importProgress.errors} errors` : ''}
                               </span>
                             </div>
+                            {importProgress.retrying && (
+                              <div className="flex items-center gap-2 text-sm text-warning" data-testid="text-import-retrying">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>
+                                  Connection hiccup — retrying (attempt {importProgress.retryAttempt} of 4)…
+                                </span>
+                              </div>
+                            )}
                             {importProgress.total != null && importProgress.total > 0 && (
                               <div className="h-2 w-full overflow-hidden rounded-md bg-muted">
                                 <div

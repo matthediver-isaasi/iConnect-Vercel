@@ -5,8 +5,10 @@ import { parseImportFile } from '../_lib/importFileParser.js';
 
 // How long a single invocation is allowed to spend processing rows before it
 // stops and asks the client to continue from the returned cursor. Kept well
-// under the 60s function ceiling to leave room for parsing + final writes.
-const CHUNK_TIME_BUDGET_MS = 40000;
+// under the 60s function ceiling to leave comfortable headroom for parsing, the
+// per-slice auxiliary writes (custom fields / comm prefs / notes), and the final
+// response, so a single chunk is very unlikely to hit the platform timeout.
+const CHUNK_TIME_BUDGET_MS = 30000;
 
 // Parse boolean values (true/false/yes/no) case-insensitively
 function parseBoolean(value) {
@@ -148,6 +150,209 @@ async function updateImportJobProgress(jobId, { created = 0, updated = 0, errors
   }
 }
 
+// --- Auxiliary persistence helpers ---------------------------------------
+// These power the set-based persistence of custom field values, communication
+// preferences, and notes for BOTH the member and organisation fast paths. They
+// replace the old per-row upserts that forced these imports onto the slow JS
+// path. All writes are batched; failures are logged, never thrown, so a logging
+// hiccup in an auxiliary table cannot abort an otherwise-successful import.
+
+// Build a Map of lower(trim(identifier)) -> entity id for a tenant, fetched in
+// pages so it is correct even past PostgREST's default 1,000-row response cap
+// (the previous single un-ranged select silently dropped everyone after the
+// first 1,000, so notes/custom values went unmatched on large tenants).
+async function fetchIdByKey({ table, tenantId, keyField }) {
+  const map = new Map();
+  const PAGE = 1000;
+  let from = 0;
+  // Hard cap the number of pages so a pathological tenant can't loop forever.
+  for (let page = 0; page < 1000; page++) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id, ' + keyField)
+      .eq('tenant_id', tenantId)
+      .not(keyField, 'is', null)
+      .neq(keyField, '')
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.log(`[Import] fetchIdByKey(${table}.${keyField}) error: ${error.message}`);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    for (const r of data) {
+      const raw = r[keyField];
+      if (raw == null) continue;
+      const key = String(raw).toLowerCase().trim();
+      if (key && !map.has(key)) map.set(key, r.id);
+    }
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return map;
+}
+
+async function batchUpsert(table, rows, onConflict) {
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from(table)
+      .upsert(rows.slice(i, i + 500), { onConflict });
+    if (error) console.log(`[Import] ${table} upsert error: ${error.message}`);
+  }
+}
+
+async function batchInsert(table, rows) {
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const slice = rows.slice(i, i + 500);
+    const { error } = await supabase.from(table).insert(slice);
+    if (error) console.log(`[Import] ${table} insert error: ${error.message}`);
+    else inserted += slice.length;
+  }
+  return inserted;
+}
+
+// Resolve a mapped cell value (date parsing + clear-on-empty) the same way the
+// core transform does, so auxiliary values stay consistent with core fields.
+function resolveCellValue(row, mapping) {
+  let value = row[mapping.sourceColumn];
+  if (mapping.clearOnEmpty && (!value || (typeof value === 'string' && value.trim() === ''))) {
+    return null;
+  }
+  if (value !== null && value !== undefined && mapping.targetType === 'date' && mapping.dateFormat) {
+    const parsed = parseDate(value, mapping.dateFormat);
+    if (parsed) return parsed;
+  }
+  if (typeof value === 'string') return value.trim();
+  return value;
+}
+
+// Persist custom fields + communication preferences + notes for a slice of
+// member rows, [from, to). Idempotent for custom/comm (upserts), so a retried
+// chunk re-runs harmlessly. Returns the number of notes inserted this slice.
+async function persistMemberAux({ records, from, to, mappings, identifierMapping, tenantId, authorMemberId }) {
+  const customMappings = mappings.filter(m => m.targetField?.startsWith('custom:') && m.preferenceFieldId);
+  const commMappings = mappings.filter(m => m.targetField?.startsWith('comm:'));
+  const noteMappings = mappings.filter(m => m.targetField === '__add_note__');
+  if (customMappings.length === 0 && commMappings.length === 0 && noteMappings.length === 0) {
+    return 0;
+  }
+
+  const idByKey = await fetchIdByKey({ table: 'member', tenantId, keyField: 'email' });
+  const customByKey = new Map();
+  const commByKey = new Map();
+  const notes = [];
+  const now = new Date().toISOString();
+
+  for (let i = from; i < to && i < records.length; i++) {
+    const row = records[i];
+    const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+    if (!identifierValue) continue;
+    const memberId = idByKey.get(identifierValue.toLowerCase());
+    if (!memberId) continue;
+
+    for (const m of customMappings) {
+      const value = resolveCellValue(row, m);
+      customByKey.set(`${memberId}|${m.preferenceFieldId}`, {
+        member_id: memberId,
+        field_id: m.preferenceFieldId,
+        value: value?.trim?.() || value,
+      });
+    }
+    for (const m of commMappings) {
+      const categoryId = m.targetField.replace('comm:', '');
+      if (!categoryId) continue;
+      const optedIn = parseBoolean(row[m.sourceColumn]);
+      if (optedIn !== null) {
+        // The real column is is_subscribed (NOT opted_in); writing opted_in
+        // silently errored and dropped every imported preference.
+        commByKey.set(`${memberId}|${categoryId}`, {
+          member_id: memberId,
+          category_id: categoryId,
+          is_subscribed: optedIn,
+          tenant_id: tenantId,
+        });
+      }
+    }
+    for (const m of noteMappings) {
+      const raw = row[m.sourceColumn];
+      if (raw && String(raw).trim()) {
+        notes.push({
+          target_member_id: memberId,
+          author_member_id: authorMemberId,
+          content: String(raw).trim(),
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+  }
+
+  if (customByKey.size > 0) {
+    await batchUpsert('member_preference_value', Array.from(customByKey.values()), 'member_id,field_id');
+  }
+  if (commByKey.size > 0) {
+    await batchUpsert('member_communication_preference', Array.from(commByKey.values()), 'member_id,category_id');
+  }
+  let notesCreated = 0;
+  if (notes.length > 0) {
+    notesCreated = await batchInsert('member_note', notes);
+  }
+  return notesCreated;
+}
+
+// Persist custom fields + notes for a slice of organisation rows, [from, to).
+async function persistOrgAux({ records, from, to, mappings, identifierMapping, tenantId, authorMemberId }) {
+  const customMappings = mappings.filter(m => m.targetField?.startsWith('custom:') && m.preferenceFieldId);
+  const noteMappings = mappings.filter(m => m.targetField === '__add_note__');
+  if (customMappings.length === 0 && noteMappings.length === 0) {
+    return 0;
+  }
+
+  const idByKey = await fetchIdByKey({ table: 'organization', tenantId, keyField: 'name' });
+  const customByKey = new Map();
+  const notes = [];
+  const now = new Date().toISOString();
+
+  for (let i = from; i < to && i < records.length; i++) {
+    const row = records[i];
+    const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+    if (!identifierValue) continue;
+    const orgId = idByKey.get(identifierValue.toLowerCase());
+    if (!orgId) continue;
+
+    for (const m of customMappings) {
+      const value = resolveCellValue(row, m);
+      customByKey.set(`${orgId}|${m.preferenceFieldId}`, {
+        organization_id: orgId,
+        field_id: m.preferenceFieldId,
+        value: value?.trim?.() || value,
+      });
+    }
+    for (const m of noteMappings) {
+      const raw = row[m.sourceColumn];
+      if (raw && String(raw).trim()) {
+        notes.push({
+          organization_id: orgId,
+          member_id: authorMemberId,
+          content: String(raw).trim(),
+          attachments: [],
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+  }
+
+  if (customByKey.size > 0) {
+    await batchUpsert('organization_preference_value', Array.from(customByKey.values()), 'organization_id,field_id');
+  }
+  let notesCreated = 0;
+  if (notes.length > 0) {
+    notesCreated = await batchInsert('organization_note', notes);
+  }
+  return notesCreated;
+}
+
 export const config = {
   api: {
     bodyParser: false,
@@ -256,18 +461,43 @@ export default async function handler(req, res) {
         mappings,
         identifierField,
       });
+      // Fail loudly if we could not create the job row on the first chunk.
+      // Returning a null jobId here would make every subsequent chunk create
+      // its OWN job row (no incomingJobId to reuse) — many duplicate "running"
+      // rows for one import. Abort before processing any data instead.
+      if (!jobId) {
+        return res.status(500).json({
+          error: 'Could not start the import (failed to create its job record). Please try again.',
+          jobCreationFailed: true,
+        });
+      }
     }
     
-    // The SQL fast path only persists this fixed set of fields. Any mapping
-    // outside this set (biography, social URLs, login flags, external_id, and
-    // all custom:* / comm:* fields) would be silently dropped by the fast path,
-    // so when the import maps any such field we MUST take the JS path instead.
+    // The member SQL function persists this fixed set of core columns. custom:*
+    // and comm:* fields are NOT columns on member, but they are now persisted
+    // set-based by persistMemberAux after the RPC, so they are fast-path-safe
+    // too. Anything else (biography, social URLs, login flags, external_id) is
+    // still JS-path only because the RPC does not write those columns.
     const SQL_FASTPATH_FIELDS = new Set([
       'email', 'first_name', 'last_name', 'mobile', 'landline', 'job_title',
       'role_id', 'role_effective_from', 'organization_id', 'created_on', '__add_note__',
     ]);
+    const isAuxMapping = (m) =>
+      m.targetField?.startsWith('custom:') || m.targetField?.startsWith('comm:');
     const allMappingsFastPathSafe = mappings.every(
-      (m) => !m.targetField || SQL_FASTPATH_FIELDS.has(m.targetField)
+      (m) => !m.targetField || SQL_FASTPATH_FIELDS.has(m.targetField) || isAuxMapping(m)
+    );
+
+    // The organisation SQL function persists this fixed set of core columns;
+    // custom:* values and notes are persisted set-based by persistOrgAux. The
+    // org fast path is only used when matching by name (the default identifier),
+    // mirroring how the member fast path requires the email identifier.
+    const ORG_SQL_FASTPATH_FIELDS = new Set([
+      'name', 'description', 'website_url', 'logo_url', 'email', 'phone', 'status',
+      'created_at', '__add_note__',
+    ]);
+    const allMappingsOrgFastPathSafe = mappings.every(
+      (m) => !m.targetField || ORG_SQL_FASTPATH_FIELDS.has(m.targetField) || m.targetField?.startsWith('custom:')
     );
 
     // Set to true only if the SQL function fails on the very first batch and we
@@ -279,19 +509,16 @@ export default async function handler(req, res) {
     if (!forceJsPath && entityType === 'member' && identifierField === 'email' && allMappingsFastPathSafe) {
       console.log('[Import] Attempting SQL function import...');
       
-      // Collect notes by email (lowercase) for creation after the final SQL
-      // batch. Rebuilt every chunk (cheap, in-memory) but only inserted once,
-      // on the chunk that finishes the import.
-      const notesByEmail = new Map();
-      
-      // Transform records to the format expected by the SQL function
+      // Transform records to the format expected by the SQL function. custom:*,
+      // comm:* and __add_note__ mappings are NOT sent to the RPC — they are
+      // persisted set-based, per processed slice, by persistMemberAux below.
       const batch = records.map((row, index) => {
         const record = { row_index: index };
-        let recordEmail = null;
-        let recordNote = null;
         
         for (const mapping of mappings) {
           if (!mapping.sourceColumn || !mapping.targetField) continue;
+          if (mapping.targetField === '__add_note__') continue;
+          if (mapping.targetField.startsWith('custom:') || mapping.targetField.startsWith('comm:')) continue;
           
           let value = row[mapping.sourceColumn];
           if (value !== undefined && value !== null) {
@@ -304,21 +531,11 @@ export default async function handler(req, res) {
             if (parsed) value = parsed;
           }
           
-          // Capture note content for later creation
-          if (mapping.targetField === '__add_note__') {
-            if (value && typeof value === 'string' && value.trim()) {
-              recordNote = value.trim();
-            }
-            continue;
-          }
-          
           // Map to SQL function expected fields
           if (mapping.targetField === 'email') {
             // Normalize to lowercase so imported members match the app-wide
             // convention and resolve in the login flow (lower(email) lookup).
-            const normalizedEmail = value ? value.toLowerCase() : value;
-            record.email = normalizedEmail;
-            recordEmail = normalizedEmail;
+            record.email = value ? value.toLowerCase() : value;
           }
           else if (mapping.targetField === 'first_name') record.first_name = value;
           else if (mapping.targetField === 'last_name') record.last_name = value;
@@ -329,15 +546,6 @@ export default async function handler(req, res) {
           else if (mapping.targetField === 'role_effective_from') record.role_effective_from = value;
           else if (mapping.targetField === 'organization_id') record.organization_name = value; // Pass name, SQL will lookup
           else if (mapping.targetField === 'created_on') record.created_on = value;
-        }
-        
-        // Store note by lowercase email for lookup after SQL RPC (support multiple notes per email)
-        if (recordEmail && recordNote) {
-          const emailKey = recordEmail.toLowerCase().trim();
-          if (!notesByEmail.has(emailKey)) {
-            notesByEmail.set(emailKey, []);
-          }
-          notesByEmail.get(emailKey).push(recordNote);
         }
         
         return record;
@@ -356,6 +564,9 @@ export default async function handler(req, res) {
         console.log(`[Import] Records with emails: ${withEmails.length} of ${batch.length}`);
       }
 
+      // Track the start of the slice processed THIS invocation so we persist
+      // auxiliary data only for the rows the RPC actually touched this time.
+      const sliceStart = offset;
       let sqlOffset = offset;
       let sqlDone = false;
       for (let i = offset; i < batch.length; i += SQL_BATCH_SIZE) {
@@ -401,6 +612,23 @@ export default async function handler(req, res) {
         runningSkipped += chunkSkipped;
         runningErrors += chunkErrors;
 
+        // Persist custom fields / comm prefs / notes for exactly the rows the
+        // RPC processed this invocation. Members exist now (RPC ran), so the
+        // email->id lookup resolves. Idempotent for custom/comm (upserts).
+        const sliceEnd = Math.min(sqlOffset, records.length);
+        if (sliceEnd > sliceStart) {
+          const auxNotes = await persistMemberAux({
+            records,
+            from: sliceStart,
+            to: sliceEnd,
+            mappings,
+            identifierMapping,
+            tenantId: importTenantId,
+            authorMemberId: session.data.memberId,
+          });
+          runningNotes += auxNotes;
+        }
+
         if (!sqlDone) {
           // More batches remain — persist progress and ask the client to continue.
           await updateImportJobProgress(jobId, {
@@ -423,61 +651,161 @@ export default async function handler(req, res) {
           });
         }
 
-        // Final SQL chunk: create any collected notes, finalize and return.
+        // Final SQL chunk: finalize and return.
         console.log(`[Import] SQL function complete: ${runningCreated} created, ${runningUpdated} updated`);
 
-        let notesCreated = 0;
-        if (notesByEmail.size > 0) {
-          console.log(`[Import] Creating notes for ${notesByEmail.size} members...`);
+        await updateImportJobProgress(jobId, {
+          created: runningCreated,
+          updated: runningUpdated,
+          errors: runningErrors,
+          done: true,
+        });
 
-          const { data: membersWithNotes, error: memberLookupError } = await supabase
-            .from('member')
-            .select('id, email')
-            .eq('tenant_id', importTenantId)
-            .not('email', 'is', null);
+        return res.json({
+          success: true,
+          done: true,
+          jobId,
+          offset: records.length,
+          created: runningCreated,
+          updated: runningUpdated,
+          skipped: runningSkipped,
+          errors: runningErrors,
+          notesCreated: runningNotes,
+          summary: {
+            totalRows: records.length,
+            processedRows: runningCreated + runningUpdated,
+            createdRows: runningCreated,
+            updatedRows: runningUpdated,
+            skippedRows: runningSkipped,
+            errorRows: runningErrors,
+            notesCreated: runningNotes
+          }
+        });
+      }
+      // else: firstBatchRpcFailed at offset 0 — fall through to the JS path.
+    }
 
-          if (memberLookupError) {
-            console.log(`[Import] Error fetching members for notes: ${memberLookupError.message}`);
-          } else if (membersWithNotes) {
-            const memberIdByEmail = new Map();
-            membersWithNotes.forEach(m => {
-              if (m.email) {
-                memberIdByEmail.set(m.email.toLowerCase().trim(), m.id);
-              }
-            });
+    // For organisation imports matching by name, use the SQL function (much
+    // faster). Mirrors the member fast path: RPC writes core columns, then
+    // persistOrgAux writes custom values + notes set-based, per processed slice.
+    if (!forceJsPath && entityType === 'organization' && identifierField === 'name' && allMappingsOrgFastPathSafe) {
+      console.log('[Import] Attempting organisation SQL function import...');
 
-            const notesToInsert = [];
-            for (const [emailLower, noteContents] of notesByEmail) {
-              const memberId = memberIdByEmail.get(emailLower);
-              if (memberId) {
-                for (const noteContent of noteContents) {
-                  notesToInsert.push({
-                    target_member_id: memberId,
-                    author_member_id: session.data.memberId,
-                    content: noteContent,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  });
-                }
-              }
-            }
+      const batch = records.map((row, index) => {
+        const record = { row_index: index };
 
-            if (notesToInsert.length > 0) {
-              console.log(`[Import] Inserting ${notesToInsert.length} member notes...`);
-              const { error: notesError } = await supabase
-                .from('member_note')
-                .insert(notesToInsert);
+        for (const mapping of mappings) {
+          if (!mapping.sourceColumn || !mapping.targetField) continue;
+          if (mapping.targetField === '__add_note__') continue;
+          if (mapping.targetField.startsWith('custom:')) continue;
 
-              if (notesError) {
-                console.log(`[Import] Failed to create member notes: ${notesError.message}`);
-              } else {
-                notesCreated = notesToInsert.length;
-                console.log(`[Import] Created ${notesCreated} member notes successfully`);
-              }
-            }
+          let value = row[mapping.sourceColumn];
+          if (value !== undefined && value !== null) {
+            value = String(value).trim();
+          }
+          if (value && mapping.targetType === 'date' && mapping.dateFormat) {
+            const parsed = parseDate(value, mapping.dateFormat);
+            if (parsed) value = parsed;
+          }
+
+          if (mapping.targetField === 'name') record.name = value;
+          else if (mapping.targetField === 'description') record.description = value;
+          else if (mapping.targetField === 'website_url') record.website_url = value;
+          else if (mapping.targetField === 'logo_url') record.logo_url = value;
+          else if (mapping.targetField === 'email') record.email = value ? value.toLowerCase() : value;
+          else if (mapping.targetField === 'phone') record.phone = value;
+          else if (mapping.targetField === 'status') record.status = value;
+          else if (mapping.targetField === 'created_at') record.created_at = value;
+        }
+
+        return record;
+      });
+
+      const SQL_BATCH_SIZE = 1000;
+      let chunkCreated = 0;
+      let chunkUpdated = 0;
+      let chunkSkipped = 0;
+      let chunkErrors = 0;
+
+      const sliceStart = offset;
+      let sqlOffset = offset;
+      let sqlDone = false;
+      for (let i = offset; i < batch.length; i += SQL_BATCH_SIZE) {
+        if (i > offset && timeBudgetReached()) break;
+
+        const chunk = batch.slice(i, i + SQL_BATCH_SIZE);
+        console.log(`[Import] Org SQL batch ${i + 1}-${Math.min(i + SQL_BATCH_SIZE, batch.length)} of ${batch.length}`);
+
+        const { data, error } = await supabase.rpc('process_organization_import_batch', {
+          batch: chunk,
+          p_tenant_id: importTenantId
+        });
+
+        if (error) {
+          if (i === 0) {
+            console.log(`[Import] Org SQL function failed: ${error.message}, falling back to JS...`);
+            firstBatchRpcFailed = true;
+            break;
+          }
+          throw new Error(`Import failed mid-run (org SQL batch at row ${i + 1}): ${error.message}`);
+        }
+
+        if (data) {
+          chunkCreated += data.created || 0;
+          chunkUpdated += data.updated || 0;
+          chunkSkipped += data.skipped || 0;
+          chunkErrors += data.errors || 0;
+          if (data.first_error) {
+            console.log(`[Import] First org error in batch: ${data.first_error}`);
           }
         }
-        runningNotes += notesCreated;
+
+        sqlOffset = i + SQL_BATCH_SIZE;
+        if (sqlOffset >= batch.length) sqlDone = true;
+      }
+
+      if (!firstBatchRpcFailed) {
+        runningCreated += chunkCreated;
+        runningUpdated += chunkUpdated;
+        runningSkipped += chunkSkipped;
+        runningErrors += chunkErrors;
+
+        const sliceEnd = Math.min(sqlOffset, records.length);
+        if (sliceEnd > sliceStart) {
+          const auxNotes = await persistOrgAux({
+            records,
+            from: sliceStart,
+            to: sliceEnd,
+            mappings,
+            identifierMapping,
+            tenantId: importTenantId,
+            authorMemberId: session.data.memberId,
+          });
+          runningNotes += auxNotes;
+        }
+
+        if (!sqlDone) {
+          await updateImportJobProgress(jobId, {
+            created: runningCreated,
+            updated: runningUpdated,
+            errors: runningErrors,
+            done: false,
+          });
+          return res.json({
+            success: true,
+            done: false,
+            jobId,
+            offset: Math.min(sqlOffset, records.length),
+            created: runningCreated,
+            updated: runningUpdated,
+            skipped: runningSkipped,
+            errors: runningErrors,
+            notesCreated: runningNotes,
+            totalRows: records.length,
+          });
+        }
+
+        console.log(`[Import] Org SQL function complete: ${runningCreated} created, ${runningUpdated} updated`);
 
         await updateImportJobProgress(jobId, {
           created: runningCreated,
@@ -934,7 +1262,9 @@ export default async function handler(req, res) {
             commPrefsByKey.set(`${entityId}|${categoryId}`, {
               member_id: entityId,
               category_id: categoryId,
-              opted_in: optedIn,
+              // Real column is is_subscribed (NOT opted_in); the old name
+              // silently errored and dropped every imported preference.
+              is_subscribed: optedIn,
               tenant_id: importTenantId
             });
           }

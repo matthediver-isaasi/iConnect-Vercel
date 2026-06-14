@@ -1,23 +1,36 @@
 ---
 name: Member/org CSV import pitfalls
-description: Non-obvious data-loss traps in api/imports/execute.js (SQL fast path, custom-field column name, email case).
+description: Non-obvious data-loss traps in api/imports/execute.js (SQL fast path, aux persistence, comm-pref column, custom-field column name, email case).
 ---
 
 # Member/org CSV import pitfalls
 
-## SQL fast path silently drops most fields
+## SQL fast path: core via RPC, aux (custom/comm/notes) persisted set-based
 `api/imports/execute.js` has a "fast path" for member + email imports that calls
-the `process_member_import_batch` RPC. That RPC only persists a FIXED set of
-fields (email, first/last name, mobile, landline, job_title, role, org,
-role_effective_from, created_on). Every other mapped field — biography, social
-URLs, login flags, external_id, and ALL `custom:*` / `comm:*` fields — is
-dropped with no error if the fast path runs.
+the `process_member_import_batch` RPC, and (now) an org + name fast path calling
+`process_organization_import_batch`. Each RPC persists only a FIXED set of REAL
+columns. `custom:*`, `comm:*`, and `__add_note__` are NOT columns — they are
+persisted separately, set-based, AFTER the RPC by `persistMemberAux` /
+`persistOrgAux`, matching by lower(trim(identifier)).
 
-**Rule:** any new mappable member field must either be added to the RPC AND its
-`SQL_FASTPATH_FIELDS` allow-list, or the import must fall to the JS path. The
-gate `allMappingsFastPathSafe` routes to the JS path whenever a mapping is
-outside the allow-list. If you add a field to the RPC, update the allow-list in
-lockstep or it will keep taking the JS path unnecessarily.
+**Rule:** aux persistence must run per processed slice `[sliceStart, sliceEnd)`
+on BOTH the not-done and done returns, because the chunk loop is resumable —
+deferring all notes to the final chunk loses every earlier chunk's data. The
+entity must already exist (RPC ran first) for the email/name→id lookup to
+resolve. Aux is idempotent for custom/comm (upserts), so a retried chunk is
+safe; notes are insert-only (a retried chunk could double-insert notes — accepted
+tradeoff vs. losing them).
+
+**Rule:** any NEW real-column member/org field must be added to the RPC AND its
+`SQL_FASTPATH_FIELDS` / `ORG_SQL_FASTPATH_FIELDS` allow-list, else the import
+falls to the slow JS path. `custom:*`/`comm:*` are already allowed by the gates
+because aux handles them.
+
+## comm pref real column is `is_subscribed`, NOT `opted_in`
+`member_communication_preference` stores subscription state in column
+**`is_subscribed`** (onConflict `member_id,category_id`). Import code historically
+upserted `opted_in` — the upsert errored and was swallowed, so EVERY imported
+comm preference silently vanished. Always write `is_subscribed`.
 
 ## preference_value column is `field_id`, not `preference_field_id`
 `member_preference_value` and `organization_preference_value` store custom-field
