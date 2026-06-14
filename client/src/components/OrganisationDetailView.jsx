@@ -2075,13 +2075,13 @@ export default function OrganisationDetailView({
                               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
                                 <User className="w-4 h-4 text-blue-600" />
                               </div>
-                              <a 
-                                href={`/members/${member.id}`}
+                              <Link
+                                to={`/members/${member.id}`}
                                 className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
                                 data-testid={`link-member-${member.id}`}
                               >
                                 {getMemberName(member) || '-'}
-                              </a>
+                              </Link>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-slate-600">{member.email}</td>
