@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { parseImportFile } from '../_lib/importFileParser.js';
 import { processImportSlice } from '../_lib/importProcessor.js';
+import { cleanupImportJobFile } from '../_lib/importFileCleanup.js';
 
 // Headless background worker for member/organization imports. Invoked by the
 // enqueue endpoint and backstopped by the cron (api/cron/run-import-jobs.js).
@@ -177,6 +178,7 @@ export default async function handler(req, res) {
 
     if (downloadError || !blob) {
       await failJob(jobId, `Could not download the import file: ${downloadError?.message || 'unknown error'}`);
+      await cleanupImportJobFile(supabase, job);
       return res.status(200).json({ ok: false, status: 'failed' });
     }
 
@@ -249,6 +251,7 @@ export default async function handler(req, res) {
     if (updateError) {
       console.error('[Import Worker] Progress update failed:', updateError.message);
       await failJob(jobId, `Failed to persist import progress: ${updateError.message}`);
+      await cleanupImportJobFile(supabase, job);
       return res.status(200).json({ ok: false, status: 'failed' });
     }
 
@@ -258,10 +261,14 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, status: 'processing', offset: update.cursor_offset });
     }
 
+    // Job reached a terminal state: the stored source file is no longer needed,
+    // so delete it and release the storage it claimed against the tenant quota.
+    await cleanupImportJobFile(supabase, job);
     return res.status(200).json({ ok: true, status: update.status, done: true });
   } catch (error) {
     console.error('[Import Worker] Error processing job:', error);
     await failJob(jobId, error.message || 'Import failed while processing.');
+    await cleanupImportJobFile(supabase, job);
     return res.status(200).json({ ok: false, status: 'failed' });
   }
 }

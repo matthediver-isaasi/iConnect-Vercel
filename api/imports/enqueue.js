@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
 import { parseMultipartForm } from '../_lib/multipart.js';
 import { parseImportFile } from '../_lib/importFileParser.js';
+import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 // Starts a member/organization import as a background job. The file is uploaded
 // once to tenant-scoped storage and a csv_import_job row is created in the
@@ -180,6 +181,8 @@ export default async function handler(req, res) {
 
     if (readyError) {
       console.error('[Import Enqueue] Could not mark job ready:', readyError.message);
+      // Roll back the orphaned upload so it doesn't linger in storage.
+      try { await supabase.storage.from(STORAGE_BUCKET).remove([storagePath]); } catch { /* best effort */ }
       await supabase
         .from('csv_import_job')
         .update({
@@ -190,6 +193,11 @@ export default async function handler(req, res) {
         .eq('id', jobId);
       return res.status(500).json({ error: 'Could not start the import job. Please try again.' });
     }
+
+    // Count the stored source file against the tenant's storage usage. The
+    // worker (or cron backstop) decrements this again once the job finishes and
+    // the file is cleaned up. Best-effort: nightly recompute re-baselines drift.
+    addTenantStorageBytes(tenantId, file.buffer.length).catch(() => {});
 
     // Kick the worker immediately; the cron backstop will also pick it up.
     await dispatchWorker(getOrigin(req), job);

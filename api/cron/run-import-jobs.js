@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import { cleanupImportJobFile } from '../_lib/importFileCleanup.js';
 
 // Cron backstop for background member/organization imports. Picks up jobs that
 // are queued (never kicked, or whose initial kick failed) and jobs stuck in
 // 'processing' with a stale heartbeat (a worker died mid-run), and (re)dispatches
 // the worker. Mirrors run-form-submission-export-jobs.js.
+// Also sweeps up leftover source files for terminal jobs whose inline cleanup
+// didn't run (jobs that finished before cleanup existed, or where it failed).
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -14,6 +17,12 @@ const supabase = supabaseUrl && supabaseServiceKey
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_JOBS_PER_RUN = 3;
 const DISPATCH_ABORT_MS = 2000;
+// Grace period after a job last changed before the backstop reclaims its file,
+// so this never races the worker's own inline cleanup. Terminal jobs from
+// before this feature have an old updated_at and are swept on the next run.
+const CLEANUP_GRACE_MS = 60 * 60 * 1000;
+const MAX_CLEANUP_PER_RUN = 25;
+const TERMINAL_STATUSES = ['completed', 'completed_with_errors', 'failed'];
 
 function getOrigin(req) {
   const forwardedProto = (req.headers['x-forwarded-proto'] || '').toString().split(',')[0].trim();
@@ -101,5 +110,30 @@ export default async function handler(req, res) {
     console.warn('[cron/run-import-jobs] dispatch failures:', failed);
   }
 
-  return res.status(200).json({ ok: true, triggered, failed });
+  // Backstop file cleanup: terminal jobs that still reference a stored source
+  // file (inline cleanup never ran or failed). Inline cleanup nulls these refs,
+  // so a normally-finished job won't match here.
+  let cleaned = 0;
+  try {
+    const cleanupBefore = new Date(Date.now() - CLEANUP_GRACE_MS).toISOString();
+    const { data: leftover, error: leftoverErr } = await supabase
+      .from('csv_import_job')
+      .select('id, tenant_id, storage_bucket, storage_path')
+      .in('status', TERMINAL_STATUSES)
+      .not('storage_path', 'is', null)
+      .lt('updated_at', cleanupBefore)
+      .order('updated_at', { ascending: true })
+      .limit(MAX_CLEANUP_PER_RUN);
+    if (leftoverErr) {
+      console.error('[cron/run-import-jobs] leftover query error:', leftoverErr);
+    }
+    for (const job of leftover || []) {
+      const ok = await cleanupImportJobFile(supabase, job);
+      if (ok) cleaned++;
+    }
+  } catch (e) {
+    console.warn('[cron/run-import-jobs] cleanup pass threw:', e?.message || e);
+  }
+
+  return res.status(200).json({ ok: true, triggered, failed, cleaned });
 }
