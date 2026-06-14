@@ -77,6 +77,14 @@
         "default": 0,
         "description": "Number of submissions received"
       },
+      "owners": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Array of member IDs who own this form. Owners get a scoped 'My Forms' tab on the FormSubmissions page showing only submissions for forms they own. Defaults to an empty list."
+      },
       "is_application_form": {
         "type": "boolean",
         "default": false,

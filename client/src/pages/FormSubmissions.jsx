@@ -31,7 +31,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -60,6 +61,7 @@ export default function FormSubmissionsPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+  const [activeTab, setActiveTab] = useState(() => (searchParams.get('tab') === 'owned' ? 'owned' : 'all'));
   const [selectedForm, setSelectedForm] = useState(() => searchParams.get('form') || "all");
   const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || "all");
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || "");
@@ -75,6 +77,7 @@ export default function FormSubmissionsPage() {
 
   const filterQueryString = useMemo(() => {
     const params = new URLSearchParams();
+    if (activeTab !== 'all') params.set('tab', activeTab);
     if (searchQuery) params.set('q', searchQuery);
     if (selectedForm !== 'all') params.set('form', selectedForm);
     if (selectedStatus !== 'all') params.set('status', selectedStatus);
@@ -84,7 +87,7 @@ export default function FormSubmissionsPage() {
     if (itemsPerPage !== DEFAULT_PAGE_SIZE) params.set('size', String(itemsPerPage));
     const str = params.toString();
     return str ? `?${str}` : '';
-  }, [searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
+  }, [activeTab, searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
 
   useEffect(() => {
     setSearchParams(filterQueryString ? filterQueryString.slice(1) : '', { replace: true });
@@ -398,8 +401,40 @@ export default function FormSubmissionsPage() {
     }
   });
 
+  // Forms the current member owns (form.owners contains their member id).
+  const ownedFormIds = useMemo(() => {
+    const ids = new Set();
+    const myId = memberInfo?.id;
+    if (!myId) return ids;
+    forms.forEach(f => {
+      if (Array.isArray(f?.owners) && f.owners.includes(myId)) {
+        ids.add(f.id);
+      }
+    });
+    return ids;
+  }, [forms, memberInfo?.id]);
+
+  const ownsAnyForm = ownedFormIds.size > 0;
+
+  // If the member is on the owned tab but no longer owns any form, fall back to All.
+  useEffect(() => {
+    if (activeTab === 'owned' && isAccessReady && !ownsAnyForm) {
+      setActiveTab('all');
+    }
+  }, [activeTab, isAccessReady, ownsAnyForm]);
+
+  // Base set of submissions for the active tab. The owned tab restricts to forms
+  // the member owns; the All tab keeps every submission. All stats, filters,
+  // pagination and exports below operate on this scoped set.
+  const scopedSubmissions = useMemo(() => {
+    if (activeTab === 'owned') {
+      return submissions.filter(s => ownedFormIds.has(s.form_id));
+    }
+    return submissions;
+  }, [submissions, activeTab, ownedFormIds]);
+
   const filteredSubmissions = useMemo(() => {
-    let filtered = submissions;
+    let filtered = scopedSubmissions;
 
     if (selectedForm !== "all") {
       filtered = filtered.filter(s => s.form_id === selectedForm);
@@ -430,7 +465,7 @@ export default function FormSubmissionsPage() {
     }
 
     return filtered;
-  }, [submissions, selectedForm, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
+  }, [scopedSubmissions, selectedForm, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
 
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const paginatedSubmissions = useMemo(() => {
@@ -439,31 +474,31 @@ export default function FormSubmissionsPage() {
   }, [filteredSubmissions, currentPage, itemsPerPage]);
 
   const statusCounts = useMemo(() => {
-    const counts = { new: 0, junk: 0, actioned: 0, total: submissions.length };
-    submissions.forEach(s => {
+    const counts = { new: 0, junk: 0, actioned: 0, total: scopedSubmissions.length };
+    scopedSubmissions.forEach(s => {
       const status = s.status || 'new';
       if (counts.hasOwnProperty(status)) {
         counts[status]++;
       }
     });
     return counts;
-  }, [submissions]);
+  }, [scopedSubmissions]);
 
   const formCounts = useMemo(() => {
     const counts = {};
-    submissions.forEach(s => {
+    scopedSubmissions.forEach(s => {
       const formName = resolveFormName(s);
       counts[formName] = (counts[formName] || 0) + 1;
     });
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
-  }, [submissions, formsById]);
+  }, [scopedSubmissions, formsById]);
 
   const timeAnalytics = useMemo(() => {
     const now = moment();
     const getCountInRange = (startDate, endDate) => {
-      return submissions.filter(s => {
+      return scopedSubmissions.filter(s => {
         const date = moment(s.created_date);
         return date.isBetween(startDate, endDate, null, '[]');
       }).length;
@@ -500,7 +535,7 @@ export default function FormSubmissionsPage() {
         trend: currentCount > previousCount ? 'up' : currentCount < previousCount ? 'down' : 'same'
       };
     });
-  }, [submissions]);
+  }, [scopedSubmissions]);
 
   const startIndex = filteredSubmissions.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endIndex = Math.min(currentPage * itemsPerPage, filteredSubmissions.length);
@@ -1125,6 +1160,28 @@ export default function FormSubmissionsPage() {
             {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'submission' : 'submissions'}
           </p>
         </div>
+
+        {ownsAnyForm && (
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              setActiveTab(value);
+              setCurrentPage(1);
+            }}
+            className="mb-6"
+          >
+            <TabsList data-testid="tabs-submission-scope">
+              <TabsTrigger value="all" data-testid="tab-all-submissions">
+                <FileText className="w-4 h-4 mr-2" />
+                All
+              </TabsTrigger>
+              <TabsTrigger value="owned" data-testid="tab-my-forms">
+                <Inbox className="w-4 h-4 mr-2" />
+                My Forms
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <Card className="border-slate-200" data-testid="card-total-submissions">

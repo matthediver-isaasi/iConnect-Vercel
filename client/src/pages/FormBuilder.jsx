@@ -37,6 +37,7 @@ import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import TimezoneSelect from "@/components/TimezoneSelect";
+import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -4752,6 +4753,7 @@ export default function FormBuilderPage() {
     due_diligence_required: false,
     allow_submitter_email_copy: false,
     prevent_duplicate_email_submission: false,
+    owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
     is_application_form: false,
     application_level: "member",
     uniqueness_checks: [],
@@ -5232,6 +5234,7 @@ export default function FormBuilderPage() {
         due_diligence_required: existingForm.due_diligence_required ?? false,
         allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
         prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
+        owners: Array.isArray(existingForm.owners) ? existingForm.owners : [],
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
@@ -6468,6 +6471,24 @@ export default function FormBuilderPage() {
                 )}
               </div>
             </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 mt-6" data-testid="card-form-owners">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                Owners
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Assign members as owners of this form. Owners get a dedicated "My Forms" tab on the Form Submissions page that lists only the submissions for forms they own.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <FormOwnersSelector
+                owners={formData.owners || []}
+                onChange={(owners) => setFormData({ ...formData, owners })}
+              />
             </CardContent>
           </Card>
         </TabsContent>
