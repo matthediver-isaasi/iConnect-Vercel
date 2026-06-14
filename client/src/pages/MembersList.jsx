@@ -156,6 +156,7 @@ export default function MembersListPage() {
   const [sortDir, setSortDir] = useState('desc');
   const [filtersReady, setFiltersReady] = useState(false);
   const [filterOrder, setFilterOrder] = useState(DEFAULT_MEMBER_FILTER_ORDER);
+  const [hiddenFilterIds, setHiddenFilterIds] = useState([]);
   const [draggedFilterId, setDraggedFilterId] = useState(null);
 
   const handleSort = useCallback((field) => {
@@ -261,6 +262,16 @@ export default function MembersListPage() {
     const availSet = new Set(availableFilterIds);
     return filterOrder.filter(id => availSet.has(id));
   }, [filterOrder, availableFilterIds]);
+  const hiddenFilterSet = useMemo(() => new Set(hiddenFilterIds), [hiddenFilterIds]);
+  // Filters split by visibility, preserving the user's chosen order.
+  const visibleOrderedFilterIds = useMemo(
+    () => orderedFilterIds.filter(id => !hiddenFilterSet.has(id)),
+    [orderedFilterIds, hiddenFilterSet]
+  );
+  const hiddenOrderedFilterIds = useMemo(
+    () => orderedFilterIds.filter(id => hiddenFilterSet.has(id)),
+    [orderedFilterIds, hiddenFilterSet]
+  );
 
   const activeCustomFilters = useMemo(() => {
     const obj = {};
@@ -419,6 +430,9 @@ export default function MembersListPage() {
                 setFilterOrder(saved);
               }
             }
+            if (Array.isArray(f.hiddenFilterIds)) {
+              setHiddenFilterIds(f.hiddenFilterIds.filter(id => typeof id === 'string'));
+            }
             setHasSavedView(true);
           }
         } catch {}
@@ -467,7 +481,8 @@ export default function MembersListPage() {
         customFieldFilters,
         sortField,
         sortDir,
-        filterOrder
+        filterOrder,
+        hiddenFilterIds
       });
       if (savedFilterPrefIdRef.current) {
         await base44.entities.SystemSettings.update(savedFilterPrefIdRef.current, {
@@ -684,8 +699,45 @@ export default function MembersListPage() {
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
     setFilterOrder(availableFilterIds);
+    setHiddenFilterIds([]);
     setCurrentPage(1);
   };
+
+  const getMemberFilterLabel = useCallback((id) => {
+    switch (id) {
+      case 'status': return 'Status';
+      case 'organisation': return 'Organisation';
+      case 'role': return 'Role';
+      case 'phone': return 'Phone';
+      case 'job_title': return 'Job Title';
+      default: {
+        const field = memberFilterFields.find(f => f.id === id);
+        return field?.label || 'Filter';
+      }
+    }
+  }, [memberFilterFields]);
+
+  const clearMemberFilterValue = useCallback((id) => {
+    switch (id) {
+      case 'status': setStatusFilter('all'); break;
+      case 'organisation': setOrgFilter('all'); break;
+      case 'role': setRoleFilter('all'); break;
+      case 'phone': setCoreFieldFilters(prev => ({ ...prev, phone: '' })); break;
+      case 'job_title': setCoreFieldFilters(prev => ({ ...prev, job_title: '' })); break;
+      default: setCustomFieldFilters(prev => ({ ...prev, [id]: '' })); break;
+    }
+    setCurrentPage(1);
+  }, []);
+
+  // Hide/show a filter. Hiding clears any active value so users never filter by
+  // something they can no longer see.
+  const toggleMemberFilterHidden = useCallback((id) => {
+    setHiddenFilterIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      clearMemberFilterValue(id);
+      return [...prev, id];
+    });
+  }, [clearMemberFilterValue]);
 
   const handleFilterDragStart = (e, id) => {
     setDraggedFilterId(id);
@@ -1130,7 +1182,7 @@ export default function MembersListPage() {
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
             <div className="space-y-3">
-              {orderedFilterIds.map(id => {
+              {visibleOrderedFilterIds.map(id => {
                 const control = renderMemberFilterControl(id);
                 if (!control) return null;
                 return (
@@ -1154,10 +1206,53 @@ export default function MembersListPage() {
                     <div className="flex-1 min-w-0">
                       {control}
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => toggleMemberFilterHidden(id)}
+                      className="shrink-0 h-6 w-6 text-slate-400 hover:text-slate-600"
+                      aria-label={`Hide ${getMemberFilterLabel(id)} filter`}
+                      title="Hide this filter"
+                      data-testid={`toggle-hide-member-filter-${id}`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 );
               })}
             </div>
+
+            {hiddenOrderedFilterIds.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-slate-200">
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide mb-2">
+                  Hidden filters
+                </p>
+                <div className="space-y-1">
+                  {hiddenOrderedFilterIds.map(id => (
+                    <div
+                      key={id}
+                      className="flex items-center gap-1.5 rounded-md"
+                      data-testid={`member-hidden-filter-row-${id}`}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => toggleMemberFilterHidden(id)}
+                        className="shrink-0 h-6 w-6 text-slate-400 hover:text-slate-600"
+                        aria-label={`Show ${getMemberFilterLabel(id)} filter`}
+                        title="Show this filter"
+                        data-testid={`toggle-show-member-filter-${id}`}
+                      >
+                        <EyeOff className="w-3.5 h-3.5" />
+                      </Button>
+                      <span className="flex-1 min-w-0 text-xs text-slate-500 truncate">
+                        {getMemberFilterLabel(id)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </ScrollArea>
 
           <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">

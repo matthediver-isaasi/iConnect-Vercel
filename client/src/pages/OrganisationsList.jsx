@@ -152,6 +152,7 @@ export default function OrganisationsListPage() {
   const [sortDir, setSortDir] = useState('asc');
   const [filtersReady, setFiltersReady] = useState(false);
   const [filterOrder, setFilterOrder] = useState(DEFAULT_ORG_FILTER_ORDER);
+  const [hiddenFilterIds, setHiddenFilterIds] = useState([]);
   const [draggedFilterId, setDraggedFilterId] = useState(null);
 
   const handleSort = useCallback((field) => {
@@ -252,6 +253,16 @@ export default function OrganisationsListPage() {
     const availSet = new Set(availableFilterIds);
     return filterOrder.filter(id => availSet.has(id));
   }, [filterOrder, availableFilterIds]);
+  const hiddenFilterSet = useMemo(() => new Set(hiddenFilterIds), [hiddenFilterIds]);
+  // Filters split by visibility, preserving the user's chosen order.
+  const visibleOrderedFilterIds = useMemo(
+    () => orderedFilterIds.filter(id => !hiddenFilterSet.has(id)),
+    [orderedFilterIds, hiddenFilterSet]
+  );
+  const hiddenOrderedFilterIds = useMemo(
+    () => orderedFilterIds.filter(id => hiddenFilterSet.has(id)),
+    [orderedFilterIds, hiddenFilterSet]
+  );
 
   // Only the active custom filters, serialised so the server can apply them at
   // the DB level (totals + paging span the whole tenant, not just one page).
@@ -457,6 +468,9 @@ export default function OrganisationsListPage() {
                 setFilterOrder(saved);
               }
             }
+            if (Array.isArray(f.hiddenFilterIds)) {
+              setHiddenFilterIds(f.hiddenFilterIds.filter(id => typeof id === 'string'));
+            }
             setHasSavedView(true);
           }
         } catch {}
@@ -502,7 +516,8 @@ export default function OrganisationsListPage() {
         customFieldFilters,
         sortField,
         sortDir,
-        filterOrder
+        filterOrder,
+        hiddenFilterIds
       });
       if (savedFilterPrefIdRef.current) {
         await base44.entities.SystemSettings.update(savedFilterPrefIdRef.current, {
@@ -764,8 +779,43 @@ export default function OrganisationsListPage() {
     setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
     setFilterOrder(availableFilterIds);
+    setHiddenFilterIds([]);
     setCurrentPage(1);
   };
+
+  const getOrgFilterLabel = useCallback((id) => {
+    switch (id) {
+      case 'phone': return 'Phone';
+      case 'email': return 'Email';
+      case 'website': return 'Website';
+      case 'address': return 'Address';
+      default: {
+        const field = orgFilterFields.find(f => f.id === id);
+        return field?.label || 'Filter';
+      }
+    }
+  }, [orgFilterFields]);
+
+  const clearOrgFilterValue = useCallback((id) => {
+    switch (id) {
+      case 'phone': setCoreFieldFilters(prev => ({ ...prev, phone: '' })); break;
+      case 'email': setCoreFieldFilters(prev => ({ ...prev, invoicing_email: '' })); break;
+      case 'website': setCoreFieldFilters(prev => ({ ...prev, website_url: '' })); break;
+      case 'address': setCoreFieldFilters(prev => ({ ...prev, invoicing_address: '' })); break;
+      default: setCustomFieldFilters(prev => ({ ...prev, [id]: '' })); break;
+    }
+    setCurrentPage(1);
+  }, []);
+
+  // Hide/show a filter. Hiding clears any active value so users never filter by
+  // something they can no longer see.
+  const toggleOrgFilterHidden = useCallback((id) => {
+    setHiddenFilterIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      clearOrgFilterValue(id);
+      return [...prev, id];
+    });
+  }, [clearOrgFilterValue]);
 
   const handleFilterDragStart = (e, id) => {
     setDraggedFilterId(id);
@@ -1128,7 +1178,7 @@ export default function OrganisationsListPage() {
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
             <div className="space-y-3">
-              {orderedFilterIds.map(id => {
+              {visibleOrderedFilterIds.map(id => {
                 const control = renderOrgFilterControl(id);
                 if (!control) return null;
                 return (
@@ -1152,10 +1202,53 @@ export default function OrganisationsListPage() {
                     <div className="flex-1 min-w-0">
                       {control}
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => toggleOrgFilterHidden(id)}
+                      className="shrink-0 h-6 w-6 text-slate-400 hover:text-slate-600"
+                      aria-label={`Hide ${getOrgFilterLabel(id)} filter`}
+                      title="Hide this filter"
+                      data-testid={`toggle-hide-org-filter-${id}`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 );
               })}
             </div>
+
+            {hiddenOrderedFilterIds.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-slate-200">
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide mb-2">
+                  Hidden filters
+                </p>
+                <div className="space-y-1">
+                  {hiddenOrderedFilterIds.map(id => (
+                    <div
+                      key={id}
+                      className="flex items-center gap-1.5 rounded-md"
+                      data-testid={`org-hidden-filter-row-${id}`}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => toggleOrgFilterHidden(id)}
+                        className="shrink-0 h-6 w-6 text-slate-400 hover:text-slate-600"
+                        aria-label={`Show ${getOrgFilterLabel(id)} filter`}
+                        title="Show this filter"
+                        data-testid={`toggle-show-org-filter-${id}`}
+                      >
+                        <EyeOff className="w-3.5 h-3.5" />
+                      </Button>
+                      <span className="flex-1 min-w-0 text-xs text-slate-500 truncate">
+                        {getOrgFilterLabel(id)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </ScrollArea>
 
           <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">
