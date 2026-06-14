@@ -873,6 +873,22 @@ export default function OrganisationsListPage() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={() => saveViewMutation.mutate()}
+                  disabled={saveViewMutation.isPending}
+                  className="h-8 w-8 text-slate-400 hover:text-slate-600"
+                  data-testid="button-save-view"
+                  aria-label="Save view"
+                  title="Save view"
+                >
+                  {saveViewMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setSidebarCollapsed(true)}
                   className="h-8 w-8 text-slate-400 hover:text-slate-600"
                   data-testid="button-collapse-sidebar"
