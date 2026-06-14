@@ -62,6 +62,15 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 const ORG_SORT_KEYS = {
   name: 'name',
   members: 'members',
@@ -149,7 +158,7 @@ export default function OrganisationsListPage() {
     }
   }, [sortField]);
 
-  useRealtimeSubscription('organization', [['organizations-crm-list']], { 
+  useRealtimeSubscription('organization', [['organizations-crm-paginated']], { 
     enabled: accessChecked, 
     tenantId: memberInfo?.tenant_id 
   });
@@ -188,64 +197,7 @@ export default function OrganisationsListPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: organizations = [], isLoading: orgsLoading } = useQuery({
-    queryKey: ['organizations-crm-list'],
-    enabled: accessChecked,
-    queryFn: async () => {
-      return await base44.entities.Organization.list({
-        queryParams: { skipDirectoryFilters: 'true' }
-      });
-    }
-  });
-
-  const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
-    queryKey: ['organization-direct', urlOrgId],
-    enabled: !!urlOrgId && accessChecked,
-    queryFn: async () => {
-      try {
-        return await base44.entities.Organization.get(urlOrgId);
-      } catch {
-        return null;
-      }
-    },
-    staleTime: 30000,
-  });
-
-  const selectedOrg = useMemo(() => {
-    if (!urlOrgId) return null;
-    const fromList = organizations.find(org => org.id === urlOrgId);
-    if (fromList) return fromList;
-    if (directOrg) return directOrg;
-    return null;
-  }, [urlOrgId, organizations, directOrg]);
-
-  useEffect(() => {
-    if (!urlOrgId || !directOrgFetched) return;
-    if (!selectedOrg) {
-      navigate('/organisations', { replace: true });
-    }
-  }, [urlOrgId, selectedOrg, directOrgFetched, navigate]);
-
-  useEffect(() => {
-    if (autoSelectHandledRef.current || orgsLoading || organizations.length === 0) return;
-    autoSelectHandledRef.current = true;
-    const selectedId = searchParams.get('selected');
-    if (selectedId) {
-      const org = organizations.find(o => o.id === selectedId);
-      if (org) {
-        navigate(`/organisations/${org.id}`, { replace: true });
-      }
-    }
-  }, [organizations, orgsLoading, searchParams, navigate]);
-
-  const { data: members = [] } = useQuery({
-    queryKey: ['all-members-for-org-list'],
-    enabled: accessChecked,
-    queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers || [];
-    }
-  });
+  const debouncedSearch = useDebounce(searchQuery, 300);
 
   const { data: orgCustomFields = [], isSuccess: orgCustomFieldsLoaded } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'crm'],
@@ -283,18 +235,94 @@ export default function OrganisationsListPage() {
     [orgCustomFields]
   );
 
-  const { data: allOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['all-org-preference-values-crm'],
-    enabled: accessChecked && orgCustomFields.length > 0,
+  // Only the active custom filters, serialised so the server can apply them at
+  // the DB level (totals + paging span the whole tenant, not just one page).
+  const activeCustomFilters = useMemo(() => {
+    const obj = {};
+    Object.entries(customFieldFilters).forEach(([fieldId, v]) => {
+      if (v && v !== 'all' && v.trim() !== '') obj[fieldId] = v;
+    });
+    return obj;
+  }, [customFieldFilters]);
+  const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
+  // Custom field ids whose values the server should fetch for the current page
+  // so custom-field columns populate on every row.
+  const customFieldIdsParam = useMemo(
+    () => orgColumnFields.map(f => f.id).join(','),
+    [orgColumnFields]
+  );
+  const coreFiltersParam = useMemo(() => JSON.stringify(coreFieldFilters), [coreFieldFilters]);
+
+  const { data: orgsData, isLoading: orgsLoading } = useQuery({
+    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir],
+    enabled: accessChecked,
+    keepPreviousData: true,
     queryFn: async () => {
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.listAll();
-        return values || [];
-      } catch {
-        return [];
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        search: debouncedSearch,
+        sortField,
+        sortDir
+      });
+      Object.entries(coreFieldFilters).forEach(([key, val]) => {
+        if (val && val.trim()) params.set(key, val.trim());
+      });
+      if (customFiltersParam && customFiltersParam !== '{}') {
+        params.set('customFilters', customFiltersParam);
       }
+      if (customFieldIdsParam) {
+        params.set('fields', customFieldIdsParam);
+      }
+      const response = await fetch(`/api/admin/organizations/paginated?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch organisations');
+      return response.json();
     }
   });
+
+  const organizations = orgsData?.organizations || [];
+  const pagination = orgsData?.pagination || { page: 1, limit: itemsPerPage, total: 0, totalPages: 0 };
+
+  const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
+    queryKey: ['organization-direct', urlOrgId],
+    enabled: !!urlOrgId && accessChecked,
+    queryFn: async () => {
+      try {
+        return await base44.entities.Organization.get(urlOrgId);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30000,
+  });
+
+  const selectedOrg = useMemo(() => {
+    if (!urlOrgId) return null;
+    const fromList = organizations.find(org => org.id === urlOrgId);
+    if (fromList) return fromList;
+    if (directOrg) return directOrg;
+    return null;
+  }, [urlOrgId, organizations, directOrg]);
+
+  useEffect(() => {
+    if (!urlOrgId || !directOrgFetched) return;
+    if (!selectedOrg) {
+      navigate('/organisations', { replace: true });
+    }
+  }, [urlOrgId, selectedOrg, directOrgFetched, navigate]);
+
+  // Deep-link via ?selected=<id>: navigate straight to the detail route, which
+  // resolves the org via the direct fetch even when it isn't on the first page.
+  useEffect(() => {
+    if (autoSelectHandledRef.current || !accessChecked) return;
+    const selectedId = searchParams.get('selected');
+    if (selectedId) {
+      autoSelectHandledRef.current = true;
+      navigate(`/organisations/${selectedId}`, { replace: true });
+    }
+  }, [accessChecked, searchParams, navigate]);
 
   // Fetch saved column preferences from database (once on load)
   const { toast } = useToast();
@@ -379,20 +407,23 @@ export default function OrganisationsListPage() {
   // Batch delete mutation
   const batchDeleteMutation = useMutation({
     mutationFn: async (orgIds) => {
-      // First delete all members belonging to these organizations
-      const membersToDelete = members.filter(m => orgIds.includes(m.organization_id));
-      for (const member of membersToDelete) {
-        await base44.entities.Member.delete(member.id);
+      // Fetch + delete members per org on demand (no full members list is held
+      // in memory anymore). Then delete the organizations themselves.
+      let deletedMembers = 0;
+      for (const orgId of orgIds) {
+        const orgMembers = await base44.entities.Member.listAll({ filter: { organization_id: orgId } });
+        for (const member of orgMembers || []) {
+          await base44.entities.Member.delete(member.id);
+          deletedMembers += 1;
+        }
       }
-      // Then delete the organizations
       for (const orgId of orgIds) {
         await base44.entities.Organization.delete(orgId);
       }
-      return { deletedOrgs: orgIds.length, deletedMembers: membersToDelete.length };
+      return { deletedOrgs: orgIds.length, deletedMembers };
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
-      queryClient.invalidateQueries({ queryKey: ['all-members-for-org-list'] });
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
       setSelectedOrgs([]);
       setSelectAllFiltered(false);
       setShowDeleteDialog(false);
@@ -491,24 +522,25 @@ export default function OrganisationsListPage() {
     }
   };
 
-  const selectedMemberCount = useMemo(() => {
-    const activeMembers = members.filter(m => !isDeletedMember(m));
-    if (singleDeleteOrg) {
-      return activeMembers.filter(m => m.organization_id === singleDeleteOrg.id).length;
-    }
-    return activeMembers.filter(m => selectedOrgs.includes(m.organization_id)).length;
-  }, [members, selectedOrgs, singleDeleteOrg]);
-
+  // Member counts now come from the server per page (org.member_count).
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
-    members.forEach((member) => {
-      if (member.organization_id && !isDeletedMember(member)) {
-        counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
-      }
+    organizations.forEach((org) => {
+      counts[org.id] = org.member_count || 0;
     });
     return counts;
-  }, [members]);
+  }, [organizations]);
 
+  const selectedMemberCount = useMemo(() => {
+    if (singleDeleteOrg) {
+      return singleDeleteOrg.member_count || 0;
+    }
+    return selectedOrgs.reduce((sum, id) => sum + (organizationMemberCounts[id] || 0), 0);
+  }, [organizationMemberCounts, selectedOrgs, singleDeleteOrg]);
+
+  // Build the per-org custom value map from the server-provided page values so
+  // custom-field columns/cards populate for every row. Values are normalised
+  // exactly as before (parse JSON strings, unwrap {value,label} shapes).
   const orgValuesMap = useMemo(() => {
     const extractPrimitiveValue = (val) => {
       if (val === null || val === undefined) return val;
@@ -527,116 +559,31 @@ export default function OrganisationsListPage() {
     };
 
     const map = {};
-    allOrgPreferenceValues.forEach(pv => {
-      if (!map[pv.organization_id]) {
-        map[pv.organization_id] = {};
-      }
-      let normalizedValue = pv.value;
-      if (typeof pv.value === 'string') {
-        const trimmed = pv.value.trim();
-        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-          try {
-            normalizedValue = JSON.parse(trimmed);
-          } catch {
+    organizations.forEach((org) => {
+      const cf = org.custom_fields || {};
+      map[org.id] = {};
+      Object.entries(cf).forEach(([fieldId, rawValue]) => {
+        let normalizedValue = rawValue;
+        if (typeof rawValue === 'string') {
+          const trimmed = rawValue.trim();
+          if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+            try {
+              normalizedValue = JSON.parse(trimmed);
+            } catch {
+            }
           }
         }
-      }
-      normalizedValue = extractPrimitiveValue(normalizedValue);
-      map[pv.organization_id][pv.field_id] = normalizedValue;
+        normalizedValue = extractPrimitiveValue(normalizedValue);
+        map[org.id][fieldId] = normalizedValue;
+      });
     });
     return map;
-  }, [allOrgPreferenceValues]);
+  }, [organizations]);
 
-  const filteredOrganizations = useMemo(() => {
-    let result = [...organizations];
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(org => 
-        org.name?.toLowerCase().includes(query) ||
-        org.invoicing_email?.toLowerCase().includes(query) ||
-        org.phone?.toLowerCase().includes(query) ||
-        org.website_url?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply core field filters (text-based)
-    Object.entries(coreFieldFilters).forEach(([field, filterValue]) => {
-      if (filterValue && filterValue.trim()) {
-        const query = filterValue.toLowerCase().trim();
-        result = result.filter(org => {
-          const fieldVal = org[field];
-          return fieldVal && fieldVal.toLowerCase().includes(query);
-        });
-      }
-    });
-
-    // Apply custom field filters
-    Object.entries(customFieldFilters).forEach(([fieldId, filterValue]) => {
-      if (filterValue && filterValue !== 'all' && filterValue.trim() !== '') {
-        const isTextFilter = filterValue.startsWith('__text__:');
-        const actualValue = isTextFilter ? filterValue.replace('__text__:', '').toLowerCase() : filterValue;
-        
-        result = result.filter(org => {
-          const orgFieldValue = orgValuesMap[org.id]?.[fieldId];
-          if (orgFieldValue === null || orgFieldValue === undefined) return false;
-          
-          if (isTextFilter) {
-            const strVal = Array.isArray(orgFieldValue) ? orgFieldValue.join(' ') : String(orgFieldValue);
-            return strVal.toLowerCase().includes(actualValue);
-          }
-          
-          if (Array.isArray(orgFieldValue)) {
-            return orgFieldValue.includes(filterValue);
-          }
-          return orgFieldValue === filterValue;
-        });
-      }
-    });
-
-    return result;
-  }, [organizations, searchQuery, coreFieldFilters, customFieldFilters, orgValuesMap]);
-
-  const sortedOrganizations = useMemo(() => {
-    const arr = [...filteredOrganizations];
-    const dir = sortDir === 'asc' ? 1 : -1;
-    const getValue = (org) => {
-      if (sortField === 'members') {
-        return organizationMemberCounts[org.id] || 0;
-      }
-      if (sortField?.startsWith('cf_')) {
-        const fieldId = sortField.slice(3);
-        const v = orgValuesMap[org.id]?.[fieldId];
-        if (v == null) return null;
-        return Array.isArray(v) ? v.join(', ') : v;
-      }
-      if (sortField === 'created_at') {
-        return org.created_at ? new Date(org.created_at).getTime() : null;
-      }
-      return org[sortField];
-    };
-    arr.sort((a, b) => {
-      const av = getValue(a);
-      const bv = getValue(b);
-      const aEmpty = av === null || av === undefined || av === '';
-      const bEmpty = bv === null || bv === undefined || bv === '';
-      if (aEmpty && bEmpty) return 0;
-      if (aEmpty) return 1;
-      if (bEmpty) return -1;
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return (av - bv) * dir;
-      }
-      return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base', numeric: true }) * dir;
-    });
-    return arr;
-  }, [filteredOrganizations, sortField, sortDir, organizationMemberCounts, orgValuesMap]);
-
-  const paginatedOrganizations = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return sortedOrganizations.slice(start, start + itemsPerPage);
-  }, [sortedOrganizations, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(sortedOrganizations.length / itemsPerPage);
+  // The server already filters, sorts, and paginates; the page rows are the
+  // organisations to render as-is.
+  const paginatedOrganizations = organizations;
+  const totalPages = pagination.totalPages;
 
   const allPageSelected = paginatedOrganizations.filter(org => !org.is_primary).length > 0 &&
     paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id));
@@ -967,7 +914,7 @@ export default function OrganisationsListPage() {
 
           <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">
             <p className="text-xs text-slate-500">
-              Showing {filteredOrganizations.length} of {organizations.length} organisations
+              Showing {organizations.length} of {pagination.total} organisations
             </p>
           </div>
         </aside>
@@ -992,7 +939,7 @@ export default function OrganisationsListPage() {
                     Organisations
                   </h1>
                   <p className="text-sm text-slate-500">
-                    {filteredOrganizations.length} organisation{filteredOrganizations.length !== 1 ? 's' : ''}
+                    {pagination.total} organisation{pagination.total !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
@@ -1012,7 +959,7 @@ export default function OrganisationsListPage() {
                       ) : (
                         <Download className="w-4 h-4" />
                       )}
-                      Export CSV {selectAllFiltered ? `(${filteredOrganizations.filter(o => !o.is_primary).length})` : `(${selectedOrgs.length})`}
+                      Export CSV {selectAllFiltered ? `(${pagination.total})` : `(${selectedOrgs.length})`}
                     </Button>
                     {selectedOrgs.length > 0 && (
                       <Button 
@@ -1152,7 +1099,7 @@ export default function OrganisationsListPage() {
             <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-700 flex items-center justify-center gap-2" data-testid="banner-select-all-orgs">
               {selectAllFiltered ? (
                 <>
-                  All {filteredOrganizations.filter(o => !o.is_primary).length} organisations are selected.
+                  All {pagination.total} organisations are selected.
                   <button 
                     className="font-semibold underline"
                     onClick={() => { setSelectAllFiltered(false); setSelectedOrgs([]); }}
@@ -1169,7 +1116,7 @@ export default function OrganisationsListPage() {
                     onClick={() => setSelectAllFiltered(true)}
                     data-testid="button-select-all-filtered-orgs"
                   >
-                    Select all {filteredOrganizations.filter(o => !o.is_primary).length} organisations
+                    Select all {pagination.total} organisations
                   </button>
                 </>
               )}
@@ -1201,10 +1148,9 @@ export default function OrganisationsListPage() {
                         />
                       </th>
                       {visibleColumns.map(col => {
-                        let sortKey = ORG_SORT_KEYS[col.id];
-                        if (!sortKey && col.isCustomField) {
-                          sortKey = `cf_${col.fieldId}`;
-                        }
+                        // Custom-field columns are not server-sortable, so they
+                        // render as non-sortable headers (mirrors the members list).
+                        const sortKey = col.isCustomField ? null : ORG_SORT_KEYS[col.id];
                         return (
                           <th
                             key={col.id}

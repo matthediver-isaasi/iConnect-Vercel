@@ -32,3 +32,12 @@ single-record detail page looks correct (it only reads one member's values).
   widen tenant access. Cap the number of custom filters accepted (crafted-URL guard).
 - Verified: inner-join `{count:'exact'}` equals the direct distinct child-row count
   (no row multiplication for single-value-per-field data), so pagination totals stay correct.
+
+**Realized for:** members (`api/admin/members/paginated.js` + `MembersList.jsx`) and
+organisations (`api/admin/organizations/paginated.js` + `OrganisationsList.jsx`). Note the
+org dirs are split: endpoint under american `organizations/`, export-csv under british `organisations/`.
+
+**Custom-field columns are NOT server-sortable** in these list pages — the server only sorts
+direct columns + the `members`/member-count aggregate. So custom-field column headers must render
+non-sortable (`sortKey = col.isCustomField ? null : SORT_KEYS[col.id]`); a `cf_<id>` sort key would
+silently no-op server-side (server falls back to default sort), showing an arrow that does nothing.
