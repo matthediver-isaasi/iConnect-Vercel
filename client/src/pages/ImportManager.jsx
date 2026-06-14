@@ -42,6 +42,9 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const TERMINAL_JOB_STATUSES = ['completed', 'completed_with_errors', 'failed'];
+const isJobTerminal = (status) => TERMINAL_JOB_STATUSES.includes(status);
+
 export default function ImportManager() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const queryClient = useQueryClient();
@@ -106,6 +109,16 @@ export default function ImportManager() {
       });
       if (!response.ok) throw new Error('Failed to fetch jobs');
       return response.json();
+    },
+    // Auto-refresh while any job is still queued/processing, then stop polling
+    // once everything reaches a terminal state. This lets users track in-flight
+    // imports after reopening the page without keeping the import tab open.
+    refetchInterval: (query) => {
+      const jobs = query.state.data;
+      if (Array.isArray(jobs) && jobs.some((job) => !isJobTerminal(job.status))) {
+        return 3000;
+      }
+      return false;
     }
   });
 
@@ -1106,6 +1119,27 @@ export default function ImportManager() {
                                   <span className="text-red-600" data-testid={`text-errors-${job.id}`}>!{job.error_count}</span>
                                 )}
                               </div>
+                              {!isJobTerminal(job.status) && (
+                                <div className="space-y-1" data-testid={`job-progress-${job.id}`}>
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    <span data-testid={`text-progress-${job.id}`}>
+                                      {job.total_rows
+                                        ? `${Math.min(job.cursor_offset || 0, job.total_rows)} of ${job.total_rows} rows`
+                                        : `${job.cursor_offset || 0} rows processed`}
+                                    </span>
+                                  </div>
+                                  {job.total_rows > 0 && (
+                                    <div className="h-1.5 w-full overflow-hidden rounded-md bg-slate-200">
+                                      <div
+                                        className="h-full bg-green-600 transition-all"
+                                        style={{ width: `${Math.min(100, Math.round(((job.cursor_offset || 0) / job.total_rows) * 100))}%` }}
+                                        data-testid={`bar-progress-${job.id}`}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               <p className="text-xs text-slate-400">
                                 {new Date(job.created_at).toLocaleDateString()} {new Date(job.created_at).toLocaleTimeString()}
                               </p>
