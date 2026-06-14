@@ -34,3 +34,20 @@ the outer catch (mark `failed`).
 `member.tenant_id` of the session member, same pattern as the import itself).
 The jobs list endpoint must filter by `tenant_id` or it leaks cross-tenant
 history.
+
+## Status CHECK constraint must track the full lifecycle
+The `csv_import_job.status` allowed values live ONLY as a CHECK constraint
+(`csv_import_job_status_check`), not a pg enum. The original prod constraint
+allowed just `pending/processing/completed/failed`. The background-import work
+later started writing `initializing`, `queued`, `running`,
+`completed_with_errors`, and `cancelled` — but the constraint was never widened,
+so enqueue (inserting `initializing`/`queued`) failed in prod with
+`violates check constraint "csv_import_job_status_check"`.
+
+**Why:** new status literals were added across enqueue/process/execute/cron/jobs
+code without a matching migration to the CHECK constraint.
+
+**How to apply:** whenever you introduce a new csv_import_job status string in
+code, widen the CHECK constraint in the same change (idempotent DROP IF EXISTS +
+ADD). Current full set: pending, initializing, queued, running, processing,
+completed, completed_with_errors, failed, cancelled.
