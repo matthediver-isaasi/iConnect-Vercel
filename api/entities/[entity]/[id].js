@@ -601,6 +601,13 @@ export default async function handler(req, res) {
           } else {
             patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
           }
+        } else if (entityNorm === 'formsubmissionsavedview') {
+          // Task #1415: a member may only update (rename / overwrite) their own saved filter views.
+          if (!tenantCtx.memberId) {
+            return res.status(404).json({ error: 'Not found or access denied' });
+          }
+          if (tenantCtx.tenantId) patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
+          patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           const entitiesWithoutOrgId = [
             'MemberGroupClassification',

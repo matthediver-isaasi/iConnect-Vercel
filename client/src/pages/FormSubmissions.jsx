@@ -32,12 +32,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -131,9 +137,12 @@ export default function FormSubmissionsPage() {
   }, [forms]);
 
   // Task #1414: personal saved filter views (per member, per tenant).
+  // Task #1415: rename and overwrite existing saved views.
   const [savedViewDialogOpen, setSavedViewDialogOpen] = useState(false);
   const [newViewName, setNewViewName] = useState("");
   const [viewsPopoverOpen, setViewsPopoverOpen] = useState(false);
+  const [renameView, setRenameView] = useState(null);
+  const [renameViewName, setRenameViewName] = useState("");
 
   const { data: savedViews = [], isLoading: savedViewsLoading } = useQuery({
     queryKey: ['form-submission-saved-views'],
@@ -175,6 +184,28 @@ export default function FormSubmissionsPage() {
     onError: () => toast.error('Failed to delete view'),
   });
 
+  const renameViewMutation = useMutation({
+    mutationFn: async ({ id, name }) =>
+      await base44.entities.FormSubmissionSavedView.update(id, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submission-saved-views'] });
+      toast.success('View renamed');
+      setRenameView(null);
+      setRenameViewName("");
+    },
+    onError: () => toast.error('Failed to rename view'),
+  });
+
+  const updateViewFiltersMutation = useMutation({
+    mutationFn: async ({ id, filters }) =>
+      await base44.entities.FormSubmissionSavedView.update(id, { filters }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submission-saved-views'] });
+      toast.success('View updated with current filters');
+    },
+    onError: () => toast.error('Failed to update view'),
+  });
+
   const handleSaveView = () => {
     const name = newViewName.trim();
     if (!name) {
@@ -182,6 +213,26 @@ export default function FormSubmissionsPage() {
       return;
     }
     saveViewMutation.mutate({ name, filters: currentFilters });
+  };
+
+  const handleOpenRename = (view) => {
+    setRenameView(view);
+    setRenameViewName(view?.name || "");
+  };
+
+  const handleRenameView = () => {
+    const name = renameViewName.trim();
+    if (!name) {
+      toast.error('Please enter a name for the view');
+      return;
+    }
+    if (!renameView?.id) return;
+    renameViewMutation.mutate({ id: renameView.id, name });
+  };
+
+  const handleUpdateViewFilters = (view) => {
+    if (!view?.id) return;
+    updateViewFiltersMutation.mutate({ id: view.id, filters: currentFilters });
   };
 
   const handleApplyView = (view) => {
@@ -1372,6 +1423,7 @@ export default function FormSubmissionsPage() {
                       No saved views yet. Set your filters and click "Save view".
                     </div>
                   ) : (
+                    <TooltipProvider delayDuration={100}>
                     <div className="flex flex-col">
                       {savedViews.map(view => (
                         <div
@@ -1387,18 +1439,51 @@ export default function FormSubmissionsPage() {
                           >
                             {view.name}
                           </button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => deleteViewMutation.mutate(view.id)}
-                            disabled={deleteViewMutation.isPending}
-                            data-testid={`button-delete-view-${view.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleUpdateViewFilters(view)}
+                                disabled={updateViewFiltersMutation.isPending}
+                                data-testid={`button-update-view-${view.id}`}
+                              >
+                                <Save className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Update with current filters</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleOpenRename(view)}
+                                data-testid={`button-rename-view-${view.id}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Rename</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => deleteViewMutation.mutate(view.id)}
+                                disabled={deleteViewMutation.isPending}
+                                data-testid={`button-delete-view-${view.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
                         </div>
                       ))}
                     </div>
+                    </TooltipProvider>
                   )}
                 </PopoverContent>
               </Popover>
@@ -1544,6 +1629,49 @@ export default function FormSubmissionsPage() {
                     ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     : <Save className="w-4 h-4 mr-2" />}
                   Save view
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={!!renameView}
+          onOpenChange={(open) => { if (!open) { setRenameView(null); setRenameViewName(""); } }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename view</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="rename-view-name">View name</Label>
+                <Input
+                  id="rename-view-name"
+                  value={renameViewName}
+                  onChange={(e) => setRenameViewName(e.target.value)}
+                  placeholder="e.g. New entries this month"
+                  data-testid="input-rename-view-name"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleRenameView(); }}
+                />
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => { setRenameView(null); setRenameViewName(""); }}
+                  data-testid="button-cancel-rename-view"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleRenameView}
+                  disabled={renameViewMutation.isPending}
+                  data-testid="button-confirm-rename-view"
+                >
+                  {renameViewMutation.isPending
+                    ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    : <Pencil className="w-4 h-4 mr-2" />}
+                  Save
                 </Button>
               </div>
             </div>
