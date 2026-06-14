@@ -51,7 +51,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'entity_type and entity_id are required' });
       }
 
-      const validTypes = ['blog_post', 'resource', 'news_post', 'event', 'forum_thread'];
+      const validTypes = ['blog_post', 'resource', 'news_post', 'event', 'forum_thread', 'form'];
       if (!validTypes.includes(entity_type)) {
         return res.status(400).json({ error: `entity_type must be one of: ${validTypes.join(', ')}` });
       }

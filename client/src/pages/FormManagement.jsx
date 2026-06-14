@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy,
   FileSignature, Building2, Clock, Send, FilePlus, Search, X, ChevronLeft, ChevronRight,
-  LayoutGrid, List, ArrowUpDown,
+  LayoutGrid, List, ArrowUpDown, Pin, PinOff,
 } from "lucide-react";
 import ManualSubmissionDialog from "@/components/ManualSubmissionDialog";
 import {
@@ -291,6 +291,58 @@ export default function FormManagementPage() {
     return counts;
   }, [submissions]);
 
+  const { data: formPins = [] } = useQuery({
+    queryKey: ['form-pins'],
+    queryFn: async () => {
+      const res = await fetch('/api/bookmarks?entity_type=form', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch pinned forms');
+      const data = await res.json();
+      return data.bookmarks || [];
+    },
+    staleTime: 0,
+    enabled: isAuthenticated,
+  });
+
+  const pinnedFormIds = useMemo(
+    () => new Set(formPins.map(b => b.entity_id)),
+    [formPins]
+  );
+
+  const togglePinMutation = useMutation({
+    mutationFn: async ({ formId, pinned }) => {
+      const res = await fetch('/api/bookmarks', {
+        method: pinned ? 'DELETE' : 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity_type: 'form', entity_id: formId }),
+      });
+      if (!res.ok) throw new Error('Failed to toggle pin');
+      return !pinned;
+    },
+    onMutate: async ({ formId, pinned }) => {
+      await queryClient.cancelQueries({ queryKey: ['form-pins'] });
+      const previous = queryClient.getQueryData(['form-pins']);
+      queryClient.setQueryData(['form-pins'], (old = []) => {
+        if (pinned) return old.filter(b => b.entity_id !== formId);
+        return [...old, { entity_type: 'form', entity_id: formId }];
+      });
+      return { previous };
+    },
+    onError: (err, vars, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['form-pins'], context.previous);
+      }
+      toast.error('Failed to update pin');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-pins'] });
+    },
+  });
+
+  const handleTogglePin = (form) => {
+    togglePinMutation.mutate({ formId: form.id, pinned: pinnedFormIds.has(form.id) });
+  };
+
   const { standardForms, contractForms } = useMemo(() => {
     const standard = forms.filter(form => !form.is_contract);
     const contracts = forms.filter(form => form.is_contract);
@@ -398,9 +450,8 @@ export default function FormManagementPage() {
   }, [contractForms, contractFilters]);
 
   const sortForms = useMemo(() => {
-    return (list) => {
-      const arr = [...list];
-      const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    const applySort = (arr) => {
       switch (sortBy) {
         case 'name_desc':
           return arr.sort((a, b) => byName(b, a));
@@ -413,7 +464,13 @@ export default function FormManagementPage() {
           return arr.sort(byName);
       }
     };
-  }, [sortBy, submissionCounts]);
+    return (list) => {
+      const pinned = [];
+      const unpinned = [];
+      list.forEach(form => (pinnedFormIds.has(form.id) ? pinned : unpinned).push(form));
+      return [...applySort(pinned), ...applySort(unpinned)];
+    };
+  }, [sortBy, submissionCounts, pinnedFormIds]);
 
   const sortedStandardForms = useMemo(() => sortForms(filteredStandardForms), [sortForms, filteredStandardForms]);
   const sortedContractForms = useMemo(() => sortForms(filteredContractForms), [sortForms, filteredContractForms]);
@@ -451,10 +508,31 @@ export default function FormManagementPage() {
     return org?.name || 'Unknown';
   };
 
+  const PinButton = ({ form }) => {
+    const isPinned = pinnedFormIds.has(form.id);
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => handleTogglePin(form)}
+        title={isPinned ? 'Unpin from top' : 'Pin to top'}
+        aria-pressed={isPinned}
+        className={`shrink-0 ${isPinned ? 'text-blue-600' : 'text-slate-400'}`}
+        data-testid={`button-pin-${form.id}`}
+      >
+        {isPinned ? <Pin className="w-4 h-4 fill-current" /> : <PinOff className="w-4 h-4" />}
+      </Button>
+    );
+  };
+
   const FormCard = ({ form, isContract = false }) => (
-    <Card key={form.id} className="border-slate-200 hover:shadow-lg transition-shadow" data-testid={`form-card-${form.id}`}>
+    <Card
+      key={form.id}
+      className={`hover:shadow-lg transition-shadow ${pinnedFormIds.has(form.id) ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200'}`}
+      data-testid={`form-card-${form.id}`}
+    >
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
             <CardTitle className="text-base mb-2">{form.name}</CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
@@ -486,6 +564,7 @@ export default function FormManagementPage() {
               )}
             </div>
           </div>
+          <PinButton form={form} />
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -628,10 +707,15 @@ export default function FormManagementPage() {
   );
 
   const FormRow = ({ form, isContract = false }) => (
-    <Card key={form.id} className="border-slate-200" data-testid={`form-row-${form.id}`}>
+    <Card
+      key={form.id}
+      className={pinnedFormIds.has(form.id) ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200'}
+      data-testid={`form-row-${form.id}`}
+    >
       <CardContent className="p-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
+            <PinButton form={form} />
             <span className="font-medium text-slate-900 truncate" data-testid={`text-form-name-${form.id}`}>
               {form.name}
             </span>

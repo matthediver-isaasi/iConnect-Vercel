@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS member_bookmark (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id UUID NOT NULL,
   member_id UUID NOT NULL,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('blog_post', 'resource', 'news_post', 'event', 'forum_thread')),
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('blog_post', 'resource', 'news_post', 'event', 'forum_thread', 'form')),
   entity_id UUID NOT NULL,
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS member_bookmark (
 );
 
 ALTER TABLE member_bookmark ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+
+ALTER TABLE member_bookmark DROP CONSTRAINT IF EXISTS member_bookmark_entity_type_check;
+ALTER TABLE member_bookmark ADD CONSTRAINT member_bookmark_entity_type_check CHECK (entity_type IN ('blog_post', 'resource', 'news_post', 'event', 'forum_thread', 'form'));
 
 CREATE INDEX IF NOT EXISTS idx_member_bookmark_tenant ON member_bookmark(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_member_bookmark_member ON member_bookmark(member_id);
