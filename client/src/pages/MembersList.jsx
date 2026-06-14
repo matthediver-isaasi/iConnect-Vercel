@@ -89,6 +89,7 @@ const DEFAULT_COLUMNS = [
 
 const getStorageKey = (tenantSlug) => `members_list_columns_${tenantSlug || 'default'}`;
 const getColumnPrefKey = (memberId) => `crm_member_columns_${memberId}`;
+const getFilterPrefKey = (memberId) => `crm_member_filters_${memberId}`;
 
 const loadLocalColumns = (tenantSlug) => {
   try {
@@ -150,6 +151,7 @@ export default function MembersListPage() {
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [sortField, setSortField] = useState('created_on');
   const [sortDir, setSortDir] = useState('desc');
+  const [filtersReady, setFiltersReady] = useState(false);
 
   const handleSort = useCallback((field) => {
     if (!field) return;
@@ -259,7 +261,7 @@ export default function MembersListPage() {
 
   const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
     queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, orgFilter, roleFilter, statusFilter, sortField, sortDir, customFiltersParam, customFieldIdsParam],
-    enabled: accessChecked,
+    enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -331,32 +333,155 @@ export default function MembersListPage() {
     }
   }, [savedDbColumns, tenantSlug]);
 
+  // Per-user saved filter view (persisted in SystemSettings, same pattern as columns).
+  const filterPrefKey = memberInfo?.id ? getFilterPrefKey(memberInfo.id) : null;
+  const dbFiltersLoadedRef = useRef(false);
+  const savedFilterPrefIdRef = useRef(null);
+  const restoredSearchRef = useRef(undefined);
+  const [hasSavedView, setHasSavedView] = useState(false);
+
+  const { data: savedDbFilters } = useQuery({
+    queryKey: ['crm-member-filter-prefs', filterPrefKey],
+    enabled: accessChecked && !!filterPrefKey && !dbFiltersLoadedRef.current,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (dbFiltersLoadedRef.current) return null;
+      dbFiltersLoadedRef.current = true;
+      try {
+        const settings = await base44.entities.SystemSettings.list();
+        const setting = settings?.find(s => s.setting_key === filterPrefKey);
+        if (setting) {
+          savedFilterPrefIdRef.current = setting.id;
+          return setting;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+  });
+
+  // Apply the saved filter view once, BEFORE the list query is allowed to run, so
+  // users never see a flash of unfiltered results. Falls back to defaults if none.
+  useEffect(() => {
+    if (filtersReady) return;
+    if (!accessChecked) return;
+    if (!filterPrefKey) { setFiltersReady(true); return; }
+    if (savedDbFilters === undefined) return;
+    // Apply the saved values exactly once.
+    if (restoredSearchRef.current === undefined) {
+      let restoredSearch = '';
+      if (savedDbFilters?.setting_value) {
+        try {
+          const f = JSON.parse(savedDbFilters.setting_value);
+          if (f && typeof f === 'object') {
+            if (typeof f.searchQuery === 'string') { setSearchQuery(f.searchQuery); restoredSearch = f.searchQuery; }
+            if (typeof f.statusFilter === 'string') setStatusFilter(f.statusFilter);
+            if (typeof f.orgFilter === 'string') setOrgFilter(f.orgFilter);
+            if (typeof f.roleFilter === 'string') setRoleFilter(f.roleFilter);
+            if (f.coreFieldFilters && typeof f.coreFieldFilters === 'object') {
+              setCoreFieldFilters(prev => ({ ...prev, ...f.coreFieldFilters }));
+            }
+            if (f.customFieldFilters && typeof f.customFieldFilters === 'object') {
+              setCustomFieldFilters(f.customFieldFilters);
+            }
+            if (typeof f.sortField === 'string') setSortField(f.sortField);
+            if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
+            setHasSavedView(true);
+          }
+        } catch {}
+      }
+      restoredSearchRef.current = restoredSearch;
+    }
+    // Wait for the debounced search to catch up to the restored value so the very
+    // first list fetch already carries the saved search (no unfiltered flash + refetch).
+    if (debouncedSearch === restoredSearchRef.current) {
+      setFiltersReady(true);
+    }
+  }, [accessChecked, filterPrefKey, savedDbFilters, filtersReady, debouncedSearch]);
+
   const saveViewMutation = useMutation({
     mutationFn: async () => {
+      if (!columnPrefKey || !filterPrefKey) {
+        throw new Error('Member context not ready');
+      }
       const valueStr = JSON.stringify(columns);
       if (savedPrefIdRef.current) {
-        return await base44.entities.SystemSettings.update(savedPrefIdRef.current, {
+        await base44.entities.SystemSettings.update(savedPrefIdRef.current, {
           setting_value: valueStr
         });
       } else {
-        return await base44.entities.SystemSettings.create({
+        const created = await base44.entities.SystemSettings.create({
           setting_key: columnPrefKey,
           setting_value: valueStr,
           description: 'CRM member list column preferences'
         });
+        if (created?.id) savedPrefIdRef.current = created.id;
       }
+
+      const filterStr = JSON.stringify({
+        searchQuery,
+        statusFilter,
+        orgFilter,
+        roleFilter,
+        coreFieldFilters,
+        customFieldFilters,
+        sortField,
+        sortDir
+      });
+      if (savedFilterPrefIdRef.current) {
+        await base44.entities.SystemSettings.update(savedFilterPrefIdRef.current, {
+          setting_value: filterStr
+        });
+      } else {
+        const createdFilters = await base44.entities.SystemSettings.create({
+          setting_key: filterPrefKey,
+          setting_value: filterStr,
+          description: 'CRM member list filter preferences'
+        });
+        if (createdFilters?.id) savedFilterPrefIdRef.current = createdFilters.id;
+      }
+      return true;
     },
-    onSuccess: (result) => {
-      if (result?.id) savedPrefIdRef.current = result.id;
+    onSuccess: () => {
+      setHasSavedView(true);
       toast({
         title: "View saved",
-        description: "Your column preferences have been saved."
+        description: "Your columns, filters and sort are now your default view."
       });
     },
     onError: () => {
       toast({
         title: "Save failed",
-        description: "Could not save your column preferences. Please try again.",
+        description: "Could not save your view. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const clearSavedViewMutation = useMutation({
+    mutationFn: async () => {
+      if (savedFilterPrefIdRef.current) {
+        await base44.entities.SystemSettings.delete(savedFilterPrefIdRef.current);
+        savedFilterPrefIdRef.current = null;
+      }
+      return true;
+    },
+    onSuccess: () => {
+      setHasSavedView(false);
+      resetFilters();
+      toast({
+        title: "Default view cleared",
+        description: "This page will open with the standard filters next time."
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Could not clear view",
+        description: "Please try again.",
         variant: "destructive"
       });
     }
@@ -966,6 +1091,19 @@ export default function MembersListPage() {
                           )}
                           Save View
                         </Button>
+                        {hasSavedView && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full h-7 text-xs"
+                            onClick={() => clearSavedViewMutation.mutate()}
+                            disabled={clearSavedViewMutation.isPending}
+                            data-testid="button-clear-member-view"
+                          >
+                            Clear saved view
+                          </Button>
+                        )}
+                        <p className="text-xs text-slate-500">Save View remembers your columns, filters and sort for this page.</p>
                         <ScrollArea className="h-56">
                           <div className="space-y-1">
                             {columns.map((col, index) => (
