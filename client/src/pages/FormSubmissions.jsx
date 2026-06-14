@@ -32,7 +32,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -124,6 +129,73 @@ export default function FormSubmissionsPage() {
     forms.forEach(f => { map[f.id] = f; });
     return map;
   }, [forms]);
+
+  // Task #1414: personal saved filter views (per member, per tenant).
+  const [savedViewDialogOpen, setSavedViewDialogOpen] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+  const [viewsPopoverOpen, setViewsPopoverOpen] = useState(false);
+
+  const { data: savedViews = [], isLoading: savedViewsLoading } = useQuery({
+    queryKey: ['form-submission-saved-views'],
+    queryFn: async () => {
+      const views = await base44.entities.FormSubmissionSavedView.list();
+      return [...views].sort((a, b) =>
+        (a?.name || '').localeCompare(b?.name || '', undefined, { sensitivity: 'base' })
+      );
+    },
+  });
+
+  const currentFilters = useMemo(() => ({
+    q: searchQuery || "",
+    form: selectedForm || "all",
+    status: selectedStatus || "all",
+    dateFrom: dateFrom || "",
+    dateTo: dateTo || "",
+    tab: activeTab || "all",
+  }), [searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, activeTab]);
+
+  const saveViewMutation = useMutation({
+    mutationFn: async ({ name, filters }) =>
+      await base44.entities.FormSubmissionSavedView.create({ name, filters }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submission-saved-views'] });
+      toast.success('View saved');
+      setSavedViewDialogOpen(false);
+      setNewViewName("");
+    },
+    onError: () => toast.error('Failed to save view'),
+  });
+
+  const deleteViewMutation = useMutation({
+    mutationFn: async (id) => await base44.entities.FormSubmissionSavedView.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submission-saved-views'] });
+      toast.success('View deleted');
+    },
+    onError: () => toast.error('Failed to delete view'),
+  });
+
+  const handleSaveView = () => {
+    const name = newViewName.trim();
+    if (!name) {
+      toast.error('Please enter a name for the view');
+      return;
+    }
+    saveViewMutation.mutate({ name, filters: currentFilters });
+  };
+
+  const handleApplyView = (view) => {
+    const f = view?.filters || {};
+    setSearchQuery(typeof f.q === 'string' ? f.q : "");
+    setSelectedForm(typeof f.form === 'string' ? f.form : "all");
+    setSelectedStatus(typeof f.status === 'string' ? f.status : "all");
+    setDateFrom(typeof f.dateFrom === 'string' ? f.dateFrom : "");
+    setDateTo(typeof f.dateTo === 'string' ? f.dateTo : "");
+    setActiveTab(f.tab === 'owned' ? 'owned' : 'all');
+    setCurrentPage(1);
+    setViewsPopoverOpen(false);
+    toast.success(`Applied "${view.name}"`);
+  };
 
   // Events lookup so event-linked submissions can show which event they relate to.
   const { data: eventsForLink = [] } = useQuery({
@@ -1282,6 +1354,63 @@ export default function FormSubmissionsPage() {
 
         <Card className="mb-6 border-slate-200">
           <CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <Popover open={viewsPopoverOpen} onOpenChange={setViewsPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" data-testid="button-saved-views">
+                    <Bookmark className="w-4 h-4 mr-2" />
+                    Saved views{savedViews.length > 0 ? ` (${savedViews.length})` : ''}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-2">
+                  {savedViewsLoading ? (
+                    <div className="p-3 text-sm text-slate-500 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                    </div>
+                  ) : savedViews.length === 0 ? (
+                    <div className="p-3 text-sm text-slate-500" data-testid="text-no-saved-views">
+                      No saved views yet. Set your filters and click "Save view".
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {savedViews.map(view => (
+                        <div
+                          key={view.id}
+                          className="flex items-center gap-1 rounded-md hover-elevate"
+                          data-testid={`row-saved-view-${view.id}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleApplyView(view)}
+                            className="flex-1 text-left px-2 py-2 text-sm truncate"
+                            data-testid={`button-apply-view-${view.id}`}
+                          >
+                            {view.name}
+                          </button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteViewMutation.mutate(view.id)}
+                            disabled={deleteViewMutation.isPending}
+                            data-testid={`button-delete-view-${view.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+              <Button
+                variant="outline"
+                onClick={() => setSavedViewDialogOpen(true)}
+                data-testid="button-open-save-view"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save view
+              </Button>
+            </div>
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1377,6 +1506,49 @@ export default function FormSubmissionsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <Dialog open={savedViewDialogOpen} onOpenChange={setSavedViewDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Save current view</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="view-name">View name</Label>
+                <Input
+                  id="view-name"
+                  value={newViewName}
+                  onChange={(e) => setNewViewName(e.target.value)}
+                  placeholder="e.g. New entries this month"
+                  data-testid="input-view-name"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveView(); }}
+                />
+                <p className="text-sm text-slate-500">
+                  Saves your current search, form, status, date range, and tab. Only you can see this view.
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setSavedViewDialogOpen(false)}
+                  data-testid="button-cancel-save-view"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveView}
+                  disabled={saveViewMutation.isPending}
+                  data-testid="button-confirm-save-view"
+                >
+                  {saveViewMutation.isPending
+                    ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    : <Save className="w-4 h-4 mr-2" />}
+                  Save view
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {paginatedSubmissions.length === 0 ? (
           <Card className="border-slate-200">

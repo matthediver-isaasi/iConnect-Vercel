@@ -270,6 +270,7 @@ const entityToTable = {
   'FormDueDiligenceConfig': 'form_due_diligence_config',
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
   'FormSubmissionEmail': 'form_submission_email',
+  'FormSubmissionSavedView': 'form_submission_saved_view',
   'ContractDocument': 'contract_document',
   'ContractSigner': 'contract_signer',
   'ContractReminder': 'contract_reminder',
@@ -903,6 +904,13 @@ export default async function handler(req, res) {
         }
       }
       
+      // Task #1414: personal saved filter views are visible only to the member
+      // that created them (tenant isolation is applied above by tenant_id).
+      if (entityNorm === 'formsubmissionsavedview') {
+        if (!tenantCtx.memberId) return res.json([]);
+        query = query.eq('member_id', tenantCtx.memberId);
+      }
+
       // For Member entity, exclude deleted/anonymized members at the query level
       // This ensures pagination works correctly
       if (entityNorm === 'member') {
@@ -1164,6 +1172,16 @@ export default async function handler(req, res) {
             }
           }
         }
+      }
+
+      // Task #1414: saved filter views are personal — force ownership to the
+      // requesting member and never persist an organization_id (no such column).
+      if (entityNorm === 'formsubmissionsavedview') {
+        if (!tenantCtx.memberId) {
+          return res.status(403).json({ error: 'Member context required to save a view' });
+        }
+        sanitizedBody.member_id = tenantCtx.memberId;
+        delete sanitizedBody.organization_id;
       }
       
       // SPECIAL CASE: FormSubmission can be created by unauthenticated users (public/embedded forms)

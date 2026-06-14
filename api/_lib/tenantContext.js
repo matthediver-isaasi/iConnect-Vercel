@@ -102,6 +102,7 @@ export const entityTenantScope = {
   'Form': TENANT_SCOPE.TENANT,
   'FormSubmission': TENANT_SCOPE.TENANT,
   'FormSubmissionEmail': TENANT_SCOPE.TENANT,
+  'FormSubmissionSavedView': TENANT_SCOPE.TENANT,
   'EmailTemplate': TENANT_SCOPE.TENANT,
   'JobPosting': TENANT_SCOPE.TENANT,
   'Resource': TENANT_SCOPE.TENANT,

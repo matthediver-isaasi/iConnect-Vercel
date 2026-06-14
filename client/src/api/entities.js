@@ -94,6 +94,7 @@ export const Floater = base44.entities.Floater;
 export const Form = base44.entities.Form;
 
 export const FormSubmission = base44.entities.FormSubmission;
+export const FormSubmissionSavedView = base44.entities.FormSubmissionSavedView;
 
 export const NewsPost = base44.entities.NewsPost;
 

@@ -67,6 +67,7 @@ const entityToTable = {
   'Form': 'form',
   'EmailTemplate': 'email_template',
   'FormSubmission': 'form_submission',
+  'FormSubmissionSavedView': 'form_submission_saved_view',
   'NewsPost': 'news_post',
   'SupportTicket': 'support_ticket',
   'SupportTicketResponse': 'support_ticket_response',
@@ -218,6 +219,11 @@ export default async function handler(req, res) {
           } else {
             query = query.eq('id', tenantCtx.organizationId);
           }
+        } else if (entityNorm === 'formsubmissionsavedview') {
+          // Task #1414: personal saved views are addressable only by their owner.
+          if (!tenantCtx.memberId) return res.status(404).json({ error: 'Not found' });
+          if (tenantCtx.tenantId) query = query.eq('tenant_id', tenantCtx.tenantId);
+          query = query.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities: filter by tenant_id or fall back to organization_id
           // These entities have been fully migrated to tenant_id only (no organization_id column):
@@ -1023,6 +1029,14 @@ export default async function handler(req, res) {
           } else if (!entitiesWithoutOrgId.includes(entity) && tenantCtx.organizationId) {
             verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
           }
+        }
+
+        // Task #1414: a member may only delete their own saved filter views.
+        if (entityNorm === 'formsubmissionsavedview') {
+          if (!tenantCtx.memberId) {
+            return res.status(404).json({ error: 'Not found or access denied' });
+          }
+          verifyQuery = verifyQuery.eq('member_id', tenantCtx.memberId);
         }
         
         const { data: verifyData, error: verifyError } = await verifyQuery.single();

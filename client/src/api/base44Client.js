@@ -233,6 +233,7 @@ class EntitiesProxy {
   get Form() { return this._getEntity('Form'); }
   get FormSubmission() { return this._getEntity('FormSubmission'); }
   get FormSubmissionEmail() { return this._getEntity('FormSubmissionEmail'); }
+  get FormSubmissionSavedView() { return this._getEntity('FormSubmissionSavedView'); }
   get NewsPost() { return this._getEntity('NewsPost'); }
   get SupportTicket() { return this._getEntity('SupportTicket'); }
   get SupportTicketResponse() { return this._getEntity('SupportTicketResponse'); }
