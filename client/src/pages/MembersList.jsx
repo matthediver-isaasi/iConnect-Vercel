@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { 
@@ -91,6 +90,10 @@ const getStorageKey = (tenantSlug) => `members_list_columns_${tenantSlug || 'def
 const getColumnPrefKey = (memberId) => `crm_member_columns_${memberId}`;
 const getFilterPrefKey = (memberId) => `crm_member_filters_${memberId}`;
 
+// Stable ids for the reorderable filters in the left pane (core filters first;
+// custom fields are appended by their field id).
+const DEFAULT_MEMBER_FILTER_ORDER = ['status', 'organisation', 'role', 'phone', 'job_title'];
+
 const loadLocalColumns = (tenantSlug) => {
   try {
     const saved = localStorage.getItem(getStorageKey(tenantSlug));
@@ -152,6 +155,8 @@ export default function MembersListPage() {
   const [sortField, setSortField] = useState('created_on');
   const [sortDir, setSortDir] = useState('desc');
   const [filtersReady, setFiltersReady] = useState(false);
+  const [filterOrder, setFilterOrder] = useState(DEFAULT_MEMBER_FILTER_ORDER);
+  const [draggedFilterId, setDraggedFilterId] = useState(null);
 
   const handleSort = useCallback((field) => {
     if (!field) return;
@@ -245,6 +250,17 @@ export default function MembersListPage() {
     () => memberCustomFields.filter(f => isMemberAdminFilterVisible(f)),
     [memberCustomFields]
   );
+  // All filter ids currently available, in default display order (core then custom).
+  const availableFilterIds = useMemo(
+    () => [...DEFAULT_MEMBER_FILTER_ORDER, ...memberFilterFields.map(f => f.id)],
+    [memberFilterFields]
+  );
+  // Filters to actually render, in the user's chosen order, dropping any id with no
+  // matching control (e.g. a custom field not yet loaded or no longer available).
+  const orderedFilterIds = useMemo(() => {
+    const availSet = new Set(availableFilterIds);
+    return filterOrder.filter(id => availSet.has(id));
+  }, [filterOrder, availableFilterIds]);
 
   const activeCustomFilters = useMemo(() => {
     const obj = {};
@@ -390,6 +406,19 @@ export default function MembersListPage() {
             }
             if (typeof f.sortField === 'string') setSortField(f.sortField);
             if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
+            if (Array.isArray(f.filterOrder)) {
+              const saved = f.filterOrder.filter(id => typeof id === 'string');
+              if (memberCustomFieldsLoaded) {
+                // Custom fields already loaded: reconcile now (drop stale, append new).
+                const availSet = new Set(availableFilterIds);
+                const kept = saved.filter(id => availSet.has(id));
+                const additions = availableFilterIds.filter(id => !saved.includes(id));
+                setFilterOrder([...kept, ...additions]);
+              } else {
+                // Apply as-is; the reconcile effect fixes it once fields load.
+                setFilterOrder(saved);
+              }
+            }
             setHasSavedView(true);
           }
         } catch {}
@@ -437,7 +466,8 @@ export default function MembersListPage() {
         coreFieldFilters,
         customFieldFilters,
         sortField,
-        sortDir
+        sortDir,
+        filterOrder
       });
       if (savedFilterPrefIdRef.current) {
         await base44.entities.SystemSettings.update(savedFilterPrefIdRef.current, {
@@ -653,7 +683,180 @@ export default function MembersListPage() {
     setRoleFilter('all');
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
+    setFilterOrder(availableFilterIds);
     setCurrentPage(1);
+  };
+
+  const handleFilterDragStart = (e, id) => {
+    setDraggedFilterId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleFilterDragOver = (e, overId) => {
+    e.preventDefault();
+    if (draggedFilterId === null || draggedFilterId === overId) return;
+    setFilterOrder(prev => {
+      const from = prev.indexOf(draggedFilterId);
+      const to = prev.indexOf(overId);
+      if (from === -1 || to === -1) return prev;
+      const updated = [...prev];
+      const [removed] = updated.splice(from, 1);
+      updated.splice(to, 0, removed);
+      return updated;
+    });
+  };
+
+  const handleFilterDragEnd = () => {
+    setDraggedFilterId(null);
+  };
+
+  const renderMemberFilterControl = (id) => {
+    switch (id) {
+      case 'status':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</Label>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-member-status-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-w-[260px]">
+                {STATUS_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      case 'organisation':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Organisation</Label>
+            <Select value={orgFilter} onValueChange={(v) => { setOrgFilter(v); setCurrentPage(1); }}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-member-org-filter">
+                <SelectValue placeholder="All Organisations" />
+              </SelectTrigger>
+              <SelectContent className="max-w-[260px]">
+                <SelectItem value="all" className="text-xs">All Organisations</SelectItem>
+                {organizations.map(org => (
+                  <SelectItem key={org.id} value={org.id} className="text-xs whitespace-normal break-words">
+                    {org.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      case 'role':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Role</Label>
+            <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-member-role-filter">
+                <SelectValue placeholder="All Roles" />
+              </SelectTrigger>
+              <SelectContent className="max-w-[260px]">
+                <SelectItem value="all" className="text-xs">All Roles</SelectItem>
+                {roles.map(role => (
+                  <SelectItem key={role.id} value={role.id} className="text-xs whitespace-normal break-words">
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      case 'phone':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
+            <Input
+              placeholder="Filter by phone..."
+              value={coreFieldFilters.phone || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-member-phone"
+            />
+          </div>
+        );
+      case 'job_title':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Job Title</Label>
+            <Input
+              placeholder="Filter by job title..."
+              value={coreFieldFilters.job_title || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, job_title: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-member-job-title"
+            />
+          </div>
+        );
+      default: {
+        const field = memberFilterFields.find(f => f.id === id);
+        if (!field) return null;
+        const validOptions = (field.options || []).filter(opt =>
+          !opt.is_title && opt.value && opt.value.trim() !== ''
+        );
+        const hasOptions = validOptions.length > 0;
+        if (hasOptions) {
+          return (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <Select
+                value={customFieldFilters[field.id] || 'all'}
+                onValueChange={(v) => {
+                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v }));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-${field.id}`}>
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent className="max-w-[260px]">
+                  <SelectItem value="all" className="text-xs">All</SelectItem>
+                  {validOptions.map((opt, idx) => (
+                    <SelectItem
+                      key={idx}
+                      value={opt.value}
+                      className="text-xs whitespace-normal break-words"
+                    >
+                      {opt.label || opt.value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        }
+        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+            <Input
+              placeholder="Filter..."
+              value={textValue}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCustomFieldFilters(prev => ({
+                  ...prev,
+                  [field.id]: val ? `__text__:${val}` : ''
+                }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid={`input-member-filter-cf-${field.id}`}
+            />
+          </div>
+        );
+      }
+    }
   };
 
   const hasActiveFilters = searchQuery || 
@@ -691,6 +894,20 @@ export default function MembersListPage() {
       return updated;
     });
   }, [memberColumnFields, memberCustomFieldsLoaded, tenantSlug]);
+
+  // Reconcile the filter order once custom fields have loaded: drop ids that no
+  // longer exist and append any newly available filters not present in the saved
+  // order (so new custom fields still show up, after the saved ones).
+  useEffect(() => {
+    if (!memberCustomFieldsLoaded) return;
+    setFilterOrder(prev => {
+      const availSet = new Set(availableFilterIds);
+      const kept = prev.filter(id => availSet.has(id));
+      const additions = availableFilterIds.filter(id => !prev.includes(id));
+      if (additions.length === 0 && kept.length === prev.length) return prev;
+      return [...kept, ...additions];
+    });
+  }, [availableFilterIds, memberCustomFieldsLoaded]);
 
   const visibleColumns = columns.filter(c => c.visible);
 
@@ -912,156 +1129,34 @@ export default function MembersListPage() {
           </div>
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</Label>
-                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-member-status-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[260px]">
-                    {STATUS_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Organisation</Label>
-                <Select value={orgFilter} onValueChange={(v) => { setOrgFilter(v); setCurrentPage(1); }}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-member-org-filter">
-                    <SelectValue placeholder="All Organisations" />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[260px]">
-                    <SelectItem value="all" className="text-xs">All Organisations</SelectItem>
-                    {organizations.map(org => (
-                      <SelectItem key={org.id} value={org.id} className="text-xs whitespace-normal break-words">
-                        {org.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Role</Label>
-                <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-member-role-filter">
-                    <SelectValue placeholder="All Roles" />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[260px]">
-                    <SelectItem value="all" className="text-xs">All Roles</SelectItem>
-                    {roles.map(role => (
-                      <SelectItem key={role.id} value={role.id} className="text-xs whitespace-normal break-words">
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Details</p>
-                
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
-                  <Input
-                    placeholder="Filter by phone..."
-                    value={coreFieldFilters.phone}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-member-phone"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Job Title</Label>
-                  <Input
-                    placeholder="Filter by job title..."
-                    value={coreFieldFilters.job_title}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, job_title: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-member-job-title"
-                  />
-                </div>
-              </div>
-
-              {memberFilterFields.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
-                    
-                    {memberFilterFields.map(field => {
-                      const validOptions = (field.options || []).filter(opt => 
-                        !opt.is_title && opt.value && opt.value.trim() !== ''
-                      );
-                      const hasOptions = validOptions.length > 0;
-                      
-                      if (hasOptions) {
-                        return (
-                          <div key={field.id} className="space-y-1.5">
-                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-                            <Select 
-                              value={customFieldFilters[field.id] || 'all'} 
-                              onValueChange={(v) => { 
-                                setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
-                                setCurrentPage(1); 
-                              }}
-                            >
-                              <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-${field.id}`}>
-                                <SelectValue placeholder="All" />
-                              </SelectTrigger>
-                              <SelectContent className="max-w-[260px]">
-                                <SelectItem value="all" className="text-xs">All</SelectItem>
-                                {validOptions.map((opt, idx) => (
-                                  <SelectItem 
-                                    key={idx} 
-                                    value={opt.value} 
-                                    className="text-xs whitespace-normal break-words"
-                                  >
-                                    {opt.label || opt.value}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      } else {
-                        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
-                        return (
-                          <div key={field.id} className="space-y-1.5">
-                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-                            <Input
-                              placeholder="Filter..."
-                              value={textValue}
-                              onChange={(e) => { 
-                                const val = e.target.value;
-                                setCustomFieldFilters(prev => ({ 
-                                  ...prev, 
-                                  [field.id]: val ? `__text__:${val}` : '' 
-                                }));
-                                setCurrentPage(1);
-                              }}
-                              className="h-8 text-xs"
-                              data-testid={`input-member-filter-cf-${field.id}`}
-                            />
-                          </div>
-                        );
-                      }
-                    })}
+            <div className="space-y-3">
+              {orderedFilterIds.map(id => {
+                const control = renderMemberFilterControl(id);
+                if (!control) return null;
+                return (
+                  <div
+                    key={id}
+                    onDragOver={(e) => handleFilterDragOver(e, id)}
+                    className={`flex items-center gap-1.5 rounded-md ${draggedFilterId === id ? 'opacity-50' : ''}`}
+                    data-testid={`member-filter-row-${id}`}
+                  >
+                    <div
+                      draggable
+                      onDragStart={(e) => handleFilterDragStart(e, id)}
+                      onDragEnd={handleFilterDragEnd}
+                      className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600"
+                      aria-label="Drag to reorder filter"
+                      title="Drag to reorder filter"
+                      data-testid={`drag-member-filter-${id}`}
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {control}
+                    </div>
                   </div>
-                </>
-              )}
+                );
+              })}
             </div>
           </ScrollArea>
 

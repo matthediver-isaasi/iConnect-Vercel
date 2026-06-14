@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   Building2, 
@@ -98,6 +97,10 @@ const getStorageKey = (tenantSlug) => `organisations_list_columns_${tenantSlug |
 const getColumnPrefKey = (memberId) => `crm_org_columns_${memberId}`;
 const getFilterPrefKey = (memberId) => `crm_org_filters_${memberId}`;
 
+// Stable ids for the reorderable filters in the left pane (core filters first;
+// custom fields are appended by their field id).
+const DEFAULT_ORG_FILTER_ORDER = ['phone', 'email', 'website', 'address'];
+
 const loadLocalColumns = (tenantSlug) => {
   try {
     const saved = localStorage.getItem(getStorageKey(tenantSlug));
@@ -148,6 +151,8 @@ export default function OrganisationsListPage() {
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [filtersReady, setFiltersReady] = useState(false);
+  const [filterOrder, setFilterOrder] = useState(DEFAULT_ORG_FILTER_ORDER);
+  const [draggedFilterId, setDraggedFilterId] = useState(null);
 
   const handleSort = useCallback((field) => {
     if (!field) return;
@@ -236,6 +241,17 @@ export default function OrganisationsListPage() {
     () => orgCustomFields.filter(f => isOrgAdminFilterVisible(f)),
     [orgCustomFields]
   );
+  // All filter ids currently available, in default display order (core then custom).
+  const availableFilterIds = useMemo(
+    () => [...DEFAULT_ORG_FILTER_ORDER, ...orgFilterFields.map(f => f.id)],
+    [orgFilterFields]
+  );
+  // Filters to actually render, in the user's chosen order, dropping any id with no
+  // matching control (e.g. a custom field not yet loaded or no longer available).
+  const orderedFilterIds = useMemo(() => {
+    const availSet = new Set(availableFilterIds);
+    return filterOrder.filter(id => availSet.has(id));
+  }, [filterOrder, availableFilterIds]);
 
   // Only the active custom filters, serialised so the server can apply them at
   // the DB level (totals + paging span the whole tenant, not just one page).
@@ -428,6 +444,19 @@ export default function OrganisationsListPage() {
             }
             if (typeof f.sortField === 'string') setSortField(f.sortField);
             if (f.sortDir === 'asc' || f.sortDir === 'desc') setSortDir(f.sortDir);
+            if (Array.isArray(f.filterOrder)) {
+              const saved = f.filterOrder.filter(id => typeof id === 'string');
+              if (orgCustomFieldsLoaded) {
+                // Custom fields already loaded: reconcile now (drop stale, append new).
+                const availSet = new Set(availableFilterIds);
+                const kept = saved.filter(id => availSet.has(id));
+                const additions = availableFilterIds.filter(id => !saved.includes(id));
+                setFilterOrder([...kept, ...additions]);
+              } else {
+                // Apply as-is; the reconcile effect fixes it once fields load.
+                setFilterOrder(saved);
+              }
+            }
             setHasSavedView(true);
           }
         } catch {}
@@ -472,7 +501,8 @@ export default function OrganisationsListPage() {
         coreFieldFilters,
         customFieldFilters,
         sortField,
-        sortDir
+        sortDir,
+        filterOrder
       });
       if (savedFilterPrefIdRef.current) {
         await base44.entities.SystemSettings.update(savedFilterPrefIdRef.current, {
@@ -733,7 +763,158 @@ export default function OrganisationsListPage() {
     setSearchQuery('');
     setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
+    setFilterOrder(availableFilterIds);
     setCurrentPage(1);
+  };
+
+  const handleFilterDragStart = (e, id) => {
+    setDraggedFilterId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleFilterDragOver = (e, overId) => {
+    e.preventDefault();
+    if (draggedFilterId === null || draggedFilterId === overId) return;
+    setFilterOrder(prev => {
+      const from = prev.indexOf(draggedFilterId);
+      const to = prev.indexOf(overId);
+      if (from === -1 || to === -1) return prev;
+      const updated = [...prev];
+      const [removed] = updated.splice(from, 1);
+      updated.splice(to, 0, removed);
+      return updated;
+    });
+  };
+
+  const handleFilterDragEnd = () => {
+    setDraggedFilterId(null);
+  };
+
+  const renderOrgFilterControl = (id) => {
+    switch (id) {
+      case 'phone':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
+            <Input
+              placeholder="Filter by phone..."
+              value={coreFieldFilters.phone || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-phone"
+            />
+          </div>
+        );
+      case 'email':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Email</Label>
+            <Input
+              placeholder="Filter by email..."
+              value={coreFieldFilters.invoicing_email || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, invoicing_email: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-email"
+            />
+          </div>
+        );
+      case 'website':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Website</Label>
+            <Input
+              placeholder="Filter by website..."
+              value={coreFieldFilters.website_url || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, website_url: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-website"
+            />
+          </div>
+        );
+      case 'address':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words">Address</Label>
+            <Input
+              placeholder="Filter by address..."
+              value={coreFieldFilters.invoicing_address || ''}
+              onChange={(e) => {
+                setCoreFieldFilters(prev => ({ ...prev, invoicing_address: e.target.value }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid="input-filter-address"
+            />
+          </div>
+        );
+      default: {
+        const field = orgFilterFields.find(f => f.id === id);
+        if (!field) return null;
+        const validOptions = (field.options || []).filter(opt =>
+          !opt.is_title && opt.value && opt.value.trim() !== ''
+        );
+        const hasOptions = validOptions.length > 0;
+        if (hasOptions) {
+          return (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <Select
+                value={customFieldFilters[field.id] || 'all'}
+                onValueChange={(v) => {
+                  setCustomFieldFilters(prev => ({ ...prev, [field.id]: v }));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-${field.id}`}>
+                  <SelectValue placeholder={`All`} />
+                </SelectTrigger>
+                <SelectContent className="max-w-[260px]">
+                  <SelectItem value="all" className="text-xs">All</SelectItem>
+                  {validOptions.map((opt, idx) => (
+                    <SelectItem
+                      key={idx}
+                      value={opt.value}
+                      className="text-xs whitespace-normal break-words"
+                    >
+                      {opt.label || opt.value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        }
+        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+            <Input
+              placeholder={`Filter...`}
+              value={textValue}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCustomFieldFilters(prev => ({
+                  ...prev,
+                  [field.id]: val ? `__text__:${val}` : ''
+                }));
+                setCurrentPage(1);
+              }}
+              className="h-8 text-xs"
+              data-testid={`input-filter-cf-${field.id}`}
+            />
+          </div>
+        );
+      }
+    }
   };
 
   const hasActiveFilters = searchQuery || 
@@ -768,6 +949,20 @@ export default function OrganisationsListPage() {
       return updated;
     });
   }, [orgColumnFields, orgCustomFieldsLoaded, tenantSlug]);
+
+  // Reconcile the filter order once custom fields have loaded: drop ids that no
+  // longer exist and append any newly available filters not present in the saved
+  // order (so new custom fields still show up, after the saved ones).
+  useEffect(() => {
+    if (!orgCustomFieldsLoaded) return;
+    setFilterOrder(prev => {
+      const availSet = new Set(availableFilterIds);
+      const kept = prev.filter(id => availSet.has(id));
+      const additions = availableFilterIds.filter(id => !prev.includes(id));
+      if (additions.length === 0 && kept.length === prev.length) return prev;
+      return [...kept, ...additions];
+    });
+  }, [availableFilterIds, orgCustomFieldsLoaded]);
 
   // Save columns to localStorage when they change (only after initial load)
   useEffect(() => {
@@ -932,139 +1127,34 @@ export default function OrganisationsListPage() {
           </div>
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
-            <div className="space-y-4">
-              {/* Core Field Filters */}
-              <div className="space-y-3">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contact Details</p>
-                
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
-                  <Input
-                    placeholder="Filter by phone..."
-                    value={coreFieldFilters.phone}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-phone"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Email</Label>
-                  <Input
-                    placeholder="Filter by email..."
-                    value={coreFieldFilters.invoicing_email}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, invoicing_email: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-email"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Website</Label>
-                  <Input
-                    placeholder="Filter by website..."
-                    value={coreFieldFilters.website_url}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, website_url: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-website"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-600 break-words">Address</Label>
-                  <Input
-                    placeholder="Filter by address..."
-                    value={coreFieldFilters.invoicing_address}
-                    onChange={(e) => { 
-                      setCoreFieldFilters(prev => ({ ...prev, invoicing_address: e.target.value }));
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 text-xs"
-                    data-testid="input-filter-address"
-                  />
-                </div>
-              </div>
-
-              {/* Custom Fields */}
-              {orgFilterFields.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
-                    
-                    {orgFilterFields.map(field => {
-                      // Filter out title options (is_title=true or no value)
-                      const validOptions = (field.options || []).filter(opt => 
-                        !opt.is_title && opt.value && opt.value.trim() !== ''
-                      );
-                      const hasOptions = validOptions.length > 0;
-                      
-                      if (hasOptions) {
-                        // Dropdown filter for fields with options
-                        return (
-                          <div key={field.id} className="space-y-1.5">
-                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-                            <Select 
-                              value={customFieldFilters[field.id] || 'all'} 
-                              onValueChange={(v) => { 
-                                setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
-                                setCurrentPage(1); 
-                              }}
-                            >
-                              <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-${field.id}`}>
-                                <SelectValue placeholder={`All`} />
-                              </SelectTrigger>
-                              <SelectContent className="max-w-[260px]">
-                                <SelectItem value="all" className="text-xs">All</SelectItem>
-                                {validOptions.map((opt, idx) => (
-                                  <SelectItem 
-                                    key={idx} 
-                                    value={opt.value} 
-                                    className="text-xs whitespace-normal break-words"
-                                  >
-                                    {opt.label || opt.value}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      } else {
-                        // Text filter for fields without options
-                        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
-                        return (
-                          <div key={field.id} className="space-y-1.5">
-                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
-                            <Input
-                              placeholder={`Filter...`}
-                              value={textValue}
-                              onChange={(e) => { 
-                                const val = e.target.value;
-                                setCustomFieldFilters(prev => ({ 
-                                  ...prev, 
-                                  [field.id]: val ? `__text__:${val}` : '' 
-                                }));
-                                setCurrentPage(1);
-                              }}
-                              className="h-8 text-xs"
-                              data-testid={`input-filter-cf-${field.id}`}
-                            />
-                          </div>
-                        );
-                      }
-                    })}
+            <div className="space-y-3">
+              {orderedFilterIds.map(id => {
+                const control = renderOrgFilterControl(id);
+                if (!control) return null;
+                return (
+                  <div
+                    key={id}
+                    onDragOver={(e) => handleFilterDragOver(e, id)}
+                    className={`flex items-center gap-1.5 rounded-md ${draggedFilterId === id ? 'opacity-50' : ''}`}
+                    data-testid={`org-filter-row-${id}`}
+                  >
+                    <div
+                      draggable
+                      onDragStart={(e) => handleFilterDragStart(e, id)}
+                      onDragEnd={handleFilterDragEnd}
+                      className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600"
+                      aria-label="Drag to reorder filter"
+                      title="Drag to reorder filter"
+                      data-testid={`drag-org-filter-${id}`}
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {control}
+                    </div>
                   </div>
-                </>
-              )}
+                );
+              })}
             </div>
           </ScrollArea>
 
