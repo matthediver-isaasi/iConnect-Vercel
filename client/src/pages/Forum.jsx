@@ -91,13 +91,13 @@ export default function ForumPage() {
     staleTime: 30000,
   });
 
-  const { data: groupAssignments = [] } = useQuery({
+  const { data: groupAssignments = [], isLoading: assignmentsLoading } = useQuery({
     queryKey: ["forum-group-assignments", memberInfo?.id],
     queryFn: () => base44.entities.MemberGroupAssignment.list(),
     enabled: !!memberInfo?.id,
   });
 
-  const { data: memberGroups = [] } = useQuery({
+  const { data: memberGroups = [], isLoading: groupsLoading } = useQuery({
     queryKey: ["forum-member-groups"],
     queryFn: () => base44.entities.MemberGroup.list(),
   });
@@ -124,14 +124,36 @@ export default function ForumPage() {
     return map;
   }, [memberGroups]);
 
-  const myGroupIds = useMemo(() => {
-    if (!memberInfo?.id) return new Set();
-    return new Set(
-      groupAssignments
-        .filter((ga) => ga.member_id === memberInfo.id)
-        .map((ga) => ga.group_id)
-    );
+  // Map of group_id -> Set of group roles the current member holds in that group.
+  const myGroupRoles = useMemo(() => {
+    const map = new Map();
+    if (!memberInfo?.id) return map;
+    const nowIso = new Date().toISOString();
+    groupAssignments
+      // Exclude expired assignments (null expires_at = never expires), matching
+      // the server-side group access logic.
+      .filter((ga) =>
+        ga.member_id === memberInfo.id &&
+        ga.group_id &&
+        (!ga.expires_at || new Date(ga.expires_at).toISOString() > nowIso)
+      )
+      .forEach((ga) => {
+        if (!map.has(ga.group_id)) map.set(ga.group_id, new Set());
+        if (ga.group_role) map.get(ga.group_id).add(ga.group_role);
+      });
+    return map;
   }, [groupAssignments, memberInfo?.id]);
+
+  const myGroupIds = useMemo(() => new Set(myGroupRoles.keys()), [myGroupRoles]);
+
+  // Map of group_id -> forum_enabled_roles array, for optional role restriction.
+  const groupForumRoles = useMemo(() => {
+    const map = new Map();
+    memberGroups.forEach((g) => {
+      map.set(g.id, Array.isArray(g.forum_enabled_roles) ? g.forum_enabled_roles : []);
+    });
+    return map;
+  }, [memberGroups]);
 
   const threadCountByCategory = useMemo(() => {
     const counts = {};
@@ -160,19 +182,29 @@ export default function ForumPage() {
     return categories.filter((cat) => {
       if (!cat.is_active) return false;
       if (cat.group_id) {
-        return myGroupIds.has(cat.group_id);
+        if (!myGroupIds.has(cat.group_id)) return false;
+        // Optional per-group role restriction: when forum_enabled_roles is set,
+        // the member must hold one of those roles in the group. Empty list means
+        // all active group members get access.
+        const allowedRoles = groupForumRoles.get(cat.group_id) || [];
+        if (allowedRoles.length === 0) return true;
+        const myRoles = myGroupRoles.get(cat.group_id) || new Set();
+        return allowedRoles.some((r) => myRoles.has(r));
       }
       return true;
     });
-  }, [categories, myGroupIds]);
+  }, [categories, myGroupIds, myGroupRoles, groupForumRoles]);
 
+  // Resolve the selected category from the ACCESS-FILTERED list so that a manually
+  // supplied ?categoryId= for a group category the member cannot access never
+  // resolves (and therefore never renders threads).
   const selectedCategory = useMemo(() => {
     if (!categoryId) return null;
-    return categories.find((c) => c.id === categoryId);
-  }, [categoryId, categories]);
+    return accessibleCategories.find((c) => c.id === categoryId) || null;
+  }, [categoryId, accessibleCategories]);
 
   const categoryThreads = useMemo(() => {
-    if (!categoryId) return [];
+    if (!categoryId || !selectedCategory) return [];
     let filtered = threads.filter((t) => t.category_id === categoryId);
 
     if (searchQuery.trim()) {
@@ -240,6 +272,39 @@ export default function ForumPage() {
   }
 
   if (categoryId) {
+    const accessDataLoading = categoriesLoading || groupsLoading || assignmentsLoading;
+
+    if (accessDataLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-[400px]" data-testid="forum-category-loading">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      );
+    }
+
+    if (!selectedCategory) {
+      return (
+        <div className="max-w-5xl mx-auto p-4 space-y-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              onClick={() => setSearchParams({})}
+              data-testid="button-back-to-categories"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Back to Categories
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground" data-testid="text-category-unavailable">
+              <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
+              <p>This forum is not available.</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="max-w-5xl mx-auto p-4 space-y-4">
         <div className="flex items-center gap-2 flex-wrap">

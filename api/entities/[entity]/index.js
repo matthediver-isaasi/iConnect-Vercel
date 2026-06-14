@@ -6,6 +6,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
+import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
@@ -998,6 +999,23 @@ export default async function handler(req, res) {
         });
       }
       
+      // SECURITY (Task #1421): group-linked forum categories/threads/posts are
+      // private to that group's members. The query above is only tenant-scoped,
+      // so trim group-private rows for non-privileged callers. Tenant admins and
+      // members with `forum.management` keep full access (admin ForumManagement).
+      if (entityNorm === 'forumcategory' || entityNorm === 'forumthread' || entityNorm === 'forumpost') {
+        const isPrivileged = !!tenantCtx.tenantUserId || (tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'forum.management')
+          : false);
+        const filtered = await filterForumReadRows({
+          entityNorm,
+          rows: data || [],
+          memberId: tenantCtx.memberId,
+          isPrivileged,
+        });
+        return res.json(filtered || []);
+      }
+
       return res.json(data || []);
 
     } else if (req.method === 'POST') {
@@ -1481,6 +1499,11 @@ export default async function handler(req, res) {
           });
         } catch (err) {
           console.error('[Entity POST] member-group projects hook failed:', err.message || err);
+        }
+        try {
+          await handleMemberGroupForumChange({ entityNorm, data, beforeData: null });
+        } catch (err) {
+          console.error('[Entity POST] member-group forum hook failed:', err.message || err);
         }
       }
 

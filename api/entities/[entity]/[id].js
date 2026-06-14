@@ -5,6 +5,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
+import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
@@ -293,6 +294,22 @@ export default async function handler(req, res) {
       if (error) {
         if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found' });
         return res.status(500).json({ error: error.message });
+      }
+
+      // SECURITY (Task #1421): group-linked forum categories/threads/posts are
+      // private to their group's members. Deny by-id access to non-privileged
+      // callers who are not in the owning group. Mirrors the list-endpoint guard.
+      if ((entityNorm === 'forumcategory' || entityNorm === 'forumthread' || entityNorm === 'forumpost') && data) {
+        const isPrivileged = !!tenantCtx.tenantUserId || (tenantCtx.roleId
+          ? await hasFeatureAccess(tenantCtx.roleId, 'forum.management')
+          : false);
+        const [allowed] = await filterForumReadRows({
+          entityNorm,
+          rows: [data],
+          memberId: tenantCtx.memberId,
+          isPrivileged,
+        });
+        if (!allowed) return res.status(404).json({ error: 'Not found' });
       }
       return res.json(data);
 
@@ -736,6 +753,11 @@ export default async function handler(req, res) {
           });
         } catch (err) {
           console.error('[Entity PATCH] member-group projects hook failed:', err.message || err);
+        }
+        try {
+          await handleMemberGroupForumChange({ entityNorm: entityNormalized, data, beforeData });
+        } catch (err) {
+          console.error('[Entity PATCH] member-group forum hook failed:', err.message || err);
         }
       }
 
@@ -1635,6 +1657,11 @@ export default async function handler(req, res) {
             });
           } catch (err) {
             console.error('[Entity DELETE] member-group projects hook failed:', err.message || err);
+          }
+          try {
+            await handleMemberGroupForumChange({ entityNorm: _entityNormDel, data: null, beforeData: deletedRecord });
+          } catch (err) {
+            console.error('[Entity DELETE] member-group forum hook failed:', err.message || err);
           }
         }
         if (entity === 'IEditPageElement' && deletedRecord.page_id) {

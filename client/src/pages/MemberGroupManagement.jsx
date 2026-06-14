@@ -80,6 +80,10 @@ export default function MemberGroupManagementPage() {
     ems_enabled_roles: [],
     projects_enabled: false,
     projects_enabled_roles: [],
+    events_enabled: false,
+    events_enabled_roles: [],
+    forum_enabled: false,
+    forum_enabled_roles: [],
     classification_id: '',
     linkedin_url: '',
     terms_of_reference: ''
@@ -348,6 +352,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: [],
       events_enabled: false,
       events_enabled_roles: [],
+      forum_enabled: false,
+      forum_enabled_roles: [],
       classification_id: '',
       linkedin_url: '',
       terms_of_reference: ''
@@ -371,6 +377,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : [],
+      forum_enabled: !!group.forum_enabled,
+      forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || ''
@@ -394,6 +402,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
       events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : [],
+      forum_enabled: !!group.forum_enabled,
+      forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || ''
@@ -517,6 +527,7 @@ export default function MemberGroupManagementPage() {
     const prunedEms = (groupForm.ems_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedEvents = (groupForm.events_enabled_roles || []).filter((r) => validRoles.has(r));
+    const prunedForum = (groupForm.forum_enabled_roles || []).filter((r) => validRoles.has(r));
 
     const payload = {
       ...groupForm,
@@ -527,6 +538,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
       events_enabled_roles: groupForm.events_enabled ? prunedEvents : [],
+      forum_enabled: !!groupForm.forum_enabled,
+      forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
       classification_id: groupForm.classification_id || null,
       linkedin_url: trimmedLinkedin || null,
       terms_of_reference: trimmedTerms || null
@@ -581,6 +594,7 @@ export default function MemberGroupManagementPage() {
       ems_enabled_roles: (groupForm.ems_enabled_roles || []).filter(r => r !== role),
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       events_enabled_roles: (groupForm.events_enabled_roles || []).filter(r => r !== role),
+      forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
     });
   };
@@ -607,6 +621,12 @@ export default function MemberGroupManagementPage() {
     const current = new Set(groupForm.projects_enabled_roles || []);
     if (current.has(role)) current.delete(role); else current.add(role);
     setGroupForm({ ...groupForm, projects_enabled_roles: Array.from(current) });
+  };
+
+  const toggleForumRole = (role) => {
+    const current = new Set(groupForm.forum_enabled_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, forum_enabled_roles: Array.from(current) });
   };
 
   const handleAssignMember = () => {
@@ -1540,6 +1560,60 @@ export default function MemberGroupManagementPage() {
                                 onChange={() => toggleEventsRole(role)}
                                 className="w-4 h-4"
                                 data-testid={`checkbox-events-role-${role}`}
+                              />
+                              <span>{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Enable group forum</Label>
+                    <span className="text-xs text-slate-500">
+                      Creates a private discussion forum for this group. Members of the group will see it in the Forum alongside any tenant-wide categories. Disabling hides the forum without deleting existing threads or posts.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.forum_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, forum_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-forum-enabled"
+                  />
+                </div>
+
+                {groupForm.forum_enabled && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <Label>Roles allowed to access the forum</Label>
+                      <span className="text-xs text-slate-500">
+                        Leave all unchecked to give every active group member access. Select specific roles to limit who can see and post in the group forum.
+                      </span>
+                    </div>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-slate-500">Add at least one role above to restrict forum access by role. Otherwise all group members get access.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {groupForm.roles.map((role) => {
+                          const checked = (groupForm.forum_enabled_roles || []).includes(role);
+                          return (
+                            <label
+                              key={role}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                              data-testid={`label-forum-role-${role}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleForumRole(role)}
+                                className="w-4 h-4"
+                                data-testid={`checkbox-forum-role-${role}`}
                               />
                               <span>{role}</span>
                             </label>
