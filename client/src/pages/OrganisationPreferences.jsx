@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Building2, Shield, Save, GripVertical } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Building2, Shield, Save, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -32,6 +33,7 @@ export default function OrganisationPreferencesPage() {
   const [changedRoleIds, setChangedRoleIds] = useState(new Set());
   const [orderedContactFields, setOrderedContactFields] = useState(CONTACT_FIELDS);
   const [orderedCustomFields, setOrderedCustomFields] = useState([]);
+  const [featuredRoleIds, setFeaturedRoleIds] = useState([]);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -76,6 +78,25 @@ export default function OrganisationPreferencesPage() {
         }
       }
       return null;
+    },
+    enabled: accessChecked,
+  });
+
+  const { data: featuredRolesSettings } = useQuery({
+    queryKey: ['org-team-overview-roles-settings'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'organization_team_overview_roles' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          const parsed = JSON.parse(settings[0].setting_value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
     },
     enabled: accessChecked,
   });
@@ -127,6 +148,50 @@ export default function OrganisationPreferencesPage() {
       }
     }
   }, [orgCustomFields, fieldOrderSettings]);
+
+  useEffect(() => {
+    if (Array.isArray(featuredRolesSettings)) {
+      setFeaturedRoleIds(featuredRolesSettings);
+    }
+  }, [featuredRolesSettings]);
+
+  const saveFeaturedRolesMutation = useMutation({
+    mutationFn: async (roleIds) => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { setting_key: 'organization_team_overview_roles' }
+      });
+      const value = JSON.stringify(roleIds);
+      if (settings && settings.length > 0) {
+        await base44.entities.SystemSettings.update(settings[0].id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'organization_team_overview_roles',
+          setting_value: value,
+          description: 'RBAC roles featured at the top of the Team Overview card on organisation detail views'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-team-overview-roles-settings'] });
+      toast.success('Featured roles saved');
+    },
+    onError: () => {
+      toast.error('Failed to save featured roles');
+    }
+  });
+
+  const toggleFeaturedRole = (roleId) => {
+    const isSelected = featuredRoleIds.includes(roleId);
+    if (!isSelected && featuredRoleIds.length >= 2) {
+      toast.info('You can feature a maximum of two roles');
+      return;
+    }
+    const next = isSelected
+      ? featuredRoleIds.filter(id => id !== roleId)
+      : [...featuredRoleIds, roleId];
+    setFeaturedRoleIds(next);
+    saveFeaturedRolesMutation.mutate(next);
+  };
 
   const saveOrderMutation = useMutation({
     mutationFn: async ({ contactFieldOrder, customFieldOrder }) => {
@@ -294,6 +359,10 @@ export default function OrganisationPreferencesPage() {
               <GripVertical className="w-4 h-4 mr-1.5" />
               Field Order
             </TabsTrigger>
+            <TabsTrigger value="featured-roles" data-testid="tab-featured-roles">
+              <Star className="w-4 h-4 mr-1.5" />
+              Featured Roles
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="permissions">
@@ -439,6 +508,60 @@ export default function OrganisationPreferencesPage() {
                 )}
               </div>
             </DragDropContext>
+          </TabsContent>
+
+          <TabsContent value="featured-roles">
+            <Card>
+              <CardHeader>
+                <CardTitle>Featured Team Overview Roles</CardTitle>
+                <CardDescription>
+                  Choose up to two roles to highlight at the top of each organisation's Team Overview card. Up to two members holding these roles will be pinned as key contacts.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {rolesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  </div>
+                ) : roles.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No roles available.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="text-featured-roles-count">
+                      {featuredRoleIds.length} of 2 roles selected
+                    </p>
+                    <div className="space-y-2">
+                      {roles.map(role => {
+                        const checked = featuredRoleIds.includes(role.id);
+                        const disabled = !checked && featuredRoleIds.length >= 2;
+                        return (
+                          <label
+                            key={role.id}
+                            className={`flex items-center gap-3 p-3 rounded-md bg-slate-50 dark:bg-slate-800 ${
+                              disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover-elevate'
+                            }`}
+                            data-testid={`row-featured-role-${role.id}`}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              disabled={disabled || saveFeaturedRolesMutation.isPending}
+                              onCheckedChange={() => toggleFeaturedRole(role.id)}
+                              data-testid={`checkbox-featured-role-${role.id}`}
+                            />
+                            <div>
+                              <p className="font-medium text-slate-900 dark:text-slate-100">{role.name}</p>
+                              {role.description && (
+                                <p className="text-sm text-slate-500 dark:text-slate-400">{role.description}</p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

@@ -75,6 +75,7 @@ import {
   Tag,
   Lock,
   UserCheck,
+  Star,
   Infinity as InfinityIcon
 } from "lucide-react";
 import { toast } from "sonner";
@@ -535,6 +536,50 @@ export default function OrganisationDetailView({
       }
     }
   });
+
+  const { data: featuredRoleIds = [] } = useQuery({
+    queryKey: ['org-team-overview-roles-settings'],
+    enabled: !!organization?.id,
+    queryFn: async () => {
+      try {
+        const settings = await base44.entities.SystemSettings.list({
+          filter: { setting_key: 'organization_team_overview_roles' }
+        });
+        if (settings && settings.length > 0) {
+          const parsed = JSON.parse(settings[0].setting_value);
+          return Array.isArray(parsed) ? parsed : [];
+        }
+      } catch {
+        // ignore
+      }
+      return [];
+    }
+  });
+
+  const roleNameById = useMemo(() => {
+    const map = {};
+    (roles || []).forEach(r => { map[String(r.id)] = r.name; });
+    return map;
+  }, [roles]);
+
+  const featuredMembers = useMemo(() => {
+    if (!featuredRoleIds?.length) return [];
+    const order = featuredRoleIds.map(String);
+    return orgMembers
+      .filter(m => m.role_id && order.includes(String(m.role_id)))
+      .sort((a, b) => order.indexOf(String(a.role_id)) - order.indexOf(String(b.role_id)))
+      .slice(0, 2);
+  }, [featuredRoleIds, orgMembers]);
+
+  const featuredMemberIds = useMemo(
+    () => new Set(featuredMembers.map(m => m.id)),
+    [featuredMembers]
+  );
+
+  const summaryMembers = useMemo(
+    () => orgMembers.filter(m => !featuredMemberIds.has(m.id)),
+    [orgMembers, featuredMemberIds]
+  );
 
   // Compute roles that have at least one member assigned (for dynamic filtering)
   const availableRolesForFilter = useMemo(() => {
@@ -1811,8 +1856,27 @@ export default function OrganisationDetailView({
                         <span className="font-medium">{orgMembers.length}</span>
                       </div>
                       <Separator />
+                      {featuredMembers.length > 0 && (
+                        <div className="space-y-2">
+                          {featuredMembers.map(member => (
+                            <div
+                              key={member.id}
+                              className="flex items-center gap-2 text-sm p-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900"
+                              data-testid={`featured-member-${member.id}`}
+                            >
+                              <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
+                                <Star className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-700 dark:text-slate-200 truncate">{getMemberName(member) || member.email}</p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{roleNameById[String(member.role_id)] || member.job_title || 'Member'}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="space-y-2">
-                        {orgMembers.slice(0, 5).map(member => (
+                        {summaryMembers.slice(0, 5).map(member => (
                           <div key={member.id} className="flex items-center gap-2 text-sm">
                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
                               <User className="w-4 h-4 text-slate-400" />
@@ -1823,9 +1887,9 @@ export default function OrganisationDetailView({
                             </div>
                           </div>
                         ))}
-                        {orgMembers.length > 5 && (
+                        {summaryMembers.length > 5 && (
                           <p className="text-xs text-slate-400 text-center pt-2">
-                            +{orgMembers.length - 5} more members
+                            +{summaryMembers.length - 5} more members
                           </p>
                         )}
                       </div>
