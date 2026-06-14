@@ -1,0 +1,78 @@
+{
+    "id": "d954145b-affb-42b3-a99d-27e90bd843a5",
+    "entity_type": "member",
+    "status": "processing",
+    "file_name": "YM member data 11.06.26.xlsx",
+    "total_rows": 5551,
+    "processed_count": 0,
+    "success_count": 0,
+    "error_count": 0,
+    "mappings": [
+        {
+            "targetType": "text",
+            "targetField": "custom:50d7b71c-29b0-4d4c-a817-f39edf35f2e0",
+            "targetScope": "custom",
+            "clearOnEmpty": false,
+            "sourceColumn": "Web_Site_Member_ID",
+            "preferenceFieldId": "50d7b71c-29b0-4d4c-a817-f39edf35f2e0"
+        },
+        {
+            "targetType": "text",
+            "targetField": "custom:2f04cda8-33f9-4df4-bcd5-e7150e4ca9ae",
+            "targetScope": "custom",
+            "clearOnEmpty": false,
+            "sourceColumn": "Date_Membership_Expires",
+            "preferenceFieldId": "2f04cda8-33f9-4df4-bcd5-e7150e4ca9ae"
+        },
+        {
+            "targetType": "dropdown",
+            "targetField": "custom:40bdb74f-e8e0-4ad1-9760-b1128256a752",
+            "targetScope": "custom",
+            "clearOnEmpty": false,
+            "sourceColumn": "Membership",
+            "preferenceFieldId": "40bdb74f-e8e0-4ad1-9760-b1128256a752"
+        },
+        {
+            "targetType": "text",
+            "targetField": "first_name",
+            "targetScope": "core",
+            "clearOnEmpty": false,
+            "sourceColumn": "First_Name",
+            "preferenceFieldId": null
+        },
+        {
+            "targetType": "text",
+            "targetField": "last_name",
+            "targetScope": "core",
+            "clearOnEmpty": false,
+            "sourceColumn": "Last_Name",
+            "preferenceFieldId": null
+        },
+        {
+            "targetType": "email",
+            "targetField": "email",
+            "targetScope": "core",
+            "clearOnEmpty": false,
+            "sourceColumn": "Email_Address",
+            "preferenceFieldId": null
+        }
+    ],
+    "errors": [],
+    "created_at": "2026-06-14T11:13:51.023623+00:00",
+    "updated_at": "2026-06-14T11:13:52.435+00:00",
+    "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "created_count": 0,
+    "updated_count": 0,
+    "identifier_field": "email",
+    "worker_token": "c80f7aa5-580a-46e4-be45-0aadaa8120e2",
+    "heartbeat_at": "2026-06-14T11:13:52.435+00:00",
+    "started_at": "2026-06-14T11:13:52.435+00:00",
+    "completed_at": null,
+    "cursor_offset": 0,
+    "force_path": null,
+    "storage_bucket": "private-uploads",
+    "storage_path": "ff2df806-b321-4254-b651-3af11fccf1db/imports/d954145b-affb-42b3-a99d-27e90bd843a5/YM_member_data_11.06.26.xlsx",
+    "requested_by_member_id": "f42f03b5-5ed7-441b-aac5-972038427e59",
+    "skipped_count": 0,
+    "notes_created": 0
+}
