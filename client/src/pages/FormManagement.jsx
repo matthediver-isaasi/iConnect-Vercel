@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy,
   FileSignature, Building2, Clock, Send, FilePlus, Search, X, ChevronLeft, ChevronRight,
+  LayoutGrid, List, ArrowUpDown,
 } from "lucide-react";
 import ManualSubmissionDialog from "@/components/ManualSubmissionDialog";
 import {
@@ -38,7 +39,16 @@ const initialFilters = {
   organization: "all",
 };
 
-function FilterBar({ filters, setFilters, isContract, testIdPrefix, organizations }) {
+const SORT_OPTIONS = [
+  { value: "name_asc", label: "Name A–Z" },
+  { value: "name_desc", label: "Name Z–A" },
+  { value: "status", label: "Active first" },
+  { value: "submissions", label: "Most submissions" },
+];
+
+const DEFAULT_SORT = "name_asc";
+
+function FilterBar({ filters, setFilters, isContract, testIdPrefix, organizations, sortBy, setSortBy, viewMode, setViewMode }) {
   const hasActiveFilters =
     filters.search !== '' ||
     filters.status !== 'all' ||
@@ -114,6 +124,43 @@ function FilterBar({ filters, setFilters, isContract, testIdPrefix, organization
           Clear
         </Button>
       )}
+      <div className="flex items-center gap-3 md:ml-auto">
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-full md:w-[190px]" data-testid={`${testIdPrefix}-select-sort`}>
+            <ArrowUpDown className="w-4 h-4 mr-1 text-slate-400" />
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-1 rounded-md border border-slate-200 p-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`toggle-elevate ${viewMode === 'card' ? 'toggle-elevated' : ''}`}
+            onClick={() => setViewMode('card')}
+            title="Card view"
+            aria-pressed={viewMode === 'card'}
+            data-testid={`${testIdPrefix}-button-view-card`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`toggle-elevate ${viewMode === 'list' ? 'toggle-elevated' : ''}`}
+            onClick={() => setViewMode('list')}
+            title="List view"
+            aria-pressed={viewMode === 'list'}
+            data-testid={`${testIdPrefix}-button-view-list`}
+          >
+            <List className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -199,6 +246,8 @@ export default function FormManagementPage() {
   const [contractPage, setContractPage] = useState(1);
   const [standardPageSize, setStandardPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [contractPageSize, setContractPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [viewMode, setViewMode] = useState("card");
+  const [sortBy, setSortBy] = useState(DEFAULT_SORT);
 
   const queryClient = useQueryClient();
 
@@ -348,25 +397,46 @@ export default function FormManagementPage() {
     });
   }, [contractForms, contractFilters]);
 
-  // Reset pagination when filters / tab change
-  useEffect(() => { setStandardPage(1); }, [standardFilters, standardPageSize, activeTab]);
-  useEffect(() => { setContractPage(1); }, [contractFilters, contractPageSize, activeTab]);
+  const sortForms = useMemo(() => {
+    return (list) => {
+      const arr = [...list];
+      const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      switch (sortBy) {
+        case 'name_desc':
+          return arr.sort((a, b) => byName(b, a));
+        case 'status':
+          return arr.sort((a, b) => (Number(Boolean(b.is_active)) - Number(Boolean(a.is_active))) || byName(a, b));
+        case 'submissions':
+          return arr.sort((a, b) => ((submissionCounts[b.id] || 0) - (submissionCounts[a.id] || 0)) || byName(a, b));
+        case 'name_asc':
+        default:
+          return arr.sort(byName);
+      }
+    };
+  }, [sortBy, submissionCounts]);
 
-  const standardTotalPages = Math.max(1, Math.ceil(filteredStandardForms.length / standardPageSize));
-  const contractTotalPages = Math.max(1, Math.ceil(filteredContractForms.length / contractPageSize));
+  const sortedStandardForms = useMemo(() => sortForms(filteredStandardForms), [sortForms, filteredStandardForms]);
+  const sortedContractForms = useMemo(() => sortForms(filteredContractForms), [sortForms, filteredContractForms]);
+
+  // Reset pagination when filters / sort / tab change
+  useEffect(() => { setStandardPage(1); }, [standardFilters, standardPageSize, activeTab, sortBy]);
+  useEffect(() => { setContractPage(1); }, [contractFilters, contractPageSize, activeTab, sortBy]);
+
+  const standardTotalPages = Math.max(1, Math.ceil(sortedStandardForms.length / standardPageSize));
+  const contractTotalPages = Math.max(1, Math.ceil(sortedContractForms.length / contractPageSize));
 
   const safeStandardPage = Math.min(standardPage, standardTotalPages);
   const safeContractPage = Math.min(contractPage, contractTotalPages);
 
   const pagedStandardForms = useMemo(() => {
     const start = (safeStandardPage - 1) * standardPageSize;
-    return filteredStandardForms.slice(start, start + standardPageSize);
-  }, [filteredStandardForms, safeStandardPage, standardPageSize]);
+    return sortedStandardForms.slice(start, start + standardPageSize);
+  }, [sortedStandardForms, safeStandardPage, standardPageSize]);
 
   const pagedContractForms = useMemo(() => {
     const start = (safeContractPage - 1) * contractPageSize;
-    return filteredContractForms.slice(start, start + contractPageSize);
-  }, [filteredContractForms, safeContractPage, contractPageSize]);
+    return sortedContractForms.slice(start, start + contractPageSize);
+  }, [sortedContractForms, safeContractPage, contractPageSize]);
 
   if (!accessChecked || isLoading) {
     return (
@@ -507,6 +577,105 @@ export default function FormManagementPage() {
     </Card>
   );
 
+  const FormActions = ({ form }) => (
+    <>
+      <Link to={`${createPageUrl('FormBuilder')}?formId=${form.id}`}>
+        <Button variant="outline" size="sm" data-testid={`button-edit-${form.id}`}>
+          <Pencil className="w-3 h-3 mr-1" />
+          Edit
+        </Button>
+      </Link>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          setManualSubmissionForm(form);
+          setManualSubmissionOpen(true);
+        }}
+        title="Add manual submission"
+        data-testid={`button-manual-submission-${form.id}`}
+      >
+        <FilePlus className="w-3 h-3" />
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => handleDuplicate(form)}
+        disabled={duplicateFormMutation.isPending}
+        title="Duplicate form"
+        data-testid={`button-duplicate-${form.id}`}
+      >
+        <Copy className="w-3 h-3" />
+      </Button>
+      <Link to={`${createPageUrl('FormView')}?slug=${form.slug}`}>
+        <Button variant="outline" size="sm" title="View form" data-testid={`button-view-${form.id}`}>
+          <Eye className="w-3 h-3" />
+        </Button>
+      </Link>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          setDeletingForm(form);
+          setDeleteDialogOpen(true);
+        }}
+        title="Delete form"
+        data-testid={`button-delete-${form.id}`}
+      >
+        <Trash2 className="w-3 h-3" />
+      </Button>
+    </>
+  );
+
+  const FormRow = ({ form, isContract = false }) => (
+    <Card key={form.id} className="border-slate-200" data-testid={`form-row-${form.id}`}>
+      <CardContent className="p-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-slate-900 truncate" data-testid={`text-form-name-${form.id}`}>
+              {form.name}
+            </span>
+            {isContract ? (
+              <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
+                <FileSignature className="w-3 h-3 mr-1" />
+                Contract
+              </Badge>
+            ) : (
+              <Badge variant="outline">
+                {form.layout_type === 'card_swipe' ? 'Card Swipe' : 'Standard'}
+              </Badge>
+            )}
+            <Badge variant={form.is_active ? "default" : "secondary"}>
+              {form.is_active ? (
+                <>
+                  <Eye className="w-3 h-3 mr-1" />
+                  Active
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3 h-3 mr-1" />
+                  Inactive
+                </>
+              )}
+            </Badge>
+            {form.require_authentication && (
+              <Badge variant="secondary">Auth Required</Badge>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:justify-end">
+          <Link to={`${createPageUrl('FormSubmissions')}?formId=${form.id}`}>
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-slate-200" title="Submissions">
+              <BarChart3 className="w-3 h-3" />
+              {submissionCounts[form.id] || 0}
+            </Badge>
+          </Link>
+          <FormActions form={form} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -566,16 +735,28 @@ export default function FormManagementPage() {
                   isContract={false}
                   testIdPrefix="standard"
                   organizations={organizations}
+                  sortBy={sortBy}
+                  setSortBy={setSortBy}
+                  viewMode={viewMode}
+                  setViewMode={setViewMode}
                 />
                 {filteredStandardForms.length === 0 ? (
                   <NoMatchesState onClear={() => setStandardFilters(initialFilters)} isContract={false} />
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {pagedStandardForms.map(form => (
-                        <FormCard key={form.id} form={form} isContract={false} />
-                      ))}
-                    </div>
+                    {viewMode === 'list' ? (
+                      <div className="flex flex-col gap-3">
+                        {pagedStandardForms.map(form => (
+                          <FormRow key={form.id} form={form} isContract={false} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {pagedStandardForms.map(form => (
+                          <FormCard key={form.id} form={form} isContract={false} />
+                        ))}
+                      </div>
+                    )}
                     <PaginationBar
                       page={safeStandardPage}
                       setPage={setStandardPage}
@@ -615,16 +796,28 @@ export default function FormManagementPage() {
                   isContract={true}
                   testIdPrefix="contracts"
                   organizations={organizations}
+                  sortBy={sortBy}
+                  setSortBy={setSortBy}
+                  viewMode={viewMode}
+                  setViewMode={setViewMode}
                 />
                 {filteredContractForms.length === 0 ? (
                   <NoMatchesState onClear={() => setContractFilters(initialFilters)} isContract={true} />
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {pagedContractForms.map(form => (
-                        <FormCard key={form.id} form={form} isContract={true} />
-                      ))}
-                    </div>
+                    {viewMode === 'list' ? (
+                      <div className="flex flex-col gap-3">
+                        {pagedContractForms.map(form => (
+                          <FormRow key={form.id} form={form} isContract={true} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {pagedContractForms.map(form => (
+                          <FormCard key={form.id} form={form} isContract={true} />
+                        ))}
+                      </div>
+                    )}
                     <PaginationBar
                       page={safeContractPage}
                       setPage={setContractPage}
