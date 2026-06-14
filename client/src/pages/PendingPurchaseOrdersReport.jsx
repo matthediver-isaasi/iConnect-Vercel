@@ -52,6 +52,9 @@ export default function PendingPurchaseOrdersReport() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDays, setSelectedDays] = useState([]);
+  const [sendAfterDays, setSendAfterDays] = useState(7);
+  const [repeatEveryDays, setRepeatEveryDays] = useState(7);
+  const [maxSends, setMaxSends] = useState(3);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState(null);
@@ -125,6 +128,9 @@ export default function PendingPurchaseOrdersReport() {
   useEffect(() => {
     if (reminderSettings) {
       setSelectedDays(reminderSettings.reminderDays || []);
+      setSendAfterDays(reminderSettings.sendAfterDays ?? 7);
+      setRepeatEveryDays(reminderSettings.repeatEveryDays ?? 7);
+      setMaxSends(reminderSettings.maxSends ?? 3);
     }
   }, [reminderSettings]);
 
@@ -411,6 +417,9 @@ export default function PendingPurchaseOrdersReport() {
         body: JSON.stringify({
           action: 'save_settings',
           reminderDays: selectedDays,
+          sendAfterDays,
+          repeatEveryDays,
+          maxSends,
         }),
       });
 
@@ -785,6 +794,50 @@ export default function PendingPurchaseOrdersReport() {
                       {day.label}
                     </Button>
                   ))}
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="input-send-after-days">Send first reminder after (days)</Label>
+                  <Input
+                    id="input-send-after-days"
+                    type="number"
+                    min={1}
+                    value={sendAfterDays}
+                    onChange={(e) => setSendAfterDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    data-testid="input-send-after-days"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wait this many days after the invoice is raised before the first chase.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="input-repeat-every-days">Repeat every (days)</Label>
+                  <Input
+                    id="input-repeat-every-days"
+                    type="number"
+                    min={1}
+                    value={repeatEveryDays}
+                    onChange={(e) => setRepeatEveryDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    data-testid="input-repeat-every-days"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Minimum gap between chases for the same invoice.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="input-max-sends">Maximum reminders</Label>
+                  <Input
+                    id="input-max-sends"
+                    type="number"
+                    min={1}
+                    value={maxSends}
+                    onChange={(e) => setMaxSends(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    data-testid="input-max-sends"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Stop chasing an invoice after this many reminders.
+                  </p>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground" data-testid="text-reminder-template-info">

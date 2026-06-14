@@ -7,8 +7,9 @@ import {
   ensurePendingPoTokenTable,
   summariseInvoice,
   resolveReminderGreetingName,
+  computePendingPoInvoices,
+  prepareReminderForInvoice,
 } from '../_lib/pendingPoInvoice.js';
-import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
@@ -190,498 +191,41 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to fetch settings' });
         }
         
-        const settings = tenant?.settings?.poReminderSettings || {
-          reminderDays: [],
-        };
+        const settings = tenant?.settings?.poReminderSettings || {};
 
-        return res.json({ reminderDays: settings.reminderDays || [] });
-      }
-      
-      const { data: tenantOrgs, error: orgsError } = await supabase
-        .from('organization')
-        .select('id, name')
-        .eq('tenant_id', tenantId);
-      
-      if (orgsError) {
-        console.error('[PendingPO] Error fetching orgs:', orgsError);
-        return res.status(500).json({ error: 'Failed to fetch organizations' });
-      }
-      
-      const orgMap = {};
-      const tenantOrgIds = (tenantOrgs || []).map(o => {
-        orgMap[o.id] = o.name;
-        return o.id;
-      });
-      
-      if (tenantOrgIds.length === 0) {
-        return res.json({ records: [], organizations: {} });
-      }
-
-      // Paginated fetch helper. Supabase JS caps a single response at 1000 rows,
-      // so we page through results until we get a short page.
-      const PAGE_SIZE = 1000;
-      const paginationStats = {};
-      const fetchAllPages = async (label, buildQuery) => {
-        const all = [];
-        let from = 0;
-        let pageCount = 0;
-        while (true) {
-          const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
-          if (error) {
-            console.error(`[PendingPO] Error paginating ${label} (page ${pageCount}):`, error);
-            paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length, error: error.message };
-            throw error;
-          }
-          pageCount += 1;
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < PAGE_SIZE) break;
-          from += PAGE_SIZE;
-        }
-        console.log(`[PendingPO] Fetched ${all.length} ${label} rows across ${pageCount} page(s)`);
-        paginationStats[label] = { pagesFetched: pageCount, scannedRows: all.length };
-        return all;
-      };
-
-      // Push the report's filters down to the database so we don't get hit by the
-      // 1000-row default cap. Predicates:
-      //   - has invoice (xero_invoice_id OR xero_invoice_number not null)
-      //   - missing PO (purchase_order_number is null OR empty string)
-      //   - not cancelled
-      //   - transactions: transaction_type = 'purchase'
-      //   - bookings: payment_method = 'account' OR po_to_follow = true
-      const HAS_INVOICE_OR = 'xero_invoice_id.not.is.null,xero_invoice_number.not.is.null';
-      const MISSING_PO_OR = 'purchase_order_number.is.null,purchase_order_number.eq.';
-
-      let transactions;
-      try {
-        transactions = await fetchAllPages('program_ticket_transaction', () => supabase
-          .from('program_ticket_transaction')
-          .select('id, organization_id, program_name, xero_invoice_id, xero_invoice_number, xero_invoice_pdf_uri, created_date, quantity, total_cost_before_discount, member_email, transaction_type, status, purchase_order_number')
-          .in('organization_id', tenantOrgIds)
-          .eq('transaction_type', 'purchase')
-          .neq('status', 'cancelled')
-          .or(HAS_INVOICE_OR)
-          .or(MISSING_PO_OR)
-          .order('id', { ascending: true }));
-      } catch (txError) {
-        return res.status(500).json({ error: 'Failed to fetch transactions' });
-      }
-
-      let bookingsWithOrg;
-      try {
-        bookingsWithOrg = await fetchAllPages('booking (with org)', () => supabase
-          .from('booking')
-          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
-          .in('organization_id', tenantOrgIds)
-          .neq('status', 'cancelled')
-          .or('payment_method.eq.account,po_to_follow.eq.true')
-          .or(HAS_INVOICE_OR)
-          .or(MISSING_PO_OR)
-          .order('id', { ascending: true }));
-      } catch (bookingError) {
-        return res.status(500).json({ error: 'Failed to fetch bookings' });
-      }
-
-      let membersInTenant = [];
-      try {
-        membersInTenant = await fetchAllPages('member (tenant org members)', () => supabase
-          .from('member')
-          .select('id, organization_id')
-          .in('organization_id', tenantOrgIds)
-          .order('id', { ascending: true }));
-      } catch (memberError) {
-        // Non-fatal: we still return org-bound bookings/transactions
-        membersInTenant = [];
-      }
-
-      const memberIdsInTenant = membersInTenant.map(m => m.id);
-
-      let bookingsWithNullOrg = [];
-      if (memberIdsInTenant.length > 0) {
-        // Member id list can also be large; page through it in chunks to keep the
-        // .in() filter under sensible URL/length limits, and paginate each chunk.
-        const MEMBER_CHUNK = 500;
-        try {
-          for (let i = 0; i < memberIdsInTenant.length; i += MEMBER_CHUNK) {
-            const memberChunk = memberIdsInTenant.slice(i, i + MEMBER_CHUNK);
-            const chunkRows = await fetchAllPages(`booking (null org, member chunk ${i / MEMBER_CHUNK})`, () => supabase
-              .from('booking')
-              .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
-              .is('organization_id', null)
-              .in('member_id', memberChunk)
-              .neq('status', 'cancelled')
-              .or('payment_method.eq.account,po_to_follow.eq.true')
-              .or(HAS_INVOICE_OR)
-              .or(MISSING_PO_OR)
-              .order('id', { ascending: true }));
-            bookingsWithNullOrg.push(...chunkRows);
-          }
-        } catch (nullOrgErr) {
-          // Non-fatal — already logged inside fetchAllPages
-        }
-      }
-
-      const existingBookingIds = new Set((bookingsWithOrg || []).map(b => b.id));
-      const bookings = [
-        ...(bookingsWithOrg || []),
-        ...bookingsWithNullOrg.filter(b => !existingBookingIds.has(b.id))
-      ];
-
-      const eventIds = [...new Set((bookings || []).map(b => b.event_id).filter(Boolean))];
-      let eventMap = {};
-      if (eventIds.length > 0) {
-        const { data: events } = await supabase
-          .from('event')
-          .select('id, title')
-          .in('id', eventIds);
-        eventMap = (events || []).reduce((acc, e) => {
-          acc[e.id] = e.title;
-          return acc;
-        }, {});
-      }
-
-      const memberIds = [...new Set((bookings || []).map(b => b.member_id).filter(Boolean))];
-      let memberMap = {};
-      if (memberIds.length > 0) {
-        const { data: members } = await supabase
-          .from('member')
-          .select('id, email, organization_id')
-          .in('id', memberIds);
-        memberMap = (members || []).reduce((acc, m) => {
-          acc[m.id] = m;
-          return acc;
-        }, {});
-      }
-
-      const records = [];
-      
-      (transactions || []).forEach(t => {
-        const hasInvoice = (t.xero_invoice_id && t.xero_invoice_id.trim() !== '') || 
-                           (t.xero_invoice_number && t.xero_invoice_number.trim() !== '');
-        const missingPO = !t.purchase_order_number || t.purchase_order_number.trim() === '';
-        const isPurchase = t.transaction_type === 'purchase';
-        const isActive = t.status !== 'cancelled';
-        
-        if (hasInvoice && missingPO && isPurchase && isActive) {
-          records.push({
-            id: t.id,
-            entityType: 'transaction',
-            organization_id: t.organization_id,
-            source_name: t.program_name || 'Program',
-            source_type: 'Program',
-            xero_invoice_id: t.xero_invoice_id,
-            xero_invoice_number: t.xero_invoice_number,
-            xero_invoice_pdf_uri: t.xero_invoice_pdf_uri,
-            created_date: t.created_date,
-            quantity: t.quantity,
-            total_cost: t.total_cost_before_discount,
-            member_email: t.member_email,
-          });
-        }
-      });
-      
-      (bookings || []).forEach(b => {
-        const hasInvoice = (b.xero_invoice_id && b.xero_invoice_id.trim() !== '') || 
-                           (b.xero_invoice_number && b.xero_invoice_number.trim() !== '');
-        const missingPO = !b.purchase_order_number || b.purchase_order_number.trim() === '';
-        const isAccountPayment = b.payment_method === 'account' || b.po_to_follow === true;
-        const isActive = b.status !== 'cancelled';
-        
-        if (hasInvoice && missingPO && isAccountPayment && isActive) {
-          const member = memberMap[b.member_id];
-          const orgId = b.organization_id || member?.organization_id;
-          
-          records.push({
-            id: b.id,
-            entityType: 'booking',
-            organization_id: orgId,
-            source_name: eventMap[b.event_id] || 'Event',
-            source_type: 'Event',
-            xero_invoice_id: b.xero_invoice_id,
-            xero_invoice_number: b.xero_invoice_number,
-            xero_invoice_pdf_uri: null,
-            created_date: b.created_at,
-            quantity: 1,
-            total_cost: b.ticket_price,
-            member_email: b.attendee_email || member?.email,
-            booking_group_reference: b.booking_group_reference,
-          });
-        }
-      });
-
-      // Annotate each record with its current Xero status (PAID, AUTHORISED, etc.)
-      // so the UI can show a "Paid in Xero" badge. We deliberately no longer drop
-      // paid-in-Xero rows from the report — the report's purpose is to chase
-      // missing PO numbers regardless of payment state.
-      let xeroCheckPerformed = false;
-      let xeroError = null;
-      let paidCount = 0;
-      let voidedExcluded = 0;
-      let xeroPoBackfilled = 0;
-      let xeroPoExcluded = 0;
-
-      const invoiceIdsToCheck = [...new Set(records.map(r => r.xero_invoice_id).filter(Boolean))];
-
-      if (invoiceIdsToCheck.length > 0) {
-        try {
-          const _provider = await getAccountingProvider(tenantId);
-          const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
-
-          const xeroStatusById = new Map();
-          const xeroPoById = new Map();
-          const batchSize = 50;
-
-          // Treat Xero's `Reference` field as a PO when it looks like one rather
-          // than blindly accepting any free text. Pure whitespace, the literal
-          // strings "n/a"/"none"/"tbc"/"tbd" etc. should not auto-clear the row.
-          const looksLikePoReference = (raw) => {
-            if (!raw) return false;
-            const s = String(raw).trim();
-            if (!s) return false;
-            const lower = s.toLowerCase();
-            const blacklist = new Set([
-              'n/a', 'na', 'none', 'no po', 'no-po', 'nopo',
-              'tbc', 'tbd', 'pending', 'awaiting po', 'awaiting',
-              'po to follow', 'po-to-follow', 'tofollow', 'to follow',
-              '-', '--', '0',
-            ]);
-            if (blacklist.has(lower)) return false;
-            // Require at least one alphanumeric character.
-            return /[a-z0-9]/i.test(s);
-          };
-
-          for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
-            const batch = invoiceIdsToCheck.slice(i, i + batchSize);
-            const idsParam = batch.join(',');
-
-            const invoiceResponse = await fetch(
-              `https://api.xero.com/api.xro/2.0/Invoices?IDs=${encodeURIComponent(idsParam)}`,
-              {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'xero-tenant-id': xeroTenantId,
-                  'Accept': 'application/json'
-                }
-              }
-            );
-
-            if (invoiceResponse.ok) {
-              const invoiceData = await invoiceResponse.json();
-              const invoices = invoiceData.Invoices || [];
-              invoices.forEach(inv => {
-                if (inv.InvoiceID) {
-                  xeroStatusById.set(inv.InvoiceID, inv.Status || null);
-                  // Prefer Xero's first-class PurchaseOrderNumber field when
-                  // present, otherwise fall back to the free-form Reference
-                  // (which is where most of our customers actually type the PO).
-                  const candidate = (inv.PurchaseOrderNumber && String(inv.PurchaseOrderNumber).trim())
-                    || (inv.Reference && String(inv.Reference).trim())
-                    || null;
-                  if (candidate && looksLikePoReference(candidate)) {
-                    xeroPoById.set(inv.InvoiceID, candidate);
-                  }
-                }
-              });
-            } else {
-              console.error('[PendingPO] Xero batch fetch error:', invoiceResponse.status);
-            }
-          }
-
-          records.forEach(r => {
-            if (r.xero_invoice_id && xeroStatusById.has(r.xero_invoice_id)) {
-              r.xero_status = xeroStatusById.get(r.xero_invoice_id);
-            } else {
-              r.xero_status = null;
-            }
-          });
-
-          // Drop any record whose Xero invoice has been cancelled in Xero.
-          // We only filter when the Xero status was actually resolved — records
-          // with unresolved status (no token / API error / batch failure) are
-          // left in place since we cannot confirm they are voided.
-          for (let i = records.length - 1; i >= 0; i--) {
-            const status = records[i].xero_status;
-            if (status === 'VOIDED' || status === 'DELETED') {
-              records.splice(i, 1);
-              voidedExcluded += 1;
-            }
-          }
-
-          // Auto-clear records when Xero already shows a PO/Reference against
-          // the invoice. We backfill the local row's purchase_order_number so
-          // the row stays cleared on subsequent loads (and so other reports
-          // that key off this column see the value too), then drop the record
-          // from the response. Backfill is best-effort: failures are logged
-          // but do not block the response.
-          const bookingBackfills = [];
-          const transactionBackfills = [];
-          for (let i = records.length - 1; i >= 0; i--) {
-            const rec = records[i];
-            if (!rec.xero_invoice_id) continue;
-            const poFromXero = xeroPoById.get(rec.xero_invoice_id);
-            if (!poFromXero) continue;
-            if (rec.entityType === 'booking') {
-              bookingBackfills.push({ id: rec.id, po: poFromXero });
-            } else if (rec.entityType === 'transaction') {
-              transactionBackfills.push({ id: rec.id, po: poFromXero });
-            }
-            records.splice(i, 1);
-            xeroPoExcluded += 1;
-          }
-
-          const runBackfill = async (table, rows) => {
-            // Group ids by PO value so we can issue one UPDATE per distinct PO
-            // (typically one per row, but bookings sharing a Xero invoice will
-            // share a PO and collapse together).
-            const byPo = new Map();
-            rows.forEach(({ id, po }) => {
-              if (!byPo.has(po)) byPo.set(po, []);
-              byPo.get(po).push(id);
-            });
-            for (const [po, ids] of byPo) {
-              // Re-assert the "missing PO" predicate inside the UPDATE so we
-              // never clobber a value that another writer has set between our
-              // initial SELECT and this backfill. We also avoid no-op writes
-              // when the existing value already equals the Xero value.
-              const { data: updated, error } = await supabase
-                .from(table)
-                .update({ purchase_order_number: po })
-                .in('id', ids)
-                .or('purchase_order_number.is.null,purchase_order_number.eq.')
-                .select('id');
-              if (error) {
-                console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
-              } else {
-                xeroPoBackfilled += (updated || []).length;
-              }
-            }
-          };
-
-          if (bookingBackfills.length > 0) {
-            await runBackfill('booking', bookingBackfills);
-          }
-          if (transactionBackfills.length > 0) {
-            await runBackfill('program_ticket_transaction', transactionBackfills);
-          }
-
-          // Recompute paidCount from the post-filter set so the summary stays
-          // consistent with what we actually return.
-          records.forEach(r => {
-            if (r.xero_status === 'PAID') paidCount += 1;
-          });
-
-          xeroCheckPerformed = true;
-          console.log(`[PendingPO] Xero annotation: ${records.length} records after filter, ${paidCount} paid in Xero (kept in report), ${voidedExcluded} voided/deleted excluded, ${xeroPoExcluded} cleared via Xero PO/Reference (${xeroPoBackfilled} backfilled locally)`);
-        } catch (xeroErr) {
-          console.error('[PendingPO] Xero status check error:', xeroErr.message);
-          xeroError = xeroErr.message;
-          // Continue with un-annotated records if Xero check fails
-        }
-      }
-
-      // Consolidate per-row records into one entry per Xero invoice. Multiple
-      // bookings under a single invoice (common for multi-attendee event sign
-      // ups) collapse into a single card so the chase action is taken once
-      // per invoice, not once per attendee.
-      const invoiceKeyOf = (r) => {
-        if (r.xero_invoice_id) return `id:${r.xero_invoice_id}`;
-        if (r.xero_invoice_number) return `num:${r.xero_invoice_number}`;
-        return `row:${r.entityType}-${r.id}`;
-      };
-
-      const grouped = new Map();
-      records.forEach((r) => {
-        const key = invoiceKeyOf(r);
-        let g = grouped.get(key);
-        if (!g) {
-          g = {
-            id: key,
-            entityType: 'invoice',
-            organization_id: r.organization_id,
-            source_name: r.source_name,
-            source_type: r.source_type,
-            xero_invoice_id: r.xero_invoice_id || null,
-            xero_invoice_number: r.xero_invoice_number || null,
-            xero_invoice_pdf_uri: r.xero_invoice_pdf_uri || null,
-            xero_status: r.xero_status ?? null,
-            created_date: r.created_date || null,
-            quantity: 0,
-            total_cost: 0,
-            member_email: r.member_email || null,
-            booking_group_reference: r.booking_group_reference || null,
-            attendees: [],
-            items: [],
-            _sourceNames: new Set(),
-            _sourceTypes: new Set(),
-            _orgIds: new Set(),
-          };
-          grouped.set(key, g);
-        }
-        g.quantity += Number(r.quantity) || 0;
-        g.total_cost += Number(r.total_cost) || 0;
-        if (r.created_date) {
-          if (!g.created_date || new Date(r.created_date) < new Date(g.created_date)) {
-            g.created_date = r.created_date;
-          }
-        }
-        if (!g.xero_invoice_pdf_uri && r.xero_invoice_pdf_uri) {
-          g.xero_invoice_pdf_uri = r.xero_invoice_pdf_uri;
-        }
-        if (r.source_name) g._sourceNames.add(r.source_name);
-        if (r.source_type) g._sourceTypes.add(r.source_type);
-        if (r.organization_id) g._orgIds.add(r.organization_id);
-        g.attendees.push({
-          email: r.member_email || null,
-          source_name: r.source_name || null,
-          entityType: r.entityType,
-          id: r.id,
+        return res.json({
+          reminderDays: settings.reminderDays || [],
+          sendAfterDays: Number.isInteger(settings.sendAfterDays) ? settings.sendAfterDays : 7,
+          repeatEveryDays: Number.isInteger(settings.repeatEveryDays) ? settings.repeatEveryDays : 7,
+          maxSends: Number.isInteger(settings.maxSends) ? settings.maxSends : 3,
         });
-        g.items.push({ entityType: r.entityType, id: r.id });
-      });
+      }
+      
+      let computed;
+      try {
+        computed = await computePendingPoInvoices({ client: supabase, tenantId });
+      } catch (computeError) {
+        console.error('[PendingPO] Failed to compute pending invoices:', computeError);
+        return res.status(500).json({ error: 'Failed to load pending purchase orders' });
+      }
 
-      const consolidatedRecords = [];
-      grouped.forEach((g) => {
-        if (g._sourceNames.size > 1) {
-          g.source_name = `${g._sourceNames.size} items`;
-        }
-        if (g._sourceTypes.size > 1) {
-          g.source_type = 'Mixed';
-        }
-        // If the constituent rows span more than one organisation we leave
-        // organization_id at the first-seen value (the UI will still show one
-        // org name). This is rare in practice — invoices are per-org.
-        delete g._sourceNames;
-        delete g._sourceTypes;
-        delete g._orgIds;
-        consolidatedRecords.push(g);
-      });
-
-      // Recompute paidCount against the consolidated set so the header badge
-      // reflects distinct invoices, not constituent bookings.
-      paidCount = consolidatedRecords.reduce(
-        (n, r) => n + (r.xero_status === 'PAID' ? 1 : 0),
-        0,
-      );
-
-      console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${consolidatedRecords.length} invoices (${records.length} rows, ${transactions.length} tx + ${bookings.length} bookings scanned), xeroChecked=${xeroCheckPerformed}, paidInXero=${paidCount}`);
+      console.log(`[PendingPO] Report ready for tenant ${tenantId}: ${computed.records.length} invoices, xeroChecked=${computed.xeroCheckPerformed}, paidInXero=${computed.paidInXero}`);
 
       return res.json({
-        records: consolidatedRecords,
-        organizations: orgMap,
-        xeroCheckPerformed,
-        xeroError,
-        totalBeforeFilter: records.length,
+        records: computed.records,
+        organizations: computed.orgMap,
+        xeroCheckPerformed: computed.xeroCheckPerformed,
+        xeroError: computed.xeroError,
+        totalBeforeFilter: computed.totalBeforeFilter,
         // Kept for backward compatibility with the existing UI badge.
         // We no longer drop paid invoices, so this is always 0 when annotation
         // succeeds. `paidInXero` exposes the new annotated count.
         paidExcluded: 0,
-        paidInXero: paidCount,
-        voidedExcluded,
-        xeroPoExcluded,
-        xeroPoBackfilled,
-        pagination: paginationStats,
+        paidInXero: computed.paidInXero,
+        voidedExcluded: computed.voidedExcluded,
+        xeroPoExcluded: computed.xeroPoExcluded,
+        xeroPoBackfilled: computed.xeroPoBackfilled,
+        pagination: computed.pagination,
       });
       
     } else if (req.method === 'POST') {
@@ -695,6 +239,17 @@ export default async function handler(req, res) {
         }
         
         const validDays = reminderDays.filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+
+        // Frequency settings. Coerce to positive integers, fall back to sensible
+        // defaults when missing/invalid so the saved object always round-trips.
+        const { sendAfterDays, repeatEveryDays, maxSends } = req.body;
+        const toPositiveInt = (value, fallback) => {
+          const n = Number(value);
+          return Number.isFinite(n) && Number.isInteger(n) && n >= 1 ? n : fallback;
+        };
+        const validSendAfterDays = toPositiveInt(sendAfterDays, 7);
+        const validRepeatEveryDays = toPositiveInt(repeatEveryDays, 7);
+        const validMaxSends = toPositiveInt(maxSends, 3);
         
         // Get current tenant settings
         const { data: tenant, error: fetchError } = await supabase
@@ -713,6 +268,9 @@ export default async function handler(req, res) {
           ...currentSettings,
           poReminderSettings: {
             reminderDays: validDays,
+            sendAfterDays: validSendAfterDays,
+            repeatEveryDays: validRepeatEveryDays,
+            maxSends: validMaxSends,
             emailTemplateId: null,
           }
         };
@@ -730,152 +288,6 @@ export default async function handler(req, res) {
         return res.json({ success: true, settings: updatedSettings.poReminderSettings });
       }
       
-      // Shared helper: run all guardrails, resolve recipient, mint token, and
-      // build the rendered email for an invoice. Used by both preview_reminder
-      // and the legacy single-shot send_reminder path.
-      const prepareReminderForInvoice = async (recordId) => {
-        const summary = await summariseInvoice(supabase, tenantId, recordId);
-        if (!summary || summary.rowCount === 0) {
-          return { ok: false, status: 404, error: 'Invoice not found for this tenant' };
-        }
-        if (summary.existingPoNumber) {
-          return { ok: false, status: 400, error: 'A purchase order number has already been recorded for this invoice.' };
-        }
-
-        // Check if invoice is already paid in Xero before sending/previewing reminder
-        if (summary.xeroInvoiceId) {
-          try {
-            const _provider = await getAccountingProvider(tenantId);
-            const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(tenantId);
-            const invoiceResponse = await fetch(
-              `https://api.xero.com/api.xro/2.0/Invoices/${summary.xeroInvoiceId}`,
-              {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'xero-tenant-id': xeroTenantId,
-                  'Accept': 'application/json'
-                }
-              }
-            );
-            if (invoiceResponse.ok) {
-              const invoiceData = await invoiceResponse.json();
-              const invoice = invoiceData.Invoices?.[0];
-              if (invoice?.Status === 'PAID') {
-                return {
-                  ok: false,
-                  status: 400,
-                  error: 'Cannot send reminder - this invoice has already been paid in Xero'
-                };
-              }
-            }
-          } catch (xeroErr) {
-            console.error('[PendingPO] Xero check error for reminder:', xeroErr.message);
-            // Continue if Xero check fails - we still want to allow manual reminders
-          }
-        }
-
-        // Resolve recipient: organisation's primary contact (tenant-scoped via
-        // organizationId returned from the scoped summary). Fallback uses the
-        // booker emails collected by summariseInvoice — those rows are also
-        // already tenant-scoped, so this never leaks across tenants.
-        let recipientEmail = null;
-        if (summary.organizationId) {
-          const { data: orgContacts } = await supabase
-            .from('member')
-            .select('email')
-            .eq('organization_id', summary.organizationId)
-            .eq('is_primary_contact', true)
-            .limit(1);
-          recipientEmail = orgContacts?.[0]?.email || null;
-        }
-        if (!recipientEmail && summary.bookerEmails && summary.bookerEmails.length > 0) {
-          recipientEmail = summary.bookerEmails[0];
-        }
-
-        if (!recipientEmail) {
-          return { ok: false, status: 400, error: 'No recipient email found for this invoice' };
-        }
-
-        // Mint a one-time submit-PO token for this invoice
-        await ensurePendingPoTokenTable();
-        const submitToken = crypto.randomBytes(32).toString('hex');
-        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        const { error: tokenInsertError } = await supabase
-          .from('pending_po_token')
-          .insert({
-            token: submitToken,
-            tenant_id: tenantId,
-            invoice_key: recordId,
-            status: 'pending',
-            recipient_email: recipientEmail,
-            expires_at: expiresAt.toISOString(),
-          });
-        if (tokenInsertError) {
-          console.error('[PendingPO] Token insert error:', tokenInsertError);
-          return { ok: false, status: 500, error: 'Failed to create submit link' };
-        }
-
-        const { data: tenant } = await supabase
-          .from('tenant')
-          .select('name, slug, primary_color')
-          .eq('id', tenantId)
-          .single();
-
-        const tenantSlug = tenant?.slug;
-        const tenantName = tenant?.name || 'Organisation';
-        const primaryColor = tenant?.primary_color || '#5C0085';
-        const submitUrl = tenantSlug
-          ? `https://${tenantSlug}.${APP_DOMAIN}/submit-po/${submitToken}`
-          : `https://${APP_DOMAIN}/submit-po/${submitToken}`;
-
-        const invoiceDateText = summary.invoiceDate
-          ? new Date(summary.invoiceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-          : 'N/A';
-        const totalText = `\u00a3${Number(summary.totalCost || 0).toFixed(2)}`;
-        const greetingName = await resolveReminderGreetingName(supabase, summary);
-        const invoiceNumber = summary.invoiceNumber || 'N/A';
-        const sourceLine = summary.sourceName
-          ? `${summary.sourceType ? summary.sourceType + ': ' : ''}${summary.sourceName}`
-          : '';
-
-        const subject = `Purchase order required for invoice ${invoiceNumber}`;
-        const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
-              <h2 style="color: ${primaryColor}; margin-top: 0;">Purchase Order Required</h2>
-              <p>Dear ${greetingName},</p>
-              <p>The following invoice from <strong>${tenantName}</strong> is awaiting a purchase order number:</p>
-              <div style="background: #f9f9f9; padding: 16px; border-radius: 6px; margin: 16px 0;">
-                <table style="width: 100%; border-collapse: collapse;">
-                  <tr><td style="padding: 4px 0; color: #666;">Invoice Number</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceNumber}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #666;">Invoice Date</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${invoiceDateText}</td></tr>
-                  ${sourceLine ? `<tr><td style="padding: 4px 0; color: #666;">${summary.sourceType || 'For'}</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.sourceName}</td></tr>` : ''}
-                  ${summary.bookerNameDisplay ? `<tr><td style="padding: 4px 0; color: #666;">Booked by</td><td style="padding: 4px 0; text-align: right; font-weight: 600;">${summary.bookerNameDisplay}</td></tr>` : ''}
-                  <tr><td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td></tr>
-                  <tr><td style="padding: 4px 0; color: #333; font-weight: 600;">Total</td><td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${totalText}</td></tr>
-                </table>
-              </div>
-              <p>Please use the secure link below to submit your purchase order number. The PO number will be applied to this invoice and forwarded to our accounting system automatically.</p>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="${submitUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">Submit Purchase Order Number</a>
-              </div>
-              <p style="color: #999; font-size: 12px;">This link expires on ${expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
-            </div>
-            <p style="color: #999; font-size: 11px; text-align: center; margin-top: 16px;">${tenantName}</p>
-          </div>
-        `;
-
-        return {
-          ok: true,
-          recipientEmail,
-          subject,
-          html,
-          submitUrl,
-          token: submitToken,
-          expiresAt: expiresAt.toISOString(),
-        };
-      };
 
       // Handle preview_reminder — runs all guardrails, mints the token, and
       // returns the rendered email so the UI can show it before the user
@@ -890,7 +302,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
         }
 
-        const prepared = await prepareReminderForInvoice(recordId);
+        const prepared = await prepareReminderForInvoice({ client: supabase, tenantId, invoiceKey: recordId });
         if (!prepared.ok) {
           return res.status(prepared.status).json({ error: prepared.error });
         }
@@ -1023,7 +435,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Reminders can only be sent for consolidated invoices' });
         }
 
-        const prepared = await prepareReminderForInvoice(recordId);
+        const prepared = await prepareReminderForInvoice({ client: supabase, tenantId, invoiceKey: recordId });
         if (!prepared.ok) {
           return res.status(prepared.status).json({ error: prepared.error });
         }
