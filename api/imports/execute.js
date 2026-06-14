@@ -3,6 +3,11 @@ import { getSession } from '../_lib/session.js';
 import { parseMultipartForm } from '../_lib/multipart.js';
 import { parseImportFile } from '../_lib/importFileParser.js';
 
+// How long a single invocation is allowed to spend processing rows before it
+// stops and asks the client to continue from the returned cursor. Kept well
+// under the 60s function ceiling to leave room for parsing + final writes.
+const CHUNK_TIME_BUDGET_MS = 40000;
+
 // Parse boolean values (true/false/yes/no) case-insensitively
 function parseBoolean(value) {
   if (value === null || value === undefined) return null;
@@ -107,22 +112,36 @@ async function startImportJob({ tenantId, entityType, fileName, totalRows, mappi
   }
 }
 
-async function finishImportJob(jobId, { created = 0, updated = 0, errors = 0, errorLog = [] } = {}) {
+// Persist running progress to the job row. Counts are CUMULATIVE across chunks
+// (the client carries the running totals and re-sends them, the server adds the
+// chunk deltas before calling this). `newErrors` are this chunk's errors, which
+// are appended to the existing list (capped) so the final record keeps a sample
+// from every chunk. Best-effort: never abort the import on a logging failure.
+async function updateImportJobProgress(jobId, { created = 0, updated = 0, errors = 0, newErrors = [], done = false } = {}) {
   if (!jobId) return;
   try {
     const processed = created + updated;
+    const update = {
+      status: done ? (errors > 0 ? 'completed_with_errors' : 'completed') : 'running',
+      processed_count: processed,
+      success_count: processed,
+      created_count: created,
+      updated_count: updated,
+      error_count: errors,
+      updated_at: new Date().toISOString(),
+    };
+    if (Array.isArray(newErrors) && newErrors.length > 0) {
+      const { data: existing } = await supabase
+        .from('csv_import_job')
+        .select('errors')
+        .eq('id', jobId)
+        .single();
+      const prev = Array.isArray(existing?.errors) ? existing.errors : [];
+      update.errors = prev.concat(newErrors).slice(0, 100);
+    }
     await supabase
       .from('csv_import_job')
-      .update({
-        status: errors > 0 ? 'completed_with_errors' : 'completed',
-        processed_count: processed,
-        success_count: processed,
-        created_count: created,
-        updated_count: updated,
-        error_count: errors,
-        errors: Array.isArray(errorLog) ? errorLog.slice(0, 100) : [],
-        updated_at: new Date().toISOString(),
-      })
+      .update(update)
       .eq('id', jobId);
   } catch (e) {
     console.log('[Import] Could not update job record:', e.message);
@@ -171,7 +190,14 @@ export default async function handler(req, res) {
     });
   }
   
+  // The cursor + running totals are carried by the client across chunk calls.
+  // Declared in the outer scope so the catch handler can mark the right job
+  // record as failed.
   let jobId = null;
+  let offset = 0;
+  const chunkStartTime = Date.now();
+  const timeBudgetReached = () => Date.now() - chunkStartTime > CHUNK_TIME_BUDGET_MS;
+
   try {
     const { file, fields } = await parseMultipartForm(req);
     
@@ -185,6 +211,22 @@ export default async function handler(req, res) {
     if (!entityType || !identifierField || !mappings.length) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // Resumable cursor + running totals. The client re-sends the (already held)
+    // file each chunk along with the prior response's offset, jobId, and totals
+    // so each invocation processes only a time-budgeted slice of rows.
+    offset = Math.max(0, parseInt(fields.offset, 10) || 0);
+    const incomingJobId = fields.jobId || null;
+    // Once the SQL fast path has fallen back to the JS path, the client echoes
+    // `forcePath=js` so every later chunk stays on the JS path (the path choice
+    // must be stable across chunks or a later chunk could re-pick the failing
+    // SQL path mid-run).
+    const forceJsPath = fields.forcePath === 'js';
+    let runningCreated = Math.max(0, parseInt(fields.created, 10) || 0);
+    let runningUpdated = Math.max(0, parseInt(fields.updated, 10) || 0);
+    let runningSkipped = Math.max(0, parseInt(fields.skipped, 10) || 0);
+    let runningErrors = Math.max(0, parseInt(fields.errors, 10) || 0);
+    let runningNotes = Math.max(0, parseInt(fields.notesCreated, 10) || 0);
     
     // The identifier column must be mapped for both the fast and JS paths.
     // Validate before we create a job record so we never leave a dangling
@@ -196,21 +238,25 @@ export default async function handler(req, res) {
     
     const { records, isXlsx } = await parseImportFile(file);
     
-    console.log(`[Import] Parsed ${records.length} rows (${isXlsx ? 'xlsx' : 'csv'})`);
+    console.log(`[Import] Parsed ${records.length} rows (${isXlsx ? 'xlsx' : 'csv'}), resuming from offset ${offset}`);
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
     
-    // Record this run up-front so it appears in the "Recent Imports" panel and
-    // its mapping can be reused later. Shared by both the SQL fast path and the
-    // JS path so there is exactly one job row per import.
-    jobId = await startImportJob({
-      tenantId: importTenantId,
-      entityType,
-      fileName: file.originalname || 'import.csv',
-      totalRows: records.length,
-      mappings,
-      identifierField,
-    });
+    // Record this run up-front (first chunk only) so it appears in the "Recent
+    // Imports" panel and its mapping can be reused later. Later chunks reuse the
+    // same job id so there is exactly one job row per import.
+    if (incomingJobId) {
+      jobId = incomingJobId;
+    } else {
+      jobId = await startImportJob({
+        tenantId: importTenantId,
+        entityType,
+        fileName: file.originalname || 'import.csv',
+        totalRows: records.length,
+        mappings,
+        identifierField,
+      });
+    }
     
     // The SQL fast path only persists this fixed set of fields. Any mapping
     // outside this set (biography, social URLs, login flags, external_id, and
@@ -224,25 +270,18 @@ export default async function handler(req, res) {
       (m) => !m.targetField || SQL_FASTPATH_FIELDS.has(m.targetField)
     );
 
-    // For member imports with email identifier, try using the SQL function (much faster)
-    if (entityType === 'member' && identifierField === 'email' && allMappingsFastPathSafe) {
+    // Set to true only if the SQL function fails on the very first batch and we
+    // fall back to the JS path. Surfaced to the client so later chunks stay on
+    // the JS path.
+    let firstBatchRpcFailed = false;
+
+    // For member imports with email identifier, use the SQL function (much faster).
+    if (!forceJsPath && entityType === 'member' && identifierField === 'email' && allMappingsFastPathSafe) {
       console.log('[Import] Attempting SQL function import...');
       
-      // Debug: Log all mappings to see what we're working with
-      console.log('[Import] All mappings:', JSON.stringify(mappings, null, 2));
-      
-      // Find created_on mapping specifically for debugging
-      const createdOnMapping = mappings.find(m => m.targetField === 'created_on');
-      if (createdOnMapping) {
-        console.log('[Import] created_on mapping found:', JSON.stringify(createdOnMapping));
-        console.log('[Import] created_on mapping targetType:', createdOnMapping.targetType);
-        console.log('[Import] created_on mapping dateFormat:', createdOnMapping.dateFormat);
-      } else {
-        console.log('[Import] WARNING: No created_on mapping found in mappings!');
-      }
-      
-      // Collect notes by email (lowercase) for creation after SQL RPC
-      // Use array to support multiple notes per email
+      // Collect notes by email (lowercase) for creation after the final SQL
+      // batch. Rebuilt every chunk (cheap, in-memory) but only inserted once,
+      // on the chunk that finishes the import.
       const notesByEmail = new Map();
       
       // Transform records to the format expected by the SQL function
@@ -259,24 +298,10 @@ export default async function handler(req, res) {
             value = String(value).trim();
           }
           
-          // Debug: Log created_on specifically before parsing
-          if (mapping.targetField === 'created_on' && index < 3) {
-            console.log(`[Import] Row ${index} created_on RAW value from CSV: "${value}"`);
-            console.log(`[Import] Row ${index} created_on targetType: "${mapping.targetType}", dateFormat: "${mapping.dateFormat}"`);
-          }
-          
           // Parse dates if needed
           if (value && mapping.targetType === 'date' && mapping.dateFormat) {
             const parsed = parseDate(value, mapping.dateFormat);
-            
-            // Debug: Log date parsing for created_on
-            if (mapping.targetField === 'created_on' && index < 3) {
-              console.log(`[Import] Row ${index} created_on PARSED value: "${parsed}"`);
-            }
-            
             if (parsed) value = parsed;
-          } else if (mapping.targetField === 'created_on' && index < 3) {
-            console.log(`[Import] Row ${index} created_on SKIPPED parsing - targetType: "${mapping.targetType}", dateFormat: "${mapping.dateFormat}", value: "${value}"`);
           }
           
           // Capture note content for later creation
@@ -318,165 +343,190 @@ export default async function handler(req, res) {
         return record;
       });
       
-      // Count total notes collected
-      let totalNotesCollected = 0;
-      for (const notes of notesByEmail.values()) {
-        totalNotesCollected += notes.length;
-      }
-      console.log(`[Import] Notes collected: ${totalNotesCollected} notes for ${notesByEmail.size} members`);
-      
-      // Debug: Log first 3 records to verify created_on is set
-      console.log('[Import] First 3 batch records created_on values:');
-      for (let i = 0; i < Math.min(3, batch.length); i++) {
-        console.log(`[Import] Record ${i} created_on: "${batch[i].created_on}"`);
-      }
-      
-      // Process in batches of 1000 to avoid memory issues
+      // Process SQL batches resumably: start at the cursor and stop before the
+      // time budget; the client loops until done.
       const SQL_BATCH_SIZE = 1000;
-      let totalCreated = 0;
-      let totalUpdated = 0;
-      let totalSkipped = 0;
-      let totalErrors = 0;
-      
-      // Debug: log first record to verify data structure
-      if (batch.length > 0) {
-        console.log('[Import] Sample record:', JSON.stringify(batch[0]));
+      let chunkCreated = 0;
+      let chunkUpdated = 0;
+      let chunkSkipped = 0;
+      let chunkErrors = 0;
+
+      if (offset === 0 && batch.length > 0) {
         const withEmails = batch.filter(r => r.email && r.email.trim());
         console.log(`[Import] Records with emails: ${withEmails.length} of ${batch.length}`);
       }
-      
-      for (let i = 0; i < batch.length; i += SQL_BATCH_SIZE) {
+
+      let sqlOffset = offset;
+      let sqlDone = false;
+      for (let i = offset; i < batch.length; i += SQL_BATCH_SIZE) {
+        // Always process at least one batch per invocation, then respect budget.
+        if (i > offset && timeBudgetReached()) break;
+
         const chunk = batch.slice(i, i + SQL_BATCH_SIZE);
         console.log(`[Import] SQL batch ${i + 1}-${Math.min(i + SQL_BATCH_SIZE, batch.length)} of ${batch.length}`);
-        
+
         const { data, error } = await supabase.rpc('process_member_import_batch', {
           batch: chunk,
           p_tenant_id: importTenantId
         });
-        
-        console.log(`[Import] RPC response:`, JSON.stringify({ data, error }));
-        
+
         if (error) {
-          console.log(`[Import] SQL function failed: ${error.message}, falling back to JS...`);
-          break; // Fall through to JS implementation
+          // Only safe to fall back to the JS path when nothing has been imported
+          // yet for the whole run (very first batch of the very first chunk).
+          if (i === 0) {
+            console.log(`[Import] SQL function failed: ${error.message}, falling back to JS...`);
+            firstBatchRpcFailed = true;
+            break;
+          }
+          throw new Error(`Import failed mid-run (SQL batch at row ${i + 1}): ${error.message}`);
         }
-        
+
         if (data) {
-          totalCreated += data.created || 0;
-          totalUpdated += data.updated || 0;
-          totalSkipped += data.skipped || 0;
-          totalErrors += data.errors || 0;
+          chunkCreated += data.created || 0;
+          chunkUpdated += data.updated || 0;
+          chunkSkipped += data.skipped || 0;
+          chunkErrors += data.errors || 0;
           if (data.first_error) {
             console.log(`[Import] First error in batch: ${data.first_error}`);
           }
         }
-        
-        // If we processed all batches successfully, handle notes then return
-        if (i + SQL_BATCH_SIZE >= batch.length) {
-          console.log(`[Import] SQL function complete: ${totalCreated} created, ${totalUpdated} updated`);
-          
-          // Create member notes if any were collected
-          let notesCreated = 0;
-          if (notesByEmail.size > 0) {
-            console.log(`[Import] Creating notes for ${notesByEmail.size} members...`);
-            
-            // Fetch member IDs by their emails
-            const emailsWithNotes = Array.from(notesByEmail.keys());
-            const { data: membersWithNotes, error: memberLookupError } = await supabase
-              .from('member')
-              .select('id, email')
-              .eq('tenant_id', importTenantId)
-              .not('email', 'is', null);
-            
-            if (memberLookupError) {
-              console.log(`[Import] Error fetching members for notes: ${memberLookupError.message}`);
-            } else if (membersWithNotes) {
-              // Build lowercase email -> member ID map
-              const memberIdByEmail = new Map();
-              membersWithNotes.forEach(m => {
-                if (m.email) {
-                  memberIdByEmail.set(m.email.toLowerCase().trim(), m.id);
-                }
-              });
-              
-              // Create notes for members we found (support multiple notes per member)
-              const notesToInsert = [];
-              for (const [emailLower, noteContents] of notesByEmail) {
-                const memberId = memberIdByEmail.get(emailLower);
-                if (memberId) {
-                  for (const noteContent of noteContents) {
-                    notesToInsert.push({
-                      target_member_id: memberId,
-                      author_member_id: session.data.memberId,
-                      content: noteContent,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString()
-                    });
-                  }
+
+        sqlOffset = i + SQL_BATCH_SIZE;
+        if (sqlOffset >= batch.length) sqlDone = true;
+      }
+
+      if (!firstBatchRpcFailed) {
+        runningCreated += chunkCreated;
+        runningUpdated += chunkUpdated;
+        runningSkipped += chunkSkipped;
+        runningErrors += chunkErrors;
+
+        if (!sqlDone) {
+          // More batches remain — persist progress and ask the client to continue.
+          await updateImportJobProgress(jobId, {
+            created: runningCreated,
+            updated: runningUpdated,
+            errors: runningErrors,
+            done: false,
+          });
+          return res.json({
+            success: true,
+            done: false,
+            jobId,
+            offset: Math.min(sqlOffset, records.length),
+            created: runningCreated,
+            updated: runningUpdated,
+            skipped: runningSkipped,
+            errors: runningErrors,
+            notesCreated: runningNotes,
+            totalRows: records.length,
+          });
+        }
+
+        // Final SQL chunk: create any collected notes, finalize and return.
+        console.log(`[Import] SQL function complete: ${runningCreated} created, ${runningUpdated} updated`);
+
+        let notesCreated = 0;
+        if (notesByEmail.size > 0) {
+          console.log(`[Import] Creating notes for ${notesByEmail.size} members...`);
+
+          const { data: membersWithNotes, error: memberLookupError } = await supabase
+            .from('member')
+            .select('id, email')
+            .eq('tenant_id', importTenantId)
+            .not('email', 'is', null);
+
+          if (memberLookupError) {
+            console.log(`[Import] Error fetching members for notes: ${memberLookupError.message}`);
+          } else if (membersWithNotes) {
+            const memberIdByEmail = new Map();
+            membersWithNotes.forEach(m => {
+              if (m.email) {
+                memberIdByEmail.set(m.email.toLowerCase().trim(), m.id);
+              }
+            });
+
+            const notesToInsert = [];
+            for (const [emailLower, noteContents] of notesByEmail) {
+              const memberId = memberIdByEmail.get(emailLower);
+              if (memberId) {
+                for (const noteContent of noteContents) {
+                  notesToInsert.push({
+                    target_member_id: memberId,
+                    author_member_id: session.data.memberId,
+                    content: noteContent,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  });
                 }
               }
-              
-              if (notesToInsert.length > 0) {
-                console.log(`[Import] Inserting ${notesToInsert.length} member notes...`);
-                const { error: notesError } = await supabase
-                  .from('member_note')
-                  .insert(notesToInsert);
-                
-                if (notesError) {
-                  console.log(`[Import] Failed to create member notes: ${notesError.message}`);
-                } else {
-                  notesCreated = notesToInsert.length;
-                  console.log(`[Import] Created ${notesCreated} member notes successfully`);
-                }
+            }
+
+            if (notesToInsert.length > 0) {
+              console.log(`[Import] Inserting ${notesToInsert.length} member notes...`);
+              const { error: notesError } = await supabase
+                .from('member_note')
+                .insert(notesToInsert);
+
+              if (notesError) {
+                console.log(`[Import] Failed to create member notes: ${notesError.message}`);
+              } else {
+                notesCreated = notesToInsert.length;
+                console.log(`[Import] Created ${notesCreated} member notes successfully`);
               }
             }
           }
-          
-          await finishImportJob(jobId, {
-            created: totalCreated,
-            updated: totalUpdated,
-            errors: totalErrors,
-          });
-          
-          return res.json({
-            success: true,
-            created: totalCreated,
-            updated: totalUpdated,
-            skipped: totalSkipped,
-            errors: totalErrors,
-            notesCreated,
-            summary: {
-              totalRows: records.length,
-              processedRows: totalCreated + totalUpdated,
-              createdRows: totalCreated,
-              updatedRows: totalUpdated,
-              skippedRows: totalSkipped,
-              errorRows: totalErrors,
-              notesCreated
-            }
-          });
         }
+        runningNotes += notesCreated;
+
+        await updateImportJobProgress(jobId, {
+          created: runningCreated,
+          updated: runningUpdated,
+          errors: runningErrors,
+          done: true,
+        });
+
+        return res.json({
+          success: true,
+          done: true,
+          jobId,
+          offset: records.length,
+          created: runningCreated,
+          updated: runningUpdated,
+          skipped: runningSkipped,
+          errors: runningErrors,
+          notesCreated: runningNotes,
+          summary: {
+            totalRows: records.length,
+            processedRows: runningCreated + runningUpdated,
+            createdRows: runningCreated,
+            updatedRows: runningUpdated,
+            skippedRows: runningSkipped,
+            errorRows: runningErrors,
+            notesCreated: runningNotes
+          }
+        });
       }
+      // else: firstBatchRpcFailed at offset 0 — fall through to the JS path.
     }
     
     console.log('[Import] Using JavaScript import...');
+    // Surfaced to the client so that, once we are on the JS path (either by
+    // mapping shape or by SQL fallback), every later chunk stays on it.
+    const jsPathHint = (forceJsPath || firstBatchRpcFailed) ? 'js' : null;
+
     const customValueTable = entityType === 'organization' 
       ? 'organization_preference_value' 
       : 'member_preference_value';
     const entityIdField = entityType === 'organization' ? 'organization_id' : 'member_id';
     
-    // Extract all identifier values for batch lookup
-    const identifierValues = records
-      .map(row => row[identifierMapping.sourceColumn]?.trim())
-      .filter(v => v);
-    
     // For email field, normalize to lowercase for case-insensitive matching
     const isEmailIdentifier = identifierField === 'email';
-    const normalizedIdentifierValues = isEmailIdentifier 
-      ? identifierValues.map(v => v.toLowerCase())
-      : identifierValues;
     
-    // Batch fetch all existing entities
+    // --- Per-invocation setup: existing entities, roles, orgs --------------
+    // Re-built every chunk. Because each chunk does a fresh fetch, rows inserted
+    // by earlier chunks are visible here, so cross-chunk de-duplication works
+    // naturally (a member created in chunk 1 is updated, not re-created, later).
     console.log(`[Import] Batch fetching existing records... (case-insensitive: ${isEmailIdentifier})`);
     
     let existingEntities = [];
@@ -495,11 +545,14 @@ export default async function handler(req, res) {
       }
       existingEntities = data || [];
     } else {
+      const allIdentifierValues = records
+        .map(row => row[identifierMapping.sourceColumn]?.trim())
+        .filter(v => v);
       const { data } = await supabase
         .from(tableName)
         .select('id, ' + identifierField)
         .eq('tenant_id', importTenantId)
-        .in(identifierField, identifierValues);
+        .in(identifierField, allIdentifierValues);
       existingEntities = data || [];
     }
     
@@ -513,10 +566,10 @@ export default async function handler(req, res) {
     });
     console.log(`[Import] Found ${existingMap.size} existing records`);
     
-    let createdRows = 0;
-    let updatedRows = 0;
-    let skippedRows = 0;
-    let errorRows = 0;
+    let chunkCreated = 0;
+    let chunkUpdated = 0;
+    let chunkSkipped = 0;
+    let chunkErrors = 0;
     const errorLog = [];
     const notesToCreate = [];
     const memberNotesToCreate = [];
@@ -561,10 +614,14 @@ export default async function handler(req, res) {
       }
     }
     
-    // Process records in batches
+    // Process a time-budgeted slice of rows starting from the cursor.
     const BATCH_SIZE = 50;
+    let sliceEnd = offset;
     
-    for (let batchStart = 0; batchStart < records.length; batchStart += BATCH_SIZE) {
+    for (let batchStart = offset; batchStart < records.length; batchStart += BATCH_SIZE) {
+      // Always process at least one batch per invocation, then respect budget.
+      if (batchStart > offset && timeBudgetReached()) break;
+
       const batchEnd = Math.min(batchStart + BATCH_SIZE, records.length);
       const batch = records.slice(batchStart, batchEnd);
       
@@ -579,7 +636,7 @@ export default async function handler(req, res) {
         const identifierValue = row[identifierMapping.sourceColumn]?.trim();
         
         if (!identifierValue) {
-          skippedRows++;
+          chunkSkipped++;
           errorLog.push({ row: rowIndex + 1, error: 'Empty identifier value' });
           continue;
         }
@@ -702,22 +759,22 @@ export default async function handler(req, res) {
                       .eq('id', existing.id);
                     
                     if (!updateError) {
-                      updatedRows++;
+                      chunkUpdated++;
                       existingMap.set(record.data.email?.toLowerCase(), existing.id);
                     } else {
-                      errorRows++;
+                      chunkErrors++;
                       errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: 'Failed to update existing record' });
                     }
                   } else {
-                    errorRows++;
+                    chunkErrors++;
                     errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: 'Duplicate email exists' });
                   }
                 } else {
-                  errorRows++;
+                  chunkErrors++;
                   errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: singleError.message });
                 }
               } else if (singleInserted) {
-                createdRows++;
+                chunkCreated++;
                 const lookupKey = isEmailIdentifier && singleInserted[identifierField]
                   ? singleInserted[identifierField].toLowerCase()
                   : singleInserted[identifierField];
@@ -727,12 +784,12 @@ export default async function handler(req, res) {
           } else {
             console.log(`[Import] Batch insert error: ${insertError.message}`);
             toInsert.forEach(r => {
-              errorRows++;
+              chunkErrors++;
               errorLog.push({ row: r.rowIndex + 1, identifier: r.identifierValue, error: insertError.message });
             });
           }
         } else {
-          createdRows += inserted.length;
+          chunkCreated += inserted.length;
           
           // Map back inserted IDs and collect notes
           inserted.forEach(entity => {
@@ -781,12 +838,12 @@ export default async function handler(req, res) {
             .eq('id', updateItem.id);
           
           if (updateError) {
-            errorRows++;
+            chunkErrors++;
             errorLog.push({ row: updateItem.rowIndex + 1, identifier: updateItem.identifierValue, error: updateError.message });
             continue;
           }
         }
-        updatedRows++;
+        chunkUpdated++;
         
         if (updateItem.noteContent) {
           if (entityType === 'organization') {
@@ -810,9 +867,13 @@ export default async function handler(req, res) {
           }
         }
       }
+
+      sliceEnd = batchEnd;
     }
+
+    const done = sliceEnd >= records.length;
     
-    // Batch insert all organization notes at once
+    // Batch insert this slice's organization notes at once
     if (notesToCreate.length > 0 && entityType === 'organization') {
       console.log(`[Import] Creating ${notesToCreate.length} notes...`);
       const { error: notesError } = await supabase
@@ -826,7 +887,7 @@ export default async function handler(req, res) {
       }
     }
     
-    // Batch insert all member notes at once
+    // Batch insert this slice's member notes at once
     if (memberNotesToCreate.length > 0 && entityType === 'member') {
       console.log(`[Import] Creating ${memberNotesToCreate.length} member notes...`);
       const { error: memberNotesError } = await supabase
@@ -839,15 +900,20 @@ export default async function handler(req, res) {
         console.log(`[Import] Created ${memberNotesToCreate.length} member notes successfully`);
       }
     }
+
+    const chunkNotes = notesToCreate.length + memberNotesToCreate.length;
     
-    // Handle communication preferences for member imports
+    // Handle communication preferences for this slice's member imports.
+    // De-duplicated by (member_id, category_id) — a single upsert batch cannot
+    // touch the same conflict target twice, and a member can legitimately
+    // appear more than once across the file; last value wins.
     const commMappings = mappings.filter(m => m.targetField?.startsWith('comm:'));
     if (entityType === 'member' && commMappings.length > 0) {
       console.log(`[Import] Processing ${commMappings.length} communication preference mappings...`);
       
-      const commPrefsToUpsert = [];
+      const commPrefsByKey = new Map();
       
-      for (let i = 0; i < records.length; i++) {
+      for (let i = offset; i < sliceEnd; i++) {
         const row = records[i];
         const identifierValue = row[identifierMapping.sourceColumn]?.trim();
         if (!identifierValue) continue;
@@ -865,11 +931,7 @@ export default async function handler(req, res) {
           
           // Only upsert if we have a valid boolean value
           if (optedIn !== null) {
-            if (!importTenantId) {
-              console.log('[Import] Skipping comm pref upsert - no tenant_id available');
-              continue;
-            }
-            commPrefsToUpsert.push({
+            commPrefsByKey.set(`${entityId}|${categoryId}`, {
               member_id: entityId,
               category_id: categoryId,
               opted_in: optedIn,
@@ -879,7 +941,7 @@ export default async function handler(req, res) {
         }
       }
       
-      // Batch upsert communication preferences
+      const commPrefsToUpsert = Array.from(commPrefsByKey.values());
       if (commPrefsToUpsert.length > 0) {
         console.log(`[Import] Upserting ${commPrefsToUpsert.length} communication preferences...`);
         
@@ -903,19 +965,23 @@ export default async function handler(req, res) {
       }
     }
     
-    // Handle custom fields (simplified - skip for performance if needed)
+    // Handle custom fields for this slice. Previously this issued one upsert per
+    // row per mapping (the main source of the timeout); now all custom values
+    // for the slice are collected and upserted in batches. De-duplicated by
+    // (entity_id, field_id) for the same reason as comm prefs above.
     const customMappings = mappings.filter(m => m.targetField?.startsWith('custom:'));
     if (customMappings.length > 0) {
       console.log(`[Import] Processing ${customMappings.length} custom field mappings...`);
       
-      for (let i = 0; i < records.length; i++) {
+      const customValuesByKey = new Map();
+      
+      for (let i = offset; i < sliceEnd; i++) {
         const row = records[i];
         const identifierValue = row[identifierMapping.sourceColumn]?.trim();
         if (!identifierValue) continue;
         
         // Look up the entity using the same normalized (lowercased for email)
-        // key the core upsert uses. The raw identifier never matched because
-        // existingMap is keyed by the lowercased email.
+        // key the core upsert uses.
         const lookupKey = isEmailIdentifier ? identifierValue.toLowerCase() : identifierValue;
         const entityId = existingMap.get(lookupKey);
         if (!entityId) continue;
@@ -933,55 +999,89 @@ export default async function handler(req, res) {
             if (parsedDate) value = parsedDate;
           }
           
-          // Upsert custom field value. The real column on
-          // member_preference_value / organization_preference_value is
-          // `field_id` (NOT `preference_field_id`); the unique constraint is on
+          // The real column on member_preference_value /
+          // organization_preference_value is `field_id` (NOT
+          // `preference_field_id`); the unique constraint is on
           // (entity_id, field_id).
+          customValuesByKey.set(`${entityId}|${mapping.preferenceFieldId}`, {
+            [entityIdField]: entityId,
+            field_id: mapping.preferenceFieldId,
+            value: value?.trim?.() || value
+          });
+        }
+      }
+      
+      const customValuesToUpsert = Array.from(customValuesByKey.values());
+      if (customValuesToUpsert.length > 0) {
+        console.log(`[Import] Upserting ${customValuesToUpsert.length} custom field values...`);
+        const CUSTOM_BATCH_SIZE = 500;
+        for (let i = 0; i < customValuesToUpsert.length; i += CUSTOM_BATCH_SIZE) {
+          const chunk = customValuesToUpsert.slice(i, i + CUSTOM_BATCH_SIZE);
           const { error: upsertError } = await supabase
             .from(customValueTable)
-            .upsert({
-              [entityIdField]: entityId,
-              field_id: mapping.preferenceFieldId,
-              value: value?.trim?.() || value
-            }, {
+            .upsert(chunk, {
               onConflict: `${entityIdField},field_id`
             });
           
           if (upsertError) {
-            console.log(`[Import] Custom field upsert error: ${upsertError.message}`);
+            console.log(`[Import] Custom field batch upsert error: ${upsertError.message}`);
           }
         }
       }
     }
     
-    const processedRows = createdRows + updatedRows;
+    runningCreated += chunkCreated;
+    runningUpdated += chunkUpdated;
+    runningSkipped += chunkSkipped;
+    runningErrors += chunkErrors;
+    runningNotes += chunkNotes;
     
-    await finishImportJob(jobId, {
-      created: createdRows,
-      updated: updatedRows,
-      errors: errorRows,
-      errorLog,
+    await updateImportJobProgress(jobId, {
+      created: runningCreated,
+      updated: runningUpdated,
+      errors: runningErrors,
+      newErrors: errorLog,
+      done,
     });
     
-    console.log(`[Import] Complete: ${createdRows} created, ${updatedRows} updated, ${skippedRows} skipped, ${errorRows} errors`);
+    if (!done) {
+      return res.json({
+        success: true,
+        done: false,
+        jobId,
+        path: jsPathHint,
+        offset: sliceEnd,
+        created: runningCreated,
+        updated: runningUpdated,
+        skipped: runningSkipped,
+        errors: runningErrors,
+        notesCreated: runningNotes,
+        totalRows: records.length,
+        errorDetails: errorLog.slice(0, 20)
+      });
+    }
     
-    const totalNotesCreated = notesToCreate.length + memberNotesToCreate.length;
+    console.log(`[Import] Complete: ${runningCreated} created, ${runningUpdated} updated, ${runningSkipped} skipped, ${runningErrors} errors`);
     
-    res.json({
+    return res.json({
       success: true,
+      done: true,
       jobId,
-      created: createdRows,
-      updated: updatedRows,
-      skipped: skippedRows,
-      errors: errorRows,
-      notesCreated: totalNotesCreated,
+      path: jsPathHint,
+      offset: records.length,
+      created: runningCreated,
+      updated: runningUpdated,
+      skipped: runningSkipped,
+      errors: runningErrors,
+      notesCreated: runningNotes,
       summary: {
         totalRows: records.length,
-        processedRows,
-        createdRows,
-        updatedRows,
-        skippedRows,
-        errorRows
+        processedRows: runningCreated + runningUpdated,
+        createdRows: runningCreated,
+        updatedRows: runningUpdated,
+        skippedRows: runningSkipped,
+        errorRows: runningErrors,
+        notesCreated: runningNotes
       },
       errorDetails: errorLog.slice(0, 20)
     });

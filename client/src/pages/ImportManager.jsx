@@ -78,6 +78,7 @@ export default function ImportManager() {
   const [isUploading, setIsUploading] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
   const fileInputRef = useRef(null);
 
   // Fetch available fields for mapping
@@ -341,36 +342,112 @@ export default function ImportManager() {
     if (!csvFile) return;
 
     const activeMappings = mappings.filter(m => m.targetField);
-    
+
     setIsImporting(true);
+    setImportProgress(null);
+
+    // The backend processes only a time-budgeted slice of rows per request (to
+    // stay under Vercel's 60s ceiling), returning a cursor + running totals. We
+    // re-send the same file with that cursor until it reports done. Mirrors the
+    // Zoho one-time-import loop.
+    let offset = 0;
+    let jobId = null;
+    let forcePath = null;
+    let totalRows = null;
+    const totals = { created: 0, updated: 0, skipped: 0, errors: 0, notesCreated: 0 };
+    let errorDetails = [];
+    let safety = 0;
 
     try {
-      const formData = new FormData();
-      formData.append('file', csvFile);
-      formData.append('entityType', activeTab);
-      formData.append('identifierField', identifierField);
-      formData.append('mappings', JSON.stringify(activeMappings));
+      while (true) {
+        safety += 1;
+        if (safety > 10000) {
+          throw new Error('Import did not complete (too many chunks). Please try again.');
+        }
 
-      const response = await fetch('/api/imports/execute', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
-      });
+        const formData = new FormData();
+        formData.append('file', csvFile);
+        formData.append('entityType', activeTab);
+        formData.append('identifierField', identifierField);
+        formData.append('mappings', JSON.stringify(activeMappings));
+        formData.append('offset', String(offset));
+        if (jobId) formData.append('jobId', jobId);
+        if (forcePath) formData.append('forcePath', forcePath);
+        formData.append('created', String(totals.created));
+        formData.append('updated', String(totals.updated));
+        formData.append('skipped', String(totals.skipped));
+        formData.append('errors', String(totals.errors));
+        formData.append('notesCreated', String(totals.notesCreated));
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Import failed');
+        const response = await fetch('/api/imports/execute', {
+          method: 'POST',
+          credentials: 'include',
+          body: formData
+        });
+
+        // Vercel returns an HTML gateway page (not JSON) when a function hits
+        // the time ceiling. Parse defensively so the user sees a useful message
+        // instead of "Unexpected token <".
+        let result = null;
+        let parseError = null;
+        try {
+          result = await response.json();
+        } catch (e) {
+          parseError = e;
+        }
+
+        if (parseError || !response.ok) {
+          const msg = parseError
+            ? `Server error (${response.status}) — the import may have timed out. Please try again.`
+            : (result?.error || 'Import failed');
+          throw new Error(msg);
+        }
+
+        jobId = result.jobId || jobId;
+        if (result.path === 'js') forcePath = 'js';
+        totals.created = result.created ?? totals.created;
+        totals.updated = result.updated ?? totals.updated;
+        totals.skipped = result.skipped ?? totals.skipped;
+        totals.errors = result.errors ?? totals.errors;
+        totals.notesCreated = result.notesCreated ?? totals.notesCreated;
+        totalRows = result.totalRows ?? totalRows;
+        offset = result.offset ?? offset;
+
+        if (Array.isArray(result.errorDetails) && result.errorDetails.length > 0 && errorDetails.length < 50) {
+          errorDetails = errorDetails.concat(result.errorDetails).slice(0, 50);
+        }
+
+        const processed = totalRows != null ? Math.min(offset, totalRows) : offset;
+        setImportProgress({ processed, total: totalRows, ...totals });
+
+        if (result.done) {
+          const finalResult = {
+            success: true,
+            ...totals,
+            totalRows,
+            errorDetails,
+            summary: result.summary || {
+              totalRows,
+              processedRows: totals.created + totals.updated,
+              createdRows: totals.created,
+              updatedRows: totals.updated,
+              skippedRows: totals.skipped,
+              errorRows: totals.errors,
+              notesCreated: totals.notesCreated
+            }
+          };
+          setImportResult(finalResult);
+          setStep(4);
+          toast.success(`Import complete: ${totals.created} created, ${totals.updated} updated`);
+          refetchJobs();
+          break;
+        }
       }
-
-      const result = await response.json();
-      setImportResult(result);
-      setStep(4);
-      toast.success(`Import complete: ${result.created} created, ${result.updated} updated`);
-      refetchJobs();
     } catch (error) {
       toast.error(error.message || 'Import failed');
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -380,6 +457,7 @@ export default function ImportManager() {
     setMappings([]);
     setPreviewResult(null);
     setImportResult(null);
+    setImportProgress(null);
     setStep(1);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -822,6 +900,31 @@ export default function ImportManager() {
                             )}
                           </Button>
                         </div>
+
+                        {isImporting && importProgress && (
+                          <div className="space-y-2" data-testid="import-progress">
+                            <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+                              <span data-testid="text-import-progress">
+                                {importProgress.total != null
+                                  ? `Processed ${importProgress.processed} of ${importProgress.total} rows`
+                                  : `Processed ${importProgress.processed} rows`}
+                              </span>
+                              <span data-testid="text-import-running-totals">
+                                {importProgress.created} created · {importProgress.updated} updated
+                                {importProgress.errors > 0 ? ` · ${importProgress.errors} errors` : ''}
+                              </span>
+                            </div>
+                            {importProgress.total != null && importProgress.total > 0 && (
+                              <div className="h-2 w-full overflow-hidden rounded-md bg-muted">
+                                <div
+                                  className="h-full bg-green-600 transition-all"
+                                  style={{ width: `${Math.min(100, Math.round((importProgress.processed / importProgress.total) * 100))}%` }}
+                                  data-testid="bar-import-progress"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
