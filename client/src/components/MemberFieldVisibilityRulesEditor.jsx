@@ -22,6 +22,7 @@ import {
   LayoutGrid
 } from "lucide-react";
 import { MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
+import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { OPERATORS } from "@/hooks/useOrgFieldVisibilityRules";
 import { toast } from "sonner";
 
@@ -34,6 +35,7 @@ export default function MemberFieldVisibilityRulesEditor({
   onOpenChange,
   rulesConfig, 
   customFields = [],
+  orgCustomFields = [],
   layoutCards = [],
   onSave, 
   onCancel,
@@ -72,8 +74,25 @@ export default function MemberFieldVisibilityRulesEditor({
       fieldType: 'custom',
       options: cf.options
     }));
-    
-    return [...coreFieldsList, ...customFieldsList];
+
+    const orgCoreFieldsList = ORG_CORE_FIELDS.map(cf => ({
+      id: `org_core:${cf.fieldKey}`,
+      label: cf.label,
+      type: cf.type,
+      fieldKey: cf.fieldKey,
+      fieldType: 'org_core'
+    }));
+
+    const orgCustomFieldsList = orgCustomFields.map(cf => ({
+      id: `org_custom:${cf.id}`,
+      label: cf.label,
+      type: cf.field_type,
+      fieldId: cf.id,
+      fieldType: 'org_custom',
+      options: cf.options
+    }));
+
+    return [...coreFieldsList, ...customFieldsList, ...orgCoreFieldsList, ...orgCustomFieldsList];
   };
 
   const allFields = getAllFields();
@@ -379,6 +398,26 @@ export default function MemberFieldVisibilityRulesEditor({
                                           ))}
                                         </>
                                       )}
+                                      {allFields.filter(f => f.fieldType === 'org_core').length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1 text-xs font-medium text-purple-600 mt-1">Organisation Fields</div>
+                                          {allFields.filter(f => f.fieldType === 'org_core').map(field => (
+                                            <SelectItem key={field.id} value={field.id}>
+                                              {field.label}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                      {allFields.filter(f => f.fieldType === 'org_custom').length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1 text-xs font-medium text-purple-600 mt-1">Organisation Custom Fields</div>
+                                          {allFields.filter(f => f.fieldType === 'org_custom').map(field => (
+                                            <SelectItem key={field.id} value={field.id}>
+                                              {field.label}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
                                     </SelectContent>
                                   </Select>
 
@@ -549,6 +588,26 @@ export default function MemberFieldVisibilityRulesEditor({
                                         <>
                                           <div className="px-2 py-1 text-xs font-medium text-slate-500 mt-1">Custom Fields</div>
                                           {allFields.filter(f => f.fieldType === 'custom').map(field => (
+                                            <SelectItem key={field.id} value={field.id}>
+                                              {field.label}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                      {allFields.filter(f => f.fieldType === 'org_core').length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1 text-xs font-medium text-purple-600 mt-1">Organisation Fields</div>
+                                          {allFields.filter(f => f.fieldType === 'org_core').map(field => (
+                                            <SelectItem key={field.id} value={field.id}>
+                                              {field.label}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                      {allFields.filter(f => f.fieldType === 'org_custom').length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1 text-xs font-medium text-purple-600 mt-1">Organisation Custom Fields</div>
+                                          {allFields.filter(f => f.fieldType === 'org_custom').map(field => (
                                             <SelectItem key={field.id} value={field.id}>
                                               {field.label}
                                             </SelectItem>

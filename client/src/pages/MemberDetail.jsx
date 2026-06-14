@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
+import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
 import { useMemberFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useMemberFieldVisibilityRules";
 import MemberFieldVisibilityRulesEditor from "@/components/MemberFieldVisibilityRulesEditor";
@@ -183,6 +184,9 @@ export default function MemberDetail() {
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({});
   const [customFieldValues, setCustomFieldValues] = useState({});
+  // Linked-organisation editing state (mirrors member core/custom state)
+  const [orgFormData, setOrgFormData] = useState({});
+  const [orgCustomFieldValues, setOrgCustomFieldValues] = useState({});
 
   // Delete member state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -335,6 +339,50 @@ export default function MemberDetail() {
       try {
         const values = await base44.entities.MemberPreferenceValue.list({
           filter: { member_id: id }
+        });
+        return values || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Linked organisation: custom field defs, the org record, and its preference values.
+  const { data: orgCustomFields = [] } = useQuery({
+    queryKey: ['org-custom-fields-for-member-detail'],
+    enabled: isAccessReady,
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'organization');
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: linkedOrg = null } = useQuery({
+    queryKey: ['organization-direct', member?.organization_id],
+    enabled: !!member?.organization_id && isAccessReady,
+    queryFn: async () => {
+      try {
+        return await base44.entities.Organization.get(member.organization_id);
+      } catch {
+        return null;
+      }
+    }
+  });
+
+  const { data: orgPrefValues = [] } = useQuery({
+    queryKey: ['org-detail-preference-values', member?.organization_id],
+    enabled: !!member?.organization_id && isAccessReady,
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: member.organization_id }
         });
         return values || [];
       } catch {
@@ -806,6 +854,40 @@ export default function MemberDetail() {
     }
   }, [memberPrefValues, memberCustomFields]);
 
+  // Sync linked-organisation core form data
+  useEffect(() => {
+    if (linkedOrg && !isEditing) {
+      setOrgFormData({
+        name: linkedOrg.name || '',
+        description: linkedOrg.description || '',
+        email: linkedOrg.email || '',
+        invoicing_email: linkedOrg.invoicing_email || '',
+        phone: linkedOrg.phone || '',
+        website_url: linkedOrg.website_url || '',
+        invoicing_address: linkedOrg.invoicing_address || '',
+        created_at: linkedOrg.created_at || ''
+      });
+    }
+  }, [linkedOrg, isEditing]);
+
+  // Sync linked-organisation custom field values
+  useEffect(() => {
+    if (orgCustomFields.length > 0 && orgPrefValues.length >= 0) {
+      const vals = {};
+      orgPrefValues.forEach(pv => {
+        const field = orgCustomFields.find(f => f.id === pv.field_id);
+        if (field) {
+          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && typeof pv.value === 'string') {
+            try { vals[field.id] = JSON.parse(pv.value); } catch { vals[field.id] = pv.value; }
+          } else {
+            vals[field.id] = pv.value;
+          }
+        }
+      });
+      setOrgCustomFieldValues(vals);
+    }
+  }, [orgPrefValues, orgCustomFields]);
+
   // Sync category selections when data loads
   useEffect(() => {
     if (memberCategorySelections.length > 0) {
@@ -838,6 +920,12 @@ export default function MemberDetail() {
         await saveCustomFieldValues();
       } catch (error) {
         console.error('Failed to save custom fields:', error);
+      }
+      try {
+        await saveOrgFieldChanges();
+      } catch (error) {
+        console.error('Failed to save organisation fields:', error);
+        toast.error('Failed to save organisation fields: ' + (error.message || 'Unknown error'));
       }
       toast.success("Member updated successfully");
       setIsEditing(false);
@@ -968,6 +1056,64 @@ export default function MemberDetail() {
     queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
   };
 
+  // Persist edits made to LINKED-ORGANISATION fields surfaced on the member page.
+  // Core fields write straight to the organisation record; custom fields go
+  // through the org preference-value upsert endpoint. Only changed values are
+  // written, and org caches are invalidated so other org views stay in sync.
+  const saveOrgFieldChanges = async () => {
+    const orgId = linkedOrg?.id;
+    if (!orgId) return;
+
+    const ORG_CORE_KEYS = ['name', 'description', 'email', 'invoicing_email', 'phone', 'website_url', 'invoicing_address'];
+    const coreUpdates = {};
+    ORG_CORE_KEYS.forEach(key => {
+      const next = orgFormData[key] ?? '';
+      const current = linkedOrg[key] ?? '';
+      if (next !== current) coreUpdates[key] = next;
+    });
+    if (Object.keys(coreUpdates).length > 0) {
+      await base44.entities.Organization.update(orgId, coreUpdates);
+    }
+
+    const customUpdates = Object.entries(orgCustomFieldValues).map(async ([fieldId, value]) => {
+      const existingValue = orgPrefValues.find(pv => pv.field_id === fieldId);
+      const field = orgCustomFields.find(f => f.id === fieldId);
+      let storedValue = value;
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && Array.isArray(value)) {
+        storedValue = JSON.stringify(value);
+      }
+      const existingStored = existingValue?.value || '';
+      const newStored = Array.isArray(storedValue) ? JSON.stringify(storedValue) : String(storedValue ?? '');
+      if (newStored === existingStored) return;
+      if (!existingValue && (storedValue === undefined || storedValue === '' || storedValue === null)) return;
+
+      const res = await fetch('/api/entities/organization-preference-value/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          organization_id: orgId,
+          field_id: fieldId,
+          value: newStored
+        })
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save organisation field');
+      }
+      const data = await res.json();
+      checkForPendingWorkflows(data);
+      return data;
+    });
+    await Promise.all(customUpdates);
+
+    queryClient.invalidateQueries({ queryKey: ['organization-direct', orgId] });
+    queryClient.invalidateQueries({ queryKey: ['org-detail-preference-values', orgId] });
+    queryClient.invalidateQueries({ queryKey: ['all-org-preference-values-crm'] });
+    queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+    queryClient.invalidateQueries({ queryKey: ['organizations-for-member-detail'] });
+  };
+
   // Handlers
   const handleSave = () => {
     const textareaFields = (memberCustomFields || []).filter(f =>
@@ -1002,30 +1148,56 @@ export default function MemberDetail() {
       show_in_directory: member.show_in_directory !== false
     });
     setSelectedRoleId(member.role_id || null);
+    if (linkedOrg) {
+      setOrgFormData({
+        name: linkedOrg.name || '',
+        description: linkedOrg.description || '',
+        email: linkedOrg.email || '',
+        invoicing_email: linkedOrg.invoicing_email || '',
+        phone: linkedOrg.phone || '',
+        website_url: linkedOrg.website_url || '',
+        invoicing_address: linkedOrg.invoicing_address || '',
+        created_at: linkedOrg.created_at || ''
+      });
+    }
+    const orgVals = {};
+    orgPrefValues.forEach(pv => {
+      const field = orgCustomFields.find(f => f.id === pv.field_id);
+      if (field) {
+        if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && typeof pv.value === 'string') {
+          try { orgVals[field.id] = JSON.parse(pv.value); } catch { orgVals[field.id] = pv.value; }
+        } else {
+          orgVals[field.id] = pv.value;
+        }
+      }
+    });
+    setOrgCustomFieldValues(orgVals);
     setIsEditing(false);
   };
 
-  const renderMemberCustomFieldEditor = (field, isLocked = false) => {
-    const value = customFieldValues[field.id];
+  // Generic custom-field editor reused for both member and linked-organisation
+  // custom fields. `value`/`setValue` decouple it from a specific state bucket,
+  // and `prefix` keeps data-testids unique per source ('member' | 'org').
+  const renderCustomFieldEditor = (field, { value, setValue, isLocked = false, prefix = 'member' }) => {
     const disabledOverride = !isEditing || isLocked;
     switch (field.field_type) {
       case 'text':
         return isEditing ? (
-          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
+          <Input value={value || ''} onChange={(e) => setValue(e.target.value)} disabled={isLocked} data-testid={`input-${prefix}-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
       case 'number':
       case 'decimal':
         return isEditing ? (
-          <Input type="number" step={field.field_type === 'decimal' ? '0.01' : '1'} value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
+          <Input type="number" step={field.field_type === 'decimal' ? '0.01' : '1'} value={value || ''} onChange={(e) => setValue(e.target.value)} disabled={isLocked} data-testid={`input-${prefix}-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
       case 'dropdown':
         return isEditing ? (
-          <Select value={value || ''} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))} disabled={isLocked}>
-            <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+          <Select value={value || ''} onValueChange={(v) => setValue(v)} disabled={isLocked}>
+            <SelectTrigger data-testid={`select-${prefix}-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
               {(field.options || []).map((opt, idx) => (
                 <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
@@ -1046,10 +1218,10 @@ export default function MemberDetail() {
                   onCheckedChange={(checked) => {
                     if (isLocked) return;
                     const newValues = checked ? [...selectedValues, opt.value] : selectedValues.filter(v => v !== opt.value);
-                    setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
+                    setValue(newValues);
                   }}
                   disabled={isLocked}
-                  data-testid={`checkbox-member-custom-${field.id}-${opt.value}`}
+                  data-testid={`checkbox-${prefix}-custom-${field.id}-${opt.value}`}
                 />
                 <span className="text-sm">{opt.label || opt.value}</span>
               </div>
@@ -1061,19 +1233,19 @@ export default function MemberDetail() {
       }
       case 'date':
         return isEditing ? (
-          <Input type="date" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-date-${field.id}`} />
+          <Input type="date" value={value || ''} onChange={(e) => setValue(e.target.value)} disabled={isLocked} data-testid={`input-${prefix}-custom-date-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? formatDate(value) : '-'}</p>
         );
       case 'email':
         return isEditing ? (
-          <Input type="email" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-email-${field.id}`} />
+          <Input type="email" value={value || ''} onChange={(e) => setValue(e.target.value)} disabled={isLocked} data-testid={`input-${prefix}-custom-email-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a> : '-'}</p>
         );
       case 'url':
         return isEditing ? (
-          <Input type="url" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} placeholder="https://" disabled={isLocked} data-testid={`input-member-custom-url-${field.id}`} />
+          <Input type="url" value={value || ''} onChange={(e) => setValue(e.target.value)} placeholder="https://" disabled={isLocked} data-testid={`input-${prefix}-custom-url-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>
         );
@@ -1088,12 +1260,12 @@ export default function MemberDetail() {
           <div className="space-y-1">
             <Textarea
               value={value || ''}
-              onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+              onChange={(e) => setValue(e.target.value)}
               rows={3}
               maxLength={taMaxLen || undefined}
               disabled={isLocked}
               className={taOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
-              data-testid={`textarea-member-custom-${field.id}`}
+              data-testid={`textarea-${prefix}-custom-${field.id}`}
             />
             {(taMaxLen || taMinLen) && (
               <div className="flex justify-between text-xs">
@@ -1119,9 +1291,9 @@ export default function MemberDetail() {
           <div className="flex items-center gap-3">
             <Switch
               checked={value === 'true' || value === true}
-              onCheckedChange={(checked) => setCustomFieldValues(prev => ({ ...prev, [field.id]: checked ? 'true' : 'false' }))}
+              onCheckedChange={(checked) => setValue(checked ? 'true' : 'false')}
               disabled={disabledOverride}
-              data-testid={`switch-member-custom-${field.id}`}
+              data-testid={`switch-${prefix}-custom-${field.id}`}
             />
             <span className="text-sm">{value === 'true' || value === true ? 'Yes' : 'No'}</span>
           </div>
@@ -1139,8 +1311,8 @@ export default function MemberDetail() {
           return byCode ? byCode.name : value;
         })();
         return isEditing ? (
-          <Select value={resolvedValue} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))} disabled={isLocked}>
-            <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+          <Select value={resolvedValue} onValueChange={(v) => setValue(v)} disabled={isLocked}>
+            <SelectTrigger data-testid={`select-${prefix}-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
             <SelectContent>
               {availableCountries.map((country) => (
                 <SelectItem key={country.code} value={country.name}>{country.name}</SelectItem>
@@ -1168,10 +1340,10 @@ export default function MemberDetail() {
         }
         return (
           <MemberDetailCountryMultiSelect
-            fieldId={field.id}
+            fieldId={`${prefix}-${field.id}`}
             selectedValues={normalizedSelected}
             availableCountries={availableCountriesList}
-            onChange={(newValues) => setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }))}
+            onChange={(newValues) => setValue(newValues)}
             label={field.label}
             disabled={isLocked}
           />
@@ -1179,12 +1351,28 @@ export default function MemberDetail() {
       }
       default:
         return isEditing ? (
-          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} disabled={isLocked} data-testid={`input-member-custom-${field.id}`} />
+          <Input value={value || ''} onChange={(e) => setValue(e.target.value)} disabled={isLocked} data-testid={`input-${prefix}-custom-${field.id}`} />
         ) : (
           <p className="text-sm">{value || '-'}</p>
         );
     }
   };
+
+  const renderMemberCustomFieldEditor = (field, isLocked = false) =>
+    renderCustomFieldEditor(field, {
+      value: customFieldValues[field.id],
+      setValue: (v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v })),
+      isLocked,
+      prefix: 'member'
+    });
+
+  const renderOrgCustomFieldEditor = (field, isLocked = false) =>
+    renderCustomFieldEditor(field, {
+      value: orgCustomFieldValues[field.id],
+      setValue: (v) => setOrgCustomFieldValues(prev => ({ ...prev, [field.id]: v })),
+      isLocked,
+      prefix: 'org'
+    });
 
   const renderMemberCoreField = (fieldKey, isLocked = false) => {
     const coreFieldDef = MEMBER_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
@@ -1237,9 +1425,72 @@ export default function MemberDetail() {
     }
   };
 
+  // Render a LINKED-ORGANISATION core field on the member page. Carries a clear
+  // org-sourced visual cue (purple label + Building2), an empty state when the
+  // member has no linked org, and writes edits back to orgFormData.
+  const renderOrgCoreField = (fieldKey, isLocked = false) => {
+    const def = ORG_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
+    if (!def) return null;
+    const lockBadge = isLocked && isEditing ? (
+      <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-org-${fieldKey}`} />
+    ) : null;
+    const orgLabel = (
+      <Label className="text-xs text-purple-600 flex items-center gap-1">
+        <Building2 className="w-3 h-3" />
+        {def.label}
+        {lockBadge}
+      </Label>
+    );
+    if (!linkedOrg) {
+      return (
+        <div className="space-y-1">
+          {orgLabel}
+          <p className="text-sm text-slate-400 italic" data-testid={`text-org-empty-${fieldKey}`}>No linked organisation</p>
+        </div>
+      );
+    }
+    const value = orgFormData[fieldKey];
+    const readOnly = fieldKey === 'created_at';
+    let control;
+    if (readOnly) {
+      control = <p className="text-sm">{linkedOrg.created_at ? formatDate(linkedOrg.created_at) : '-'}</p>;
+    } else if (!isEditing) {
+      switch (def.type) {
+        case 'email':
+          control = <p className="text-sm">{linkedOrg[fieldKey] ? <a href={`mailto:${linkedOrg[fieldKey]}`} className="text-blue-600 hover:underline">{linkedOrg[fieldKey]}</a> : '-'}</p>;
+          break;
+        case 'url':
+          control = <p className="text-sm">{linkedOrg[fieldKey] ? <a href={linkedOrg[fieldKey]} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{linkedOrg[fieldKey]} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>;
+          break;
+        case 'textarea':
+          control = <p className="text-sm whitespace-pre-wrap">{linkedOrg[fieldKey] || '-'}</p>;
+          break;
+        default:
+          control = <p className="text-sm font-medium">{linkedOrg[fieldKey] || '-'}</p>;
+      }
+    } else if (def.type === 'textarea') {
+      control = <Textarea value={value || ''} onChange={(e) => setOrgFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} rows={3} disabled={isLocked} data-testid={`textarea-org-${fieldKey}`} />;
+    } else {
+      const inputType = def.type === 'email' ? 'email' : def.type === 'url' ? 'url' : 'text';
+      control = <Input type={inputType} value={value || ''} onChange={(e) => setOrgFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} disabled={isLocked} data-testid={`input-org-${fieldKey}`} />;
+    }
+    return (
+      <div className="space-y-1">
+        {orgLabel}
+        {control}
+      </div>
+    );
+  };
+
   const { hiddenFields, hiddenCards, lockedFields, lockedCards } = evaluateVisibilityRules(
     rulesConfig,
-    { ...formData, custom_field_values: customFieldValues },
+    {
+      ...formData,
+      custom_field_values: customFieldValues,
+      org_data: linkedOrg || {},
+      org_custom_field_values: orgCustomFieldValues,
+      org_custom_fields: orgCustomFields
+    },
     memberCustomFields
   );
 
@@ -1255,21 +1506,43 @@ export default function MemberDetail() {
       const isFieldLocked = isCardLocked || lockedFields.has(field.id);
       if (field.type === 'core') {
         return <div key={field.id}>{renderMemberCoreField(field.fieldKey, isFieldLocked)}</div>;
-      } else {
-        const customField = memberCustomFields.find(cf => cf.id === field.fieldId);
-        if (!customField) return null;
+      }
+      if (field.type === 'org_core') {
+        return <div key={field.id}>{renderOrgCoreField(field.fieldKey, isFieldLocked)}</div>;
+      }
+      if (field.type === 'org_custom') {
+        const ocf = orgCustomFields.find(cf => cf.id === field.fieldId);
+        if (!ocf) return null;
         return (
           <div key={field.id} className="space-y-1">
-            <Label className="text-xs text-slate-500 flex items-center gap-1">
-              {customField.label}
+            <Label className="text-xs text-purple-600 flex items-center gap-1">
+              <Building2 className="w-3 h-3" />
+              {ocf.label}
               {isFieldLocked && isEditing && (
-                <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-member-custom-${customField.id}`} />
+                <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-org-custom-${ocf.id}`} />
               )}
             </Label>
-            {renderMemberCustomFieldEditor(customField, isFieldLocked)}
+            {linkedOrg ? (
+              renderOrgCustomFieldEditor(ocf, isFieldLocked)
+            ) : (
+              <p className="text-sm text-slate-400 italic" data-testid={`text-org-custom-empty-${ocf.id}`}>No linked organisation</p>
+            )}
           </div>
         );
       }
+      const customField = memberCustomFields.find(cf => cf.id === field.fieldId);
+      if (!customField) return null;
+      return (
+        <div key={field.id} className="space-y-1">
+          <Label className="text-xs text-slate-500 flex items-center gap-1">
+            {customField.label}
+            {isFieldLocked && isEditing && (
+              <Lock className="w-3 h-3 text-slate-400" data-testid={`lock-icon-member-custom-${customField.id}`} />
+            )}
+          </Label>
+          {renderMemberCustomFieldEditor(customField, isFieldLocked)}
+        </div>
+      );
     };
 
     return (
@@ -2474,6 +2747,7 @@ export default function MemberDetail() {
         <MemberDetailLayoutEditor
           layout={effectiveLayout}
           customFields={memberCustomFields}
+          orgCustomFields={orgCustomFields}
           onSave={async (newLayout) => {
             await saveLayout(newLayout);
             setShowLayoutEditor(false);
@@ -2488,6 +2762,7 @@ export default function MemberDetail() {
         onOpenChange={setShowRulesEditor}
         rulesConfig={rulesConfig}
         customFields={memberCustomFields}
+        orgCustomFields={orgCustomFields}
         layoutCards={effectiveLayout?.cards || []}
         onSave={saveRules}
         onCancel={() => setShowRulesEditor(false)}

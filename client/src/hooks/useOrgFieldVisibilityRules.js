@@ -188,7 +188,16 @@ function evaluateCondition(condition, formData, customFields) {
 
   let fieldValue;
   let fieldDef;
-  if (field_id.startsWith('core:')) {
+  if (field_id.startsWith('org_core:')) {
+    const fieldKey = field_id.replace('org_core:', '');
+    fieldValue = formData.org_data?.[fieldKey];
+  } else if (field_id.startsWith('org_custom:')) {
+    const orgCustomFieldId = field_id.replace('org_custom:', '');
+    fieldDef = formData.org_custom_fields?.find(cf => cf.id === orgCustomFieldId);
+    if (formData.org_custom_field_values) {
+      fieldValue = formData.org_custom_field_values[orgCustomFieldId];
+    }
+  } else if (field_id.startsWith('core:')) {
     const fieldKey = field_id.replace('core:', '');
     fieldValue = formData[fieldKey];
   } else if (field_id.startsWith('custom:')) {

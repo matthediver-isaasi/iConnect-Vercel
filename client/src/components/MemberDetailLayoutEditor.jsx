@@ -19,15 +19,31 @@ import {
   ChevronUp
 } from "lucide-react";
 import { MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
+import { CORE_FIELDS as ORG_CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { toast } from "sonner";
 
 function generateId() {
   return `card-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function getFieldColorClass(type) {
+  switch (type) {
+    case 'core':
+      return 'bg-blue-100 text-blue-700 border border-blue-200';
+    case 'custom':
+      return 'bg-green-100 text-green-700 border border-green-200';
+    case 'org_core':
+    case 'org_custom':
+      return 'bg-purple-100 text-purple-700 border border-purple-200';
+    default:
+      return 'bg-slate-100 text-slate-700 border border-slate-200';
+  }
+}
+
 export default function MemberDetailLayoutEditor({ 
   layout, 
   customFields = [], 
+  orgCustomFields = [],
   onSave, 
   onCancel,
   isSaving 
@@ -58,6 +74,19 @@ export default function MemberDetailLayoutEditor({
       fieldId: cf.id,
       label: cf.label,
       type: 'custom',
+      fieldType: cf.field_type
+    })),
+    ...ORG_CORE_FIELDS.map(f => ({
+      id: `org_core:${f.fieldKey}`,
+      fieldKey: f.fieldKey,
+      label: f.label,
+      type: 'org_core'
+    })),
+    ...orgCustomFields.map(cf => ({
+      id: `org_custom:${cf.id}`,
+      fieldId: cf.id,
+      label: cf.label,
+      type: 'org_custom',
       fieldType: cf.field_type
     }))
   ];
@@ -110,7 +139,7 @@ export default function MemberDetailLayoutEditor({
               id: field.id,
               type: field.type,
               columnIndex: destParsed.columnIndex,
-              ...(field.type === 'core' ? { fieldKey: field.fieldKey } : { fieldId: field.fieldId })
+              ...((field.type === 'core' || field.type === 'org_core') ? { fieldKey: field.fieldKey } : { fieldId: field.fieldId })
             };
             
             const insertAfterIndex = colFields[destination.index - 1]
@@ -210,6 +239,14 @@ export default function MemberDetailLayoutEditor({
     if (field.type === 'core') {
       const coreField = MEMBER_CORE_FIELDS.find(f => f.fieldKey === field.fieldKey);
       return coreField?.label || field.fieldKey;
+    }
+    if (field.type === 'org_core') {
+      const orgCoreField = ORG_CORE_FIELDS.find(f => f.fieldKey === field.fieldKey);
+      return orgCoreField?.label || field.fieldKey;
+    }
+    if (field.type === 'org_custom') {
+      const ocf = orgCustomFields.find(cf => cf.id === field.fieldId);
+      return ocf?.label || 'Unknown Field';
     }
     const customField = customFields.find(cf => cf.id === field.fieldId);
     return customField?.label || 'Unknown Field';
@@ -395,7 +432,7 @@ export default function MemberDetailLayoutEditor({
                                                       {...provided.dragHandleProps}
                                                       className={`
                                                         px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                                        ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
+                                                        ${getFieldColorClass(field.type)}
                                                         ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
                                                         cursor-grab hover:shadow-sm transition-shadow
                                                       `}
@@ -443,30 +480,50 @@ export default function MemberDetailLayoutEditor({
                         </p>
                       ) : (
                         <div className="space-y-2">
-                          {unassignedFields.map((field, index) => (
-                            <Draggable 
-                              key={field.id} 
-                              draggableId={field.id} 
-                              index={index}
-                            >
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  className={`
-                                    px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                    ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
-                                    ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
-                                    cursor-grab hover:shadow-sm transition-shadow
-                                  `}
-                                >
-                                  <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                  <span className="truncate">{field.label}</span>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
+                          {(() => {
+                            const memberGroup = unassignedFields.filter(f => f.type === 'core' || f.type === 'custom');
+                            const orgGroup = unassignedFields.filter(f => f.type === 'org_core' || f.type === 'org_custom');
+                            const renderDraggable = (field) => (
+                              <Draggable
+                                key={field.id}
+                                draggableId={field.id}
+                                index={unassignedFields.indexOf(field)}
+                              >
+                                {(provided, snapshot) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    className={`
+                                      px-3 py-2 rounded-md text-sm flex items-center gap-2
+                                      ${getFieldColorClass(field.type)}
+                                      ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
+                                      cursor-grab hover:shadow-sm transition-shadow
+                                    `}
+                                  >
+                                    <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                    <span className="truncate">{field.label}</span>
+                                  </div>
+                                )}
+                              </Draggable>
+                            );
+                            return (
+                              <>
+                                {memberGroup.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide px-1">Member</p>
+                                    {memberGroup.map(renderDraggable)}
+                                  </>
+                                )}
+                                {orgGroup.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-medium text-purple-600 uppercase tracking-wide px-1 pt-2">Organisation</p>
+                                    {orgGroup.map(renderDraggable)}
+                                  </>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                       {provided.placeholder}
@@ -480,8 +537,9 @@ export default function MemberDetailLayoutEditor({
                     <li>Drag cards to reorder</li>
                     <li>Drag fields between cards</li>
                     <li>Click settings to edit card</li>
-                    <li>Blue = core fields</li>
-                    <li>Green = custom fields</li>
+                    <li>Blue = member core fields</li>
+                    <li>Green = member custom fields</li>
+                    <li>Purple = linked organisation fields</li>
                   </ul>
                 </div>
               </div>
