@@ -195,33 +195,6 @@ export default function MembersListPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, orgFilter, roleFilter, statusFilter, sortField, sortDir],
-    enabled: accessChecked,
-    keepPreviousData: true,
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: itemsPerPage.toString(),
-        search: debouncedSearch,
-        organizationId: orgFilter,
-        roleId: roleFilter,
-        status: statusFilter,
-        sortField,
-        sortDir
-      });
-      const response = await fetch(`/api/admin/members/paginated?${params}`, {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch members');
-      return response.json();
-    }
-  });
-
-  const members = membersData?.members || [];
-  const pagination = membersData?.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 };
-  const totalPages = pagination.totalPages;
-
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-members'],
     enabled: accessChecked,
@@ -271,18 +244,51 @@ export default function MembersListPage() {
     [memberCustomFields]
   );
 
-  const { data: allMemberPreferenceValues = [] } = useQuery({
-    queryKey: ['all-member-preference-values-crm'],
-    enabled: accessChecked && memberCustomFields.length > 0,
+  const activeCustomFilters = useMemo(() => {
+    const obj = {};
+    Object.entries(customFieldFilters).forEach(([fieldId, v]) => {
+      if (v && v !== 'all' && v.trim() !== '') obj[fieldId] = v;
+    });
+    return obj;
+  }, [customFieldFilters]);
+  const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
+  const customFieldIdsParam = useMemo(
+    () => memberCustomFields.map(f => f.id).join(','),
+    [memberCustomFields]
+  );
+
+  const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, orgFilter, roleFilter, statusFilter, sortField, sortDir, customFiltersParam, customFieldIdsParam],
+    enabled: accessChecked,
+    keepPreviousData: true,
     queryFn: async () => {
-      try {
-        const values = await base44.entities.MemberPreferenceValue.list();
-        return values || [];
-      } catch {
-        return [];
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        search: debouncedSearch,
+        organizationId: orgFilter,
+        roleId: roleFilter,
+        status: statusFilter,
+        sortField,
+        sortDir
+      });
+      if (customFiltersParam && customFiltersParam !== '{}') {
+        params.set('customFilters', customFiltersParam);
       }
+      if (customFieldIdsParam) {
+        params.set('fields', customFieldIdsParam);
+      }
+      const response = await fetch(`/api/admin/members/paginated?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch members');
+      return response.json();
     }
   });
+
+  const members = membersData?.members || [];
+  const pagination = membersData?.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 };
+  const totalPages = pagination.totalPages;
 
   const { toast } = useToast();
   const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
@@ -461,14 +467,13 @@ export default function MembersListPage() {
 
   const memberValuesMap = useMemo(() => {
     const map = {};
-    allMemberPreferenceValues.forEach(pv => {
-      if (!map[pv.member_id]) {
-        map[pv.member_id] = {};
+    members.forEach(m => {
+      if (m.custom_fields) {
+        map[m.id] = m.custom_fields;
       }
-      map[pv.member_id][pv.field_id] = pv.value;
     });
     return map;
-  }, [allMemberPreferenceValues]);
+  }, [members]);
 
   const filteredMembers = useMemo(() => {
     let result = [...members];
@@ -485,34 +490,8 @@ export default function MembersListPage() {
       }
     });
 
-    Object.entries(customFieldFilters).forEach(([fieldId, filterValue]) => {
-      if (filterValue && filterValue !== 'all' && filterValue.trim() !== '') {
-        const isTextFilter = filterValue.startsWith('__text__:');
-        const actualValue = isTextFilter ? filterValue.replace('__text__:', '').toLowerCase() : filterValue;
-        
-        result = result.filter(m => {
-          const memberFieldValue = memberValuesMap[m.id]?.[fieldId];
-          if (!memberFieldValue) return false;
-          
-          if (isTextFilter) {
-            return memberFieldValue.toLowerCase().includes(actualValue);
-          }
-          
-          try {
-            const parsed = JSON.parse(memberFieldValue);
-            if (Array.isArray(parsed)) {
-              return parsed.includes(filterValue);
-            }
-            return parsed === filterValue;
-          } catch {
-            return memberFieldValue === filterValue;
-          }
-        });
-      }
-    });
-
     return result;
-  }, [members, coreFieldFilters, customFieldFilters, memberValuesMap]);
+  }, [members, coreFieldFilters]);
 
   const paginatedMembers = filteredMembers;
 

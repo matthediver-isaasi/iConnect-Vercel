@@ -25,37 +25,80 @@ export default async function handler(req, res) {
       roleId = '',
       status = 'all',
       sortField = 'created_on',
-      sortDir = 'desc'
+      sortDir = 'desc',
+      customFilters = '',
+      fields = ''
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
+    // Parse custom field filters (applied at DB level so paging + count span the whole tenant).
+    // Shape: { "<fieldId>": "<value>" } or { "<fieldId>": "__text__:<substring>" }
+    let parsedCustomFilters = {};
+    if (customFilters && customFilters.trim()) {
+      try {
+        const obj = JSON.parse(customFilters);
+        if (obj && typeof obj === 'object') {
+          for (const [fieldId, raw] of Object.entries(obj)) {
+            if (raw === undefined || raw === null) continue;
+            const val = String(raw);
+            if (val === '' || val === 'all') continue;
+            parsedCustomFilters[fieldId] = val;
+          }
+        }
+      } catch {
+        // Ignore malformed filter param and fall back to no custom filtering
+      }
+    }
+    // Cap the number of custom filters to avoid pathological query expansion from crafted URLs.
+    const MAX_CUSTOM_FILTERS = 20;
+    const customFilterEntries = Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS);
+
+    // Build the core select. For each active custom filter we add an aliased
+    // inner join on member_preference_value so the join restricts (and counts)
+    // members across the entire tenant, not just the current page.
+    let selectClause = `
+      id,
+      first_name,
+      last_name,
+      email,
+      mobile,
+      job_title,
+      organization_id,
+      role_id,
+      login_enabled,
+      show_in_directory,
+      created_on,
+      profile_photo_url,
+      tenant_id,
+      is_guest,
+      guest_expires_at,
+      organization (id, name, tenant_id)`;
+
+    customFilterEntries.forEach((_, idx) => {
+      selectClause += `,\n      cf${idx}:member_preference_value!inner(field_id, value)`;
+    });
+
     let query = supabase
       .from('member')
-      .select(`
-        id,
-        first_name,
-        last_name,
-        email,
-        mobile,
-        job_title,
-        organization_id,
-        role_id,
-        login_enabled,
-        show_in_directory,
-        created_on,
-        profile_photo_url,
-        tenant_id,
-        is_guest,
-        guest_expires_at,
-        organization (id, name, tenant_id)
-      `, { count: 'exact' });
+      .select(selectClause, { count: 'exact' });
 
     query = query.eq('tenant_id', tenantId);
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
+
+    customFilterEntries.forEach(([fieldId, value], idx) => {
+      const alias = `cf${idx}`;
+      query = query.eq(`${alias}.field_id`, fieldId);
+      if (value.startsWith('__text__:')) {
+        const substr = value.slice('__text__:'.length);
+        query = query.ilike(`${alias}.value`, `%${substr}%`);
+      } else {
+        query = query.eq(`${alias}.value`, value);
+      }
+    });
 
     if (search && search.trim()) {
       const tokens = search.trim().split(/\s+/).filter(Boolean);
@@ -97,11 +140,50 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
 
-    const filteredMembers = (members || []).map(m => ({
-      ...m,
-      disabled: m.login_enabled === false,
-      profile_photo: m.profile_photo_url
-    }));
+    const memberRows = members || [];
+    const memberIds = memberRows.map(m => m.id);
+
+    // Fetch custom field values for just this page of members so columns populate
+    // on every page without a capped global fetch. Limit to the requested fields
+    // when provided to keep the row count small.
+    const customFieldValuesByMember = {};
+    if (memberIds.length > 0) {
+      let pvQuery = supabase
+        .from('member_preference_value')
+        .select('member_id, field_id, value')
+        .in('member_id', memberIds);
+
+      const fieldIds = fields
+        ? fields.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+      if (fieldIds.length > 0) {
+        pvQuery = pvQuery.in('field_id', fieldIds);
+      }
+
+      const { data: prefValues, error: pvError } = await pvQuery;
+      if (pvError) {
+        console.error('[MembersPaginated] Preference value query error:', pvError);
+      } else {
+        for (const pv of prefValues || []) {
+          if (!customFieldValuesByMember[pv.member_id]) {
+            customFieldValuesByMember[pv.member_id] = {};
+          }
+          customFieldValuesByMember[pv.member_id][pv.field_id] = pv.value;
+        }
+      }
+    }
+
+    const filteredMembers = memberRows.map(m => {
+      const { ...rest } = m;
+      // Strip the join-only aliases from the response
+      customFilterEntries.forEach((_, idx) => { delete rest[`cf${idx}`]; });
+      return {
+        ...rest,
+        disabled: m.login_enabled === false,
+        profile_photo: m.profile_photo_url,
+        custom_fields: customFieldValuesByMember[m.id] || {}
+      };
+    });
 
     const totalPages = Math.ceil((count || 0) / limitNum);
 
