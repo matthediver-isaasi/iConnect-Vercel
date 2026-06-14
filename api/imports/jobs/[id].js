@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
+import { cleanupImportJobFile } from '../../_lib/importFileCleanup.js';
 
 // Non-terminal statuses a job can be cancelled from.
 const CANCELLABLE_STATUSES = ['initializing', 'queued', 'processing'];
@@ -95,7 +96,18 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'Job is no longer running', job: fresh || job });
     }
 
-    return res.json(updatedRows[0]);
+    // The job is now terminal ('cancelled'): its stored source file is dead
+    // weight that keeps counting against the tenant's storage quota, so delete
+    // it and release the storage like the worker does on completion. Best-effort
+    // and idempotent (clears the job's storage refs); the cancelled job is
+    // terminal so the worker/cron will never reprocess it. A worker mid-slice
+    // already holds the file in memory, so removing it here is safe.
+    const cancelledJob = updatedRows[0];
+    await cleanupImportJobFile(supabase, cancelledJob).catch((e) => {
+      console.warn('[Import Job] Cancel cleanup failed (cron/recompute will reconcile):', e?.message || e);
+    });
+
+    return res.json(cancelledJob);
   } catch (error) {
     console.error('[Import Job] Error:', error);
     res.status(500).json({ error: error.message || 'Failed to process job request' });
