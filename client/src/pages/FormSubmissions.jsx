@@ -109,6 +109,7 @@ export default function FormSubmissionsPage() {
   const [exportFormat, setExportFormat] = useState('csv');
   const [selectedExportFields, setSelectedExportFields] = useState([]);
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState(() => new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
   const [isExportingWord, setIsExportingWord] = useState(false);
   const [exportProgress, setExportProgress] = useState(null);
   const tenantBranding = useTenantBranding();
@@ -430,6 +431,45 @@ export default function FormSubmissionsPage() {
       toast.error('Failed to update status');
     }
   });
+
+  const bulkUpdateStatusMutation = useMutation({
+    mutationFn: async ({ ids, status }) => {
+      const status_updated_by = memberInfo?.email;
+      const status_updated_at = new Date().toISOString();
+      const results = await Promise.allSettled(
+        ids.map(id => base44.entities.FormSubmission.update(id, {
+          status,
+          status_updated_by,
+          status_updated_at
+        }))
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      return { total: ids.length, failed };
+    },
+    onSuccess: ({ total, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ['form-submissions'] });
+      if (failed === 0) {
+        toast.success(`Updated ${total} ${total === 1 ? 'submission' : 'submissions'}`);
+        setSelectedSubmissionIds(new Set());
+        setBulkStatus('');
+      } else if (failed === total) {
+        toast.error('Failed to update submissions');
+      } else {
+        toast.error(`Updated ${total - failed} of ${total}; ${failed} failed`);
+      }
+    },
+    onError: () => {
+      toast.error('Failed to update submissions');
+    }
+  });
+
+  const handleBulkStatusApply = () => {
+    if (!bulkStatus || selectedSubmissionIds.size === 0) return;
+    bulkUpdateStatusMutation.mutate({
+      ids: Array.from(selectedSubmissionIds),
+      status: bulkStatus
+    });
+  };
 
   const deleteSubmissionMutation = useMutation({
     mutationFn: async (id) => {
@@ -761,6 +801,17 @@ export default function FormSubmissionsPage() {
       return next;
     });
   };
+
+  const selectAllFiltered = () => {
+    setSelectedSubmissionIds(new Set(filteredSubmissions.map(s => s.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedSubmissionIds(new Set());
+  };
+
+  const allFilteredSelected = filteredSubmissions.length > 0 &&
+    filteredSubmissions.every(s => selectedSubmissionIds.has(s.id));
 
   const buildExportResolvers = () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -1678,6 +1729,57 @@ export default function FormSubmissionsPage() {
           </DialogContent>
         </Dialog>
 
+        {filteredSubmissions.length > 0 && (
+          <Card className="border-slate-200 mb-4">
+            <CardContent className="p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
+                    data-testid="button-select-all-submissions"
+                  >
+                    {allFilteredSelected
+                      ? 'Clear selection'
+                      : `Select all ${filteredSubmissions.length}`}
+                  </Button>
+                  {selectedSubmissionIds.size > 0 && (
+                    <span className="text-sm text-slate-600" data-testid="text-selected-count">
+                      {selectedSubmissionIds.size} selected
+                    </span>
+                  )}
+                </div>
+                {selectedSubmissionIds.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                      <SelectTrigger className="w-[150px]" data-testid="select-bulk-status">
+                        <SelectValue placeholder="Set status..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">New</SelectItem>
+                        <SelectItem value="junk">Junk</SelectItem>
+                        <SelectItem value="actioned">Actioned</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      onClick={handleBulkStatusApply}
+                      disabled={!bulkStatus || bulkUpdateStatusMutation.isPending}
+                      data-testid="button-apply-bulk-status"
+                    >
+                      {bulkUpdateStatusMutation.isPending && (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      )}
+                      Apply
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {paginatedSubmissions.length === 0 ? (
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
@@ -1704,7 +1806,7 @@ export default function FormSubmissionsPage() {
                           checked={selectedSubmissionIds.has(submission.id)}
                           onCheckedChange={() => toggleSubmissionSelected(submission.id)}
                           data-testid={`checkbox-select-submission-${submission.id}`}
-                          aria-label="Select submission for export"
+                          aria-label="Select submission"
                         />
                       </div>
                       <div className="flex-1">
