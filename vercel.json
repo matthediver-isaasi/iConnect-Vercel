@@ -45,6 +45,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/run-import-jobs",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/recompute-tenant-storage",
       "schedule": "0 3 * * *"
     },

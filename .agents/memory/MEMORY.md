@@ -13,3 +13,4 @@
 - [Advance/scheduled membership invoicing](membership-renewal-no-duplicate.md) — pre-creating a future membership-year row: one row per (org,year) guards duplicates; never leave a scheduled row without a linked invoice; check both xero+accounting invoice ids (QBO).
 - [Membership override display vs sim](membership-override-display-vs-sim.md) — org-membership card cost already has override applied (sim/record); display path must only set metadata + recompute VAT, never re-derive cost.
 - [Dynamic email slots](dynamic-email-slots.md) — text/image/button dynamic blocks: token scheme, dual-mode previews via SlotEditContext, and DYN_BLOCK marker regions for hiding whole elements at send.
+- [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.

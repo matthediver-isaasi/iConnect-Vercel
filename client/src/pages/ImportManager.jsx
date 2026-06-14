@@ -81,20 +81,6 @@ export default function ImportManager() {
   const [importProgress, setImportProgress] = useState(null);
   const fileInputRef = useRef(null);
 
-  // While an import is running we cannot safely resume after the tab closes, so
-  // warn the user before they navigate away or close the tab. The native prompt
-  // only appears when there is genuinely an import in flight.
-  useEffect(() => {
-    if (!isImporting) return;
-    const handleBeforeUnload = (e) => {
-      e.preventDefault();
-      e.returnValue = '';
-      return '';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isImporting]);
-
   // Fetch available fields for mapping
   const { data: availableFields, isLoading: fieldsLoading } = useQuery({
     queryKey: ['/api/imports/fields', activeTab],
@@ -360,17 +346,33 @@ export default function ImportManager() {
     setIsImporting(true);
     setImportProgress(null);
 
-    // The backend processes only a time-budgeted slice of rows per request (to
-    // stay under Vercel's 60s ceiling), returning a cursor + running totals. We
-    // re-send the same file with that cursor until it reports done. Mirrors the
-    // Zoho one-time-import loop.
-    let offset = 0;
-    let jobId = null;
-    let forcePath = null;
-    let totalRows = null;
-    const totals = { created: 0, updated: 0, skipped: 0, errors: 0, notesCreated: 0 };
-    let errorDetails = [];
-    let safety = 0;
+    // Phase 2: the import runs fully server-side as a background job. We upload
+    // the file once (enqueue), then poll the job for live status. The worker
+    // chews through the whole file headlessly, so the user can safely close the
+    // tab — they'll see the up-to-date status in Recent Imports when they return.
+    const TERMINAL = ['completed', 'completed_with_errors', 'failed'];
+    const POLL_INTERVAL_MS = 2000;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const buildResultFromJob = (job) => ({
+      success: job.status !== 'failed',
+      created: job.created_count || 0,
+      updated: job.updated_count || 0,
+      skipped: job.skipped_count || 0,
+      errors: job.error_count || 0,
+      notesCreated: job.notes_created || 0,
+      totalRows: job.total_rows ?? null,
+      errorDetails: Array.isArray(job.errors) ? job.errors.slice(0, 50) : [],
+      summary: {
+        totalRows: job.total_rows ?? null,
+        processedRows: (job.created_count || 0) + (job.updated_count || 0),
+        createdRows: job.created_count || 0,
+        updatedRows: job.updated_count || 0,
+        skippedRows: job.skipped_count || 0,
+        errorRows: job.error_count || 0,
+        notesCreated: job.notes_created || 0,
+      },
+    });
 
     // Transient failures (a dropped connection, a Vercel 504 gateway HTML page,
     // a brief 429/503) should NOT abort the whole import. We retry the SAME
@@ -381,126 +383,91 @@ export default function ImportManager() {
     const TRANSIENT_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
     try {
+      const formData = new FormData();
+      formData.append('file', csvFile);
+      formData.append('entityType', activeTab);
+      formData.append('identifierField', identifierField);
+      formData.append('mappings', JSON.stringify(activeMappings));
+
+      const response = await fetch('/api/imports/enqueue', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      let result = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok || !result?.jobId) {
+        throw new Error(result?.error || 'Could not start the import.');
+      }
+
+      const jobId = result.jobId;
+      const totalRows = result.totalRows ?? null;
+      setImportProgress({ processed: 0, total: totalRows, created: 0, updated: 0, skipped: 0, errors: 0, notesCreated: 0, status: 'queued' });
+      toast.success('Import started — it runs in the background. You can safely close this tab.');
+      refetchJobs();
+
+      // Poll the job until it reaches a terminal state. The server keeps
+      // processing even if this loop stops (e.g. tab closed).
+      let consecutiveErrors = 0;
       while (true) {
-        safety += 1;
-        if (safety > 10000) {
-          throw new Error('Import did not complete (too many chunks). Please try again.');
+        await sleep(POLL_INTERVAL_MS);
+
+        let job = null;
+        try {
+          const statusRes = await fetch(`/api/imports/jobs/${jobId}`, { credentials: 'include' });
+          if (statusRes.ok) {
+            job = await statusRes.json();
+            consecutiveErrors = 0;
+          } else {
+            consecutiveErrors += 1;
+          }
+        } catch {
+          consecutiveErrors += 1;
         }
 
-        const formData = new FormData();
-        formData.append('file', csvFile);
-        formData.append('entityType', activeTab);
-        formData.append('identifierField', identifierField);
-        formData.append('mappings', JSON.stringify(activeMappings));
-        formData.append('offset', String(offset));
-        if (jobId) formData.append('jobId', jobId);
-        if (forcePath) formData.append('forcePath', forcePath);
-        formData.append('created', String(totals.created));
-        formData.append('updated', String(totals.updated));
-        formData.append('skipped', String(totals.skipped));
-        formData.append('errors', String(totals.errors));
-        formData.append('notesCreated', String(totals.notesCreated));
-
-        // Attempt this chunk, retrying transient failures from the same cursor.
-        let result = null;
-        let attempt = 0;
-        while (true) {
-          let response = null;
-          let parseError = null;
-          let networkError = null;
-          try {
-            response = await fetch('/api/imports/execute', {
-              method: 'POST',
-              credentials: 'include',
-              body: formData
-            });
-          } catch (e) {
-            networkError = e;
+        // Transient polling failures shouldn't kill the run — the job continues
+        // server-side. Give up the live view only after repeated failures.
+        if (!job) {
+          if (consecutiveErrors >= 5) {
+            throw new Error('Lost connection while tracking the import. It is still running — check Recent Imports.');
           }
-
-          // Vercel returns an HTML gateway page (not JSON) when a function hits
-          // the time ceiling. Parse defensively so the user sees a useful message
-          // instead of "Unexpected token <".
-          if (!networkError) {
-            try {
-              result = await response.json();
-            } catch (e) {
-              parseError = e;
-              result = null;
-            }
-          }
-
-          const status = response?.status ?? 0;
-          const isTransient =
-            !!networkError ||
-            !!parseError ||
-            (response && !response.ok && TRANSIENT_STATUSES.has(status));
-
-          if (!networkError && !parseError && response && response.ok) {
-            break; // success — proceed with `result`
-          }
-
-          if (isTransient && attempt < MAX_RETRIES) {
-            attempt += 1;
-            setImportProgress((prev) => ({
-              processed: totalRows != null ? Math.min(offset, totalRows) : offset,
-              total: totalRows,
-              ...totals,
-              retrying: true,
-              retryAttempt: attempt,
-            }));
-            // Linear backoff: 0.8s, 1.6s, 2.4s, 3.2s.
-            await new Promise((r) => setTimeout(r, 800 * attempt));
-            continue;
-          }
-
-          // Non-transient (a structured 4xx like bad mappings), or we have
-          // exhausted retries — abort with the most useful message available.
-          const msg = networkError
-            ? 'Network error — the import was interrupted. Please check your connection and try again.'
-            : parseError
-              ? `Server error (${status}) — the import may have timed out. Please try again.`
-              : (result?.error || 'Import failed');
-          throw new Error(msg);
+          continue;
         }
 
-        jobId = result.jobId || jobId;
-        if (result.path === 'js') forcePath = 'js';
-        totals.created = result.created ?? totals.created;
-        totals.updated = result.updated ?? totals.updated;
-        totals.skipped = result.skipped ?? totals.skipped;
-        totals.errors = result.errors ?? totals.errors;
-        totals.notesCreated = result.notesCreated ?? totals.notesCreated;
-        totalRows = result.totalRows ?? totalRows;
-        offset = result.offset ?? offset;
+        const processed = totalRows != null
+          ? Math.min(job.cursor_offset || 0, totalRows)
+          : (job.cursor_offset || 0);
+        setImportProgress({
+          processed,
+          total: job.total_rows ?? totalRows,
+          created: job.created_count || 0,
+          updated: job.updated_count || 0,
+          skipped: job.skipped_count || 0,
+          errors: job.error_count || 0,
+          notesCreated: job.notes_created || 0,
+          status: job.status,
+        });
+        refetchJobs();
 
-        if (Array.isArray(result.errorDetails) && result.errorDetails.length > 0 && errorDetails.length < 50) {
-          errorDetails = errorDetails.concat(result.errorDetails).slice(0, 50);
-        }
-
-        const processed = totalRows != null ? Math.min(offset, totalRows) : offset;
-        setImportProgress({ processed, total: totalRows, ...totals });
-
-        if (result.done) {
-          const finalResult = {
-            success: true,
-            ...totals,
-            totalRows,
-            errorDetails,
-            summary: result.summary || {
-              totalRows,
-              processedRows: totals.created + totals.updated,
-              createdRows: totals.created,
-              updatedRows: totals.updated,
-              skippedRows: totals.skipped,
-              errorRows: totals.errors,
-              notesCreated: totals.notesCreated
-            }
-          };
-          setImportResult(finalResult);
-          setStep(4);
-          toast.success(`Import complete: ${totals.created} created, ${totals.updated} updated`);
-          refetchJobs();
+        if (TERMINAL.includes(job.status)) {
+          if (job.status === 'failed') {
+            const lastError = Array.isArray(job.errors) && job.errors.length
+              ? (job.errors[job.errors.length - 1]?.error || 'Import failed.')
+              : 'Import failed.';
+            setImportResult({ ...buildResultFromJob(job), failed: true, failedReason: lastError });
+            setStep(4);
+            toast.error(`Import failed: ${lastError}`);
+          } else {
+            setImportResult(buildResultFromJob(job));
+            setStep(4);
+            toast.success(`Import complete: ${job.created_count || 0} created, ${job.updated_count || 0} updated`);
+          }
           break;
         }
       }
@@ -1011,10 +978,27 @@ export default function ImportManager() {
                     {step === 4 && importResult && (
                       <div className="space-y-4">
                         <div className="text-center py-6">
-                          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Check className="w-8 h-8 text-green-600" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-900">Import Complete!</h3>
+                          {importResult.failed ? (
+                            <>
+                              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <AlertCircle className="w-8 h-8 text-red-600" />
+                              </div>
+                              <h3 className="text-xl font-bold text-slate-900" data-testid="text-import-result-title">Import Failed</h3>
+                              <p className="text-sm text-red-600 mt-2 max-w-md mx-auto" data-testid="text-import-failed-reason">
+                                {importResult.failedReason || 'The import could not be completed. No further rows were processed.'}
+                              </p>
+                              <p className="text-sm text-slate-500 mt-1">
+                                Any rows processed before the failure were saved. Review the details below and try again.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Check className="w-8 h-8 text-green-600" />
+                              </div>
+                              <h3 className="text-xl font-bold text-slate-900" data-testid="text-import-result-title">Import Complete!</h3>
+                            </>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

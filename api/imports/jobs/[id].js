@@ -15,6 +15,22 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   
+  // Resolve the caller's tenant so a job can only be read by its own tenant.
+  let tenantId = null;
+  try {
+    const { data: member } = await supabase
+      .from('member')
+      .select('tenant_id')
+      .eq('id', session.data.memberId)
+      .single();
+    tenantId = member?.tenant_id || null;
+  } catch (e) {
+    console.log('[Import Job] Could not resolve tenant_id:', e.message);
+  }
+  if (!tenantId) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
   try {
     const { id } = req.query;
     
@@ -22,6 +38,7 @@ export default async function handler(req, res) {
       .from('csv_import_job')
       .select('*')
       .eq('id', id)
+      .eq('tenant_id', tenantId)
       .single();
     
     if (error || !job) {
