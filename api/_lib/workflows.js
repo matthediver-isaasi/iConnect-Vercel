@@ -23,6 +23,117 @@ function tryParseJsonArray(value) {
   }
 }
 
+// Date/time comparison operators. These are evaluated against the current
+// date/time at evaluation. "today" semantics are date-only and computed in
+// UTC (the schedule/condition timezone assumption is UTC); "past"/"future"
+// semantics use the full timestamp. Empty or unparseable values never match
+// (and never throw).
+const DATE_OPERATORS = new Set([
+  'date_is_today',
+  'date_before_today',
+  'date_after_today',
+  'date_in_past',
+  'date_in_future',
+  'date_days_ago',
+  'date_days_from_now',
+  'date_within_days',
+]);
+
+function isDateOperator(op) {
+  return DATE_OPERATORS.has(op);
+}
+
+function parseDateValue(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+// Whole-day difference between the given date and "today", both reduced to
+// UTC midnight. Negative = in the past, 0 = today, positive = in the future.
+function daysFromTodayUTC(d) {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const dateUTC = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const now = new Date();
+  const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((dateUTC - todayUTC) / DAY_MS);
+}
+
+function evaluateDateOperator(operator, rawValue, conditionValue) {
+  const d = parseDateValue(rawValue);
+  if (!d) return false; // empty/invalid -> no match, no crash
+
+  if (operator === 'date_in_past') return d.getTime() < Date.now();
+  if (operator === 'date_in_future') return d.getTime() > Date.now();
+
+  const diff = daysFromTodayUTC(d);
+  switch (operator) {
+    case 'date_is_today': return diff === 0;
+    case 'date_before_today': return diff < 0;
+    case 'date_after_today': return diff > 0;
+    case 'date_days_ago': {
+      const n = parseInt(conditionValue, 10);
+      return Number.isFinite(n) && diff === -n;
+    }
+    case 'date_days_from_now': {
+      const n = parseInt(conditionValue, 10);
+      return Number.isFinite(n) && diff === n;
+    }
+    case 'date_within_days': {
+      const n = parseInt(conditionValue, 10);
+      return Number.isFinite(n) && diff >= 0 && diff <= n;
+    }
+    default: return false;
+  }
+}
+
+// Single source of truth for evaluating a condition operator. Shared by the
+// event-driven entry points (triggerWorkflows, triggerPreferenceWorkflows)
+// and the scheduled evaluation path so all three stay consistent. `beforeValue`
+// is only meaningful for change-based operators (changed_to/changed_from); the
+// scheduled path has no "before" so it passes undefined.
+function evaluateConditionOperator(operator, afterValue, conditionValue, beforeValue) {
+  if (isDateOperator(operator)) {
+    return evaluateDateOperator(operator, afterValue, conditionValue);
+  }
+
+  const actualValue = String(afterValue ?? '');
+  const targetValue = String(conditionValue ?? '');
+  const beforeStr = String(beforeValue ?? '');
+
+  switch (operator) {
+    case 'equals':
+      return actualValue.toLowerCase() === targetValue.toLowerCase();
+    case 'not_equals':
+      return actualValue.toLowerCase() !== targetValue.toLowerCase();
+    case 'contains': {
+      const arr = tryParseJsonArray(actualValue);
+      if (arr) return arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+      return actualValue.toLowerCase().includes(targetValue.toLowerCase());
+    }
+    case 'not_contains': {
+      const arr = tryParseJsonArray(actualValue);
+      if (arr) return !arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
+      return !actualValue.toLowerCase().includes(targetValue.toLowerCase());
+    }
+    case 'starts_with':
+      return actualValue.toLowerCase().startsWith(targetValue.toLowerCase());
+    case 'ends_with':
+      return actualValue.toLowerCase().endsWith(targetValue.toLowerCase());
+    case 'is_empty':
+      return afterValue === null || afterValue === undefined || afterValue === '';
+    case 'is_not_empty':
+      return afterValue !== null && afterValue !== undefined && afterValue !== '';
+    case 'changed_to':
+      return beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase();
+    case 'changed_from':
+      return beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue;
+    default:
+      return false;
+  }
+}
+
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
   if (!supabase || !memberId) {
@@ -1777,60 +1888,8 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           }
           
           const actualValue = String(afterValue ?? '');
-          const targetValue = String(condition.value ?? '');
-          const beforeStr = String(beforeValue ?? '');
           
-          let conditionMet = false;
-          switch (condition.operator) {
-            case 'equals':
-              conditionMet = actualValue.toLowerCase() === targetValue.toLowerCase();
-              break;
-            case 'not_equals':
-              conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase();
-              break;
-            case 'contains': {
-              const arr = tryParseJsonArray(actualValue);
-              if (arr) {
-                conditionMet = arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
-                console.log(`[Workflows] contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
-              } else {
-                conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
-                console.log(`[Workflows] contains: substring path, met=${conditionMet}`);
-              }
-              break;
-            }
-            case 'not_contains': {
-              const arr = tryParseJsonArray(actualValue);
-              if (arr) {
-                conditionMet = !arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
-                console.log(`[Workflows] not_contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
-              } else {
-                conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
-                console.log(`[Workflows] not_contains: substring path, met=${conditionMet}`);
-              }
-              break;
-            }
-            case 'starts_with':
-              conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase());
-              break;
-            case 'ends_with':
-              conditionMet = actualValue.toLowerCase().endsWith(targetValue.toLowerCase());
-              break;
-            case 'is_empty':
-              conditionMet = afterValue === null || afterValue === undefined || afterValue === '';
-              break;
-            case 'is_not_empty':
-              conditionMet = afterValue !== null && afterValue !== undefined && afterValue !== '';
-              break;
-            case 'changed_to':
-              conditionMet = beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase();
-              break;
-            case 'changed_from':
-              conditionMet = beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue;
-              break;
-            default:
-              conditionMet = false;
-          }
+          const conditionMet = evaluateConditionOperator(condition.operator, afterValue, condition.value, beforeValue);
           
           conditionResults.push({
             field_id: condition.field_id,
@@ -2074,43 +2133,8 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           }
           
           const actualValue = String(afterValue ?? '');
-          const targetValue = String(condition.value ?? '');
-          const beforeStr = String(beforeValue ?? '');
           
-          let conditionMet = false;
-          switch (condition.operator) {
-            case 'equals': conditionMet = actualValue.toLowerCase() === targetValue.toLowerCase(); break;
-            case 'not_equals': conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase(); break;
-            case 'contains': {
-              const arr = tryParseJsonArray(actualValue);
-              if (arr) {
-                conditionMet = arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
-                console.log(`[Workflows] Pref contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
-              } else {
-                conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
-                console.log(`[Workflows] Pref contains: substring path, met=${conditionMet}`);
-              }
-              break;
-            }
-            case 'not_contains': {
-              const arr = tryParseJsonArray(actualValue);
-              if (arr) {
-                conditionMet = !arr.some(el => String(el).toLowerCase() === targetValue.toLowerCase());
-                console.log(`[Workflows] Pref not_contains: array-element match path (parsed ${arr.length} items), met=${conditionMet}`);
-              } else {
-                conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
-                console.log(`[Workflows] Pref not_contains: substring path, met=${conditionMet}`);
-              }
-              break;
-            }
-            case 'starts_with': conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase()); break;
-            case 'ends_with': conditionMet = actualValue.toLowerCase().endsWith(targetValue.toLowerCase()); break;
-            case 'is_empty': conditionMet = afterValue === null || afterValue === undefined || afterValue === ''; break;
-            case 'is_not_empty': conditionMet = afterValue !== null && afterValue !== undefined && afterValue !== ''; break;
-            case 'changed_to': conditionMet = beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase(); break;
-            case 'changed_from': conditionMet = beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue; break;
-            default: conditionMet = false;
-          }
+          const conditionMet = evaluateConditionOperator(condition.operator, afterValue, condition.value, beforeValue);
           
           conditionResults.push({
             field_id: condition.field_id,
@@ -2120,7 +2144,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
             met: conditionMet
           });
           
-          console.log(`[Workflows] Pref condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", before="${beforeStr}", met=${conditionMet}`);
+          console.log(`[Workflows] Pref condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", before="${String(beforeValue ?? '')}", met=${conditionMet}`);
           
           if (i === 0) {
             allConditionsMet = conditionMet;
@@ -2486,4 +2510,197 @@ export async function executeConfirmedWorkflow(workflowId, entityType, entityId,
     console.error('[Workflows] executeConfirmedWorkflow Error:', err.message, err.stack);
     return { success: false, error: err.message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled workflows
+// ---------------------------------------------------------------------------
+// Scheduled workflows are not driven by a record change. Instead a cron sweep
+// (api/cron/run-scheduled-workflows.js) calls runScheduledWorkflow for each
+// active workflow whose trigger_type === 'scheduled' that is due to run. We
+// iterate the workflow's entity records for its tenant, evaluate its
+// conditions against the *current* value of each record (no before/after), and
+// execute the actions for matching records. once_per_record vs every_time is
+// honored via checkOncePerRecord exactly like the event-driven path.
+
+// Resolve the current value of a single condition's field for a scheduled
+// evaluation. Mirrors the field resolution used by triggerWorkflows but works
+// off an already-loaded record and never has a "before" value.
+async function resolveScheduledConditionValue(condition, entityType, record) {
+  const fieldType = condition.field_type || 'core';
+
+  // Member / job_posting core fields, and the generic "core" of whatever the
+  // workflow entity is, live directly on the record.
+  if (
+    fieldType === 'job_posting_core' ||
+    fieldType === 'member_core' ||
+    fieldType === 'core'
+  ) {
+    return record?.[condition.field_id];
+  }
+
+  // Organisation core fields.
+  if (fieldType === 'org_core') {
+    if (entityType === 'organization') return record?.[condition.field_id];
+    if (record?.organization_id) {
+      const { data: orgData } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('id', record.organization_id)
+        .maybeSingle();
+      return orgData?.[condition.field_id];
+    }
+    return undefined;
+  }
+
+  // Member custom (preference) values.
+  if (fieldType === 'member_custom' || fieldType === 'custom') {
+    if (!record?.id) return undefined;
+    const { data: prefValue } = await supabase
+      .from('member_preference_value')
+      .select('value')
+      .eq('member_id', record.id)
+      .eq('field_id', condition.field_id)
+      .maybeSingle();
+    return prefValue?.value;
+  }
+
+  // Organisation custom (preference) values.
+  if (fieldType === 'org_custom') {
+    const orgId = entityType === 'organization' ? record?.id : record?.organization_id;
+    if (!orgId) return undefined;
+    const { data: prefValue } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', orgId)
+      .eq('field_id', condition.field_id)
+      .maybeSingle();
+    return prefValue?.value;
+  }
+
+  return undefined;
+}
+
+// Evaluate all conditions of a scheduled workflow against one record. Honors
+// the same AND/OR `logic` semantics as the event-driven path. A workflow with
+// no conditions matches every record.
+async function evaluateScheduledConditions(workflow, entityType, record) {
+  const conditions = Array.isArray(workflow.conditions) ? workflow.conditions : [];
+  if (conditions.length === 0) return true;
+
+  let allConditionsMet = true;
+  for (let i = 0; i < conditions.length; i++) {
+    const condition = conditions[i];
+    const afterValue = await resolveScheduledConditionValue(condition, entityType, record);
+    const conditionMet = evaluateConditionOperator(condition.operator, afterValue, condition.value, undefined);
+
+    if (i === 0) {
+      allConditionsMet = conditionMet;
+    } else if (condition.logic === 'OR') {
+      allConditionsMet = allConditionsMet || conditionMet;
+    } else {
+      allConditionsMet = allConditionsMet && conditionMet;
+    }
+  }
+  return allConditionsMet;
+}
+
+// Run a single scheduled workflow across its tenant's entity records.
+// Returns a summary { evaluated, matched, executed, skipped, errors }.
+export async function runScheduledWorkflow(workflow, baseUrl, options = {}) {
+  const summary = { evaluated: 0, matched: 0, executed: 0, skipped: 0, errors: 0 };
+  if (!supabase) {
+    console.error('[Workflows] runScheduledWorkflow: Supabase not configured');
+    return summary;
+  }
+
+  const entityType = workflow.entity_type;
+  const tenantId = workflow.tenant_id;
+  if (!entityType || !tenantId) {
+    console.warn(`[Workflows] runScheduledWorkflow: workflow ${workflow.id} missing entity_type or tenant_id`);
+    return summary;
+  }
+
+  const table = entityType === 'job_posting' ? 'job_posting' : entityType;
+  const recordLimit = Number.isFinite(options.recordLimit) ? options.recordLimit : 2000;
+  const pageSize = 500;
+
+  let from = 0;
+  let processed = 0;
+  while (processed < recordLimit) {
+    const remaining = recordLimit - processed;
+    const to = from + Math.min(pageSize, remaining) - 1;
+    const { data: records, error } = await supabase
+      .from(table)
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .range(from, to);
+
+    if (error) {
+      console.error(`[Workflows] runScheduledWorkflow: failed to load ${table} page for tenant ${tenantId}: ${error.message}`);
+      summary.errors++;
+      break;
+    }
+    if (!records || records.length === 0) break;
+
+    for (const record of records) {
+      summary.evaluated++;
+      processed++;
+      try {
+        // Cheap skip: a once_per_record workflow that already ran for this
+        // record needs no condition evaluation at all.
+        if (await checkOncePerRecord(workflow, entityType, record.id)) {
+          summary.skipped++;
+          continue;
+        }
+
+        const matched = await evaluateScheduledConditions(workflow, entityType, record);
+        if (!matched) continue;
+        summary.matched++;
+
+        const entityData = { ...record };
+        if (entityData.first_name || entityData.last_name) {
+          entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
+        }
+
+        const results = await executeWorkflowActions(workflow, entityType, record.id, entityData, baseUrl);
+        await logWorkflowExecution(workflow, entityType, record.id, {
+          trigger_type: 'scheduled',
+          scheduled_at: new Date().toISOString(),
+        }, results);
+        summary.executed++;
+      } catch (err) {
+        summary.errors++;
+        console.error(`[Workflows] runScheduledWorkflow: error processing ${entityType} ${record.id}: ${err.message}`);
+      }
+    }
+
+    if (records.length < pageSize) break;
+    from += pageSize;
+  }
+
+  console.log(`[Workflows] runScheduledWorkflow "${workflow.name}" (${workflow.id}): ${JSON.stringify(summary)}`);
+  return summary;
+}
+
+// Decide whether a scheduled workflow is due to run at the given evaluation
+// time. Schedule config lives in trigger_config:
+//   { frequency: 'hourly' | 'daily', run_time: 'HH:MM' }  (UTC)
+// - hourly: due on every sweep.
+// - daily (default): due only when the current UTC hour matches run_time's
+//   hour. Defaults to hour 0 (00:00 UTC) when run_time is absent/invalid.
+export function isScheduledWorkflowDue(workflow, now = new Date()) {
+  const cfg = workflow?.trigger_config || {};
+  const frequency = cfg.frequency || 'daily';
+  if (frequency === 'hourly') return true;
+
+  // daily (and any unknown frequency treated as daily)
+  let targetHour = 0;
+  if (typeof cfg.run_time === 'string' && /^\d{1,2}:\d{2}$/.test(cfg.run_time)) {
+    const parsedHour = parseInt(cfg.run_time.split(':')[0], 10);
+    if (Number.isFinite(parsedHour) && parsedHour >= 0 && parsedHour <= 23) {
+      targetHour = parsedHour;
+    }
+  }
+  return now.getUTCHours() === targetHour;
 }

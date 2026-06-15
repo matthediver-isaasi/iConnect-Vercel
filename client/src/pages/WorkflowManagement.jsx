@@ -30,6 +30,7 @@ const TRIGGER_TYPES = [
   { value: 'field_change', label: 'Field Value Changes', description: 'Triggers when a specific field value changes' },
   { value: 'record_create', label: 'Record Created', description: 'Triggers when a new record is created' },
   { value: 'record_update', label: 'Record Updated', description: 'Triggers when any field is updated' },
+  { value: 'scheduled', label: 'Scheduled', description: 'Runs on a schedule and checks every record against the conditions below' },
 ];
 
 const CONDITION_OPERATORS = [
@@ -44,6 +45,40 @@ const CONDITION_OPERATORS = [
   { value: 'changed_to', label: 'Changed To' },
   { value: 'changed_from', label: 'Changed From' },
 ];
+
+// Date-specific operators, offered only when the selected condition field is a
+// date. "today" semantics are date-only in UTC; "past"/"future" use the full
+// timestamp. The relative operators require a whole-number N value.
+const DATE_CONDITION_OPERATORS = [
+  { value: 'date_is_today', label: 'Is Today' },
+  { value: 'date_before_today', label: 'Is Before Today' },
+  { value: 'date_after_today', label: 'Is After Today' },
+  { value: 'date_in_past', label: 'Is In The Past' },
+  { value: 'date_in_future', label: 'Is In The Future' },
+  { value: 'date_days_ago', label: 'Is N Days Ago' },
+  { value: 'date_days_from_now', label: 'Is N Days From Now' },
+  { value: 'date_within_days', label: 'Is Within Next N Days' },
+];
+
+// Relative date operators that need a numeric N value.
+const RELATIVE_DATE_OPERATORS = ['date_days_ago', 'date_days_from_now', 'date_within_days'];
+
+// Operators that take no value input at all.
+const NO_VALUE_OPERATORS = [
+  'is_empty', 'is_not_empty',
+  'date_is_today', 'date_before_today', 'date_after_today', 'date_in_past', 'date_in_future',
+];
+
+const getOperatorsForField = (field) => {
+  if (field?.type === 'date') {
+    return [
+      ...DATE_CONDITION_OPERATORS,
+      { value: 'is_empty', label: 'Is Empty' },
+      { value: 'is_not_empty', label: 'Is Not Empty' },
+    ];
+  }
+  return CONDITION_OPERATORS;
+};
 
 const ACTION_TYPES = [
   { value: 'send_email', label: 'Send Email', icon: Mail, description: 'Send an email notification' },
@@ -705,6 +740,14 @@ export default function WorkflowManagementPage() {
                                 Requires confirmation
                               </span>
                             )}
+                            {workflow.trigger_type === 'scheduled' && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {(workflow.trigger_config?.frequency || 'daily') === 'hourly'
+                                  ? 'Hourly'
+                                  : `Daily at ${workflow.trigger_config?.run_time || '00:00'} UTC`}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1099,6 +1142,50 @@ export default function WorkflowManagementPage() {
                     </div>
                   </div>
                 )}
+
+                {formData.trigger_type === 'scheduled' && (
+                  <div className="space-y-4 p-4 bg-muted/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      This workflow runs on a schedule and checks every {formData.entity_type === 'organization' ? 'organisation' : formData.entity_type === 'job_posting' ? 'job posting' : 'member'} record against the conditions you set in the next step, then runs the actions for any record that matches. Use date conditions (e.g. "Closing Date is within next 7 days") to target records by date.
+                    </p>
+                    <div className="space-y-2">
+                      <Label>Frequency</Label>
+                      <Select
+                        value={formData.trigger_config?.frequency || 'daily'}
+                        onValueChange={(val) => setFormData(prev => ({
+                          ...prev,
+                          trigger_config: { ...prev.trigger_config, frequency: val }
+                        }))}
+                      >
+                        <SelectTrigger data-testid="select-schedule-frequency">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Daily</SelectItem>
+                          <SelectItem value="hourly">Hourly</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {(formData.trigger_config?.frequency || 'daily') === 'daily' && (
+                      <div className="space-y-2">
+                        <Label>Run time (UTC)</Label>
+                        <Input
+                          type="time"
+                          value={formData.trigger_config?.run_time || '00:00'}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            trigger_config: { ...prev.trigger_config, run_time: e.target.value }
+                          }))}
+                          data-testid="input-schedule-run-time"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          The workflow runs once a day at this time. Times are in UTC.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1209,15 +1296,27 @@ export default function WorkflowManagementPage() {
                                   <SelectValue placeholder="Operator" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {CONDITION_OPERATORS.map((op) => (
+                                  {getOperatorsForField(getSelectedField(condition.field_type, condition.field_id)).map((op) => (
                                     <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {!['is_empty', 'is_not_empty'].includes(condition.operator) && (() => {
+                              {!NO_VALUE_OPERATORS.includes(condition.operator) && (() => {
                                 const conditionField = getSelectedField(condition.field_type, condition.field_id);
                                 const hasConditionOptions = conditionField?.options && conditionField.options.length > 0;
-                                
+
+                                if (RELATIVE_DATE_OPERATORS.includes(condition.operator)) {
+                                  return (
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={condition.value || ''}
+                                      onChange={(e) => updateCondition(index, { value: e.target.value })}
+                                      placeholder="Number of days"
+                                    />
+                                  );
+                                }
+
                                 return hasConditionOptions ? (
                                   <Select
                                     value={condition.value || ''}

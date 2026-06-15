@@ -59,8 +59,8 @@ export const workflow = pgTable("workflow", {
   name: text("name").notNull(),
   description: text("description"),
   entity_type: text("entity_type").notNull(), // 'organization' or 'member'
-  trigger_type: text("trigger_type").notNull(), // 'field_change', 'record_create', 'record_update'
-  trigger_config: jsonb("trigger_config"), // { field_id, field_type, operator, value }
+  trigger_type: text("trigger_type").notNull(), // 'field_change', 'record_create', 'record_update', 'scheduled'
+  trigger_config: jsonb("trigger_config"), // field_change: { field_id, field_type, operator, value, requires_confirmation }; scheduled: { frequency: 'daily'|'hourly', run_time: 'HH:MM' (UTC) }
   conditions: jsonb("conditions"), // [{ field_id, field_type, operator, value, logic }]
   actions: jsonb("actions"), // [{ type, config }]
   is_active: boolean("is_active").default(true),

@@ -19,3 +19,4 @@
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
 - [Canvas layer groups](canvas-layer-groups.md) — group hidden/lock are DERIVED from members (only name+collapsed stored); renderer ignores groups; layers use nested SortableContexts.
+- [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
