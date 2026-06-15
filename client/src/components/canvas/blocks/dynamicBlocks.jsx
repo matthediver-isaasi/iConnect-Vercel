@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
-  ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink,
+  ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -3921,6 +3921,204 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
 }
 
 // ============================================================================
+// CARD DECK
+// ============================================================================
+// Renders a responsive grid of cards from the shared card library (the same
+// `card_deck` source the iEdit Card Deck element uses). Authors pick which
+// cards appear and in what order via the inspector; layout follows the
+// standard per-breakpoint columns + gap convention used by the other data
+// blocks (not the iEdit fixed-grid mapping).
+function useCardDeckCards() {
+  return useQuery({
+    queryKey: ['canvas', 'public-card-decks'],
+    queryFn: async () => (await publicClient.listCardDecks()) || [],
+    staleTime: 60_000,
+  });
+}
+
+function CardDeckRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const gap = c.gap ?? 24;
+  const showImage = c.showImage !== false;
+  const showDescription = c.showDescription !== false;
+  const showButton = c.showButton !== false;
+  const { data: allCards, isLoading, isError } = useCardDeckCards();
+
+  const cards = useMemo(() => {
+    const byId = new Map((Array.isArray(allCards) ? allCards : []).map((card) => [String(card.id), card]));
+    return (Array.isArray(c.cardIds) ? c.cardIds : [])
+      .filter(Boolean)
+      .map((id) => byId.get(String(id)))
+      .filter(Boolean);
+  }, [allCards, c.cardIds]);
+
+  return (
+    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || 'Card deck'}>
+      {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
+      {isLoading ? (
+        <ListSkeleton count={Math.min((c.cardIds || []).filter(Boolean).length || 3, 6)} columns={cols} gap={gap} />
+      ) : isError ? (
+        <ErrorState message="Couldn't load cards right now." />
+      ) : cards.length === 0 ? (
+        <EmptyState icon={LayoutGrid} text={c.emptyText || 'Select cards in the inspector.'} />
+      ) : (
+        <ul className="list-none m-0 p-0" style={gridStyle(cols, gap)} data-testid="card-deck">
+          {cards.map((card) => (
+            <li
+              key={card.id}
+              className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col"
+              data-testid={`card-deck-item-${card.id}`}
+            >
+              {showImage && card.image_url ? (
+                <div className="aspect-[16/9] bg-slate-100">
+                  <img src={card.image_url} alt={card.title || ''} className="w-full h-full object-cover" loading="lazy" />
+                </div>
+              ) : null}
+              <div className="p-4 flex-1 flex flex-col gap-2">
+                {card.title ? (
+                  <h3 className="text-base font-semibold text-slate-900 m-0">{card.title}</h3>
+                ) : null}
+                {showDescription && card.description ? (
+                  <p className="text-sm text-slate-600 line-clamp-3 m-0">{card.description}</p>
+                ) : null}
+                {Array.isArray(card.links) && card.links.some((l) => l?.url && l?.text) ? (
+                  <ul className="list-none p-0 m-0 space-y-1">
+                    {card.links.map((link, idx) => (
+                      link?.url && link?.text ? (
+                        <li key={idx} className="m-0">
+                          <a
+                            href={asEditor ? undefined : link.url}
+                            onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline"
+                            data-testid={`link-card-deck-${card.id}-${idx}`}
+                          >
+                            {link.text}
+                          </a>
+                        </li>
+                      ) : null
+                    ))}
+                  </ul>
+                ) : null}
+                {showButton && card.target_url ? (
+                  <a
+                    href={asEditor ? undefined : card.target_url}
+                    onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1 mt-auto pt-2"
+                    data-testid={`button-card-deck-${card.id}`}
+                  >
+                    {card.button_text || 'Learn more'} <ArrowRight className="w-3 h-3" />
+                  </a>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function CardDeckPickerRow({ value, onChange, testId, disabledValues = [] }) {
+  const { data: cards, isLoading } = useCardDeckCards();
+  const [open, setOpen] = useState(false);
+  const options = (cards || []).map((card) => ({ value: String(card.id), label: card.title || '(untitled card)' }));
+  const current = options.find((o) => o.value === String(value || ''));
+  const disabledSet = new Set((disabledValues || []).map(String));
+  return (
+    <Field label="Card" hint={isLoading ? 'Loading cards…' : null}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full h-8 justify-between font-normal"
+            data-testid={testId}
+          >
+            <span className="truncate text-left">{current ? current.label : 'Select a card'}</span>
+            <ChevronRight className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" aria-hidden="true" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+          <Command>
+            <CommandInput placeholder="Search cards…" data-testid={`${testId}-search`} />
+            <CommandList>
+              <CommandEmpty>No cards found.</CommandEmpty>
+              <CommandGroup>
+                {options.map((o) => {
+                  const isDisabled = disabledSet.has(o.value) && o.value !== String(value || '');
+                  return (
+                    <CommandItem
+                      key={o.value}
+                      value={`${o.label} ${o.value}`}
+                      disabled={isDisabled}
+                      onSelect={() => { onChange(o.value); setOpen(false); }}
+                      data-testid={`${testId}-option-${o.value}`}
+                    >
+                      <span className="truncate">{o.label}</span>
+                      {isDisabled ? (
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">Added</span>
+                      ) : null}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </Field>
+  );
+}
+
+function CardDeckInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const ids = Array.isArray(c.cardIds) ? c.cardIds : [];
+  return (
+    <>
+      <Field label="Cards" hint="Add cards from your card library. Use Up/Down to reorder.">
+        <CarouselArrayList
+          items={ids}
+          onChange={(next) => set({ cardIds: next })}
+          renderItem={(item, idx, setItem) => (
+            <CardDeckPickerRow
+              value={item || ''}
+              onChange={(v) => setItem(v)}
+              testId={`select-card-deck-card-${idx}`}
+              disabledValues={ids.filter((_, i) => i !== idx)}
+            />
+          )}
+          makeNew={() => ''}
+          addLabel="Add card"
+          testIdPrefix="card-deck-cards"
+        />
+      </Field>
+      <TextField label="Heading" value={c.title} onChange={(v) => set({ title: v })} testId="input-card-deck-title" />
+      <SelectField
+        label="Heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(v) => set({ headingLevel: Number(v) })}
+        options={[2, 3, 4].map((n) => ({ value: String(n), label: `H${n}` }))}
+        testId="select-card-deck-heading-level"
+      />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField label="Gap (px)" min={0} value={c.gap ?? 24} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-card-deck-gap" />
+      <ToggleField label="Show image" value={c.showImage !== false} onChange={(v) => set({ showImage: v })} testId="toggle-card-deck-image" />
+      <ToggleField label="Show description" value={c.showDescription !== false} onChange={(v) => set({ showDescription: v })} testId="toggle-card-deck-description" />
+      <ToggleField label="Show button" value={c.showButton !== false} onChange={(v) => set({ showButton: v })} testId="toggle-card-deck-button" />
+      <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-card-deck-empty" />
+    </>
+  );
+}
+
+// ============================================================================
 // Registry export
 // ============================================================================
 export const DYNAMIC_BLOCK_DEFINITIONS = {
@@ -4027,5 +4225,13 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <DynamicDirectoryEmbedRender {...props} asEditor />,
     Renderer: DynamicDirectoryEmbedRender,
     Inspector: DynamicDirectoryEmbedInspector,
+  },
+  [BLOCK_TYPES.CARD_DECK]: {
+    label: 'Card deck',
+    icon: LayoutGrid,
+    category: 'data',
+    Editor: (props) => <CardDeckRender {...props} asEditor />,
+    Renderer: CardDeckRender,
+    Inspector: CardDeckInspector,
   },
 };

@@ -169,6 +169,7 @@ export const BLOCK_TYPES = {
   CAMPAIGN_EMBED: 'campaign-embed',
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
+  CARD_DECK: 'card-deck',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -899,6 +900,22 @@ export const BLOCK_DEFAULTS = {
       emptyText: 'No records to show yet.',
     },
   },
+  [BLOCK_TYPES.CARD_DECK]: {
+    name: 'Card deck',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      cardIds: [],
+      title: '',
+      headingLevel: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      showImage: true,
+      showDescription: true,
+      showButton: true,
+      emptyText: 'Select cards in the inspector.',
+    },
+  },
 };
 
 BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
@@ -1525,6 +1542,11 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.MEMBER_DIRECTORY_EMBED:
       if (!c.directorySlug) errors.push('Member directory embed requires a directory.');
+      break;
+    case BLOCK_TYPES.CARD_DECK:
+      if (!Array.isArray(c.cardIds) || c.cardIds.filter(Boolean).length === 0) {
+        errors.push('Card deck has no cards selected.');
+      }
       break;
     case BLOCK_TYPES.PRICING_TABLE: {
       const tiers = Array.isArray(c.tiers) ? c.tiers : [];
