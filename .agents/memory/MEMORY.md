@@ -18,3 +18,4 @@
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
+- [Canvas layer groups](canvas-layer-groups.md) — group hidden/lock are DERIVED from members (only name+collapsed stored); renderer ignores groups; layers use nested SortableContexts.

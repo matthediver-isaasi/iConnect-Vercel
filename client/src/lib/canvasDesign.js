@@ -979,6 +979,11 @@ export function createEmptyCanvasDesign() {
     version: CANVAS_DESIGN_VERSION,
     root: {
       background: null,
+      // Task #1425: layer groups. A lightweight registry of
+      // { id, name, collapsed }; member blocks reference a group via
+      // `block.groupId`. Groups are purely organisational — z-order,
+      // geometry and the public renderer are unaffected.
+      groups: [],
       sections: [
         {
           id: 'root-section',
@@ -1008,6 +1013,10 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     type,
     name: overrides.name || defaults.name || 'Block',
     locked: false,
+    // Task #1425: group membership. Defaults to null; only set when a
+    // block is explicitly placed into a group. New / duplicated / pasted
+    // blocks therefore start ungrouped.
+    groupId: overrides.groupId || null,
     fullWidth: !!overrides.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(overrides.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(overrides.a11y || {}) },
@@ -1034,12 +1043,45 @@ export function normalizeCanvasDesign(design) {
   const sections = Array.isArray(root.sections) && root.sections.length > 0
     ? root.sections.map(normalizeSection)
     : [{ id: 'root-section', children: [] }];
+
+  // Task #1425: normalize the group registry. Drop malformed entries, then
+  // reconcile against actual block membership so the document is always
+  // self-consistent: clear `groupId` references that point at a missing
+  // group, and prune group entries that have no remaining members (e.g.
+  // after their blocks were deleted). Legacy designs with no `groups` key
+  // load unchanged with an empty registry.
+  let groups = Array.isArray(root.groups)
+    ? root.groups.map(normalizeGroup).filter(Boolean)
+    : [];
+  const groupIds = new Set(groups.map((g) => g.id));
+  const memberCounts = {};
+  for (const section of sections) {
+    section.children = section.children.map((b) => {
+      if (b.groupId && !groupIds.has(b.groupId)) return { ...b, groupId: null };
+      if (b.groupId) memberCounts[b.groupId] = (memberCounts[b.groupId] || 0) + 1;
+      return b;
+    });
+  }
+  groups = groups.filter((g) => (memberCounts[g.id] || 0) > 0);
+
   return {
     version: typeof design.version === 'number' ? design.version : CANVAS_DESIGN_VERSION,
     root: {
       background: root.background ?? null,
+      groups,
       sections,
     },
+  };
+}
+
+function normalizeGroup(group) {
+  if (!group || typeof group !== 'object') return null;
+  const id = typeof group.id === 'string' && group.id ? group.id : null;
+  if (!id) return null;
+  return {
+    id,
+    name: typeof group.name === 'string' && group.name.trim() ? group.name : 'Group',
+    collapsed: !!group.collapsed,
   };
 }
 
@@ -1072,6 +1114,8 @@ function normalizeBlock(block) {
     type,
     name: block.name || defaults.name || 'Block',
     locked: !!block.locked,
+    // Task #1425: preserve group membership across normalization.
+    groupId: typeof block.groupId === 'string' && block.groupId ? block.groupId : null,
     fullWidth: !!block.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(block.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(block.a11y || {}) },
@@ -1288,6 +1332,84 @@ export function setRootChildren(design, children) {
       sections: [{ ...d.root.sections[0], id: d.root.sections[0]?.id || 'root-section', children }],
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Task #1425: layer groups
+//
+// Groups are a flat registry on `root.groups` keyed by id. A block belongs
+// to a group via its `groupId`. There is no nesting (v1). Helpers always
+// round-trip through normalizeCanvasDesign so the returned document has a
+// consistent groups registry (dangling refs cleared, empty groups pruned).
+// ---------------------------------------------------------------------------
+
+export function getGroups(design) {
+  return normalizeCanvasDesign(design).root.groups;
+}
+
+export function setGroups(design, groups) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: { ...d.root, groups: Array.isArray(groups) ? groups : [] },
+  };
+}
+
+// All member blocks of `groupId`, in document (z-order) order.
+export function getGroupMembers(children, groupId) {
+  if (!groupId || !Array.isArray(children)) return [];
+  return children.filter((b) => b && b.groupId === groupId);
+}
+
+// Create a new group from `memberIds`. Members that already belonged to
+// other groups are moved into the new group; any group left empty as a
+// result is pruned by normalization. Returns { design, groupId } or null
+// when fewer than two valid members are supplied.
+export function createGroup(design, memberIds, name) {
+  const d = normalizeCanvasDesign(design);
+  const children = d.root.sections[0]?.children || [];
+  const valid = (Array.isArray(memberIds) ? memberIds : []).filter((id) =>
+    children.some((b) => b.id === id));
+  const uniqueValid = Array.from(new Set(valid));
+  if (uniqueValid.length < 2) return null;
+
+  const groupId = generateId('group');
+  const groupName = name && String(name).trim()
+    ? String(name).trim()
+    : `Group ${d.root.groups.length + 1}`;
+  const idSet = new Set(uniqueValid);
+  const nextChildren = children.map((b) =>
+    idSet.has(b.id) ? { ...b, groupId } : b);
+  const nextGroups = [...d.root.groups, { id: groupId, name: groupName, collapsed: false }];
+  const next = {
+    ...d,
+    root: {
+      ...d.root,
+      groups: nextGroups,
+      sections: [{ ...d.root.sections[0], children: nextChildren }],
+    },
+  };
+  // Normalize to prune any group that just lost its last member.
+  return { design: normalizeCanvasDesign(next), groupId };
+}
+
+// Disband a group: clear `groupId` on its members and drop the registry
+// entry. No-op (returns a normalized copy) when the group does not exist.
+export function ungroup(design, groupId) {
+  const d = normalizeCanvasDesign(design);
+  if (!groupId) return d;
+  const children = d.root.sections[0]?.children || [];
+  const nextChildren = children.map((b) =>
+    b.groupId === groupId ? { ...b, groupId: null } : b);
+  const nextGroups = d.root.groups.filter((g) => g.id !== groupId);
+  return normalizeCanvasDesign({
+    ...d,
+    root: {
+      ...d.root,
+      groups: nextGroups,
+      sections: [{ ...d.root.sections[0], children: nextChildren }],
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

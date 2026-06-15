@@ -1,6 +1,13 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
 import { resolveBlockAtBreakpoint, blockIsFullWidthLike } from '@/lib/canvasDesign';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { getBlockDefinition } from './blocks/registry';
 
 const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -221,7 +228,17 @@ export default function CanvasStage({
   onApplyGeometry, // (updates: { [id]: { x, y, w, h } }) => void  (commits to history)
   onMarqueeSelect, // (ids: string[], additive: boolean) => void
   onPreviewBottomChange, // (maxBottomY: number) => void  (live drag/resize bottom)
+  expandSelection, // (ids: string[]) => string[]  expands a selection to include whole groups
+  onGroup, // () => void  group current selection
+  onUngroup, // () => void  ungroup current selection
+  canGroup = false,
+  canUngroup = false,
 }) {
+  // Default to identity when no group-expansion is supplied.
+  const expand = useCallback(
+    (ids) => (typeof expandSelection === 'function' ? expandSelection(ids) : ids),
+    [expandSelection],
+  );
   const stageRef = useRef(null);
   const [interactionState, setInteractionState] = useState(null);
   // interactionState: { kind: 'drag' | 'resize' | 'marquee', ... }
@@ -278,14 +295,18 @@ export default function CanvasStage({
     if (!block) return;
 
     const shift = e.shiftKey;
+    // Expand the clicked block to its whole group (identity when ungrouped),
+    // so grouped blocks select and drag as one unit.
+    const groupMembers = expand([blockId]);
     let nextSelection = selectedIds;
     const isAlreadySelected = selectedIds.includes(blockId);
     if (shift) {
-      nextSelection = isAlreadySelected
-        ? selectedIds.filter((id) => id !== blockId)
-        : [...selectedIds, blockId];
+      const allPresent = groupMembers.every((m) => selectedIds.includes(m));
+      nextSelection = allPresent
+        ? selectedIds.filter((id) => !groupMembers.includes(id))
+        : Array.from(new Set([...selectedIds, ...groupMembers]));
     } else if (!isAlreadySelected) {
-      nextSelection = [blockId];
+      nextSelection = groupMembers;
     }
     onSelect(nextSelection);
 
@@ -311,7 +332,15 @@ export default function CanvasStage({
       hasMoved: false,
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
-  }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint, canvasWidth]);
+  }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint, canvasWidth, expand]);
+
+  // Right-clicking a block selects it (and its group) before the context
+  // menu opens so Group/Ungroup act on the expected target.
+  const handleContextMenuBlock = useCallback((blockId) => {
+    if (!selectedIds.includes(blockId)) {
+      onSelect(expand([blockId]));
+    }
+  }, [selectedIds, onSelect, expand]);
 
   // ----- Resize handle pointer down -----
   const handlePointerDownResize = useCallback((e, blockId, handle) => {
@@ -505,16 +534,40 @@ export default function CanvasStage({
             ? 'warning'
             : null;
         return (
-          <div key={block.id}>
-            <CanvasBlockView
-              block={block}
-              geom={effective}
-              breakpoint={breakpoint}
-              isSelected={selectedIds.includes(block.id)}
-              isAnchor={anchorId === block.id}
-              onPointerDownBlock={handlePointerDownBlock}
-              onPointerDownResize={handlePointerDownResize}
-            />
+          <div key={block.id} onContextMenu={() => handleContextMenuBlock(block.id)}>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div>
+                  <CanvasBlockView
+                    block={block}
+                    geom={effective}
+                    breakpoint={breakpoint}
+                    isSelected={selectedIds.includes(block.id)}
+                    isAnchor={anchorId === block.id}
+                    onPointerDownBlock={handlePointerDownBlock}
+                    onPointerDownResize={handlePointerDownResize}
+                  />
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent data-testid={`context-menu-block-${block.id}`}>
+                <ContextMenuItem
+                  disabled={!canGroup}
+                  onClick={() => onGroup?.()}
+                  data-testid={`context-group-${block.id}`}
+                >
+                  <GroupIcon className="w-4 h-4 mr-2" />
+                  Group
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={!canUngroup}
+                  onClick={() => onUngroup?.()}
+                  data-testid={`context-ungroup-${block.id}`}
+                >
+                  <UngroupIcon className="w-4 h-4 mr-2" />
+                  Ungroup
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
             {!effective.hidden && anchorId === block.id && (
               <div
                 className="absolute pointer-events-none bg-pink-500 text-white rounded-md text-[10px] font-bold uppercase tracking-wide"

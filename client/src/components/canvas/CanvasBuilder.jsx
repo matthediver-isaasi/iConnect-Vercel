@@ -32,6 +32,8 @@ import {
   Maximize2,
   ListOrdered,
   Accessibility,
+  Group as GroupIcon,
+  Ungroup as UngroupIcon,
 } from 'lucide-react';
 import {
   createBlock,
@@ -41,6 +43,10 @@ import {
   clearBpOverride,
   getRootChildren,
   setRootChildren,
+  getGroups,
+  setGroups,
+  createGroup,
+  ungroup,
   BREAKPOINT_WIDTHS,
   BLOCK_TYPES,
   stageHeightForBreakpoint,
@@ -299,6 +305,27 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, []);
 
   const children = useMemo(() => getRootChildren(design), [design]);
+  // Task #1425: layer groups registry for the current design.
+  const groups = useMemo(() => getGroups(design), [design]);
+
+  // Expand a set of selected ids so that whenever any member of a group is
+  // present, all of that group's members are included. Groups therefore
+  // select and move as one unit.
+  const expandSelectionToGroups = useCallback((ids) => {
+    if (!Array.isArray(ids) || ids.length === 0) return ids;
+    if (!groups.length) return ids;
+    const set = new Set(ids);
+    const gids = new Set();
+    for (const id of ids) {
+      const b = children.find((c) => c.id === id);
+      if (b?.groupId) gids.add(b.groupId);
+    }
+    if (gids.size === 0) return ids;
+    for (const b of children) {
+      if (b.groupId && gids.has(b.groupId)) set.add(b.id);
+    }
+    return Array.from(set);
+  }, [children, groups]);
   // Live bottom Y of in-progress drag/resize previews emitted by CanvasStage.
   // 0 when no interaction is active.
   const [livePreviewBottom, setLivePreviewBottom] = useState(0);
@@ -384,25 +411,30 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const handleSelect = useCallback((idsOrId, additive = false) => {
     if (Array.isArray(idsOrId)) {
-      setSelectedIds(idsOrId);
+      setSelectedIds(expandSelectionToGroups(idsOrId));
       return;
     }
     if (additive) {
-      setSelectedIds((prev) => prev.includes(idsOrId)
-        ? prev.filter((x) => x !== idsOrId)
-        : [...prev, idsOrId]);
+      // Shift-toggling a grouped block toggles the whole group at once.
+      const members = expandSelectionToGroups([idsOrId]);
+      setSelectedIds((prev) => {
+        const allPresent = members.every((m) => prev.includes(m));
+        return allPresent
+          ? prev.filter((x) => !members.includes(x))
+          : Array.from(new Set([...prev, ...members]));
+      });
     } else {
-      setSelectedIds([idsOrId]);
+      setSelectedIds(expandSelectionToGroups([idsOrId]));
     }
-  }, []);
+  }, [expandSelectionToGroups]);
 
   const handleMarqueeSelect = useCallback((ids, additive) => {
     if (additive) {
-      setSelectedIds((prev) => Array.from(new Set([...prev, ...ids])));
+      setSelectedIds((prev) => expandSelectionToGroups(Array.from(new Set([...prev, ...ids]))));
     } else {
-      setSelectedIds(ids);
+      setSelectedIds(expandSelectionToGroups(ids));
     }
-  }, []);
+  }, [expandSelectionToGroups]);
 
   // ---- Geometry commit (after drag/resize) ----
   const applyGeometry = useCallback((updates) => {
@@ -569,6 +601,106 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     updateBlock(id, (b) => clearBpOverride(b, bp, field));
   }, [updateBlock]);
 
+  // ---- Group actions (Task #1425) ----
+  // Distinct group ids represented in the current selection.
+  const selectedGroupIds = useMemo(() => {
+    const set = new Set();
+    for (const id of selectedIds) {
+      const b = children.find((c) => c.id === id);
+      if (b?.groupId) set.add(b.groupId);
+    }
+    return Array.from(set);
+  }, [selectedIds, children]);
+
+  // Can group when 2+ blocks are selected and they are not already exactly
+  // one existing group (re-grouping the same set is a no-op we hide).
+  const canGroupSelection = useMemo(() => {
+    if (selectedIds.length < 2) return false;
+    if (selectedGroupIds.length === 1) {
+      const members = children.filter((b) => b.groupId === selectedGroupIds[0]);
+      const allSelected = members.every((m) => selectedIds.includes(m.id));
+      if (allSelected && members.length === selectedIds.length) return false;
+    }
+    return true;
+  }, [selectedIds, selectedGroupIds, children]);
+
+  const canUngroupSelection = selectedGroupIds.length > 0;
+
+  const groupSelected = useCallback(() => {
+    if (selectedIds.length < 2) return;
+    const ids = selectedIds.slice();
+    setDesign((prev) => {
+      const res = createGroup(prev, ids);
+      return res ? res.design : prev;
+    });
+    setSelectedIds(ids);
+  }, [selectedIds, setDesign]);
+
+  const ungroupSelected = useCallback(() => {
+    if (selectedGroupIds.length === 0) return;
+    const gids = selectedGroupIds.slice();
+    setDesign((prev) => {
+      let d = prev;
+      for (const gid of gids) d = ungroup(d, gid);
+      return d;
+    });
+  }, [selectedGroupIds, setDesign]);
+
+  const ungroupById = useCallback((gid) => {
+    if (!gid) return;
+    setDesign((prev) => ungroup(prev, gid));
+  }, [setDesign]);
+
+  // Select every member of a group (used by the layers palette group row).
+  const selectGroup = useCallback((gid, additive = false) => {
+    const memberIds = children.filter((b) => b.groupId === gid).map((b) => b.id);
+    if (memberIds.length === 0) return;
+    if (additive) {
+      setSelectedIds((prev) => {
+        const allPresent = memberIds.every((m) => prev.includes(m));
+        return allPresent
+          ? prev.filter((x) => !memberIds.includes(x))
+          : Array.from(new Set([...prev, ...memberIds]));
+      });
+    } else {
+      setSelectedIds(memberIds);
+    }
+  }, [children]);
+
+  const renameGroup = useCallback((gid, name) => {
+    setDesign((prev) => setGroups(prev, getGroups(prev).map((g) =>
+      g.id === gid ? { ...g, name: name && name.trim() ? name : g.name } : g)));
+  }, [setDesign]);
+
+  // Collapse/expand is a view-only flag: persisted with the design but does
+  // not push an undo step (it would be noise in the history).
+  const toggleGroupCollapsed = useCallback((gid) => {
+    skipHistoryRef.current = true;
+    setDesign((prev) => setGroups(prev, getGroups(prev).map((g) =>
+      g.id === gid ? { ...g, collapsed: !g.collapsed } : g)));
+  }, [setDesign]);
+
+  // Group visibility toggle: hides/shows all members at the current
+  // breakpoint. The group is considered hidden only when every member is
+  // hidden, so the toggle flips to the inverse for the whole set.
+  const toggleGroupHidden = useCallback((gid) => {
+    const members = children.filter((b) => b.groupId === gid);
+    if (members.length === 0) return;
+    const allHidden = members.every((b) => resolveBlockAtBreakpoint(b, breakpoint).hidden);
+    replaceChildren((arr) => arr.map((b) =>
+      b.groupId === gid ? setBlockBp(b, breakpoint, { hidden: !allHidden }) : b));
+  }, [children, breakpoint, replaceChildren]);
+
+  // Group lock toggle: locks/unlocks all members. Locked only when every
+  // member is locked.
+  const toggleGroupLocked = useCallback((gid) => {
+    const members = children.filter((b) => b.groupId === gid);
+    if (members.length === 0) return;
+    const allLocked = members.every((b) => b.locked);
+    replaceChildren((arr) => arr.map((b) =>
+      b.groupId === gid ? { ...b, locked: !allLocked } : b));
+  }, [children, replaceChildren]);
+
   // ---- Keyboard shortcuts ----
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -586,6 +718,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       }
       if (meta && e.key.toLowerCase() === 'd') {
         e.preventDefault(); duplicateSelected(); return;
+      }
+      // Group / Ungroup (Task #1425): Ctrl/Cmd+G groups the selection,
+      // Ctrl/Cmd+Shift+G ungroups any group in the selection.
+      if (meta && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) ungroupSelected();
+        else groupSelected();
+        return;
       }
       // Copy / cut / paste — clipboard lives on window so users can paste
       // between pages within the same browser session.
@@ -660,7 +800,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, selectedIds, children, breakpoint, applyGeometry, gridSize]);
+  }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, groupSelected, ungroupSelected, selectedIds, children, breakpoint, applyGeometry, gridSize]);
 
   // ---- Align / distribute ----
   // With 2+ blocks selected the most-recently-selected id (last in
@@ -931,6 +1071,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <AlignVerticalDistributeCenter className="w-4 h-4" />
           </Button>
           <div className="w-px h-6 bg-slate-200 mx-1" />
+          <Button size="icon" variant="ghost" onClick={groupSelected} disabled={!canGroupSelection} title="Group (Ctrl/Cmd+G)" data-testid="button-group">
+            <GroupIcon className="w-4 h-4" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={ungroupSelected} disabled={!canUngroupSelection} title="Ungroup (Ctrl/Cmd+Shift+G)" data-testid="button-ungroup">
+            <UngroupIcon className="w-4 h-4" />
+          </Button>
+          <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={duplicateSelected} disabled={selectedIds.length === 0} title="Duplicate" data-testid="button-duplicate-selected">
             <Copy className="w-4 h-4" />
           </Button>
@@ -1026,6 +1173,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             <div className="mt-6">
               <CanvasLayers
                 blocks={children}
+                groups={groups}
                 selectedIds={selectedIds}
                 breakpoint={breakpoint}
                 issuesByBlock={a11yIssuesByBlock}
@@ -1036,6 +1184,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 onDelete={deleteById}
                 onDuplicate={duplicateById}
                 onRename={renameById}
+                onSelectGroup={selectGroup}
+                onRenameGroup={renameGroup}
+                onToggleGroupCollapsed={toggleGroupCollapsed}
+                onToggleGroupHidden={toggleGroupHidden}
+                onToggleGroupLocked={toggleGroupLocked}
+                onUngroup={ungroupById}
               />
             </div>
             {showA11yPanel && (
@@ -1092,6 +1246,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     blocks={children}
                     selectedIds={selectedIds}
                     anchorId={anchorId}
+                    expandSelection={expandSelectionToGroups}
+                    onGroup={groupSelected}
+                    onUngroup={ungroupSelected}
+                    canGroup={canGroupSelection}
+                    canUngroup={canUngroupSelection}
                     breakpoint={breakpoint}
                     canvasWidth={canvasWidth}
                     canvasHeight={stageHeight}
