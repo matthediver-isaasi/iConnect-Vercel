@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil } from "lucide-react";
 import {
@@ -74,6 +75,7 @@ export default function FormSubmissionsPage() {
   }, [isFeatureExcluded, isAccessReady]);
   const [activeTab, setActiveTab] = useState(() => (searchParams.get('tab') === 'owned' ? 'owned' : 'all'));
   const [selectedForm, setSelectedForm] = useState(() => searchParams.get('form') || "all");
+  const [includeInactiveForms, setIncludeInactiveForms] = useState(() => searchParams.get('includeInactive') === '1');
   const [selectedStatus, setSelectedStatus] = useState(() => searchParams.get('status') || "all");
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || "");
   const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || "");
@@ -91,6 +93,7 @@ export default function FormSubmissionsPage() {
     if (activeTab !== 'all') params.set('tab', activeTab);
     if (searchQuery) params.set('q', searchQuery);
     if (selectedForm !== 'all') params.set('form', selectedForm);
+    if (includeInactiveForms) params.set('includeInactive', '1');
     if (selectedStatus !== 'all') params.set('status', selectedStatus);
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
@@ -98,7 +101,7 @@ export default function FormSubmissionsPage() {
     if (itemsPerPage !== DEFAULT_PAGE_SIZE) params.set('size', String(itemsPerPage));
     const str = params.toString();
     return str ? `?${str}` : '';
-  }, [activeTab, searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
+  }, [activeTab, searchQuery, selectedForm, includeInactiveForms, selectedStatus, dateFrom, dateTo, currentPage, itemsPerPage]);
 
   useEffect(() => {
     setSearchParams(filterQueryString ? filterQueryString.slice(1) : '', { replace: true });
@@ -158,11 +161,12 @@ export default function FormSubmissionsPage() {
   const currentFilters = useMemo(() => ({
     q: searchQuery || "",
     form: selectedForm || "all",
+    includeInactive: Boolean(includeInactiveForms),
     status: selectedStatus || "all",
     dateFrom: dateFrom || "",
     dateTo: dateTo || "",
     tab: activeTab || "all",
-  }), [searchQuery, selectedForm, selectedStatus, dateFrom, dateTo, activeTab]);
+  }), [searchQuery, selectedForm, includeInactiveForms, selectedStatus, dateFrom, dateTo, activeTab]);
 
   const saveViewMutation = useMutation({
     mutationFn: async ({ name, filters }) =>
@@ -240,6 +244,7 @@ export default function FormSubmissionsPage() {
     const f = view?.filters || {};
     setSearchQuery(typeof f.q === 'string' ? f.q : "");
     setSelectedForm(typeof f.form === 'string' ? f.form : "all");
+    setIncludeInactiveForms(Boolean(f.includeInactive));
     setSelectedStatus(typeof f.status === 'string' ? f.status : "all");
     setDateFrom(typeof f.dateFrom === 'string' ? f.dateFrom : "");
     setDateTo(typeof f.dateTo === 'string' ? f.dateTo : "");
@@ -277,6 +282,28 @@ export default function FormSubmissionsPage() {
       (a?.name || '').localeCompare(b?.name || '', undefined, { sensitivity: 'base' })
     );
   }, [forms]);
+
+  // A form is inactive when manually deactivated OR when its scheduled
+  // deactivate_at timestamp has passed (expired).
+  const isFormInactive = (form) => {
+    if (!form?.is_active) return true;
+    if (form?.deactivate_at) {
+      const t = new Date(form.deactivate_at).getTime();
+      if (!Number.isNaN(t) && t <= Date.now()) return true;
+    }
+    return false;
+  };
+
+  // Dropdown options: hide inactive forms unless the toggle is on. Always keep
+  // the currently selected form visible so the selection isn't silently lost.
+  const formFilterOptions = useMemo(() => {
+    return sortedForms.filter(
+      (form) =>
+        includeInactiveForms ||
+        !isFormInactive(form) ||
+        form.id === selectedForm
+    );
+  }, [sortedForms, includeInactiveForms, selectedForm]);
 
   // Used by CSV export to resolve organisation_dropdown UUIDs to names.
   const { data: organisationsForExport = [] } = useQuery({
@@ -1561,22 +1588,41 @@ export default function FormSubmissionsPage() {
                   data-testid="input-search-submissions"
                 />
               </div>
-              <Select value={selectedForm} onValueChange={(val) => {
-                setSelectedForm(val);
-                setCurrentPage(1);
-              }}>
-                <SelectTrigger className="w-full md:w-[200px]" data-testid="select-form-filter">
-                  <SelectValue placeholder="All Forms" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Forms</SelectItem>
-                  {sortedForms.map(form => (
-                    <SelectItem key={form.id} value={form.id}>
-                      {form.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col gap-2">
+                <Select value={selectedForm} onValueChange={(val) => {
+                  setSelectedForm(val);
+                  setCurrentPage(1);
+                }}>
+                  <SelectTrigger className="w-full md:w-[200px]" data-testid="select-form-filter">
+                    <SelectValue placeholder="All Forms" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Forms</SelectItem>
+                    {formFilterOptions.map(form => (
+                      <SelectItem key={form.id} value={form.id}>
+                        {form.name}{isFormInactive(form) ? ' (inactive)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="include-inactive-forms"
+                    checked={includeInactiveForms}
+                    onCheckedChange={(checked) => {
+                      setIncludeInactiveForms(Boolean(checked));
+                      setCurrentPage(1);
+                    }}
+                    data-testid="switch-include-inactive-forms"
+                  />
+                  <Label
+                    htmlFor="include-inactive-forms"
+                    className="text-sm text-slate-500 whitespace-nowrap cursor-pointer"
+                  >
+                    Include inactive forms
+                  </Label>
+                </div>
+              </div>
               <Select value={selectedStatus} onValueChange={(val) => {
                 setSelectedStatus(val);
                 setCurrentPage(1);
