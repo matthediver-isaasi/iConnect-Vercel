@@ -55,6 +55,7 @@ import {
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasInspector from './CanvasInspector';
+import { CanvasAnchorProvider } from './CanvasAnchorContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
 import {
@@ -1365,6 +1366,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             aria-label="Inspector"
             data-testid="panel-inspector"
           >
+            <CanvasAnchorProvider design={design}>
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}
@@ -1385,6 +1387,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               }
               readingOrderTotal={children.length}
             />
+            </CanvasAnchorProvider>
           </aside>
         </div>
       </div>

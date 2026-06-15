@@ -37,6 +37,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   BLOCK_TYPES,
   buildResponsiveImage,
   resolveResponsiveValue,
@@ -49,6 +56,7 @@ import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { useCanvasAnchors } from '../CanvasAnchorContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 
@@ -104,6 +112,59 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
         className="h-8"
         data-testid={testId}
       />
+    </Field>
+  );
+}
+
+// Task #1446: link editor with an in-page anchor picker. Behaves like the
+// plain TextField (free-text URLs still work) but adds a dropdown that lists
+// the page's anchors and fills in a `#anchor-id` value when one is picked.
+// The available-anchors list comes from CanvasAnchorContext so every link
+// field across the registry shares one source of truth.
+function LinkField({ label, value, onChange, placeholder, testId }) {
+  const { anchors } = useCanvasAnchors();
+  const usableAnchors = (anchors || []).filter((a) => a.anchorId);
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-1">
+        <Input
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || 'https://… or #section'}
+          className="h-8 flex-1"
+          data-testid={testId}
+        />
+        {usableAnchors.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="outline"
+                type="button"
+                title="Link to a section on this page"
+                data-testid={testId ? `${testId}-anchor-picker` : 'link-anchor-picker'}
+              >
+                <Hash className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
+              <DropdownMenuLabel>Jump to section</DropdownMenuLabel>
+              {usableAnchors.map((a) => (
+                <DropdownMenuItem
+                  key={a.blockId}
+                  onSelect={() => onChange(`#${a.anchorId}`)}
+                  data-testid={`anchor-option-${a.anchorId}`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-mono text-xs">#{a.anchorId}</span>
+                    <span className="text-[10px] text-slate-500">{a.blockName}</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </Field>
   );
 }
@@ -259,12 +320,18 @@ function RichTextField({ label, value, onChange, testId, breakpoint }) {
   // Sanitize on write so the stored design is always safe even if the
   // editor is bypassed or pasted content contains XSS payloads.
   const handleChange = (next) => onChange(sanitizeRichText(next || ''));
+  // Task #1446: surface the page's anchors so in-line text links can target
+  // a section. Passed through additively; RichTextEditor ignores it when empty.
+  const { anchors } = useCanvasAnchors();
+  const anchorOptions = (anchors || [])
+    .filter((a) => a.anchorId)
+    .map((a) => ({ value: `#${a.anchorId}`, label: `#${a.anchorId}`, description: a.blockName }));
   return (
     <div className="space-y-1" data-testid={testId}>
       <Label className="text-xs text-slate-600">{label}</Label>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <Suspense fallback={<div className="p-3 text-xs text-slate-500">Loading editor…</div>}>
-          <RichTextEditor content={value || ''} onChange={handleChange} breakpoint={breakpoint} />
+          <RichTextEditor content={value || ''} onChange={handleChange} breakpoint={breakpoint} anchorOptions={anchorOptions} />
         </Suspense>
       </div>
     </div>
@@ -983,7 +1050,7 @@ function HeroInspector({ block, update }) {
                 onChange={(id) => patch({ labelTypographyStyleId: id })}
                 testId={`select-hero-cta-${idx}-typography`}
               />
-              <TextField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`hero-cta-${idx}-href`} />
+              <LinkField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`hero-cta-${idx}-href`} />
               <SelectField
                 label="Variant"
                 value={item.variant || 'primary'}
@@ -1214,7 +1281,7 @@ function ImageInspector({ block, update }) {
         onChangeAlt={(v) => set({ alt: v })}
         testId="input-image"
       />
-      <TextField label="Link (optional)" value={c.href} onChange={(v) => set({ href: v })} testId="input-image-href" />
+      <LinkField label="Link (optional)" value={c.href} onChange={(v) => set({ href: v })} testId="input-image-href" />
       <SelectField
         label="Object fit"
         value={c.objectFit || 'cover'}
@@ -1573,7 +1640,7 @@ function ButtonInspector({ block, update, breakpoint }) {
         onChange={(id) => set({ typographyStyleId: id })}
         testId="select-button-typography"
       />
-      <TextField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
+      <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
       <SelectField
         label="Variant"
         value={c.variant || 'default'}
@@ -2381,7 +2448,7 @@ function CardInspector({ block, update }) {
         onChange={(id) => set({ ctaLabelTypographyStyleId: id })}
         testId="select-card-cta-typography"
       />
-      <TextField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
+      <LinkField label="CTA link" value={c.ctaHref} onChange={(v) => set({ ctaHref: v })} testId="input-card-cta-href" />
       <SelectField
         label="CTA variant"
         value={c.ctaVariant || 'outline'}
@@ -2683,7 +2750,7 @@ function LogoStripInspector({ block, update }) {
                 onChangeAlt={(v) => patch({ alt: v })}
                 testId={`logo-${idx}-img`}
               />
-              <TextField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`logo-${idx}-href`} />
+              <LinkField label="Link" value={item.href} onChange={(v) => patch({ href: v })} testId={`logo-${idx}-href`} />
             </>
           )}
         />
@@ -3397,7 +3464,7 @@ function MegaMenuInspector({ block, update }) {
               />
               {!itemHasPanel && (
                 <>
-                  <TextField
+                  <LinkField
                     label="Link URL"
                     value={item.href}
                     onChange={(v) => patch({ href: v })}
@@ -3444,7 +3511,7 @@ function MegaMenuInspector({ block, update }) {
                                 onChange={(v) => patchLink({ label: v })}
                                 testId={`mega-item-${idx}-col-${ci}-link-${li}-label`}
                               />
-                              <TextField
+                              <LinkField
                                 label="URL"
                                 value={ln.href}
                                 onChange={(v) => patchLink({ href: v })}
@@ -3495,7 +3562,7 @@ function MegaMenuInspector({ block, update }) {
                     multiline
                     testId={`mega-item-${idx}-featured-text`}
                   />
-                  <TextField
+                  <LinkField
                     label="Featured link URL"
                     value={item.featuredHref}
                     onChange={(v) => patch({ featuredHref: v })}
@@ -3852,7 +3919,7 @@ function PricingTableInspector({ block, update }) {
                   />
                 </Field>
                 <TextField label="CTA label" value={item.ctaLabel} onChange={(v) => patch({ ctaLabel: v })} testId={`pricing-tier-${idx}-cta-label`} />
-                <TextField label="CTA link" value={item.ctaHref} onChange={(v) => patch({ ctaHref: v })} testId={`pricing-tier-${idx}-cta-href`} />
+                <LinkField label="CTA link" value={item.ctaHref} onChange={(v) => patch({ ctaHref: v })} testId={`pricing-tier-${idx}-cta-href`} />
                 <SelectField
                   label="CTA variant"
                   value={item.ctaVariant || 'outline'}

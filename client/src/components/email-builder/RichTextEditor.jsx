@@ -242,7 +242,7 @@ const FONT_SIZES = [
   { value: '192px', label: '192' },
 ];
 
-function MenuBar({ editor, breakpoint }) {
+function MenuBar({ editor, breakpoint, anchorOptions }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const colorInputRef = useRef(null);
@@ -558,6 +558,22 @@ function MenuBar({ editor, breakpoint }) {
             data-testid="rte-link-input"
             autoFocus
           />
+          {/* Task #1446: pick an in-page anchor to fill the link field. Only
+              shown when the host passes anchorOptions (canvas builder). */}
+          {anchorOptions && anchorOptions.length > 0 && (
+            <Select value="" onValueChange={(v) => setLinkUrl(v)}>
+              <SelectTrigger className="h-7 w-28 text-xs shrink-0" data-testid="rte-link-anchor-select">
+                <SelectValue placeholder="Section…" />
+              </SelectTrigger>
+              <SelectContent>
+                {anchorOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} data-testid={`rte-link-anchor-${opt.value}`}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button
             size="icon"
             variant="default"
@@ -573,7 +589,7 @@ function MenuBar({ editor, breakpoint }) {
   );
 }
 
-export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint }) {
+export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight, breakpoint, anchorOptions }) {
   const buildStyle = (ff, c, lh) => [
     ff ? `font-family: ${ff}` : '',
     c ? `color: ${c}` : '',
@@ -635,7 +651,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
 
   return (
     <div className="border rounded-md overflow-hidden bg-background" data-testid="rich-text-editor">
-      <MenuBar editor={editor} breakpoint={breakpoint} />
+      <MenuBar editor={editor} breakpoint={breakpoint} anchorOptions={anchorOptions} />
       <EditorContent editor={editor} />
     </div>
   );

@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown, Maximize2 } from 'lucide-react';
+import { Settings, Eye, EyeOff, Lock, Unlock, RotateCcw, AlertTriangle, CircleAlert, Info, ArrowUp, ArrowDown, Maximize2, Link2 } from 'lucide-react';
 import {
   resolveBlockAtBreakpoint,
   hasOverride,
@@ -12,8 +12,10 @@ import {
   BREAKPOINTS,
   BREAKPOINT_WIDTHS,
   validateBlock,
+  sanitizeAnchorId,
   BLOCK_TYPES,
 } from '@/lib/canvasDesign';
+import { useCanvasAnchors } from './CanvasAnchorContext';
 import {
   SEVERITY,
   contrastRatio,
@@ -329,6 +331,8 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         readingOrderTotal={readingOrderTotal}
       />
 
+      <AnchorIdSection block={block} onUpdate={onUpdate} />
+
       <Section title={`Position (${breakpoint})`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -612,6 +616,70 @@ function SingleBlockInspector({ block, breakpoint, blockIssues, onUpdate, onTogg
         </div>
       </Section>
     </div>
+  );
+}
+
+// Task #1446: "Jump link" (anchor id) editor. Deliberately worded "Jump
+// link" / "Anchor ID" rather than "Anchor" to avoid colliding with the
+// alignment "Align to: Anchor" terminology used elsewhere in the editor.
+// A local draft lets the author type freely (spaces, capitals) while the
+// stored value is always the sanitized slug; on blur the field snaps to the
+// canonical slug. Duplicate anchor ids across the page are flagged inline.
+function AnchorIdSection({ block, onUpdate }) {
+  const { duplicateAnchorIds } = useCanvasAnchors();
+  const stored = block.anchorId || '';
+  const [draft, setDraft] = useState(stored);
+
+  useEffect(() => {
+    setDraft(block.anchorId || '');
+    // Re-sync when switching to a different block.
+  }, [block.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const commit = (text) => {
+    const clean = sanitizeAnchorId(text);
+    onUpdate((b) => ({ ...b, anchorId: clean }));
+  };
+
+  const isDuplicate = !!stored && duplicateAnchorIds.has(stored);
+
+  return (
+    <Section title="Jump link (anchor)">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <Link2 className="w-3.5 h-3.5 text-slate-500" />
+          <Label className="text-xs text-slate-600">Anchor ID</Label>
+        </div>
+        <Input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            commit(e.target.value);
+          }}
+          onBlur={() => setDraft(sanitizeAnchorId(draft))}
+          placeholder="e.g. pricing or contact-us"
+          className="h-8"
+          data-testid="input-anchor-id"
+        />
+        {stored ? (
+          <p className="text-[10px] text-slate-500" data-testid="text-anchor-id-slug">
+            Link to this section with <span className="font-mono text-slate-700">#{stored}</span>
+          </p>
+        ) : (
+          <p className="text-[10px] text-slate-500">
+            Name a section so buttons and links can jump straight to it.
+          </p>
+        )}
+        {isDuplicate && (
+          <div
+            className="flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 p-1.5 text-[10px] text-warning"
+            data-testid="warning-anchor-id-duplicate"
+          >
+            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+            <span>Another block already uses <span className="font-mono">#{stored}</span>. Make it unique so jump links aren't ambiguous.</span>
+          </div>
+        )}
+      </div>
+    </Section>
   );
 }
 

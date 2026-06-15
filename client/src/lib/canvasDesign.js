@@ -1036,6 +1036,10 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     id: overrides.id || generateId(),
     type,
     name: overrides.name || defaults.name || 'Block',
+    // Task #1446: anchor links. An optional URL-safe slug that, when set,
+    // renders as a real HTML `id` on the public block wrapper so it can be
+    // an in-page scroll target. Defaults to '' (no anchor).
+    anchorId: sanitizeAnchorId(overrides.anchorId || ''),
     locked: false,
     // Task #1425: group membership. Defaults to null; only set when a
     // block is explicitly placed into a group. New / duplicated / pasted
@@ -1137,6 +1141,8 @@ function normalizeBlock(block) {
     id: block.id || generateId(),
     type,
     name: block.name || defaults.name || 'Block',
+    // Task #1446: preserve + re-sanitize the anchor id across normalization.
+    anchorId: sanitizeAnchorId(block.anchorId || ''),
     locked: !!block.locked,
     // Task #1425: preserve group membership across normalization.
     groupId: typeof block.groupId === 'string' && block.groupId ? block.groupId : null,
@@ -1868,12 +1874,75 @@ export function findLcpBlockId(blocks) {
   return candidates.length ? candidates[0].b.id : null;
 }
 
+// ---------------------------------------------------------------------------
+// Task #1446: in-page anchor links ("jump links")
+//
+// Any block may carry an `anchorId` — a URL-safe slug rendered as a real
+// HTML `id` on the public block wrapper so links like `#contact` scroll to
+// it. These helpers centralise sanitization, the page-wide anchor list (used
+// by the link-field anchor pickers) and duplicate detection.
+// ---------------------------------------------------------------------------
+
+// Convert free text into a safe in-page anchor slug. Lowercased, spaces and
+// underscores collapse to hyphens, anything outside [a-z0-9-] is dropped,
+// leading/trailing hyphens trimmed, capped at 64 chars. Returns '' for empty
+// or fully-invalid input.
+export function sanitizeAnchorId(text) {
+  return String(text == null ? '' : text)
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+// Flat list of every block that has an anchor id, in document order.
+// Each entry: { blockId, anchorId, blockName, blockType, duplicate }.
+// `duplicate` is true for the 2nd+ occurrence of a repeated anchor id.
+export function getPageAnchors(design) {
+  if (!design || typeof design !== 'object') return [];
+  const sections = Array.isArray(design?.root?.sections) ? design.root.sections : [];
+  const out = [];
+  const seen = new Set();
+  for (const section of sections) {
+    for (const block of (section?.children || [])) {
+      const anchorId = sanitizeAnchorId(block?.anchorId || '');
+      if (!anchorId) continue;
+      out.push({
+        blockId: block.id,
+        anchorId,
+        blockName: block.name || block.type || 'Block',
+        blockType: block.type,
+        duplicate: seen.has(anchorId),
+      });
+      seen.add(anchorId);
+    }
+  }
+  return out;
+}
+
+// Set of anchor ids that appear on more than one block in the page.
+export function findDuplicateAnchorIds(design) {
+  const counts = {};
+  for (const a of getPageAnchors(design)) {
+    counts[a.anchorId] = (counts[a.anchorId] || 0) + 1;
+  }
+  return new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+}
+
 export function validateCanvasDesign(design) {
   const d = normalizeCanvasDesign(design);
   const issues = [];
+  const duplicateAnchors = findDuplicateAnchorIds(d);
   for (const section of d.root.sections) {
     for (const block of section.children || []) {
       const errs = validateBlock(block);
+      const anchorId = sanitizeAnchorId(block.anchorId || '');
+      if (anchorId && duplicateAnchors.has(anchorId)) {
+        errs.push(`Anchor ID "#${anchorId}" is used by more than one block — make it unique so jump links stay unambiguous.`);
+      }
       if (errs.length > 0) {
         issues.push({ blockId: block.id, blockName: block.name, blockType: block.type, errors: errs });
       }

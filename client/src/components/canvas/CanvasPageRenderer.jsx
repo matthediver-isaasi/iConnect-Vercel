@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
@@ -133,6 +133,7 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint }) {
 
   return (
     <Tag
+      id={block.anchorId || undefined}
       role={explicitRole}
       aria-label={a11y?.ariaLabel || undefined}
       data-cb={block.id}
@@ -187,6 +188,129 @@ const A11Y_DEFAULTS_CSS = `
   }
 `;
 
+// Task #1446: in-page anchor smooth-scroll.
+//
+// Authors give blocks an `anchorId` (emitted as the wrapper element's `id`)
+// and link to them with `#anchor-id` hrefs. This hook makes those links
+// scroll smoothly to the target *without* a SPA route change, which matters
+// inside the editor's preview iframe (a real hash navigation would reload /
+// re-route the embedded app). It also:
+//   - honours prefers-reduced-motion (jumps instantly instead of animating),
+//   - offsets the scroll by any sticky/fixed header height so the target
+//     isn't hidden underneath it,
+//   - handles an initial `#hash` on first load.
+// Same-page only: links whose target id is not present on this page are left
+// alone so normal navigation still works.
+function useAnchorSmoothScroll(containerRef, enabled) {
+  const prefersReducedMotion = () => {
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  };
+
+  // Measure the tallest sticky/fixed element pinned to the top of the
+  // viewport so we can offset the scroll target below it.
+  const stickyHeaderOffset = useCallback(() => {
+    if (typeof document === 'undefined') return 0;
+    let max = 0;
+    const candidates = document.querySelectorAll('header, nav, [data-canvas-sticky]');
+    candidates.forEach((el) => {
+      try {
+        const cs = window.getComputedStyle(el);
+        if (cs.position !== 'fixed' && cs.position !== 'sticky') return;
+        const rect = el.getBoundingClientRect();
+        // Only count headers actually pinned near the top of the viewport.
+        if (rect.top <= 1 && rect.height > max) max = rect.height;
+      } catch { /* ignore */ }
+    });
+    return max;
+  }, []);
+
+  const scrollToId = useCallback((rawId, { smooth }) => {
+    if (!rawId) return false;
+    let target = null;
+    try {
+      target = document.getElementById(rawId);
+    } catch {
+      target = null;
+    }
+    if (!target) return false;
+    const offset = stickyHeaderOffset();
+    const top = window.pageYOffset + target.getBoundingClientRect().top - offset - 8;
+    const behavior = smooth && !prefersReducedMotion() ? 'smooth' : 'auto';
+    try {
+      window.scrollTo({ top: Math.max(0, top), behavior });
+    } catch {
+      window.scrollTo(0, Math.max(0, top));
+    }
+    // Move focus to the target for keyboard/screen-reader users without
+    // forcing a second jump (focus would otherwise scroll the target into
+    // view at the top, ignoring our header offset).
+    try {
+      const hadTabIndex = target.hasAttribute('tabindex');
+      if (!hadTabIndex) target.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
+      if (!hadTabIndex) {
+        target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+      }
+    } catch { /* ignore */ }
+    return true;
+  }, [stickyHeaderOffset]);
+
+  // Intercept same-page anchor clicks within the rendered page.
+  useEffect(() => {
+    if (!enabled) return;
+    const root = containerRef.current;
+    if (!root) return;
+
+    const onClick = (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = e.target?.closest?.('a[href]');
+      if (!anchor || !root.contains(anchor)) return;
+      const href = anchor.getAttribute('href') || '';
+      // Only handle pure in-page hashes ("#id"). Cross-page links such as
+      // "/about#team" fall through to normal navigation.
+      if (!href.startsWith('#') || href.length < 2) return;
+      const id = decodeURIComponent(href.slice(1));
+      if (scrollToId(id, { smooth: true })) {
+        e.preventDefault();
+        // Reflect the hash in the URL without triggering a hashchange-driven
+        // route change. Skip inside the preview iframe to avoid mutating the
+        // editor's URL.
+        const inPreview = window.parent !== window;
+        if (!inPreview) {
+          try {
+            window.history.replaceState(null, '', `#${id}`);
+          } catch { /* ignore */ }
+        }
+      }
+    };
+
+    root.addEventListener('click', onClick);
+    return () => root.removeEventListener('click', onClick);
+  }, [enabled, containerRef, scrollToId]);
+
+  // Honour an initial #hash on load (after blocks have mounted).
+  useEffect(() => {
+    if (!enabled) return;
+    let hash = '';
+    try {
+      hash = decodeURIComponent((window.location.hash || '').slice(1));
+    } catch {
+      hash = '';
+    }
+    if (!hash) return;
+    // Defer until the page tree + images have a chance to lay out so the
+    // target's position is accurate.
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToId(hash, { smooth: false }));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [enabled, scrollToId]);
+}
+
 export default function CanvasPageRenderer({ page }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   const symbolsById = useSymbolsForDesign(baseDesign);
@@ -225,6 +349,10 @@ export default function CanvasPageRenderer({ page }) {
   const lcpBlockId = useMemo(() => (hasBlocks ? findLcpBlockId(children) : null), [children, hasBlocks]);
 
   const forcedBreakpoint = useForcedBreakpoint();
+
+  // Task #1446: smooth-scroll same-page anchor links to their target block.
+  const containerRef = useRef(null);
+  useAnchorSmoothScroll(containerRef, hasBlocks);
 
   // When this renderer is shown inside the Canvas Page Editor's preview
   // iframe (`?_canvasPreview=<nonce>`), notify the editor once the page
@@ -326,6 +454,7 @@ export default function CanvasPageRenderer({ page }) {
 
   return (
     <div
+      ref={containerRef}
       id={scopeId}
       className="canvas-page w-full"
       data-testid={`canvas-page-${page?.slug || ''}`}
