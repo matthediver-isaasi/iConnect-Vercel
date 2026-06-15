@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
-  ChevronLeft, ChevronRight, Images, User, Mic,
+  ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -2278,7 +2278,54 @@ function useEventSponsors(eventValue) {
   };
 }
 
-function SponsorCard({ sponsor, showDescription, nameStyle, descStyle }) {
+function SponsorDetail({ sponsor }) {
+  if (!sponsor) return null;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <div className="w-16 h-16 shrink-0 rounded-md border border-slate-200 bg-white flex items-center justify-center p-2 overflow-hidden">
+          {sponsor.logo_url ? (
+            <img
+              src={sponsor.logo_url}
+              alt={sponsor.name || ''}
+              className="max-w-full max-h-full object-contain"
+            />
+          ) : (
+            <Building2 className="w-7 h-7 text-slate-300" aria-hidden="true" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-slate-900 m-0" data-testid="text-sponsor-carousel-detail-name">
+            {sponsor.name}
+          </h3>
+        </div>
+      </div>
+      {sponsor.description ? (
+        <div>
+          <p
+            className="text-sm text-slate-600 leading-relaxed m-0"
+            data-testid="text-sponsor-carousel-detail-description"
+          >
+            {sponsor.description}
+          </p>
+        </div>
+      ) : null}
+      {sponsor.website_url ? (
+        <a
+          href={sponsor.website_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+          data-testid="link-sponsor-carousel-detail-website"
+        >
+          Visit website <ExternalLink className="w-4 h-4" aria-hidden="true" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function SponsorCard({ sponsor, showDescription, nameStyle, descStyle, onClick }) {
   const inner = (
     <>
       <div className="aspect-[16/9] bg-white flex items-center justify-center p-4 border-b border-slate-100">
@@ -2308,6 +2355,21 @@ function SponsorCard({ sponsor, showDescription, nameStyle, descStyle }) {
     </>
   );
   const className = 'rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col h-full';
+  // Carousel usage: render as a button that opens the detail modal.
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${className} text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+        data-testid={`button-sponsor-${sponsor.id}`}
+        aria-label={`View details for ${sponsor.name || 'sponsor'}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  // Grid usage: keep linking out to the sponsor website.
   if (sponsor.website_url) {
     return (
       <a
@@ -2524,6 +2586,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const [direction, setDirection] = useState(1);
   const [hovered, setHovered] = useState(false);
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
+  const [selected, setSelected] = useState(null);
   const touchStartRef = useRef(null);
 
   // Flatten the grouped sponsors into a single de-duplicated list, applying the
@@ -2564,6 +2627,9 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   useEffect(() => {
     if (asEditor) return;
     if (!c.autoplay || pageCount < 2) return;
+    // Pause autoplay while the detail dialog is open so the slide doesn't move
+    // under the user as they read a profile.
+    if (selected) return;
     // Pause-on-hover: when enabled, hovering the carousel halts autoplay.
     if (pauseOnHover && hovered) return;
     const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
@@ -2574,7 +2640,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
       setIndex((i) => (i + 1) % pageCount);
     }, ms);
     return () => clearInterval(t);
-  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, pauseOnHover, hovered]);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, pauseOnHover, hovered]);
 
   const goPrev = () => { setDirection(-1); setIndex((i) => (i - 1 + pageCount) % pageCount); };
   const goNext = () => { setDirection(1); setIndex((i) => (i + 1) % pageCount); };
@@ -2657,6 +2723,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
     if (v) descStyle.fontSize = v;
   }
 
+  const openSponsor = (s) => { setSelected(s); setAutoplayPausedAt(Date.now()); };
+
   // Current page's sponsors; padded to `perView` so the last (short) page keeps
   // equal-width slots instead of stretching the remaining cards.
   const pageSponsors = sponsors.slice(index * perView, index * perView + perView);
@@ -2695,6 +2763,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
                     showDescription={showDescription}
                     nameStyle={nameStyle}
                     descStyle={descStyle}
+                    onClick={() => openSponsor(s)}
                   />
                 ) : null}
               </div>
@@ -2744,6 +2813,17 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
           </div>
         ) : null}
       </div>
+
+      {/* Single-sponsor detail dialog */}
+      <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-sponsor-carousel-detail">
+          <DialogHeader>
+            <DialogTitle>Sponsor</DialogTitle>
+            <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
+          </DialogHeader>
+          <SponsorDetail sponsor={selected} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
