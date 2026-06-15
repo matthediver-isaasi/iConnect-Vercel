@@ -2391,6 +2391,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
   const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 16;
+  const [selected, setSelected] = useState(null);
 
   // Empty / no-sponsor states show an editor placeholder, but render nothing
   // disruptive on the published public page.
@@ -2464,9 +2465,20 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
         <div style={gridStyle(cols, gap)}>
           {all.map((s) => (
-            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} />
+            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
           ))}
         </div>
+
+        {/* Single-sponsor detail dialog */}
+        <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-sponsor-carousel-detail">
+            <DialogHeader>
+              <DialogTitle>Sponsor</DialogTitle>
+              <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
+            </DialogHeader>
+            <SponsorDetail sponsor={selected} />
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -2481,12 +2493,23 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
             ) : null}
             <div style={gridStyle(cols, gap)}>
               {g.sponsors.map((s) => (
-                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} />
+                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Single-sponsor detail dialog */}
+      <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-sponsor-carousel-detail">
+          <DialogHeader>
+            <DialogTitle>Sponsor</DialogTitle>
+            <DialogDescription className="sr-only">Sponsor profile details</DialogDescription>
+          </DialogHeader>
+          <SponsorDetail sponsor={selected} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
