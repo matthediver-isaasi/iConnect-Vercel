@@ -42,16 +42,35 @@ async function resolveAlertRoleIds(client, tenantId) {
 }
 
 /**
- * Resolve recipient emails for the guest-signup alert: every member in the
- * tenant holding one of the configured alert roles. De-duplicated, lowercased.
+ * Resolve recipient emails for the guest-signup alert: members holding one of
+ * the configured alert roles, scoped to the organisation the guest is joining.
+ * De-duplicated, lowercased.
+ *
+ * Scoping rules:
+ *  - When `organizationId` is provided, only role-holders assigned to that same
+ *    organisation are notified. Role-holders in other organisations (or in no
+ *    organisation) are deliberately excluded — the people who care about a guest
+ *    joining Org A are Org A's role-holders, not unrelated orgs'.
+ *  - When `organizationId` is null/absent (no organisation context for the
+ *    signup), we fall back to tenant-level role-holders who are not assigned to
+ *    any organisation (`organization_id IS NULL`). These are platform/tenant
+ *    admins, not members of some unrelated organisation, so notifying them still
+ *    honours the "don't blast unrelated orgs" intent while ensuring the approval
+ *    request still reaches someone. We never fall back to a tenant-wide blast.
  */
-async function resolveRecipientEmails(client, tenantId, roleIds) {
+async function resolveRecipientEmails(client, tenantId, roleIds, organizationId) {
   if (!roleIds.length) return [];
-  const { data, error } = await client
+  let query = client
     .from('member')
     .select('email')
     .eq('tenant_id', tenantId)
     .in('role_id', roleIds);
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  } else {
+    query = query.is('organization_id', null);
+  }
+  const { data, error } = await query;
   if (error) {
     console.error('[GuestSignupNotify] Failed to resolve recipients:', error.message);
     return [];
@@ -132,7 +151,11 @@ export async function notifyGuestSignup({
       return { sent: 0, reason: 'no-roles-configured' };
     }
 
-    const recipients = await resolveRecipientEmails(client, tenantId, roleIds);
+    // Scope recipients to the organisation the guest is joining so role-holders
+    // in unrelated organisations are not alerted. Falls back to tenant-level
+    // (org-less) role-holders when there is no organisation context.
+    const orgIdForRecipients = organizationId || member.organization_id || null;
+    const recipients = await resolveRecipientEmails(client, tenantId, roleIds, orgIdForRecipients);
     if (!recipients.length) {
       return { sent: 0, reason: 'no-recipients' };
     }
