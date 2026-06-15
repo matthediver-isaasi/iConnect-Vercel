@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import {
   createBlock,
+  getBlockDefaults,
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
   setBlockBp,
@@ -460,39 +461,71 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const stageWrapperRef = useRef(null);
 
+  // Live pointer position during a palette drag. dnd-kit's `delta` (and the
+  // translated active rect derived from it) gets distorted by auto-scroll
+  // when dragging near the stage edges, which is what throws a dropped block
+  // far down the page. We instead read the real pointer from native events
+  // and use that as the source of truth for the drop point.
+  const lastPointerRef = useRef(null);
+  const trackPointer = useCallback((e) => {
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
   const handleDragStart = (event) => {
     setActiveDragId(event.active.id);
     setActiveDragType(event.active.data?.current?.type || null);
+    // Seed with the activator position, then follow the live pointer for the
+    // rest of the drag. Capture phase so we still see the move even if
+    // dnd-kit handles the event first.
+    lastPointerRef.current = event.activatorEvent
+      ? { x: event.activatorEvent.clientX || 0, y: event.activatorEvent.clientY || 0 }
+      : null;
+    window.addEventListener('pointermove', trackPointer, true);
+  };
+
+  const handleDragCancel = () => {
+    window.removeEventListener('pointermove', trackPointer, true);
+    setActiveDragId(null);
+    setActiveDragType(null);
+    lastPointerRef.current = null;
   };
 
   const handleDragEnd = (event) => {
+    window.removeEventListener('pointermove', trackPointer, true);
     setActiveDragId(null);
     setActiveDragType(null);
     const { active, over } = event;
+    const pointer = lastPointerRef.current;
+    lastPointerRef.current = null;
     if (!over) return;
     const fromPalette = active.data?.current?.fromPalette;
     if (!fromPalette) return;
     if (over.id !== 'canvas-drop-zone') return;
 
-    // Compute drop coords relative to stage. The stage element is
-    // CSS-scaled by `zoom`, so getBoundingClientRect() returns scaled
-    // dimensions; divide pointer offsets by zoom to get internal
-    // (unscaled) canvas coordinates.
+    const newType = active.data?.current?.type || BLOCK_TYPES.BOX;
+    const defaults = getBlockDefaults(newType);
+    const blockW = defaults.geom?.w ?? 200;
+    const blockH = defaults.geom?.h ?? 120;
+
+    // Convert the live pointer to stage-local coordinates using the same
+    // client->stage math the stage uses for moves (getStageCoords in
+    // CanvasStage.jsx): subtract the stage's bounding rect and divide by
+    // zoom. Anchor the block under the cursor, offset by (at most) half its
+    // default size so the top-left lands roughly under the pointer without a
+    // large jump for tall/wide blocks.
     let x = 40, y = 40;
     const stage = document.querySelector('[data-testid="canvas-stage"]');
-    if (stage && event.activatorEvent) {
+    if (stage && pointer) {
       const rect = stage.getBoundingClientRect();
-      const last = event.delta;
-      const finalX = (event.activatorEvent.clientX || 0) + (last?.x || 0);
-      const finalY = (event.activatorEvent.clientY || 0) + (last?.y || 0);
       const zoomFactor = zoom || 1;
-      const localX = (finalX - rect.left) / zoomFactor - 50;
-      const localY = (finalY - rect.top) / zoomFactor - 30;
+      const offsetX = Math.min(blockW / 2, 40);
+      const offsetY = Math.min(blockH / 2, 40);
+      const localX = (pointer.x - rect.left) / zoomFactor - offsetX;
+      const localY = (pointer.y - rect.top) / zoomFactor - offsetY;
       x = Math.max(0, Math.round(localX / gridSize) * gridSize);
       y = Math.max(0, Math.round(localY / gridSize) * gridSize);
     }
 
-    const newType = active.data?.current?.type || BLOCK_TYPES.BOX;
     const newBlock = createBlock(newType, {
       desktop: { x, y, hidden: false },
     });
@@ -1050,7 +1083,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const alignTitle = (label) => `${label} (to ${alignTarget})`;
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
       <div className="flex flex-col h-full" data-testid="canvas-builder">
         {/* Sub-toolbar with alignment + undo/redo + grid */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
