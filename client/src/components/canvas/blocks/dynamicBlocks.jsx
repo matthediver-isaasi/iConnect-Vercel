@@ -2346,6 +2346,335 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 }
 
 // ============================================================================
+// SPONSOR CAROUSEL
+// ============================================================================
+// Same sponsor data + card as the Sponsor grid, wrapped in the auto-scrolling
+// paged carousel shell modelled on the Speaker carousel.
+function SponsorCarouselRender({ block, asEditor, breakpoint }) {
+  const c = block.content || {};
+  const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+
+  const [index, setIndex] = useState(0);
+  const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
+  const touchStartRef = useRef(null);
+
+  // Flatten the grouped sponsors into a single de-duplicated list, applying the
+  // optional category filter (mirrors the Sponsor grid logic). The carousel
+  // does not show category headings, so we always collapse to one list.
+  const availableIds = new Set(groups.map((g) => String(g.id)));
+  const selectedCats = (Array.isArray(c.categoryIds) ? c.categoryIds.map(String) : [])
+    .filter((id) => availableIds.has(id));
+  const filteredGroups = selectedCats.length === 0
+    ? groups
+    : groups.filter((g) => selectedCats.includes(String(g.id)));
+  const sponsors = useMemo(() => {
+    const seen = new Set();
+    const all = [];
+    for (const g of filteredGroups) {
+      for (const s of g.sponsors) {
+        if (seen.has(String(s.id))) continue;
+        seen.add(String(s.id));
+        all.push(s);
+      }
+    }
+    return all;
+  }, [filteredGroups]);
+
+  const count = sponsors.length;
+  const perView = Math.max(1, Number(c.sponsorsPerView) || 1);
+  const pageCount = Math.max(1, Math.ceil(count / perView));
+  const hasMany = pageCount > 1;
+  const gap = c.gap ?? 16;
+
+  useEffect(() => {
+    if (index > Math.max(0, pageCount - 1)) setIndex(0);
+  }, [pageCount, index]);
+
+  useEffect(() => {
+    if (asEditor) return;
+    if (!c.autoplay || pageCount < 2) return;
+    const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
+    const pauseMs = Math.max(ms, 4000);
+    const t = setInterval(() => {
+      if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setIndex((i) => (i + 1) % pageCount);
+    }, ms);
+    return () => clearInterval(t);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt]);
+
+  const goPrev = () => setIndex((i) => (i - 1 + pageCount) % pageCount);
+  const goNext = () => setIndex((i) => (i + 1) % pageCount);
+
+  const handleTouchStart = (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (!t) return;
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (ev) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || pageCount < 2) return;
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const SWIPE_THRESHOLD = 40;
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) goNext(); else goPrev();
+    setAutoplayPausedAt(Date.now());
+  };
+  const handleKeyDown = (ev) => {
+    if (pageCount < 2) return;
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      goPrev();
+      setAutoplayPausedAt(Date.now());
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      goNext();
+      setAutoplayPausedAt(Date.now());
+    }
+  };
+
+  // Empty / no-sponsor states show an editor placeholder, but render nothing
+  // disruptive on the published public page.
+  if (!hasEvent) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text={c.emptyText || 'Pick an event with assigned sponsors in the inspector.'} />;
+  }
+  if (isLoading) return <ListSkeleton count={Math.min(perView, 4)} columns={Math.min(perView, 4)} gap={gap} />;
+  if (isError) {
+    if (!asEditor) return null;
+    return <ErrorState message="Couldn't load sponsors right now." />;
+  }
+  if (totalSponsors === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text="The selected event has no sponsors yet." />;
+  }
+  // A filter selection that matches no sponsors behaves like the empty state.
+  if (count === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Building2} text="No sponsors match the selected categories." />;
+  }
+
+  const showArrows = hasMany && c.showArrows !== false;
+  const showIndicators = hasMany && c.showIndicators !== false;
+  const showDescription = c.showDescription !== false;
+
+  // Responsive font sizing — inline px literal in forced-breakpoint preview,
+  // CSS var (driven by buildCanvasCss @media rules) on real public pages.
+  const isForcedPreview = !!breakpoint;
+  const nameFontSize = resolveResponsiveValue(c.nameFontSize, breakpoint);
+  const descFontSize = resolveResponsiveValue(c.descFontSize, breakpoint);
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+  const nameStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(nameFontSize)) nameStyle.fontSize = `${nameFontSize}px`;
+  } else {
+    const v = cssVar(c.nameFontSize, '--cb-spc-name-fs');
+    if (v) nameStyle.fontSize = v;
+  }
+  const descStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(descFontSize)) descStyle.fontSize = `${descFontSize}px`;
+  } else {
+    const v = cssVar(c.descFontSize, '--cb-spc-desc-fs');
+    if (v) descStyle.fontSize = v;
+  }
+
+  // Current page's sponsors; padded to `perView` so the last (short) page keeps
+  // equal-width slots instead of stretching the remaining cards.
+  const pageSponsors = sponsors.slice(index * perView, index * perView + perView);
+  const pageSlice = perView > 1
+    ? Array.from({ length: perView }, (_, i) => pageSponsors[i] || null)
+    : pageSponsors;
+
+  return (
+    <div
+      className="relative w-full h-full overflow-hidden flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      aria-label={block.a11y?.ariaLabel || 'Sponsor carousel'}
+      data-testid="sponsor-carousel"
+      role="region"
+      aria-roledescription="carousel"
+      tabIndex={hasMany ? 0 : -1}
+      onTouchStart={hasMany ? handleTouchStart : undefined}
+      onTouchEnd={hasMany ? handleTouchEnd : undefined}
+      onKeyDown={hasMany ? handleKeyDown : undefined}
+      style={hasMany ? { touchAction: 'pan-y' } : undefined}
+    >
+      <div className="relative flex-1 min-h-0">
+        <div className="w-full h-full flex items-stretch px-8 py-4" style={{ gap: `${gap}px` }}>
+          {pageSlice.map((s, i) => (
+            <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
+              {s ? (
+                <SponsorCard
+                  sponsor={s}
+                  showDescription={showDescription}
+                  nameStyle={nameStyle}
+                  descStyle={descStyle}
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        {showArrows ? (
+          <>
+            <button
+              type="button"
+              onClick={() => { goPrev(); setAutoplayPausedAt(Date.now()); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              aria-label="Previous sponsors"
+              data-testid="button-sponsor-carousel-prev"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { goNext(); setAutoplayPausedAt(Date.now()); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 hover:bg-white border border-slate-200 flex items-center justify-center shadow-sm"
+              aria-label="Next sponsors"
+              data-testid="button-sponsor-carousel-next"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+
+        {showIndicators ? (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+            {Array.from({ length: pageCount }).map((_, i) => {
+              const active = i === index;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => { setIndex(i); setAutoplayPausedAt(Date.now()); }}
+                  aria-label={`Show page ${i + 1} of ${pageCount}`}
+                  aria-current={active ? 'true' : undefined}
+                  className={`w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
+                  data-testid={`button-sponsor-carousel-indicator-${i}`}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SponsorCarouselInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  // Derive category options from the same sponsor data the renderer loads,
+  // including the "Other" bucket (id '__none__') when present.
+  const { hasEvent, groups } = useEventSponsors(c.eventId);
+  const categoryOptions = groups.map((g) => ({
+    value: g.id,
+    label: g.id === '__none__' ? (g.name || 'Other') : (g.name || 'Untitled category'),
+  }));
+  return (
+    <>
+      <EventCarouselPickerRow
+        value={c.eventId || ''}
+        onChange={(v) => set({ eventId: v, categoryIds: [] })}
+        testId="select-sponsor-carousel-event"
+      />
+      {hasEvent && categoryOptions.length > 0 ? (
+        <MultiCheckboxField
+          label="Filter by category"
+          value={c.categoryIds}
+          onChange={(v) => set({ categoryIds: v })}
+          options={categoryOptions}
+          testId="multiselect-sponsor-carousel-categories"
+          hint="Leave all unchecked to show every sponsor for the event."
+        />
+      ) : null}
+      <NumberField
+        label="Sponsors per page"
+        min={1}
+        value={c.sponsorsPerView || 1}
+        onChange={(v) => set({ sponsorsPerView: Math.max(1, Math.floor(Number(v) || 1)) })}
+        testId="input-sponsor-carousel-per-view"
+        hint="How many sponsor cards to show side-by-side in one slide."
+      />
+      <NumberField
+        label="Gap (px)"
+        min={0}
+        value={c.gap ?? 16}
+        onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
+        testId="input-sponsor-carousel-gap"
+      />
+      <ToggleField
+        label="Show description"
+        value={c.showDescription !== false}
+        onChange={(v) => set({ showDescription: v })}
+        testId="toggle-sponsor-carousel-description"
+      />
+      <ToggleField
+        label="Autoplay"
+        value={c.autoplay !== false}
+        onChange={(v) => set({ autoplay: v })}
+        testId="toggle-sponsor-carousel-autoplay"
+      />
+      <NumberField
+        label="Autoplay interval (ms)"
+        min={1500}
+        value={c.autoplayMs || 5000}
+        onChange={(v) => set({ autoplayMs: Math.max(1500, Number(v) || 5000) })}
+        testId="input-sponsor-carousel-autoplay-ms"
+      />
+      <ToggleField
+        label="Show prev/next arrows"
+        value={c.showArrows !== false}
+        onChange={(v) => set({ showArrows: v })}
+        testId="toggle-sponsor-carousel-arrows"
+      />
+      <ToggleField
+        label="Show slide indicators"
+        value={c.showIndicators !== false}
+        onChange={(v) => set({ showIndicators: v })}
+        testId="toggle-sponsor-carousel-indicators"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Sponsor name</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Name font size (px)"
+        min={1}
+        value={c.nameFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ nameFontSize: v })}
+        testId="input-sponsor-carousel-name-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Description</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Description font size (px)"
+        min={1}
+        value={c.descFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ descFontSize: v })}
+        testId="input-sponsor-carousel-desc-font-size"
+      />
+
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(v) => set({ emptyText: v })}
+        testId="input-sponsor-carousel-empty-text"
+        hint="Shown in the editor when no event or no sponsors are found."
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // ARTICLE / NEWS LIST
 // ============================================================================
 function ArticleListRender({ block, breakpoint, asEditor }) {
@@ -3330,6 +3659,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <SponsorGridRender {...props} asEditor />,
     Renderer: SponsorGridRender,
     Inspector: SponsorGridInspector,
+  },
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: {
+    label: 'Sponsor carousel',
+    icon: Images,
+    category: 'data',
+    Editor: (props) => <SponsorCarouselRender {...props} asEditor />,
+    Renderer: SponsorCarouselRender,
+    Inspector: SponsorCarouselInspector,
   },
   [BLOCK_TYPES.ARTICLE_LIST]: {
     label: 'Article / news list',

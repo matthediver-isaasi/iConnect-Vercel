@@ -162,6 +162,7 @@ export const BLOCK_TYPES = {
   EVENT_CAROUSEL: 'event-carousel',
   SPEAKER_CAROUSEL: 'speaker-carousel',
   SPONSOR_GRID: 'sponsor-grid',
+  SPONSOR_CAROUSEL: 'sponsor-carousel',
   ARTICLE_LIST: 'article-list',
   RESOURCE_LIST: 'resource-list',
   FORM_EMBED: 'form-embed',
@@ -783,6 +784,23 @@ export const BLOCK_DEFAULTS = {
       gap: 16,
       showDescription: true,
       showCategoryHeadings: true,
+      emptyText: 'Pick an event with assigned sponsors in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: {
+    name: 'Sponsor carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      categoryIds: [],
+      sponsorsPerView: 3,
+      gap: 16,
+      showDescription: true,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
       emptyText: 'Pick an event with assigned sponsors in the inspector.',
     },
   },
@@ -1481,6 +1499,9 @@ export function validateBlock(block) {
     case BLOCK_TYPES.SPONSOR_GRID:
       if (!c.eventId) errors.push('Sponsor grid requires an event.');
       break;
+    case BLOCK_TYPES.SPONSOR_CAROUSEL:
+      if (!c.eventId) errors.push('Sponsor carousel requires an event.');
+      break;
     case BLOCK_TYPES.FORM_EMBED:
       if (!c.formSlug) errors.push('Form embed requires a form.');
       break;
@@ -1637,6 +1658,10 @@ const RESPONSIVE_VAR_FIELDS = {
   [BLOCK_TYPES.SPONSOR_GRID]: [
     { contentKey: 'nameFontSize', varName: '--cb-spg-name-fs', unit: 'px' },
     { contentKey: 'descFontSize', varName: '--cb-spg-desc-fs', unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: [
+    { contentKey: 'nameFontSize', varName: '--cb-spc-name-fs', unit: 'px' },
+    { contentKey: 'descFontSize', varName: '--cb-spc-desc-fs', unit: 'px' },
   ],
   [BLOCK_TYPES.ICON]: [
     { contentKey: 'size', varName: '--cb-icon-size', unit: 'px' },
