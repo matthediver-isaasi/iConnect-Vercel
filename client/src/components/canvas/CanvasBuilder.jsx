@@ -821,13 +821,20 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     [anchorId, children],
   );
 
-  // Effective reference frame for the current selection: 'anchor' with a
-  // single selection has nothing to anchor against, so it collapses to
-  // 'canvas' for that case.
+  // Effective reference frame for the current selection: 'anchor' needs at
+  // least two alignment units to anchor against (a group counts as one unit),
+  // so it collapses to 'canvas' when there are fewer than two units. This is
+  // why selecting a single group and aligning moves it relative to the canvas.
   const effectiveAlignRef = useMemo(() => {
-    if (alignRef === 'anchor' && selectedIds.length < 2) return 'canvas';
-    return alignRef;
-  }, [alignRef, selectedIds.length]);
+    if (alignRef !== 'anchor') return alignRef;
+    const keys = new Set();
+    for (const id of selectedIds) {
+      const b = children.find((c) => c.id === id);
+      if (!b) continue;
+      keys.add(b.groupId ? `group:${b.groupId}` : `block:${id}`);
+    }
+    return keys.size < 2 ? 'canvas' : 'anchor';
+  }, [alignRef, selectedIds, children]);
 
   const alignSelected = useCallback((mode) => {
     if (selectedIds.length < 1) return;
@@ -835,14 +842,32 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       .map((id) => {
         const b = children.find((c) => c.id === id);
         if (!b) return null;
-        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint) };
+        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint), groupId: b.groupId || null };
       })
       .filter(Boolean);
     if (blocksGeom.length < 1) return;
 
+    // Partition the selection into alignment units: blocks sharing a groupId
+    // form a single unit (aligned by their combined bounding box); ungrouped
+    // blocks are each their own unit. This keeps a group's internal layout
+    // intact when it is aligned as a whole.
+    const unitMap = new Map();
+    for (const item of blocksGeom) {
+      const key = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      if (!unitMap.has(key)) unitMap.set(key, { key, members: [] });
+      unitMap.get(key).members.push(item);
+    }
+    const bboxOf = (members) => {
+      const x = Math.min(...members.map((m) => m.geom.x));
+      const right = Math.max(...members.map((m) => m.geom.x + m.geom.w));
+      const y = Math.min(...members.map((m) => m.geom.y));
+      const bottom = Math.max(...members.map((m) => m.geom.y + m.geom.h));
+      return { x, right, y, bottom, w: right - x, h: bottom - y };
+    };
+
     // Determine the alignment reference frame.
     let minX, maxRight, minY, maxBottom;
-    let activeAnchorId = null;
+    let activeAnchorKey = null;
     if (effectiveAlignRef === 'canvas') {
       const cW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
       const cH = STAGE_MIN_HEIGHT;
@@ -856,62 +881,94 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       minY = Math.min(...blocksGeom.map((b) => b.geom.y));
       maxBottom = Math.max(...blocksGeom.map((b) => b.geom.y + b.geom.h));
     } else {
-      // 'anchor' — last-selected block (guaranteed to exist here since
-      // effectiveAlignRef collapses to 'canvas' for single selections).
-      const anchor = blocksGeom.find((b) => b.id === anchorId) || blocksGeom[blocksGeom.length - 1];
-      activeAnchorId = anchor.id;
-      minX = anchor.geom.x;
-      maxRight = anchor.geom.x + anchor.geom.w;
-      minY = anchor.geom.y;
-      maxBottom = anchor.geom.y + anchor.geom.h;
+      // 'anchor' — the unit that owns the anchor block. The anchor's whole
+      // unit (a group, if it belongs to one) forms the reference frame, so a
+      // group is anchored as a single unit. effectiveAlignRef collapses to
+      // 'canvas' when there are fewer than two units, so this unit exists.
+      const anchorItem = blocksGeom.find((b) => b.id === anchorId) || blocksGeom[blocksGeom.length - 1];
+      activeAnchorKey = anchorItem.groupId ? `group:${anchorItem.groupId}` : `block:${anchorItem.id}`;
+      const bb = bboxOf(unitMap.get(activeAnchorKey).members);
+      minX = bb.x;
+      maxRight = bb.right;
+      minY = bb.y;
+      maxBottom = bb.bottom;
     }
     const centerX = (minX + maxRight) / 2;
     const centerY = (minY + maxBottom) / 2;
+
     const updates = {};
-    for (const { id, geom } of blocksGeom) {
-      // Never move the anchor itself when aligning to it.
-      if (activeAnchorId && id === activeAnchorId) continue;
-      let nx = geom.x, ny = geom.y;
-      if (mode === 'left') nx = minX;
-      if (mode === 'right') nx = maxRight - geom.w;
-      if (mode === 'hcenter') nx = Math.round(centerX - geom.w / 2);
-      if (mode === 'top') ny = minY;
-      if (mode === 'bottom') ny = maxBottom - geom.h;
-      if (mode === 'vcenter') ny = Math.round(centerY - geom.h / 2);
-      updates[id] = { x: nx, y: ny, w: geom.w, h: geom.h };
+    for (const unit of unitMap.values()) {
+      // Never move the unit that contains the anchor when aligning to it.
+      if (activeAnchorKey && unit.key === activeAnchorKey) continue;
+      const bb = bboxOf(unit.members);
+      // Uniform delta to align the unit's bounding box to the reference frame.
+      let dx = 0, dy = 0;
+      if (mode === 'left') dx = minX - bb.x;
+      if (mode === 'right') dx = (maxRight - bb.w) - bb.x;
+      if (mode === 'hcenter') dx = Math.round(centerX - bb.w / 2) - bb.x;
+      if (mode === 'top') dy = minY - bb.y;
+      if (mode === 'bottom') dy = (maxBottom - bb.h) - bb.y;
+      if (mode === 'vcenter') dy = Math.round(centerY - bb.h / 2) - bb.y;
+      if (dx === 0 && dy === 0) continue;
+      // Apply the same delta to every member, preserving relative positions.
+      for (const m of unit.members) {
+        updates[m.id] = { x: m.geom.x + dx, y: m.geom.y + dy, w: m.geom.w, h: m.geom.h };
+      }
     }
     if (Object.keys(updates).length > 0) applyGeometry(updates);
   }, [selectedIds, anchorId, children, breakpoint, applyGeometry, effectiveAlignRef]);
 
   const distributeSelected = useCallback((axis) => {
     if (selectedIds.length < 3) return;
-    const items = selectedIds
+    const blocksGeom = selectedIds
       .map((id) => {
         const b = children.find((c) => c.id === id);
         if (!b) return null;
-        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint) };
+        return { id, geom: resolveBlockAtBreakpoint(b, breakpoint), groupId: b.groupId || null };
       })
       .filter(Boolean);
-    if (items.length < 3) return;
+
+    // Partition into units: grouped blocks distribute as one unit (by their
+    // combined bounding box); ungrouped blocks are each their own unit.
+    const unitMap = new Map();
+    for (const item of blocksGeom) {
+      const k = item.groupId ? `group:${item.groupId}` : `block:${item.id}`;
+      if (!unitMap.has(k)) unitMap.set(k, []);
+      unitMap.get(k).push(item);
+    }
+    const units = Array.from(unitMap.values()).map((members) => {
+      const x = Math.min(...members.map((m) => m.geom.x));
+      const y = Math.min(...members.map((m) => m.geom.y));
+      const w = Math.max(...members.map((m) => m.geom.x + m.geom.w)) - x;
+      const h = Math.max(...members.map((m) => m.geom.y + m.geom.h)) - y;
+      return { members, x, y, w, h };
+    });
+    if (units.length < 3) return;
+
     const key = axis === 'h' ? 'x' : 'y';
     const sizeKey = axis === 'h' ? 'w' : 'h';
-    items.sort((a, b) => (a.geom[key] + a.geom[sizeKey] / 2) - (b.geom[key] + b.geom[sizeKey] / 2));
-    const first = items[0];
-    const last = items[items.length - 1];
-    const firstCenter = first.geom[key] + first.geom[sizeKey] / 2;
-    const lastCenter = last.geom[key] + last.geom[sizeKey] / 2;
-    const step = (lastCenter - firstCenter) / (items.length - 1);
+    units.sort((a, b) => (a[key] + a[sizeKey] / 2) - (b[key] + b[sizeKey] / 2));
+    const first = units[0];
+    const last = units[units.length - 1];
+    const firstCenter = first[key] + first[sizeKey] / 2;
+    const lastCenter = last[key] + last[sizeKey] / 2;
+    const step = (lastCenter - firstCenter) / (units.length - 1);
     const updates = {};
-    items.forEach((it, idx) => {
-      if (idx === 0 || idx === items.length - 1) return;
+    units.forEach((unit, idx) => {
+      if (idx === 0 || idx === units.length - 1) return;
       const targetCenter = firstCenter + step * idx;
-      const target = Math.round(targetCenter - it.geom[sizeKey] / 2);
-      updates[it.id] = {
-        ...it.geom,
-        [key]: target,
-      };
+      const target = Math.round(targetCenter - unit[sizeKey] / 2);
+      const delta = target - unit[key];
+      if (delta === 0) return;
+      // Apply the same delta to every member, preserving relative positions.
+      for (const m of unit.members) {
+        updates[m.id] = {
+          ...m.geom,
+          [key]: m.geom[key] + delta,
+        };
+      }
     });
-    applyGeometry(updates);
+    if (Object.keys(updates).length > 0) applyGeometry(updates);
   }, [selectedIds, children, breakpoint, applyGeometry]);
 
   const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
