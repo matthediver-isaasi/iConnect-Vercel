@@ -3391,15 +3391,20 @@ function MegaMenuRender({ block, asEditor, breakpoint }) {
         onMouseLeave={scheduleClose}
         data-testid="mega-panel"
       >
-        {openItem && (
-          <MegaPanel
-            item={openItem}
-            asEditor={asEditor}
-            panelBg={panelBg}
-            panelFg={panelFg}
-            accent={accent}
-          />
-        )}
+        {/* When full-bleed, the overlay spans 100vw (left-0/right-0 of the bar)
+            but the panel content should re-align to the centered content column,
+            mirroring the bar row's railStyle. No-op when not full-bleed. */}
+        <div style={railStyle}>
+          {openItem && (
+            <MegaPanel
+              item={openItem}
+              asEditor={asEditor}
+              panelBg={panelBg}
+              panelFg={panelFg}
+              accent={accent}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
