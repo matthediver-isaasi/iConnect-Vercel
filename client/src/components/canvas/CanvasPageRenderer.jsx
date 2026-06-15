@@ -270,11 +270,36 @@ function useAnchorSmoothScroll(containerRef, enabled) {
       const anchor = e.target?.closest?.('a[href]');
       if (!anchor || !root.contains(anchor)) return;
       const href = anchor.getAttribute('href') || '';
-      // Only handle pure in-page hashes ("#id"). Cross-page links such as
-      // "/about#team" fall through to normal navigation.
-      if (!href.startsWith('#') || href.length < 2) return;
-      const id = decodeURIComponent(href.slice(1));
-      if (scrollToId(id, { smooth: true })) {
+      // Resolve the in-page anchor id this link targets, if any.
+      //   "#id"            -> always same-page.
+      //   "/this-page#id"  -> (Task #1448) same-page when the path matches the
+      //                       page we're on, so we smooth-scroll instead of
+      //                       triggering a wasteful full reload of the same page.
+      //   "/other#id"      -> cross-page: fall through to normal navigation;
+      //                       the destination page scrolls to the anchor on
+      //                       arrival via the initial-#hash handler below.
+      let id = null;
+      if (href.startsWith('#')) {
+        if (href.length < 2) return;
+        id = decodeURIComponent(href.slice(1));
+      } else {
+        const hashIdx = href.indexOf('#');
+        if (hashIdx < 1) return; // no hash, or bare "#…" already handled
+        const path = href.slice(0, hashIdx);
+        const rawId = href.slice(hashIdx + 1);
+        if (!rawId) return;
+        // Only same-origin, path-style links ("/slug") are candidates; leave
+        // absolute URLs (http(s)://, mailto:, tel:) to the browser.
+        if (!path.startsWith('/')) return;
+        let samePath = false;
+        try {
+          const norm = (p) => (p.replace(/\/+$/, '') || '/');
+          samePath = norm(path) === norm(window.location.pathname);
+        } catch { samePath = false; }
+        if (!samePath) return; // cross-page link — let navigation happen
+        id = decodeURIComponent(rawId);
+      }
+      if (id && scrollToId(id, { smooth: true })) {
         e.preventDefault();
         // Reflect the hash in the URL without triggering a hashchange-driven
         // route change. Skip inside the preview iframe to avoid mutating the

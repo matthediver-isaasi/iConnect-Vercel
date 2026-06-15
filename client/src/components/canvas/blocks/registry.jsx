@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { Fragment, useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Square,
@@ -41,6 +41,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -122,8 +123,12 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
 // The available-anchors list comes from CanvasAnchorContext so every link
 // field across the registry shares one source of truth.
 function LinkField({ label, value, onChange, placeholder, testId }) {
-  const { anchors } = useCanvasAnchors();
+  const { anchors, pages } = useCanvasAnchors();
   const usableAnchors = (anchors || []).filter((a) => a.anchorId);
+  // Task #1448: other canvas pages that expose anchors. Picking one of these
+  // emits a cross-page `/page-slug#anchor-id` href instead of a bare `#id`.
+  const otherPages = (pages || []).filter((p) => p.slug && p.anchors?.length > 0);
+  const hasAnyAnchor = usableAnchors.length > 0 || otherPages.length > 0;
   return (
     <Field label={label}>
       <div className="flex items-center gap-1">
@@ -134,32 +139,54 @@ function LinkField({ label, value, onChange, placeholder, testId }) {
           className="h-8 flex-1"
           data-testid={testId}
         />
-        {usableAnchors.length > 0 && (
+        {hasAnyAnchor && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 size="icon"
                 variant="outline"
                 type="button"
-                title="Link to a section on this page"
+                title="Link to a section on this or another page"
                 data-testid={testId ? `${testId}-anchor-picker` : 'link-anchor-picker'}
               >
                 <Hash className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
-              <DropdownMenuLabel>Jump to section</DropdownMenuLabel>
-              {usableAnchors.map((a) => (
-                <DropdownMenuItem
-                  key={a.blockId}
-                  onSelect={() => onChange(`#${a.anchorId}`)}
-                  data-testid={`anchor-option-${a.anchorId}`}
-                >
-                  <div className="flex flex-col">
-                    <span className="font-mono text-xs">#{a.anchorId}</span>
-                    <span className="text-[10px] text-slate-500">{a.blockName}</span>
-                  </div>
-                </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+              {usableAnchors.length > 0 && (
+                <>
+                  <DropdownMenuLabel>This page</DropdownMenuLabel>
+                  {usableAnchors.map((a) => (
+                    <DropdownMenuItem
+                      key={a.blockId}
+                      onSelect={() => onChange(`#${a.anchorId}`)}
+                      data-testid={`anchor-option-${a.anchorId}`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-mono text-xs">#{a.anchorId}</span>
+                        <span className="text-[10px] text-slate-500">{a.blockName}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+              {otherPages.map((p, pageIdx) => (
+                <Fragment key={p.id || p.slug}>
+                  {(usableAnchors.length > 0 || pageIdx > 0) && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel className="truncate">{p.title}</DropdownMenuLabel>
+                  {p.anchors.map((a) => (
+                    <DropdownMenuItem
+                      key={`${p.slug}-${a.blockId}`}
+                      onSelect={() => onChange(`/${p.slug}#${a.anchorId}`)}
+                      data-testid={`anchor-option-${p.slug}-${a.anchorId}`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-mono text-xs">/{p.slug}#{a.anchorId}</span>
+                        <span className="text-[10px] text-slate-500">{a.blockName}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </Fragment>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -322,10 +349,21 @@ function RichTextField({ label, value, onChange, testId, breakpoint }) {
   const handleChange = (next) => onChange(sanitizeRichText(next || ''));
   // Task #1446: surface the page's anchors so in-line text links can target
   // a section. Passed through additively; RichTextEditor ignores it when empty.
-  const { anchors } = useCanvasAnchors();
-  const anchorOptions = (anchors || [])
-    .filter((a) => a.anchorId)
-    .map((a) => ({ value: `#${a.anchorId}`, label: `#${a.anchorId}`, description: a.blockName }));
+  // Task #1448: also surface other canvas pages' anchors as cross-page
+  // `/page-slug#anchor-id` options.
+  const { anchors, pages } = useCanvasAnchors();
+  const anchorOptions = [
+    ...(anchors || [])
+      .filter((a) => a.anchorId)
+      .map((a) => ({ value: `#${a.anchorId}`, label: `#${a.anchorId}`, description: a.blockName })),
+    ...(pages || [])
+      .filter((p) => p.slug && p.anchors?.length > 0)
+      .flatMap((p) => p.anchors.map((a) => ({
+        value: `/${p.slug}#${a.anchorId}`,
+        label: `/${p.slug}#${a.anchorId}`,
+        description: `${p.title} — ${a.blockName}`,
+      }))),
+  ];
   return (
     <div className="space-y-1" data-testid={testId}>
       <Label className="text-xs text-slate-600">{label}</Label>

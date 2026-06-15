@@ -32,8 +32,27 @@ anchor picker is an OPTIONAL additive `anchorOptions` prop — absent for the em
 builder (no UI change), present (from context) for canvas text blocks.
 
 ## Smooth-scroll
-`useAnchorSmoothScroll` in `CanvasPageRenderer` intercepts `a[href^="#"]` clicks
+`useAnchorSmoothScroll` in `CanvasPageRenderer` intercepts in-page anchor clicks
 to avoid an SPA route change (critical inside the preview iframe), honors
 `prefers-reduced-motion`, and offsets by the tallest pinned sticky/fixed
 header measured at click time. URL hash is only written via `replaceState`
 outside the preview iframe.
+
+## Cross-page anchors (`/slug#anchor`)
+Pickers can target anchors on OTHER canvas pages, emitting `/page-slug#anchor-id`
+instead of a bare `#id`. The other pages are threaded from `CanvasPageEditor`
+(filtered from the existing `allPages` query: canvas builder_type + has slug +
+not the current page) → `CanvasBuilder` `otherPages` prop → `CanvasAnchorProvider`
+`pages` prop, which computes per-page anchors via `getPageAnchors` and exposes
+them as `pages[].anchors` alongside the current page's `anchors`.
+
+**Cross-page navigation is intentionally NOT an SPA soft-nav.** Canvas block
+links are plain `<a href>` with no global interceptor, so `/other#id` does a full
+browser navigation; the destination scrolls via the existing initial-`#hash`
+effect on mount. The smooth-scroll click handler only short-circuits links whose
+PATH equals the current `window.location.pathname` (both bare `#id` and
+`/this-page#id`) — everything else falls through to navigation.
+
+**Why:** treating `/this-page#id` as same-page avoids a wasteful full reload when
+a link happens to spell out the current page's slug; cross-page links must reload
+so the other page's blocks mount before the arrival scroll runs.

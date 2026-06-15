@@ -266,6 +266,23 @@ export default function CanvasPageEditorPage() {
     setPreviewView(viewsToAudit[0]);
   }, [viewsToAudit]);
 
+  // Task #1448: cross-page anchor links. Resolve every OTHER canvas page so
+  // the inspector's link fields can target a section on a different page.
+  // `allPages` already carries `canvas_design` (the entity list selects all
+  // columns), so no extra round trip is needed. We drop the page being
+  // edited, non-canvas pages, and pages without a slug (nothing to link to).
+  const otherPages = useMemo(() => {
+    if (!Array.isArray(allPages)) return [];
+    return allPages
+      .filter((p) => p.builder_type === 'canvas' && p.slug && p.id !== (page?.id || pageId))
+      .map((p) => ({
+        id: p.id,
+        slug: p.slug,
+        title: p.title || p.slug,
+        design: p.canvas_design,
+      }));
+  }, [allPages, page?.id, pageId]);
+
   // Hydrate local editor state only on first load per pageId. Subsequent
   // refetches (e.g. after a successful save invalidates the query) must
   // NOT clobber the in-memory design, or autosave would wipe undo/redo
@@ -1185,6 +1202,7 @@ export default function CanvasPageEditorPage() {
             onDirtyChange={handleDirtyChange}
             extraIssues={axeStale ? [] : (axeIssues || [])}
             onLocateIssue={handleLocateIssue}
+            otherPages={otherPages}
           />
         </div>
 

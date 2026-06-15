@@ -176,6 +176,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   onDirtyChange,
   extraIssues = [],
   onLocateIssue,
+  otherPages = [],
 }, ref) {
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
@@ -1366,7 +1367,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             aria-label="Inspector"
             data-testid="panel-inspector"
           >
-            <CanvasAnchorProvider design={design}>
+            <CanvasAnchorProvider design={design} pages={otherPages}>
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}
