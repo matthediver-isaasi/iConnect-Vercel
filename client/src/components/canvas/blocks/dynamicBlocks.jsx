@@ -1637,11 +1637,136 @@ function SpeakerListCard({ speaker, content, onClick }) {
   );
 }
 
+// ============================================================================
+// Carousel slide / fade transitions (shared by Speaker & Sponsor carousels)
+// ============================================================================
+
+// Keyframes are injected once into <head> on first use. The incoming page is
+// rendered in place while the outgoing page is layered above it and animated
+// out, so the container never collapses or shifts during the transition.
+const CAROUSEL_TRANSITION_KEYFRAMES = `
+@keyframes cb-car-in-right{from{transform:translateX(100%)}to{transform:translateX(0)}}
+@keyframes cb-car-out-left{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+@keyframes cb-car-in-left{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+@keyframes cb-car-out-right{from{transform:translateX(0)}to{transform:translateX(100%)}}
+@keyframes cb-car-fade-out{from{opacity:1}to{opacity:0}}
+`;
+let _carouselKeyframesInjected = false;
+function ensureCarouselTransitionKeyframes() {
+  if (_carouselKeyframesInjected || typeof document === 'undefined') return;
+  const el = document.createElement('style');
+  el.setAttribute('data-cb-carousel-transitions', '');
+  el.textContent = CAROUSEL_TRANSITION_KEYFRAMES;
+  document.head.appendChild(el);
+  _carouselKeyframesInjected = true;
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => setReduced(!!mq.matches);
+    apply();
+    if (mq.addEventListener) {
+      mq.addEventListener('change', apply);
+      return () => mq.removeEventListener('change', apply);
+    }
+    mq.addListener(apply);
+    return () => mq.removeListener(apply);
+  }, []);
+  return reduced;
+}
+
+// Animates page changes for the carousels. `slideKey` is the current page
+// index; when it changes we snapshot the previously rendered page and layer it
+// above the new page, running an out/in animation pair whose direction follows
+// `direction` (1 = next, -1 = prev). `transition` of 'none' (or a reduced-motion
+// preference) renders the page instantly — byte-identical to the pre-existing
+// discrete-paging behaviour.
+function CarouselStage({ transition, durationMs, direction, slideKey, children }) {
+  const reduced = usePrefersReducedMotion();
+  const animated = (transition === 'slide' || transition === 'fade') && !reduced;
+
+  const [prev, setPrev] = useState(null);
+  const lastKeyRef = useRef(slideKey);
+  const lastNodeRef = useRef(children);
+  const dirRef = useRef(direction);
+  dirRef.current = direction;
+
+  useEffect(() => { ensureCarouselTransitionKeyframes(); }, []);
+
+  useEffect(() => {
+    if (!animated) {
+      lastKeyRef.current = slideKey;
+      lastNodeRef.current = children;
+      setPrev((p) => (p ? null : p));
+      return;
+    }
+    if (slideKey !== lastKeyRef.current) {
+      setPrev({ key: lastKeyRef.current, node: lastNodeRef.current, direction: dirRef.current });
+    }
+    lastKeyRef.current = slideKey;
+    lastNodeRef.current = children;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slideKey, animated]);
+
+  useEffect(() => {
+    if (!prev) return undefined;
+    const t = setTimeout(() => setPrev(null), durationMs + 60);
+    return () => clearTimeout(t);
+  }, [prev, durationMs]);
+
+  if (!animated) return children;
+
+  const transitioning = !!prev;
+  const dir = prev ? prev.direction : 1;
+  const dur = `${durationMs}ms`;
+  let enterAnim;
+  let exitAnim;
+  if (transition === 'fade') {
+    // Crossfade: the incoming page sits fully opaque underneath while the
+    // outgoing page fades away on top, revealing the new page.
+    enterAnim = undefined;
+    exitAnim = `cb-car-fade-out ${dur} ease both`;
+  } else if (dir >= 0) {
+    enterAnim = `cb-car-in-right ${dur} ease both`;
+    exitAnim = `cb-car-out-left ${dur} ease both`;
+  } else {
+    enterAnim = `cb-car-in-left ${dur} ease both`;
+    exitAnim = `cb-car-out-right ${dur} ease both`;
+  }
+
+  return (
+    <>
+      <div
+        key={`cb-car-cur-${slideKey}`}
+        className="absolute inset-0"
+        style={transitioning && enterAnim ? { animation: enterAnim } : undefined}
+      >
+        {children}
+      </div>
+      {transitioning ? (
+        <div
+          key={`cb-car-prev-${prev.key}`}
+          className="absolute inset-0 pointer-events-none"
+          style={{ animation: exitAnim }}
+          aria-hidden="true"
+        >
+          {prev.node}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
   const { hasEvent, speakers, isLoading, isError } = useEventSpeakers(c.eventId);
 
   const [index, setIndex] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const [hovered, setHovered] = useState(false);
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
   const [selected, setSelected] = useState(null);
   const [showAll, setShowAll] = useState(false);
@@ -1651,6 +1776,9 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const perView = Math.max(1, Number(c.speakersPerView) || 1);
   const pageCount = Math.max(1, Math.ceil(count / perView));
   const hasMany = pageCount > 1;
+  const transitionStyle = c.transition || 'slide';
+  const transitionMs = Math.max(100, Number(c.transitionMs) || 400);
+  const pauseOnHover = !!c.pauseOnHover;
 
   useEffect(() => {
     if (index > Math.max(0, pageCount - 1)) setIndex(0);
@@ -1662,17 +1790,20 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
     // Pause autoplay while a dialog is open so the slide doesn't move under
     // the user as they read a profile.
     if (selected || showAll) return;
+    // Pause-on-hover: when enabled, hovering the carousel halts autoplay.
+    if (pauseOnHover && hovered) return;
     const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
     const pauseMs = Math.max(ms, 4000);
     const t = setInterval(() => {
       if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setDirection(1);
       setIndex((i) => (i + 1) % pageCount);
     }, ms);
     return () => clearInterval(t);
-  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, showAll]);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, selected, showAll, pauseOnHover, hovered]);
 
-  const goPrev = () => setIndex((i) => (i - 1 + pageCount) % pageCount);
-  const goNext = () => setIndex((i) => (i + 1) % pageCount);
+  const goPrev = () => { setDirection(-1); setIndex((i) => (i - 1 + pageCount) % pageCount); };
+  const goNext = () => { setDirection(1); setIndex((i) => (i + 1) % pageCount); };
 
   const handleTouchStart = (ev) => {
     const t = ev.touches && ev.touches[0];
@@ -1809,20 +1940,29 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
       onTouchStart={hasMany ? handleTouchStart : undefined}
       onTouchEnd={hasMany ? handleTouchEnd : undefined}
       onKeyDown={hasMany ? handleKeyDown : undefined}
+      onMouseEnter={pauseOnHover ? () => setHovered(true) : undefined}
+      onMouseLeave={pauseOnHover ? () => setHovered(false) : undefined}
       style={hasMany ? { touchAction: 'pan-y' } : undefined}
     >
       <div className="relative flex-1 min-h-0">
-        {perView === 1 ? (
-          renderCard(speaker)
-        ) : (
-          <div className="w-full h-full flex items-stretch gap-4 px-8 py-4">
-            {pageSlice.map((s, i) => (
-              <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
-                {s ? renderCard(s, 'px-2 py-2') : null}
-              </div>
-            ))}
-          </div>
-        )}
+        <CarouselStage
+          transition={transitionStyle}
+          durationMs={transitionMs}
+          direction={direction}
+          slideKey={index}
+        >
+          {perView === 1 ? (
+            renderCard(speaker)
+          ) : (
+            <div className="w-full h-full flex items-stretch gap-4 px-8 py-4">
+              {pageSlice.map((s, i) => (
+                <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
+                  {s ? renderCard(s, 'px-2 py-2') : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </CarouselStage>
 
         {showArrows ? (
           <>
@@ -1855,7 +1995,7 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
                 <button
                   key={i}
                   type="button"
-                  onClick={() => { setIndex(i); setAutoplayPausedAt(Date.now()); }}
+                  onClick={() => { setDirection(i >= index ? 1 : -1); setIndex(i); setAutoplayPausedAt(Date.now()); }}
                   aria-label={`Show page ${i + 1} of ${pageCount}`}
                   aria-current={active ? 'true' : undefined}
                   className={`w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
@@ -1975,6 +2115,32 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
         value={c.showIndicators !== false}
         onChange={(v) => set({ showIndicators: v })}
         testId="toggle-speaker-carousel-indicators"
+      />
+      <SelectField
+        label="Slide transition"
+        value={c.transition || 'slide'}
+        onChange={(v) => set({ transition: v })}
+        options={[
+          { value: 'none', label: 'None' },
+          { value: 'slide', label: 'Slide' },
+          { value: 'fade', label: 'Fade' },
+        ]}
+        testId="select-speaker-carousel-transition"
+      />
+      {(c.transition || 'slide') !== 'none' ? (
+        <NumberField
+          label="Transition duration (ms)"
+          min={100}
+          value={c.transitionMs ?? 400}
+          onChange={(v) => set({ transitionMs: Math.max(100, Number(v) || 400) })}
+          testId="input-speaker-carousel-transition-ms"
+        />
+      ) : null}
+      <ToggleField
+        label="Pause on hover"
+        value={!!c.pauseOnHover}
+        onChange={(v) => set({ pauseOnHover: v })}
+        testId="toggle-speaker-carousel-pause-hover"
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
@@ -2355,6 +2521,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
 
   const [index, setIndex] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const [hovered, setHovered] = useState(false);
   const [autoplayPausedAt, setAutoplayPausedAt] = useState(0);
   const touchStartRef = useRef(null);
 
@@ -2385,6 +2553,9 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const pageCount = Math.max(1, Math.ceil(count / perView));
   const hasMany = pageCount > 1;
   const gap = c.gap ?? 16;
+  const transitionStyle = c.transition || 'slide';
+  const transitionMs = Math.max(100, Number(c.transitionMs) || 400);
+  const pauseOnHover = !!c.pauseOnHover;
 
   useEffect(() => {
     if (index > Math.max(0, pageCount - 1)) setIndex(0);
@@ -2393,17 +2564,20 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   useEffect(() => {
     if (asEditor) return;
     if (!c.autoplay || pageCount < 2) return;
+    // Pause-on-hover: when enabled, hovering the carousel halts autoplay.
+    if (pauseOnHover && hovered) return;
     const ms = Math.max(1500, Number(c.autoplayMs) || 5000);
     const pauseMs = Math.max(ms, 4000);
     const t = setInterval(() => {
       if (autoplayPausedAt && Date.now() - autoplayPausedAt < pauseMs) return;
+      setDirection(1);
       setIndex((i) => (i + 1) % pageCount);
     }, ms);
     return () => clearInterval(t);
-  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt]);
+  }, [asEditor, c.autoplay, c.autoplayMs, pageCount, autoplayPausedAt, pauseOnHover, hovered]);
 
-  const goPrev = () => setIndex((i) => (i - 1 + pageCount) % pageCount);
-  const goNext = () => setIndex((i) => (i + 1) % pageCount);
+  const goPrev = () => { setDirection(-1); setIndex((i) => (i - 1 + pageCount) % pageCount); };
+  const goNext = () => { setDirection(1); setIndex((i) => (i + 1) % pageCount); };
 
   const handleTouchStart = (ev) => {
     const t = ev.touches && ev.touches[0];
@@ -2501,23 +2675,32 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
       onTouchStart={hasMany ? handleTouchStart : undefined}
       onTouchEnd={hasMany ? handleTouchEnd : undefined}
       onKeyDown={hasMany ? handleKeyDown : undefined}
+      onMouseEnter={pauseOnHover ? () => setHovered(true) : undefined}
+      onMouseLeave={pauseOnHover ? () => setHovered(false) : undefined}
       style={hasMany ? { touchAction: 'pan-y' } : undefined}
     >
       <div className="relative flex-1 min-h-0">
-        <div className="w-full h-full flex items-stretch px-8 py-4" style={{ gap: `${gap}px` }}>
-          {pageSlice.map((s, i) => (
-            <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
-              {s ? (
-                <SponsorCard
-                  sponsor={s}
-                  showDescription={showDescription}
-                  nameStyle={nameStyle}
-                  descStyle={descStyle}
-                />
-              ) : null}
-            </div>
-          ))}
-        </div>
+        <CarouselStage
+          transition={transitionStyle}
+          durationMs={transitionMs}
+          direction={direction}
+          slideKey={index}
+        >
+          <div className="w-full h-full flex items-stretch px-8 py-4" style={{ gap: `${gap}px` }}>
+            {pageSlice.map((s, i) => (
+              <div key={s ? s.id : `empty-${index}-${i}`} className="flex-1 min-w-0">
+                {s ? (
+                  <SponsorCard
+                    sponsor={s}
+                    showDescription={showDescription}
+                    nameStyle={nameStyle}
+                    descStyle={descStyle}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </CarouselStage>
 
         {showArrows ? (
           <>
@@ -2550,7 +2733,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
                 <button
                   key={i}
                   type="button"
-                  onClick={() => { setIndex(i); setAutoplayPausedAt(Date.now()); }}
+                  onClick={() => { setDirection(i >= index ? 1 : -1); setIndex(i); setAutoplayPausedAt(Date.now()); }}
                   aria-label={`Show page ${i + 1} of ${pageCount}`}
                   aria-current={active ? 'true' : undefined}
                   className={`w-2 h-2 rounded-full border border-white/80 ${active ? 'bg-slate-900' : 'bg-slate-400/70'}`}
@@ -2637,6 +2820,32 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         value={c.showIndicators !== false}
         onChange={(v) => set({ showIndicators: v })}
         testId="toggle-sponsor-carousel-indicators"
+      />
+      <SelectField
+        label="Slide transition"
+        value={c.transition || 'slide'}
+        onChange={(v) => set({ transition: v })}
+        options={[
+          { value: 'none', label: 'None' },
+          { value: 'slide', label: 'Slide' },
+          { value: 'fade', label: 'Fade' },
+        ]}
+        testId="select-sponsor-carousel-transition"
+      />
+      {(c.transition || 'slide') !== 'none' ? (
+        <NumberField
+          label="Transition duration (ms)"
+          min={100}
+          value={c.transitionMs ?? 400}
+          onChange={(v) => set({ transitionMs: Math.max(100, Number(v) || 400) })}
+          testId="input-sponsor-carousel-transition-ms"
+        />
+      ) : null}
+      <ToggleField
+        label="Pause on hover"
+        value={!!c.pauseOnHover}
+        onChange={(v) => set({ pauseOnHover: v })}
+        testId="toggle-sponsor-carousel-pause-hover"
       />
 
       <div className="pt-2 mt-2 border-t border-slate-200">
