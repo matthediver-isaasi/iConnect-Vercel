@@ -56,6 +56,9 @@ export default function CommunicationsManagementPage() {
   const [indSelectedMembers, setIndSelectedMembers] = useState([]);
   const [eventSearchInput, setEventSearchInput] = useState('');
   const [selectedEvents, setSelectedEvents] = useState([]);
+  const [eventFormSearchInput, setEventFormSearchInput] = useState('');
+  const [selectedEventForm, setSelectedEventForm] = useState(null);
+  const [addListEventFormReceived, setAddListEventFormReceived] = useState(true);
   const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
   const [eventFilterSearches, setEventFilterSearches] = useState({});
 
@@ -301,6 +304,17 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
+  const { data: eventLinkedForms = [] } = useQuery({
+    queryKey: ['event-linked-forms'],
+    queryFn: async () => {
+      try {
+        const allForms = await base44.entities.Form.list();
+        return (allForms || []).filter(f => f.is_event_related === true && f.is_active !== false);
+      } catch (e) { return []; }
+    },
+    staleTime: 60000,
+  });
+
   const { data: audienceListEvents = [] } = useQuery({
     queryKey: ['audience-list-events'],
     queryFn: async () => {
@@ -372,7 +386,8 @@ export default function CommunicationsManagementPage() {
       audience_list: 'Saved Lists',
       individual_members: 'Individual Members',
       field_filter: 'Field Filter',
-      event_attendees: 'Event Attendees'
+      event_attendees: 'Event Attendees',
+      event_form: 'Event Form'
     };
     const label = typeLabels[segment.type] || segment.type;
     if (segment.type === 'all_members') return label;
@@ -413,6 +428,13 @@ export default function CommunicationsManagementPage() {
       const lookup = segment.names || {};
       const names = (segment.ids || []).map(id => lookup[id] || eventLookup[id]).filter(Boolean);
       return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'event_form') {
+      const formId = (segment.ids || [])[0];
+      const lookup = segment.names || {};
+      const formName = lookup[formId] || eventLinkedForms.find(f => f.id === formId)?.name;
+      const receivedLabel = segment.received ? 'Received' : 'Not Received';
+      return formName ? `${label}: ${formName} — ${receivedLabel}` : `${label} — ${receivedLabel}`;
     }
     if (segment.type === 'field_filter') {
       const groups = segment.filter_groups || [];
@@ -2596,6 +2618,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         {audienceListEvents.length > 0 && (
                           <SelectItem value="event_attendees">Event Attendees</SelectItem>
                         )}
+                        {eventLinkedForms.length > 0 && (
+                          <SelectItem value="event_form">Event Form</SelectItem>
+                        )}
                         <SelectItem value="field_filter">Field Filter</SelectItem>
                       </SelectContent>
                     </Select>
@@ -2730,6 +2755,90 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </Button>
                               </div>
                             ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {addListSegmentType === 'event_form' && (
+                      <div className="border rounded-md p-2 space-y-2 bg-background">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search forms by name..."
+                            value={eventFormSearchInput}
+                            onChange={(e) => setEventFormSearchInput(e.target.value)}
+                            className="pl-8 h-8 text-sm"
+                            data-testid="input-event-form-search"
+                          />
+                        </div>
+                        <div className="max-h-40 overflow-y-auto space-y-0.5">
+                          {eventLinkedForms
+                            .filter(f => selectedEventForm?.id !== f.id)
+                            .filter(f => !eventFormSearchInput || (f.name || '').toLowerCase().includes(eventFormSearchInput.toLowerCase()))
+                            .slice(0, 50)
+                            .map(f => (
+                              <div
+                                key={f.id}
+                                className="flex items-center gap-2 p-1.5 rounded cursor-pointer hover-elevate text-sm"
+                                onClick={() => {
+                                  setSelectedEventForm(f);
+                                  setEventFormSearchInput('');
+                                }}
+                                data-testid={`event-form-result-${f.id}`}
+                              >
+                                <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                                <span className="truncate">{f.name}</span>
+                                {eventLookup[f.related_event_id] && (
+                                  <span className="text-xs text-muted-foreground ml-auto shrink-0 truncate">{eventLookup[f.related_event_id]}</span>
+                                )}
+                              </div>
+                            ))}
+                          {eventLinkedForms.length === 0 && (
+                            <div className="text-xs text-muted-foreground py-1">No event-linked forms available</div>
+                          )}
+                        </div>
+                        {selectedEventForm && (
+                          <div className="space-y-2 border-t pt-2">
+                            <div className="flex items-center justify-between gap-2 p-1 text-sm" data-testid={`event-form-selected-${selectedEventForm.id}`}>
+                              <span className="truncate flex items-center gap-1.5">
+                                <span className="truncate">{selectedEventForm.name}</span>
+                                {eventLookup[selectedEventForm.related_event_id] && (
+                                  <span className="text-xs text-muted-foreground shrink-0">({eventLookup[selectedEventForm.related_event_id]})</span>
+                                )}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 shrink-0"
+                                onClick={() => setSelectedEventForm(null)}
+                                data-testid="button-remove-event-form"
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant={addListEventFormReceived ? 'default' : 'outline'}
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => setAddListEventFormReceived(true)}
+                                data-testid="button-event-form-received"
+                              >
+                                Received
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={!addListEventFormReceived ? 'default' : 'outline'}
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => setAddListEventFormReceived(false)}
+                                data-testid="button-event-form-not-received"
+                              >
+                                Not Received
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3125,7 +3234,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
-                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && addListSegmentType !== 'field_filter' && (
+                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && addListSegmentType !== 'field_filter' && addListSegmentType !== 'event_form' && (
                       <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
                         {addListSegmentType === 'communication_category' && categories.filter(c => c.is_active !== false).map(cat => (
                           <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
@@ -3248,6 +3357,16 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             } else {
                               setEditListAudiences(prev => [...prev, { type: 'event_attendees', ids: selectedEvents.map(ev => ev.id), names: newNames }]);
                             }
+                          } else if (addListSegmentType === 'event_form' && selectedEventForm) {
+                            setEditListAudiences(prev => [
+                              ...prev,
+                              {
+                                type: 'event_form',
+                                ids: [selectedEventForm.id],
+                                received: addListEventFormReceived,
+                                names: { [selectedEventForm.id]: selectedEventForm.name },
+                              },
+                            ]);
                           } else if (addListSegmentType === 'individual_members' && indSelectedMembers.length > 0) {
                             const newNames = {};
                             indSelectedMembers.forEach(m => { newNames[m.id] = `${m.first_name} ${m.last_name}`; });
@@ -3285,6 +3404,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           setAddListSegmentType('');
                           setAddListSegmentIds([]);
                           resetIndMemberSearch();
+                          setSelectedEvents([]);
+                          setEventSearchInput('');
+                          setSelectedEventForm(null);
+                          setEventFormSearchInput('');
+                          setAddListEventFormReceived(true);
                           setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
                         }}
                         disabled={
@@ -3299,7 +3423,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               ? indSelectedMembers.length === 0
                               : addListSegmentType === 'event_attendees'
                                 ? selectedEvents.length === 0
-                                : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)
+                                : addListSegmentType === 'event_form'
+                                  ? !selectedEventForm
+                                  : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)
                         }
                         data-testid="button-confirm-add-list-segment"
                       >
