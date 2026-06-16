@@ -23,3 +23,4 @@
 - [Canvas anchor links / link-field surfaces](canvas-anchor-links.md) — anchorId→id only in CanvasPageRenderer (not stage); every block link field must use shared LinkField; RichTextEditor anchorOptions is additive (shared w/ email-builder).
 - [Hybrid public/by-slug page registration](hybrid-byslug-page-registration.md) — a new /prefix/:slug hybrid page must be wired in 4 places (_getCurrentPage prefix + Route + PAGES map + Layout hybridPages) or it renders with wrong auth/chrome.
 - [Bearer-token (mobile) API auth](bearer-token-auth.md) — mobile clients send Authorization: Bearer <token>; token IS the unsigned session sid, reuses session table, gated by sess.authMethod==='bearer'; cookie path unchanged.
+- [Mobile Expo check-in subproject](mobile-expo-subproject.md) — isolated Expo app under mobile/; @/* alias needs babel module-resolver too (tsconfig alone won't bundle); can't build Expo from this workspace.
