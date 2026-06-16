@@ -30,6 +30,21 @@ function unsignSessionId(signedValue) {
   return signedValue;
 }
 
+/**
+ * Extract a bearer token from the Authorization header.
+ * Native/mobile clients (which have no browser cookie jar) authenticate by
+ * sending `Authorization: Bearer <token>` instead of the iconnect.sid cookie.
+ * Returns null when no usable bearer token is present.
+ */
+export function getBearerToken(req) {
+  const header = req?.headers?.authorization || req?.headers?.Authorization || '';
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    return token || null;
+  }
+  return null;
+}
+
 export async function getSession(req) {
   if (!supabase) {
     console.log('[Session] getSession: No supabase client');
@@ -39,19 +54,33 @@ export async function getSession(req) {
   const cookies = parse(req.headers.cookie || '');
   const signedSessionId = cookies[SESSION_COOKIE_NAME];
   
-  if (!signedSessionId) {
-    console.log('[Session] getSession: No session cookie found');
-    return null;
+  // The web cookie path is the unchanged default and is resolved first. Only
+  // when no cookie session id can be derived do we fall back to an opaque
+  // bearer token. This keeps behaviour byte-for-byte identical for any request
+  // that does not carry a bearer token.
+  let sessionId = null;
+  let viaBearer = false;
+  
+  if (signedSessionId) {
+    sessionId = unsignSessionId(signedSessionId);
+    if (!sessionId) {
+      console.log('[Session] Invalid session signature for:', signedSessionId.substring(0, 20));
+      return null;
+    }
+  } else {
+    const bearer = getBearerToken(req);
+    if (bearer) {
+      sessionId = bearer;
+      viaBearer = true;
+    }
   }
   
-  // Unsign the session ID
-  const sessionId = unsignSessionId(signedSessionId);
   if (!sessionId) {
-    console.log('[Session] Invalid session signature for:', signedSessionId.substring(0, 20));
+    console.log('[Session] getSession: No session cookie or bearer token found');
     return null;
   }
   
-  console.log('[Session] getSession: Looking up session:', sessionId.substring(0, 8));
+  console.log('[Session] getSession: Looking up session:', sessionId.substring(0, 8), viaBearer ? '(bearer)' : '(cookie)');
   
   try {
     const { data, error } = await supabase
@@ -78,6 +107,14 @@ export async function getSession(req) {
     }
     
     const sessData = typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess;
+    
+    // A bearer token must resolve to a session that was issued as a bearer
+    // session. This keeps the two auth methods cleanly separated so a web
+    // cookie's underlying session id can never be replayed as a bearer token.
+    if (viaBearer && sessData?.authMethod !== 'bearer') {
+      console.log('[Session] Bearer token did not resolve to a bearer session, rejecting');
+      return null;
+    }
     
     console.log('[Session] getSession: Session found, userType:', sessData?.userType);
     
@@ -170,6 +207,101 @@ export async function createSession(res, sessionData, options = {}) {
   } catch (err) {
     console.error('Error creating session:', err);
     return null;
+  }
+}
+
+// Bearer tokens for native/mobile clients reuse the same TTL as web sessions.
+const BEARER_TOKEN_MAX_AGE = SESSION_MAX_AGE; // 7 days in milliseconds
+
+/**
+ * Issue an opaque bearer token for a native/mobile client.
+ *
+ * This reuses the existing `session` table (no schema change): the token IS the
+ * session row's `sid`, generated unsigned so the client can send it verbatim in
+ * `Authorization: Bearer <token>`. The row is tagged `authMethod: 'bearer'` so
+ * getSession only accepts it on the bearer path. No cookie is set — mobile
+ * clients store the returned token themselves.
+ *
+ * @param {object} sessionData - same session shape used by createSession
+ *   (e.g. { userType, tenantId, tenantUserId/identityId } or member fields).
+ * @param {object} [options]
+ * @param {number} [options.maxAge] - token lifetime in ms (defaults to 7 days).
+ * @returns {Promise<{ token: string, expiresAt: string } | null>}
+ */
+export async function createBearerSession(sessionData, options = {}) {
+  if (!supabase) return null;
+
+  const token = crypto.randomBytes(48).toString('hex');
+  const maxAge = options.maxAge || BEARER_TOKEN_MAX_AGE;
+  const expire = new Date(Date.now() + maxAge);
+
+  const sessObject = {
+    cookie: {
+      originalMaxAge: maxAge,
+      expires: expire.toISOString(),
+      secure: true,
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax'
+    },
+    ...sessionData,
+    authMethod: 'bearer'
+  };
+
+  try {
+    const { error: insertError } = await supabase.from('session').insert({
+      sid: token,
+      sess: sessObject,
+      expire: expire.toISOString()
+    });
+
+    if (insertError) {
+      console.error('[Session] createBearerSession: Database insert failed:', insertError.message);
+      return null;
+    }
+
+    console.log('[Session] createBearerSession: Bearer token issued:', token.substring(0, 8), 'userType:', sessionData?.userType);
+    return { token, expiresAt: expire.toISOString() };
+  } catch (err) {
+    console.error('[Session] createBearerSession error:', err);
+    return null;
+  }
+}
+
+/**
+ * Revoke (delete) the bearer-token session referenced by the request's
+ * Authorization header. Safe to call when no token is present (returns false).
+ * Only deletes rows that were actually issued as bearer sessions, so a stray
+ * Authorization header can never delete a web cookie session.
+ * @returns {Promise<boolean>} true when a bearer session row was deleted.
+ */
+export async function revokeBearerSession(req) {
+  if (!supabase) return false;
+
+  const token = getBearerToken(req);
+  if (!token) return false;
+
+  try {
+    const { data: row } = await supabase
+      .from('session')
+      .select('sess')
+      .eq('sid', token)
+      .single();
+
+    if (!row) return false;
+
+    const sessData = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
+    if (sessData?.authMethod !== 'bearer') {
+      console.log('[Session] revokeBearerSession: token is not a bearer session, ignoring');
+      return false;
+    }
+
+    await supabase.from('session').delete().eq('sid', token);
+    console.log('[Session] revokeBearerSession: Bearer token revoked:', token.substring(0, 8));
+    return true;
+  } catch (err) {
+    console.error('[Session] revokeBearerSession error:', err);
+    return false;
   }
 }
 
