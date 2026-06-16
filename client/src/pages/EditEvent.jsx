@@ -525,6 +525,7 @@ export default function EditEvent() {
   
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
+  const [sponsorDetails, setSponsorDetails] = useState({});
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
 
   // Selected filter tags state
@@ -1122,8 +1123,13 @@ export default function EditEvent() {
 
       // Load sponsor assignments
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } })
-        .then(assignments => setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)))
-        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); });
+        .then(assignments => {
+          setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
+          const details = {};
+          assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
+          setSponsorDetails(details);
+        })
+        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorDetails({}); });
       
       setIsFeatured(event.is_featured === true);
 
@@ -1534,11 +1540,13 @@ export default function EditEvent() {
             (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
           }
           for (const sponsorId of selectedSponsors) {
+            const detail = (sponsorDetails[sponsorId] || '').trim();
             await base44.entities.EventSponsorAssignment.create({
               event_id: eventId,
               event_type: 'simple',
               sponsor_id: sponsorId,
-              category_id: sponsorCategoryMap[sponsorId] || null
+              category_id: sponsorCategoryMap[sponsorId] || null,
+              sponsorship_detail: detail || null
             });
           }
         } catch (sponsorErr) {
@@ -2182,6 +2190,8 @@ export default function EditEvent() {
                       eventType="simple"
                       selectedSponsorIds={selectedSponsors}
                       onSelectedSponsorIdsChange={setSelectedSponsors}
+                      sponsorDetails={sponsorDetails}
+                      onSponsorDetailsChange={(id, val) => setSponsorDetails(prev => ({ ...prev, [id]: val }))}
                     />
                   </div>
                 )}

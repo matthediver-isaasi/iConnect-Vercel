@@ -144,9 +144,9 @@ function SelectField({ label, value, onChange, options, testId }) {
     </Field>
   );
 }
-function ToggleField({ label, value, onChange, testId }) {
+function ToggleField({ label, value, onChange, testId, hint }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <div className="flex items-center gap-2">
         <Switch checked={!!value} onCheckedChange={onChange} data-testid={testId} />
         <span className="text-xs text-slate-600">{value ? 'On' : 'Off'}</span>
@@ -2268,12 +2268,26 @@ function useEventSponsors(eventValue) {
     return result;
   }, [data]);
 
+  // Per-assignment, event-specific sponsorship detail (e.g. "Lunch"), keyed by
+  // sponsor id. UNIQUE(event_id, sponsor_id) guarantees one detail per sponsor.
+  const detailById = useMemo(() => {
+    const map = new Map();
+    const assignments = Array.isArray(data?.assignments) ? data.assignments : [];
+    for (const a of assignments) {
+      if (a.sponsor_id && a.sponsorship_detail) {
+        map.set(String(a.sponsor_id), a.sponsorship_detail);
+      }
+    }
+    return map;
+  }, [data]);
+
   const resolvingEvent = !!value && !Array.isArray(allEvents);
   const loadingSponsors = !!resolved?.id && sponsorsLoading;
 
   return {
     hasEvent: !!value,
     groups,
+    detailById,
     totalSponsors: Array.isArray(data?.sponsors) ? data.sponsors.length : 0,
     isLoading: resolvingEvent || loadingSponsors,
     isError,
@@ -2327,7 +2341,7 @@ function SponsorDetail({ sponsor }) {
   );
 }
 
-function SponsorCard({ sponsor, showDescription, nameStyle, descStyle, onClick }) {
+function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, nameStyle, descStyle, onClick }) {
   const inner = (
     <>
       <div className="aspect-[16/9] bg-white flex items-center justify-center p-4 border-b border-slate-100">
@@ -2350,6 +2364,9 @@ function SponsorCard({ sponsor, showDescription, nameStyle, descStyle, onClick }
         >
           {sponsor.name}
         </div>
+        {showSponsorDetail && detail ? (
+          <div className="text-xs font-medium text-slate-600" data-testid={`text-sponsor-detail-${sponsor.id}`}>{detail}</div>
+        ) : null}
         {showDescription && sponsor.description ? (
           <div className="text-xs text-slate-500" style={descStyle}>{sponsor.description}</div>
         ) : null}
@@ -2390,7 +2407,7 @@ function SponsorCard({ sponsor, showDescription, nameStyle, descStyle, onClick }
 
 function SponsorGridRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
-  const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 16;
   const [selected, setSelected] = useState(null);
@@ -2434,6 +2451,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
 
   const showHeadings = c.showCategoryHeadings !== false;
   const showDescription = c.showDescription !== false;
+  const showSponsorDetail = c.showSponsorDetail === true;
 
   // Optional category filter. Empty selection => show every group (today's
   // behaviour). When categories are selected, keep only those groups; the
@@ -2467,7 +2485,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Sponsors'} data-testid="sponsor-grid">
         <div style={gridStyle(cols, gap)}>
           {all.map((s) => (
-            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+            <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
           ))}
         </div>
 
@@ -2495,7 +2513,7 @@ function SponsorGridRender({ block, breakpoint, asEditor }) {
             ) : null}
             <div style={gridStyle(cols, gap)}>
               {g.sponsors.map((s) => (
-                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
+                <SponsorCard key={s.id} sponsor={s} showDescription={showDescription} showSponsorDetail={showSponsorDetail} detail={detailById.get(String(s.id))} nameStyle={nameStyle} descStyle={descStyle} onClick={() => setSelected(s)} />
               ))}
             </div>
           </div>
@@ -2558,6 +2576,13 @@ function SponsorGridInspector({ block, update, breakpoint }) {
         testId="toggle-sponsor-grid-description"
       />
       <ToggleField
+        label="Event specific sponsor details"
+        value={c.showSponsorDetail === true}
+        onChange={(v) => set({ showSponsorDetail: v })}
+        testId="toggle-sponsor-grid-sponsor-detail"
+        hint="Show what each sponsor is sponsoring for this event (e.g. Lunch), when entered."
+      />
+      <ToggleField
         label="Group by category"
         value={c.showCategoryHeadings !== false}
         onChange={(v) => set({ showCategoryHeadings: v })}
@@ -2605,7 +2630,7 @@ function SponsorGridInspector({ block, update, breakpoint }) {
 // paged carousel shell modelled on the Speaker carousel.
 function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const c = block.content || {};
-  const { hasEvent, groups, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
 
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -2726,6 +2751,7 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
   const showArrows = hasMany && c.showArrows !== false;
   const showIndicators = hasMany && c.showIndicators !== false;
   const showDescription = c.showDescription !== false;
+  const showSponsorDetail = c.showSponsorDetail === true;
 
   // Responsive font sizing — inline px literal in forced-breakpoint preview,
   // CSS var (driven by buildCanvasCss @media rules) on real public pages.
@@ -2786,6 +2812,8 @@ function SponsorCarouselRender({ block, asEditor, breakpoint }) {
                   <SponsorCard
                     sponsor={s}
                     showDescription={showDescription}
+                    showSponsorDetail={showSponsorDetail}
+                    detail={detailById.get(String(s.id))}
                     nameStyle={nameStyle}
                     descStyle={descStyle}
                     onClick={() => openSponsor(s)}
@@ -2900,6 +2928,13 @@ function SponsorCarouselInspector({ block, update, breakpoint }) {
         value={c.showDescription !== false}
         onChange={(v) => set({ showDescription: v })}
         testId="toggle-sponsor-carousel-description"
+      />
+      <ToggleField
+        label="Event specific sponsor details"
+        value={c.showSponsorDetail === true}
+        onChange={(v) => set({ showSponsorDetail: v })}
+        testId="toggle-sponsor-carousel-sponsor-detail"
+        hint="Show what each sponsor is sponsoring for this event (e.g. Lunch), when entered."
       />
       <ToggleField
         label="Autoplay"

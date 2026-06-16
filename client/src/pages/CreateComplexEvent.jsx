@@ -709,6 +709,7 @@ export default function CreateComplexEvent() {
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
   const [selectedSponsors, setSelectedSponsors] = useState([]);
+  const [sponsorDetails, setSponsorDetails] = useState({});
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
   const [seoTitle, setSeoTitle] = useState("");
   const [attachedDocuments, setAttachedDocuments] = useState([]);
@@ -1110,8 +1111,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1222,8 +1223,14 @@ export default function CreateComplexEvent() {
       setCollectThirdPartyConsent(existingEvent.pricing_config?.collectThirdPartyConsent === true);
 
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
-        .then(assignments => { setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean)); setSponsorsInitialized(true); })
-        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorsInitialized(true); });
+        .then(assignments => {
+          setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
+          const details = {};
+          assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
+          setSponsorDetails(details);
+          setSponsorsInitialized(true);
+        })
+        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorDetails({}); setSponsorsInitialized(true); });
     }
   }, [existingEvent, isEditMode]);
 
@@ -1986,11 +1993,13 @@ export default function CreateComplexEvent() {
           (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
         }
         for (const sponsorId of selectedSponsors) {
+          const detail = (sponsorDetails[sponsorId] || '').trim();
           await base44.entities.EventSponsorAssignment.create({
             event_id: eventId,
             event_type: 'complex',
             sponsor_id: sponsorId,
-            category_id: sponsorCategoryMap[sponsorId] || null
+            category_id: sponsorCategoryMap[sponsorId] || null,
+            sponsorship_detail: detail || null
           });
         }
       } catch (sponsorErr) {
@@ -2291,6 +2300,8 @@ export default function CreateComplexEvent() {
                         eventType="complex"
                         selectedSponsorIds={selectedSponsors}
                         onSelectedSponsorIdsChange={setSelectedSponsors}
+                        sponsorDetails={sponsorDetails}
+                        onSponsorDetailsChange={(id, val) => setSponsorDetails(prev => ({ ...prev, [id]: val }))}
                       />
                     </div>
                   )}

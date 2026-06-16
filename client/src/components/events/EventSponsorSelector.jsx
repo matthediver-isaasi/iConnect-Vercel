@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Loader2, Handshake, X, Image, Plus } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 
-export default function EventSponsorSelector({ eventId, eventType = "simple", selectedSponsorIds, onSelectedSponsorIdsChange }) {
+export default function EventSponsorSelector({ eventId, eventType = "simple", selectedSponsorIds, onSelectedSponsorIdsChange, sponsorDetails = {}, onSponsorDetailsChange }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [tempSelected, setTempSelected] = useState([]);
 
@@ -115,29 +116,40 @@ export default function EventSponsorSelector({ eventId, eventType = "simple", se
           </Button>
 
           {selectedSponsorIds.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex flex-col gap-2 mt-2">
               {selectedSponsorIds.map(sponsorId => {
                 const sponsor = sponsorMap[sponsorId];
                 if (!sponsor) return null;
                 return (
                   <div
                     key={sponsor.id}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 border border-blue-300 text-blue-800"
+                    className="flex flex-col gap-2 p-2 rounded-md bg-slate-50 border border-slate-200 sm:flex-row sm:items-center"
                   >
-                    {sponsor.logo_url ? (
-                      <img src={sponsor.logo_url} alt={sponsor.name} className="w-5 h-5 rounded-full object-cover" />
-                    ) : (
-                      <Handshake className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-2 sm:w-44 sm:shrink-0">
+                      {sponsor.logo_url ? (
+                        <img src={sponsor.logo_url} alt={sponsor.name} className="w-6 h-6 rounded-full object-cover" />
+                      ) : (
+                        <Handshake className="h-4 w-4 text-slate-500" />
+                      )}
+                      <span className="text-sm text-slate-900 truncate">{sponsor.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSponsor(sponsor.id)}
+                        className="ml-auto text-slate-400 hover:text-slate-600"
+                        data-testid={`button-remove-sponsor-chip-${sponsor.id}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {onSponsorDetailsChange && (
+                      <Input
+                        value={sponsorDetails[sponsor.id] || ''}
+                        onChange={(e) => onSponsorDetailsChange(sponsor.id, e.target.value)}
+                        placeholder="What are they sponsoring? (optional, e.g. Lunch)"
+                        className="h-8 text-sm flex-1"
+                        data-testid={`input-sponsor-detail-${sponsor.id}`}
+                      />
                     )}
-                    <span className="text-sm">{sponsor.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeSponsor(sponsor.id)}
-                      className="ml-1 text-blue-600 hover:text-blue-800"
-                      data-testid={`button-remove-sponsor-chip-${sponsor.id}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 );
               })}

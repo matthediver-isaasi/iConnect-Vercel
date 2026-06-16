@@ -38,7 +38,7 @@ export default async function handler(req, res) {
 
     let assignQuery = supabase
       .from('event_sponsor_assignment')
-      .select('sponsor_id, category_id')
+      .select('sponsor_id, category_id, sponsorship_detail')
       .eq('tenant_id', tenant.id)
       .eq('event_id', eventId)
       .eq('event_type', eventType);
