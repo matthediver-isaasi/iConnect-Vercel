@@ -26,6 +26,10 @@
       "notes": {
         "type": "string",
         "description": "Optional notes about this assignment"
+      },
+      "is_group_admin": {
+        "type": "boolean",
+        "description": "Whether this person is explicitly designated as a group admin for the group"
       }
     },
     "required": [

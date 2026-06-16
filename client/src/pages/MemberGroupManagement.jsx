@@ -92,7 +92,8 @@ export default function MemberGroupManagementPage() {
     member_id: '',
     guest_id: '',
     group_role: '',
-    expires_at: null
+    expires_at: null,
+    is_group_admin: false
   });
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [assignMode, setAssignMode] = useState(''); // 'guest' or 'organization'
@@ -234,7 +235,7 @@ export default function MemberGroupManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
       setShowAssignDialog(false);
-      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null });
+      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false });
       setAssignMode('');
       setSelectedOrganizationId('');
       setMemberSearchQuery('');
@@ -253,6 +254,18 @@ export default function MemberGroupManagementPage() {
     },
     onError: (error) => {
       toast.error('Failed to remove member: ' + error.message);
+    }
+  });
+
+  const updateAssignmentAdminMutation = useMutation({
+    mutationFn: ({ id, is_group_admin }) =>
+      base44.entities.MemberGroupAssignment.update(id, { is_group_admin }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      toast.success(variables.is_group_admin ? 'Marked as group admin' : 'Removed group admin');
+    },
+    onError: (error) => {
+      toast.error('Failed to update group admin: ' + error.message);
     }
   });
 
@@ -650,7 +663,8 @@ export default function MemberGroupManagementPage() {
 
     const data = {
       group_role: assignForm.group_role,
-      group_id: selectedGroup.id
+      group_id: selectedGroup.id,
+      is_group_admin: assignForm.is_group_admin === true
     };
 
     if (assignForm.member_id) {
@@ -930,6 +944,14 @@ export default function MemberGroupManagementPage() {
                     {isAssignmentGuest(assignment) && (
                       <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
                     )}
+                    {assignment.is_group_admin === true && (
+                      <Badge
+                        className="bg-emerald-100 text-emerald-700 text-[10px] px-1"
+                        data-testid={`badge-group-admin-${assignment.id}`}
+                      >
+                        Admin
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-slate-500">{assignment.group_role}</div>
                   {assignment.expires_at && (
@@ -939,14 +961,27 @@ export default function MemberGroupManagementPage() {
                     </div>
                   )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeAssignmentMutation.mutate(assignment.id)}
-                  className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1" title="Group Admin">
+                    <span className="text-slate-500">Admin</span>
+                    <Switch
+                      data-testid={`switch-group-admin-${assignment.id}`}
+                      checked={assignment.is_group_admin === true}
+                      disabled={updateAssignmentAdminMutation.isPending}
+                      onCheckedChange={(checked) =>
+                        updateAssignmentAdminMutation.mutate({ id: assignment.id, is_group_admin: checked })
+                      }
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeAssignmentMutation.mutate(assignment.id)}
+                    className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -1647,7 +1682,7 @@ export default function MemberGroupManagementPage() {
             setMemberSearchQuery('');
             setAssignMode('');
             setSelectedOrganizationId('');
-            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null });
+            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false });
           }
         }}>
           <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -1883,6 +1918,24 @@ export default function MemberGroupManagementPage() {
                       )}
                     </PopoverContent>
                   </Popover>
+                </div>
+              )}
+
+              {/* Group Admin toggle */}
+              {(assignForm.member_id || assignForm.guest_id) && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label htmlFor="assign-group-admin">Group Admin</Label>
+                    <p className="text-xs text-slate-500">
+                      Designate this person as an admin for this group.
+                    </p>
+                  </div>
+                  <Switch
+                    id="assign-group-admin"
+                    data-testid="switch-group-admin"
+                    checked={assignForm.is_group_admin === true}
+                    onCheckedChange={(checked) => setAssignForm({ ...assignForm, is_group_admin: checked })}
+                  />
                 </div>
               )}
             </div>
