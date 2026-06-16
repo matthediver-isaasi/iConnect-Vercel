@@ -31,7 +31,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { name, target_audiences } = req.body;
+      const { name, target_audiences, ignore_opt_outs } = req.body;
 
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
@@ -44,7 +44,8 @@ export default async function handler(req, res) {
       const insertPayload = {
         tenant_id: tenantId,
         name: name.trim(),
-        target_audiences
+        target_audiences,
+        ignore_opt_outs: ignore_opt_outs === true
       };
 
       const { data, error } = await supabase
@@ -67,7 +68,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     try {
-      const { id, name, target_audiences } = req.body;
+      const { id, name, target_audiences, ignore_opt_outs } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: 'ID is required' });
@@ -84,6 +85,7 @@ export default async function handler(req, res) {
       const updatePayload = {
         name: name.trim(),
         target_audiences,
+        ignore_opt_outs: ignore_opt_outs === true,
         updated_at: new Date().toISOString()
       };
 

@@ -43,6 +43,7 @@ export default function CommunicationsManagementPage() {
   const [editingList, setEditingList] = useState(null);
   const [editListName, setEditListName] = useState('');
   const [editListAudiences, setEditListAudiences] = useState([]);
+  const [editListIgnoreOptOuts, setEditListIgnoreOptOuts] = useState(false);
   const [savingListEdit, setSavingListEdit] = useState(false);
   const [showDeleteListConfirm, setShowDeleteListConfirm] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
@@ -530,6 +531,7 @@ export default function CommunicationsManagementPage() {
     setEditingList(list);
     setEditListName(list.name);
     setEditListAudiences(Array.isArray(list.target_audiences) ? [...list.target_audiences] : []);
+    setEditListIgnoreOptOuts(list.ignore_opt_outs === true);
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
@@ -541,6 +543,7 @@ export default function CommunicationsManagementPage() {
     setEditingList(null);
     setEditListName('');
     setEditListAudiences([]);
+    setEditListIgnoreOptOuts(false);
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
@@ -593,7 +596,8 @@ export default function CommunicationsManagementPage() {
       const isCreating = !editingList;
       const payload = {
         name: editListName.trim(),
-        target_audiences: editListAudiences
+        target_audiences: editListAudiences,
+        ignore_opt_outs: editListIgnoreOptOuts
       };
       if (!isCreating) {
         payload.id = editingList.id;
@@ -2509,6 +2513,30 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   placeholder="e.g. AGM Attendees, Newsletter Audience"
                   data-testid="input-edit-list-name"
                 />
+              </div>
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="switch-ignore-opt-outs" className="text-sm font-medium text-warning-foreground">
+                      Send to everyone, ignoring opt-out choices
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Bypasses both global and category opt-outs for everyone on this list. Only use for transactional / operationally-required messages (e.g. dietary requirements for a paid event), never for marketing.
+                    </p>
+                  </div>
+                  <Switch
+                    id="switch-ignore-opt-outs"
+                    checked={editListIgnoreOptOuts}
+                    onCheckedChange={setEditListIgnoreOptOuts}
+                    data-testid="switch-ignore-opt-outs"
+                  />
+                </div>
+                {editListIgnoreOptOuts && (
+                  <div className="flex items-start gap-2 text-xs text-warning-foreground" data-testid="text-ignore-opt-outs-warning">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />
+                    <span>Members who have opted out of all communications or this category will still receive emails sent to this list.</span>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Audience Segments</Label>

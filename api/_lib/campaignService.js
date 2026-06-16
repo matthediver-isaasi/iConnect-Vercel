@@ -1557,17 +1557,21 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
   } else if (targetType === 'audience_list' && targetIds.length > 0) {
     const { data: lists } = await supabase
       .from('audience_list')
-      .select('id, target_audiences')
+      .select('id, target_audiences, ignore_opt_outs')
       .eq('tenant_id', tenantId)
       .in('id', targetIds);
 
     if (lists && lists.length > 0) {
       for (const list of lists) {
         const savedAudiences = list.target_audiences;
+        const bypassOptOut = list.ignore_opt_outs === true;
         if (Array.isArray(savedAudiences) && savedAudiences.length > 0) {
           for (const segment of savedAudiences) {
             if (segment.type === 'audience_list') continue;
             const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId, segment);
+            if (bypassOptOut) {
+              for (const r of segRecipients) r.bypass_opt_out = true;
+            }
             recipients.push(...segRecipients);
           }
         }
@@ -2110,9 +2114,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     const rawAudienceList = detailedLists ? allRecipients.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })) : null;
 
     // Step 1: Remove members with global opt-out (communications_opted_out_all flag)
+    // Recipients carrying bypass_opt_out (from an "ignore opt-outs" audience list)
+    // are exempt from every opt-out suppression step below.
     const beforeGlobal = allRecipients.length;
-    const globalFlagRemoved = detailedLists ? allRecipients.filter(r => r.communications_opted_out_all === true) : [];
-    allRecipients = allRecipients.filter(r => r.communications_opted_out_all !== true);
+    const globalFlagRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && r.communications_opted_out_all === true) : [];
+    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || r.communications_opted_out_all !== true);
 
     // Step 1b: Remove emails with global unsubscribe record
     const { data: globalUnsubscribes } = await supabase
@@ -2122,8 +2128,8 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       .eq('unsubscribe_type', 'all');
 
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
-    const globalEmailRemoved = detailedLists ? allRecipients.filter(r => globalUnsubSet.has(r.email.toLowerCase())) : [];
-    allRecipients = allRecipients.filter(r => !globalUnsubSet.has(r.email.toLowerCase()));
+    const globalEmailRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && globalUnsubSet.has(r.email.toLowerCase())) : [];
+    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !globalUnsubSet.has(r.email.toLowerCase()));
     const globalOptOuts = beforeGlobal - allRecipients.length;
     const globalOptOutList = detailedLists
       ? [...globalFlagRemoved, ...globalEmailRemoved].map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name }))
@@ -2170,6 +2176,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
 
         if (detailedLists) {
           const catMemberRemoved = allRecipients.filter(r => {
+            if (r.bypass_opt_out === true) return false;
             const memberId = resolveMemberId(r);
             return memberId && !subscribedMemberIds.has(memberId);
           });
@@ -2177,6 +2184,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
         }
 
         allRecipients = allRecipients.filter(r => {
+          if (r.bypass_opt_out === true) return true;
           const memberId = resolveMemberId(r);
           if (!memberId) return true;
           return subscribedMemberIds.has(memberId);
@@ -2198,10 +2206,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
         if (detailedLists) {
-          const catEmailRemoved = allRecipients.filter(r => categoryUnsubSet.has(r.email.toLowerCase()));
+          const catEmailRemoved = allRecipients.filter(r => r.bypass_opt_out !== true && categoryUnsubSet.has(r.email.toLowerCase()));
           categoryOptOutList.push(...catEmailRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
         }
-        allRecipients = allRecipients.filter(r => !categoryUnsubSet.has(r.email.toLowerCase()));
+        allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !categoryUnsubSet.has(r.email.toLowerCase()));
       }
       categoryOptOuts = beforeCategory - allRecipients.length;
     }
