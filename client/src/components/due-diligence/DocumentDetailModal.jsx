@@ -530,9 +530,9 @@ export default function DocumentDetailModal({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="preview" className="flex-1 overflow-auto mt-4 h-full">
+          <TabsContent value="preview" className="flex-1 overflow-auto mt-4">
             {approvedVersion ? (
-              <div className="flex flex-col h-full gap-4">
+              <div className="flex flex-col min-h-full gap-4">
                 <div className="flex-1 min-h-0">
                   <FilePreview 
                     fileUrl={approvedVersion.file_url} 
