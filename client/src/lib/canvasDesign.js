@@ -384,6 +384,7 @@ export const BLOCK_DEFAULTS = {
         { q: 'Question two?', a: '<p>Answer two.</p>' },
       ],
       expandOne: true,
+      questionFontSize: 14,
     },
   },
   [BLOCK_TYPES.TESTIMONIALS]: {

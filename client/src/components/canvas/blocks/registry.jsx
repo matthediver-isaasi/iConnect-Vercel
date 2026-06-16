@@ -2096,6 +2096,9 @@ function AccordionRender({ block }) {
   // a time). When expandOne is false the user can open as many as they like.
   const [openIds, setOpenIds] = useState([]);
   const items = c.items || [];
+  const questionStyle = Number.isFinite(c.questionFontSize)
+    ? { fontSize: `${c.questionFontSize}px` }
+    : undefined;
   const toggle = (idx) => {
     setOpenIds((prev) => {
       const isOpen = prev.includes(idx);
@@ -2122,6 +2125,7 @@ function AccordionRender({ block }) {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => toggle(i)}
+                style={questionStyle}
                 className="w-full px-3 py-2 cursor-pointer font-medium text-sm flex items-center justify-between text-left hover-elevate active-elevate-2"
               >
                 <span>{item.q || `Question ${i + 1}`}</span>
@@ -2152,6 +2156,14 @@ function AccordionInspector({ block, update }) {
   return (
     <>
       <ToggleField label="Expand one at a time" value={!!c.expandOne} onChange={(v) => set({ expandOne: v })} testId="toggle-accordion-expand-one" />
+      <NumberField
+        label="Question font size (px)"
+        min={8}
+        max={72}
+        value={c.questionFontSize}
+        onChange={(v) => set({ questionFontSize: v == null ? null : Math.max(8, Math.min(72, Number(v))) })}
+        testId="input-accordion-question-font-size"
+      />
       <Field label="Items">
         <ArrayList
           items={c.items || []}
