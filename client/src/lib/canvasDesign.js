@@ -170,6 +170,7 @@ export const BLOCK_TYPES = {
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
   CARD_DECK: 'card-deck',
+  WALL_OF_FAME: 'wall-of-fame',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -916,6 +917,20 @@ export const BLOCK_DEFAULTS = {
       emptyText: 'Select cards in the inspector.',
     },
   },
+  [BLOCK_TYPES.WALL_OF_FAME]: {
+    name: 'Wall of Fame',
+    geom: { w: 800, h: 560 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      sectionId: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      showPhoto: true,
+      showJobTitle: true,
+      showBioSnippet: false,
+      emptyText: 'Select a Wall of Fame section in the inspector.',
+    },
+  },
 };
 
 BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
@@ -1546,6 +1561,11 @@ export function validateBlock(block) {
     case BLOCK_TYPES.CARD_DECK:
       if (!Array.isArray(c.cardIds) || c.cardIds.filter(Boolean).length === 0) {
         errors.push('Card deck has no cards selected.');
+      }
+      break;
+    case BLOCK_TYPES.WALL_OF_FAME:
+      if (!c.sectionId) {
+        errors.push('Wall of Fame has no section selected.');
       }
       break;
     case BLOCK_TYPES.PRICING_TABLE: {

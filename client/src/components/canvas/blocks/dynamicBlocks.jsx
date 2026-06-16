@@ -10,6 +10,7 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
+  Award,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,7 @@ import {
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
+import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import {
   TypographyStyleField,
   useTenantTypographyStyles,
@@ -4119,6 +4121,102 @@ function CardDeckInspector({ block, update }) {
 }
 
 // ============================================================================
+// WALL OF FAME
+// ============================================================================
+// Renders the shared WallOfFameDisplay (the same component the iEdit Wall of
+// Fame element uses) bound to a published Wall of Fame section. Authors pick
+// the section + standard per-breakpoint layout options and card-feature
+// toggles via the inspector; WallOfFameDisplay handles category navigation,
+// flip cards, bios and contact links exactly as in iEdit.
+function useWallOfFameSections() {
+  return useQuery({
+    queryKey: ['canvas', 'public-wall-of-fame-sections'],
+    queryFn: async () => (await publicClient.listWallOfFameSections()) || [],
+    staleTime: 60_000,
+  });
+}
+
+function WallOfFameRender({ block, breakpoint }) {
+  const c = block.content || {};
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const gap = c.gap ?? 24;
+  const { data: sections, isLoading, isError } = useWallOfFameSections();
+
+  if (!c.sectionId) {
+    return (
+      <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Wall of Fame'}>
+        {isLoading ? (
+          <ListSkeleton count={3} columns={cols} gap={gap} />
+        ) : (
+          <EmptyState icon={Award} text={c.emptyText || 'Select a Wall of Fame section in the inspector.'} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Wall of Fame'}>
+      {isError ? (
+        <ErrorState message="Couldn't load the Wall of Fame right now." />
+      ) : (
+        <WallOfFameDisplay
+          sectionId={c.sectionId}
+          cardsPerRow={cols}
+          cardGap={gap}
+          showPhoto={c.showPhoto !== false}
+          showJobTitle={c.showJobTitle !== false}
+          showBioSnippet={!!c.showBioSnippet}
+        />
+      )}
+    </div>
+  );
+}
+
+function WallOfFameSectionPicker({ value, onChange, testId }) {
+  const { data: sections, isLoading } = useWallOfFameSections();
+  const options = (Array.isArray(sections) ? sections : [])
+    .map((s) => ({ value: String(s.id), label: s.name || '(untitled section)' }));
+  return (
+    <Field label="Wall of Fame section" hint={isLoading ? 'Loading sections…' : 'Choose which Wall of Fame section to display.'}>
+      <Select value={value ? String(value) : ''} onValueChange={onChange}>
+        <SelectTrigger className="h-8" data-testid={testId}>
+          <SelectValue placeholder="Select a section" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.length === 0 ? (
+            <div className="p-2 text-xs text-slate-500">No sections available</div>
+          ) : (
+            options.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))
+          )}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+function WallOfFameInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <WallOfFameSectionPicker
+        value={c.sectionId}
+        onChange={(v) => set({ sectionId: v })}
+        testId="select-wall-of-fame-section"
+      />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField label="Gap (px)" min={0} value={c.gap ?? 24} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-wall-of-fame-gap" />
+      <ToggleField label="Show photo" value={c.showPhoto !== false} onChange={(v) => set({ showPhoto: v })} testId="toggle-wall-of-fame-photo" />
+      <ToggleField label="Show job title" value={c.showJobTitle !== false} onChange={(v) => set({ showJobTitle: v })} testId="toggle-wall-of-fame-job-title" />
+      <ToggleField label="Show bio snippet" value={!!c.showBioSnippet} onChange={(v) => set({ showBioSnippet: v })} testId="toggle-wall-of-fame-bio-snippet" />
+      <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-wall-of-fame-empty" />
+    </>
+  );
+}
+
+// ============================================================================
 // Registry export
 // ============================================================================
 export const DYNAMIC_BLOCK_DEFINITIONS = {
@@ -4233,5 +4331,13 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <CardDeckRender {...props} asEditor />,
     Renderer: CardDeckRender,
     Inspector: CardDeckInspector,
+  },
+  [BLOCK_TYPES.WALL_OF_FAME]: {
+    label: 'Wall of Fame',
+    icon: Award,
+    category: 'data',
+    Editor: (props) => <WallOfFameRender {...props} asEditor />,
+    Renderer: WallOfFameRender,
+    Inspector: WallOfFameInspector,
   },
 };

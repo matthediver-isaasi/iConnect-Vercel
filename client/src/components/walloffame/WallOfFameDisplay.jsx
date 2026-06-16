@@ -19,6 +19,10 @@ export default function WallOfFameDisplay({
   titleAlign = 'center',
   cardsPerRow = 4,
   rowAlign = 'center',
+  showPhoto = true,
+  showJobTitle = true,
+  showBioSnippet = false,
+  cardGap = 24,
   backgroundType = 'none',
   backgroundColor = '#f8fafc',
   gradientStartColor = '#3b82f6',
@@ -341,14 +345,14 @@ export default function WallOfFameDisplay({
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
               </div>
             ) : (
-              <div className={`flex flex-wrap ${getRowJustify()} gap-6`}>
+              <div className={`flex flex-wrap ${getRowJustify()}`} style={{ gap: `${Number(cardGap) >= 0 ? Number(cardGap) : 24}px` }}>
                 {people.map(person => (
                   <div
                     key={person.id}
                     className="perspective-1000"
                     style={{ 
                       perspective: '1000px',
-                      width: `calc(${100 / (parseInt(cardsPerRow) || 4)}% - 1.5rem)`,
+                      width: `calc(${100 / (parseInt(cardsPerRow) || 4)}% - ${Number(cardGap) >= 0 ? Number(cardGap) : 24}px)`,
                       minWidth: '280px',
                       maxWidth: '320px'
                     }}
@@ -369,25 +373,30 @@ export default function WallOfFameDisplay({
                         style={{ backfaceVisibility: 'hidden' }}
                       >
                         <Card className="w-full h-full p-6 flex flex-col items-center justify-center text-center border-2 border-slate-200 hover:border-blue-500 transition-colors bg-white">
-                          <div className={`${sizeClasses[photoSize]} rounded-full bg-slate-100 flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 aspect-square`} style={{ minWidth: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem', minHeight: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem' }}>
-                            {person.profile_photo_url ? (
-                              <LazyImage
-                                src={person.profile_photo_url}
-                                alt={`${person.first_name} ${person.last_name}`}
-                                className="w-full h-full rounded-full"
-                                style={{ borderRadius: '50%' }}
-                                placeholderClassName="rounded-full"
-                                fallback={<User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />}
-                              />
-                            ) : (
-                              <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
-                            )}
-                          </div>
+                          {showPhoto && (
+                            <div className={`${sizeClasses[photoSize]} rounded-full bg-slate-100 flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 aspect-square`} style={{ minWidth: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem', minHeight: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem' }}>
+                              {person.profile_photo_url ? (
+                                <LazyImage
+                                  src={person.profile_photo_url}
+                                  alt={`${person.first_name} ${person.last_name}`}
+                                  className="w-full h-full rounded-full"
+                                  style={{ borderRadius: '50%' }}
+                                  placeholderClassName="rounded-full"
+                                  fallback={<User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />}
+                                />
+                              ) : (
+                                <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
+                              )}
+                            </div>
+                          )}
                           <h4 className="text-lg font-bold text-slate-900 mb-1">
                             {person.first_name} {person.last_name}
                           </h4>
-                          {person.job_title && (
+                          {showJobTitle && person.job_title && (
                             <p className="text-sm text-slate-600">{person.job_title}</p>
+                          )}
+                          {showBioSnippet && person.biography && (
+                            <p className="text-sm text-slate-600 mt-2 line-clamp-3">{person.biography}</p>
                           )}
                           {(person.secondary_organisation || person.secondary_job_title) && (
                             <>
