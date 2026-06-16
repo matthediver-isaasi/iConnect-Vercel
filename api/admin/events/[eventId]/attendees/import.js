@@ -232,11 +232,21 @@ export default async function handler(req, res) {
 
     const normalizedEmails = normalizedRows.map(r => r.email);
 
+    // Tenant isolation: member lookup MUST be scoped to the event's tenant.
+    // Matching members globally by email leaks foreign-tenant members (and
+    // their organization_id) into this tenant's bookings. If the event has no
+    // usable tenant context, hard-fail rather than risk a cross-tenant match.
+    if (!event.tenant_id) {
+      console.error('[Admin Import Attendees] Event has no tenant_id; refusing global member lookup', { eventId });
+      return res.status(400).json({ error: 'Event is missing tenant context; cannot import attendees' });
+    }
+
     const memberMap = new Map();
     if (normalizedEmails.length > 0) {
       const { data: members, error: memberError } = await supabase
         .from('member')
         .select('id, email, first_name, last_name, organization_id')
+        .eq('tenant_id', event.tenant_id)
         .in('email', normalizedEmails);
 
       if (memberError) {
