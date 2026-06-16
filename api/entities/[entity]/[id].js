@@ -3,6 +3,7 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -557,6 +558,32 @@ export default async function handler(req, res) {
             }
           }
         }
+      }
+
+      // Task #1519: Group-Admin event-write authorization + guardrails on update.
+      // Non-tenant-admin callers may only edit events/children for groups they
+      // administer, within the free/no-zoom/audience guardrails. Tenant admins
+      // pass through unchanged.
+      if (isEventFamilyEntity(entity)) {
+        const { data: existingRow } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+        const authz = await authorizeGroupAdminEventWrite({
+          entity,
+          op: 'update',
+          body: sanitizedBody,
+          existingRow: existingRow || null,
+          tenantCtx,
+          req,
+        });
+        if (!authz.ok) {
+          return res.status(authz.status || 403).json({ error: authz.error });
+        }
+        // Replace the update payload with the guardrailed version.
+        for (const k of Object.keys(sanitizedBody)) delete sanitizedBody[k];
+        Object.assign(sanitizedBody, authz.body);
       }
 
       // Build PATCH query with tenant isolation

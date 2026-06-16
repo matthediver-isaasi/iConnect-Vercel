@@ -25,3 +25,4 @@
 - [Bearer-token (mobile) API auth](bearer-token-auth.md) — mobile clients send Authorization: Bearer <token>; token IS the unsigned session sid, reuses session table, gated by sess.authMethod==='bearer'; cookie path unchanged.
 - [Mobile Expo check-in subproject](mobile-expo-subproject.md) — isolated Expo app under mobile/; @/* alias needs babel module-resolver too (tsconfig alone won't bundle); can't build Expo from this workspace.
 - [Campaign send-time resolution & tracked-link entities](campaign-send-time-resolution.md) — campaign recipients are persisted+re-claimed, so booking/QR/scope must resolve at SEND time; tracked hrefs corrupt query strings via &amp; unless decoded before encodeURIComponent.
+- [Group-Admin scoped event editing](group-admin-events.md) — group admins (the `n` flag) reuse the real event editors under guardrails (free/no-zoom/locked-group); entity API had no server event gate, so server+client guardrails must stay in lockstep.

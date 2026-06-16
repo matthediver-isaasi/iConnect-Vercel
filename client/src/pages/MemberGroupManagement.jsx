@@ -80,7 +80,6 @@ export default function MemberGroupManagementPage() {
     projects_enabled: false,
     projects_enabled_roles: [],
     events_enabled: false,
-    events_enabled_roles: [],
     forum_enabled: false,
     forum_enabled_roles: [],
     classification_id: '',
@@ -362,7 +361,6 @@ export default function MemberGroupManagementPage() {
       projects_enabled: false,
       projects_enabled_roles: [],
       events_enabled: false,
-      events_enabled_roles: [],
       forum_enabled: false,
       forum_enabled_roles: [],
       classification_id: '',
@@ -386,7 +384,6 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
-      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? group.events_enabled_roles : [],
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
@@ -410,7 +407,6 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
-      events_enabled_roles: Array.isArray(group.events_enabled_roles) ? [...group.events_enabled_roles] : [],
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
@@ -534,7 +530,6 @@ export default function MemberGroupManagementPage() {
     const validRoles = new Set(groupForm.roles || []);
     const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
     const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
-    const prunedEvents = (groupForm.events_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedForum = (groupForm.forum_enabled_roles || []).filter((r) => validRoles.has(r));
 
     const payload = {
@@ -544,7 +539,6 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
-      events_enabled_roles: groupForm.events_enabled ? prunedEvents : [],
       forum_enabled: !!groupForm.forum_enabled,
       forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
       classification_id: groupForm.classification_id || null,
@@ -599,7 +593,6 @@ export default function MemberGroupManagementPage() {
       roles: groupForm.roles.filter(r => r !== role),
       leadership_roles: (groupForm.leadership_roles || []).filter(r => r !== role),
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
-      events_enabled_roles: (groupForm.events_enabled_roles || []).filter(r => r !== role),
       forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
     });
@@ -609,12 +602,6 @@ export default function MemberGroupManagementPage() {
     const current = new Set(groupForm.leadership_roles || []);
     if (current.has(role)) current.delete(role); else current.add(role);
     setGroupForm({ ...groupForm, leadership_roles: Array.from(current) });
-  };
-
-  const toggleEventsRole = (role) => {
-    const current = new Set(groupForm.events_enabled_roles || []);
-    if (current.has(role)) current.delete(role); else current.add(role);
-    setGroupForm({ ...groupForm, events_enabled_roles: Array.from(current) });
   };
 
   const toggleProjectsRole = (role) => {
@@ -1510,7 +1497,7 @@ export default function MemberGroupManagementPage() {
                   <div className="flex flex-col gap-1">
                     <Label>Enable group events</Label>
                     <span className="text-xs text-slate-500">
-                      Qualifying members will see a "Group Events" page where they can create and RSVP to events private to this group. Group events never appear in the public Events page or sitemap.
+                      Group Admins of this group can create and manage real events scoped to this group (free tickets only, manual online links). Group members see these events on the Events page; the organiser can also choose to make a group event public.
                     </span>
                   </div>
                   <input
@@ -1523,39 +1510,9 @@ export default function MemberGroupManagementPage() {
                 </div>
 
                 {groupForm.events_enabled && (
-                  <>
-                    <div className="flex flex-col gap-1">
-                      <Label>Roles allowed to create events</Label>
-                      <span className="text-xs text-slate-500">
-                        Members in any role can view and RSVP. Only members assigned one of these roles can create or edit events for this group.
-                      </span>
-                    </div>
-                    {(groupForm.roles || []).length === 0 ? (
-                      <p className="text-xs text-slate-500">Add at least one role above to choose who can create events.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {groupForm.roles.map((role) => {
-                          const checked = (groupForm.events_enabled_roles || []).includes(role);
-                          return (
-                            <label
-                              key={role}
-                              className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
-                              data-testid={`label-events-role-${role}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleEventsRole(role)}
-                                className="w-4 h-4"
-                                data-testid={`checkbox-events-role-${role}`}
-                              />
-                              <span>{role}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
+                  <p className="text-xs text-slate-500" data-testid="text-events-admin-note">
+                    Event management is available to members flagged as Group Admin in the Members list above.
+                  </p>
                 )}
               </div>
 

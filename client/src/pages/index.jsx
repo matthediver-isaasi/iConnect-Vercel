@@ -231,7 +231,6 @@ import GroupEmail from "./GroupEmail";
 import GroupProjects from "./GroupProjects";
 
 import GroupEvents from "./GroupEvents";
-import GroupEventDetail from "./GroupEventDetail";
 
 import ArticlesSettings from "./ArticlesSettings";
 
@@ -625,7 +624,6 @@ const PAGES = {
     GroupProjects: GroupProjects,
     
     GroupEvents: GroupEvents,
-    GroupEventDetail: GroupEventDetail,
     
     ArticlesSettings: ArticlesSettings,
     
@@ -1011,7 +1009,6 @@ function PagesContent() {
                 <Route path="/GroupProjects" element={<GroupProjects />} />
                 
                 <Route path="/GroupEvents" element={<GroupEvents />} />
-                <Route path="/GroupEvents/:eventId" element={<GroupEventDetail />} />
                 
                 <Route path="/ArticlesSettings" element={<ArticlesSettings />} />
                 

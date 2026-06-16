@@ -743,7 +743,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   className="bg-indigo-100/95 text-indigo-700 border-indigo-200 shadow-sm"
                   data-testid={`badge-group-event-${event.id}`}
                 >
-                  Group event
+                  {event.group_event_public === true ? 'Group event' : 'Members only'}
                 </Badge>
               )}
             </div>

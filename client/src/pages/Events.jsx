@@ -50,7 +50,7 @@ import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useEventsData } from "@/hooks/useEventsData";
+import { useEventsData, useMyGroupIds, filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { 
@@ -201,7 +201,10 @@ export default function EventsPage({
     data: simpleEvents = [],
     isLoading: isLoadingSimple,
     error: eventsError,
-  } = useEventsData({ includeGroupEvents: true });
+  } = useEventsData({ includeGroupEvents: true, isAdmin });
+
+  // Groups the caller belongs to — gates group-only complex event visibility.
+  const { data: myGroupIds = [] } = useMyGroupIds();
 
   const { data: complexEvents = [], isLoading: isLoadingComplex } = useQuery({
     queryKey: ['complex-events-for-listing', !!memberInfo],
@@ -257,9 +260,17 @@ export default function EventsPage({
     staleTime: 0
   });
 
+  // Apply group event visibility to complex events (simple events are already
+  // filtered inside useEventsData). Public complex group events are visible to
+  // everyone; group-only ones only to admins/members of the group; anon never.
+  const visibleComplexEvents = useMemo(
+    () => filterGroupEventVisibility(complexEvents, { isAdmin, myGroupIds }),
+    [complexEvents, isAdmin, myGroupIds]
+  );
+
   const events = useMemo(() => {
-    return [...simpleEvents, ...complexEvents];
-  }, [simpleEvents, complexEvents]);
+    return [...simpleEvents, ...visibleComplexEvents];
+  }, [simpleEvents, visibleComplexEvents]);
 
   const isLoading = isLoadingSimple || isLoadingComplex;
 
@@ -1678,7 +1689,7 @@ export default function EventsPage({
                           : null;
                         const showPricesOnCard = showPricesSetting?.setting_value === 'true';
                         const eventParsedTypes = parseEventTypes(event.event_type);
-                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed;
+                        const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
                         const descriptionText = event.summary || stripHtmlTags(event.description);
 
                         return (
@@ -1722,6 +1733,11 @@ export default function EventsPage({
                                       </Badge>
                                     );
                                   })}
+                                  {event.member_group_id && (
+                                    <Badge variant="secondary" className="bg-indigo-100/95 text-indigo-700 border-indigo-200 shadow-sm" data-testid={`badge-group-event-${event.id}`}>
+                                      {event.group_event_public === true ? 'Group event' : 'Members only'}
+                                    </Badge>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1944,7 +1960,7 @@ export default function EventsPage({
                       : null;
                     const showPricesOnCard = showPricesSetting?.setting_value === 'true';
                     const eventParsedTypes = parseEventTypes(event.event_type);
-                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed;
+                    const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || eventParsedTypes.length > 0 || isRegistrationClosed || !!event.member_group_id;
                     const descriptionText = event.summary || stripHtmlTags(event.description);
 
                     return (
@@ -2005,6 +2021,11 @@ export default function EventsPage({
                                   </Badge>
                                 );
                               })}
+                              {event.member_group_id && (
+                                <Badge variant="secondary" className="bg-indigo-100/95 text-indigo-700 border-indigo-200 shadow-sm" data-testid={`badge-group-event-${event.id}`}>
+                                  {event.group_event_public === true ? 'Group event' : 'Members only'}
+                                </Badge>
+                              )}
                             </div>
                           )}
                         </div>

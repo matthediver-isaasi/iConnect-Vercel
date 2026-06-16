@@ -5,7 +5,7 @@ import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Plus, Loader2, MapPin, Video, Users } from "lucide-react";
+import { Calendar, Plus, Loader2, MapPin, Video, Layers, Globe, Lock, Pencil } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -47,8 +47,17 @@ export default function GroupEventsPage() {
     );
   }
 
-  const goToEvent = (eventId) => navigate(`/GroupEvents/${eventId}`);
-  const goToNew = (groupId) => navigate(`/GroupEvents/new?groupId=${groupId}`);
+  const newSimple = (groupId) =>
+    navigate(`/CreateEvent?group_event=1&group_id=${groupId}`);
+  const newComplex = (groupId) =>
+    navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}`);
+  const editEvent = (groupId, ev) => {
+    if (ev.is_complex) {
+      navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}&id=${ev.id}`);
+    } else {
+      navigate(`/EditEvent?group_event=1&group_id=${groupId}&id=${ev.id}`);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto" data-testid="page-group-events">
@@ -57,39 +66,58 @@ export default function GroupEventsPage() {
           <Calendar className="w-5 h-5" /> Group Events
         </h1>
         <p className="text-sm text-muted-foreground">
-          Events private to the member groups you belong to.
+          Manage the events for the groups you administer. Group events are real
+          events with free tickets only and a per-event audience choice.
         </p>
       </div>
 
       {groups.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            You don't belong to any groups with events enabled.
+            You don't administer any groups with events enabled.
           </CardContent>
         </Card>
       )}
 
       {groups.map((group) => {
+        const all = [...(group.events || []), ...(group.complexEvents || [])].sort((a, b) => {
+          const at = a.start_date ? new Date(a.start_date).getTime() : 0;
+          const bt = b.start_date ? new Date(b.start_date).getTime() : 0;
+          return at - bt;
+        });
         const now = new Date();
-        const upcoming = (group.events || []).filter((e) => !e.start_date || new Date(e.start_date) >= now);
-        const past = (group.events || []).filter((e) => e.start_date && new Date(e.start_date) < now);
+        const upcoming = all.filter((e) => !e.start_date || new Date(e.start_date) >= now);
+        const past = all.filter((e) => e.start_date && new Date(e.start_date) < now);
         return (
           <Card key={group.id} data-testid={`card-group-${group.id}`}>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-              <div className="flex items-center gap-2">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-base">{group.name}</CardTitle>
                 <Badge variant="outline">{group.callerRole}</Badge>
               </div>
-              {group.canCreate && (
-                <Button size="sm" onClick={() => goToNew(group.id)} data-testid={`button-new-event-${group.id}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => newSimple(group.id)}
+                  data-testid={`button-new-event-${group.id}`}
+                >
                   <Plus className="w-4 h-4 mr-2" /> New event
                 </Button>
-              )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => newComplex(group.id)}
+                  data-testid={`button-new-complex-event-${group.id}`}
+                >
+                  <Layers className="w-4 h-4 mr-2" /> New multi-session event
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <EventGrid title="Upcoming" events={upcoming} onOpen={goToEvent} canCreate={group.canCreate} />
+              <EventGrid title="Upcoming" events={upcoming} onEdit={(ev) => editEvent(group.id, ev)} />
               {past.length > 0 && (
-                <EventGrid title="Past" events={past} onOpen={goToEvent} canCreate={group.canCreate} muted />
+                <EventGrid title="Past" events={past} onEdit={(ev) => editEvent(group.id, ev)} muted />
               )}
             </CardContent>
           </Card>
@@ -99,7 +127,7 @@ export default function GroupEventsPage() {
   );
 }
 
-function EventGrid({ title, events, onOpen, canCreate, muted }) {
+function EventGrid({ title, events, onEdit, muted }) {
   if (events.length === 0) {
     return (
       <div>
@@ -114,10 +142,10 @@ function EventGrid({ title, events, onOpen, canCreate, muted }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {events.map((ev) => (
           <button
-            key={ev.id}
-            onClick={() => onOpen(ev.id)}
+            key={`${ev.is_complex ? "c" : "e"}-${ev.id}`}
+            onClick={() => onEdit(ev)}
             className={`text-left rounded-md border border-border overflow-hidden hover-elevate active-elevate-2 ${muted ? "opacity-80" : ""}`}
-            data-testid={`button-open-event-${ev.id}`}
+            data-testid={`button-edit-event-${ev.id}`}
           >
             {ev.image_url && (
               <div className="h-32 overflow-hidden bg-muted">
@@ -130,29 +158,30 @@ function EventGrid({ title, events, onOpen, canCreate, muted }) {
               </div>
             )}
             <div className="p-3 space-y-2">
-            <div className="font-medium truncate">{ev.title}</div>
-            {ev.start_date && (
-              <div className="text-xs text-muted-foreground">
-                {format(parseISO(ev.start_date), "PPp")}
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-medium truncate">{ev.title}</div>
+                <Pencil className="w-4 h-4 text-muted-foreground shrink-0" />
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              {ev.is_online ? (
-                <Badge variant="secondary" className="gap-1"><Video className="w-3 h-3" /> Online</Badge>
-              ) : ev.location ? (
-                <Badge variant="secondary" className="gap-1"><MapPin className="w-3 h-3" /> {ev.location}</Badge>
-              ) : null}
-              {ev.my_rsvp && (
-                <Badge variant={ev.my_rsvp === "going" ? "default" : "outline"}>
-                  RSVP: {ev.my_rsvp.replace("_", " ")}
-                </Badge>
+              {ev.start_date && (
+                <div className="text-xs text-muted-foreground">
+                  {format(parseISO(ev.start_date), "PPp")}
+                </div>
               )}
-              {canCreate && (
-                <Badge variant="outline" className="gap-1">
-                  <Users className="w-3 h-3" /> {ev.rsvp_counts?.going || 0} going
-                </Badge>
-              )}
-            </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {ev.is_complex && (
+                  <Badge variant="secondary" className="gap-1"><Layers className="w-3 h-3" /> Multi-session</Badge>
+                )}
+                {ev.is_online ? (
+                  <Badge variant="secondary" className="gap-1"><Video className="w-3 h-3" /> Online</Badge>
+                ) : ev.location ? (
+                  <Badge variant="secondary" className="gap-1"><MapPin className="w-3 h-3" /> {ev.location}</Badge>
+                ) : null}
+                {ev.group_event_public ? (
+                  <Badge variant="outline" className="gap-1"><Globe className="w-3 h-3" /> Public</Badge>
+                ) : (
+                  <Badge variant="outline" className="gap-1"><Lock className="w-3 h-3" /> Members only</Badge>
+                )}
+              </div>
             </div>
           </button>
         ))}

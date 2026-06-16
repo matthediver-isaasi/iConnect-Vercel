@@ -725,10 +725,14 @@ export default function EventDetailsPage() {
     return roleMatches || groupMatches;
   }, [isOneOffEvent, selectedTicketClass, userRoleId, userMemberGroupIds]);
   
+  // Task #1519: Group events (member_group_id set) force self-only registration.
+  // No colleagues / external / multi-attendee booking is permitted.
+  const isGroupEvent = !!event?.member_group_id;
+
   // Role-based permission checks for registration buttons
   const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
-  const canAddTeamMembers = !isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents');
-  const canRegisterExternal = !isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees');
+  const canAddTeamMembers = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents'));
+  const canRegisterExternal = !isGroupEvent && (!isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees'));
   
   // User can add colleagues if they have permission for team members OR external attendees
   const canAddColleagues = canAddTeamMembers || canRegisterExternal;

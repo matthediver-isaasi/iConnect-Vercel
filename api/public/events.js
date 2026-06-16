@@ -56,11 +56,16 @@ export default async function handler(req, res) {
         is_featured,
         cta_override_url,
         cta_override_mode,
-        filter_tags
+        filter_tags,
+        member_group_id,
+        group_event_public
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
-      .is('member_group_id', null)
+      // Surface ordinary (non-group) events PLUS public group events
+      // (group_event_public = true). Group-only events (false / default) and
+      // old bespoke RSVP group events are never leaked to anonymous visitors.
+      .or('member_group_id.is.null,group_event_public.is.true')
       .order('start_date', { ascending: true });
 
     const events = (rawEvents || []).map(event => {

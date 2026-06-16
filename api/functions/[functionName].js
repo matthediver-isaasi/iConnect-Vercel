@@ -1709,6 +1709,30 @@ const functionHandlers = {
       console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
     }
 
+    // Task #1519: Group events (member_group_id set) are SELF-ONLY. A caller may
+    // only register themselves — no colleagues, external attendees, or buy-N.
+    // Reject any booking that attempts to add extra/other attendees.
+    if (event.member_group_id) {
+      const callerEmail = String(
+        (isGuestBooking ? guestInfo?.email : (member?.email || memberEmail)) || ''
+      ).trim().toLowerCase();
+
+      if (bookingAttendees.length > 1) {
+        console.log('[createOneOffEventBooking] Blocking multi-attendee booking on group event:', eventId);
+        return { success: false, error: 'Group events only allow self-registration' };
+      }
+
+      const attendeeEmail = String(bookingAttendees[0]?.email || '').trim().toLowerCase();
+      if (!callerEmail || attendeeEmail !== callerEmail) {
+        console.log('[createOneOffEventBooking] Blocking registration of another attendee on group event:', {
+          eventId,
+          callerEmail,
+          attendeeEmail
+        });
+        return { success: false, error: 'Group events only allow self-registration' };
+      }
+    }
+
     // Enforce role/member-group ticket access restrictions for one-off events.
     // Mirrors the complex-event booking guard so a ticket marked role_match_only
     // is only purchasable by members whose role OR member group matches.

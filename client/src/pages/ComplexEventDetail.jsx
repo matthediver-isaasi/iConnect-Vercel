@@ -83,7 +83,7 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails }) {
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false }) {
   const [externalFirstName, setExternalFirstName] = useState('');
   const [externalLastName, setExternalLastName] = useState('');
   const [externalEmail, setExternalEmail] = useState('');
@@ -176,10 +176,12 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
         <Tabs defaultValue={memberInfo ? "self" : "external"} className="mt-2">
           <TabsList className="w-full">
             {memberInfo && <TabsTrigger value="self" className="flex-1" data-testid="tab-self">Myself</TabsTrigger>}
-            {memberInfo && organizationInfo && (
+            {!isGroupEvent && memberInfo && organizationInfo && (
               <TabsTrigger value="colleague" className="flex-1" data-testid="tab-colleague">Colleague</TabsTrigger>
             )}
-            <TabsTrigger value="external" className="flex-1" data-testid="tab-external">Other</TabsTrigger>
+            {(!isGroupEvent || !memberInfo) && (
+              <TabsTrigger value="external" className="flex-1" data-testid="tab-external">Other</TabsTrigger>
+            )}
           </TabsList>
 
           {memberInfo && (
@@ -467,6 +469,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
   const collectThirdPartyConsent = event?.collect_third_party_consent === true;
+
+  // Task #1519: Group events (member_group_id set) force self-only registration.
+  // No colleagues / external / multi-attendee booking is permitted.
+  const isGroupEvent = !!event?.member_group_id;
 
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['/api/public/system-settings'],
@@ -826,11 +832,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenAttendeeModal(tc.id)}
-                disabled={restricted}
+                disabled={restricted || (isGroupEvent && totalAttendeeCount >= 1)}
                 data-testid={`button-add-attendee-${tc.id}`}
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
-                Add Attendee
+                {isGroupEvent ? 'Register Myself' : 'Add Attendee'}
               </Button>
               {count > 0 && (
                 <Badge className="bg-indigo-600 text-white">
@@ -1010,6 +1016,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         organizationInfo={organizationInfo}
         onAddAttendee={handleAddAttendee}
         existingEmails={allExistingEmails}
+        isGroupEvent={isGroupEvent}
       />
 
       <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>

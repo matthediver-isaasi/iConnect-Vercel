@@ -3,9 +3,12 @@ import { supabase } from '../_lib/database.js';
 
 /**
  * GET /api/member-group-events/qualifying-groups
- * Returns groups the caller belongs to that have events_enabled = true.
- * Each group lists upcoming + past group events plus the caller's existing
- * RSVP for each. `canCreate` flag tells the UI whether to render "New event".
+ *
+ * Task #1519 (T007): Group-Admin management listing.
+ * Returns the events-enabled groups the caller administers, each with their
+ * REAL events — simple `event` rows and `complex_event` rows — filtered by
+ * member_group_id. The bespoke RSVP system is retired (T010), so no RSVP data
+ * is surfaced here; group events are real events that live on /Events.
  */
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -22,58 +25,44 @@ export default async function handler(req, res) {
   }
 
   const groupIds = access.groups.map((g) => g.groupId);
+  const tenantId = access.tenantContext.tenantId;
 
-  const { data: events, error: eventsErr } = await supabase
-    .from('event')
-    .select('id, title, slug, start_date, end_date, location, is_online, image_url, event_state, member_group_id, created_by')
-    .eq('tenant_id', access.tenantContext.tenantId)
-    .in('member_group_id', groupIds)
-    .order('start_date', { ascending: true });
+  const [
+    { data: simpleEvents, error: simpleErr },
+    { data: complexEvents, error: complexErr },
+  ] = await Promise.all([
+    supabase
+      .from('event')
+      .select('id, title, slug, start_date, end_date, location, is_online, image_url, image_focal_point, event_state, group_event_public, member_group_id')
+      .eq('tenant_id', tenantId)
+      .in('member_group_id', groupIds)
+      .order('start_date', { ascending: true }),
+    supabase
+      .from('complex_event')
+      .select('id, title, slug, start_date, end_date, location, is_online, image_url, event_state, group_event_public, member_group_id')
+      .eq('tenant_id', tenantId)
+      .in('member_group_id', groupIds)
+      .order('start_date', { ascending: true }),
+  ]);
 
-  if (eventsErr) {
-    console.error('[member-group-events/qualifying-groups] events lookup failed:', eventsErr.message);
+  if (simpleErr || complexErr) {
+    console.error(
+      '[member-group-events/qualifying-groups] lookup failed:',
+      simpleErr?.message || complexErr?.message
+    );
     return res.status(500).json({ error: 'Failed to load events' });
   }
 
-  const eventIds = (events || []).map((e) => e.id);
-  let rsvpsByEvent = new Map();
-  let rsvpCounts = new Map();
-  if (eventIds.length > 0) {
-    if (access.identityId) {
-      const { data: myRsvps } = await supabase
-        .from('event_rsvp')
-        .select('event_id, response')
-        .eq('identity_id', access.identityId)
-        .in('event_id', eventIds);
-      (myRsvps || []).forEach((r) => rsvpsByEvent.set(r.event_id, r.response));
-    }
-    const { data: allRsvps } = await supabase
-      .from('event_rsvp')
-      .select('event_id, response')
-      .in('event_id', eventIds);
-    (allRsvps || []).forEach((r) => {
-      if (!rsvpCounts.has(r.event_id)) rsvpCounts.set(r.event_id, { going: 0, not_going: 0, maybe: 0 });
-      rsvpCounts.get(r.event_id)[r.response] = (rsvpCounts.get(r.event_id)[r.response] || 0) + 1;
-    });
+  const simpleByGroup = new Map();
+  for (const ev of simpleEvents || []) {
+    if (!simpleByGroup.has(ev.member_group_id)) simpleByGroup.set(ev.member_group_id, []);
+    simpleByGroup.get(ev.member_group_id).push({ ...ev, is_complex: false });
   }
 
-  const eventsByGroup = new Map();
-  for (const ev of events || []) {
-    if (!eventsByGroup.has(ev.member_group_id)) eventsByGroup.set(ev.member_group_id, []);
-    eventsByGroup.get(ev.member_group_id).push({
-      id: ev.id,
-      title: ev.title,
-      slug: ev.slug,
-      start_date: ev.start_date,
-      end_date: ev.end_date,
-      location: ev.location,
-      is_online: ev.is_online,
-      image_url: ev.image_url,
-      event_state: ev.event_state,
-      created_by: ev.created_by,
-      my_rsvp: rsvpsByEvent.get(ev.id) || null,
-      rsvp_counts: rsvpCounts.get(ev.id) || { going: 0, not_going: 0, maybe: 0 },
-    });
+  const complexByGroup = new Map();
+  for (const ev of complexEvents || []) {
+    if (!complexByGroup.has(ev.member_group_id)) complexByGroup.set(ev.member_group_id, []);
+    complexByGroup.get(ev.member_group_id).push({ ...ev, is_complex: true });
   }
 
   return res.json({
@@ -83,7 +72,8 @@ export default async function handler(req, res) {
       name: g.groupName,
       callerRole: g.role,
       canCreate: g.canCreate,
-      events: eventsByGroup.get(g.groupId) || [],
+      events: simpleByGroup.get(g.groupId) || [],
+      complexEvents: complexByGroup.get(g.groupId) || [],
     })),
   });
 }

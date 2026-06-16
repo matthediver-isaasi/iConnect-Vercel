@@ -94,7 +94,7 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options')
+      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -113,6 +113,28 @@ export default async function handler(req, res) {
     // (status='cancelling'). See task-700 / api/_lib/eventDeletion.js.
     if (event.status === 'cancelling') {
       return res.status(400).json({ error: 'This event is being cancelled and is no longer accepting bookings' });
+    }
+
+    // Task #1519: Group events (member_group_id set) are SELF-ONLY. A caller may
+    // only register themselves — no colleagues, external attendees, or buy-N.
+    // Reject any booking that attempts to add extra/other attendees.
+    if (event.member_group_id) {
+      const groupEventAttendees = [];
+      for (const item of normalizedItems) {
+        for (const attendee of (item.attendees || [])) {
+          groupEventAttendees.push(attendee);
+        }
+      }
+      if (groupEventAttendees.length !== 1) {
+        return res.status(403).json({ error: 'Group events only allow self-registration' });
+      }
+      if (authenticatedMember) {
+        const callerEmail = String(authenticatedMember.email || '').trim().toLowerCase();
+        const attendeeEmail = String(groupEventAttendees[0]?.email || '').trim().toLowerCase();
+        if (!callerEmail || attendeeEmail !== callerEmail) {
+          return res.status(403).json({ error: 'Group events only allow self-registration' });
+        }
+      }
     }
 
     const { data: ticketClassRows } = await supabase

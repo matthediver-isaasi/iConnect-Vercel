@@ -2,14 +2,25 @@ import { supabase } from './database.js';
 import { getTenantContext } from './tenantContext.js';
 
 /**
- * Resolve the caller's access to Group Events. Returns two distinct sets:
- *   - canCreate groups: events_enabled === true on the group AND the caller's
- *     active assignment role is in events_enabled_roles.
- *   - canView groups: any active assignment on a group whose events_enabled is
- *     true (so non-creator members can RSVP / see events).
+ * Task #1519: Group Admins create real events (limited).
  *
- * Returns { tenantContext, memberId, identityId, groups: [{groupId, groupName,
- * role, allRoles, eventsEnabledRoles, canCreate}] }.
+ * Resolve the list of member_group entries the calling member ADMINISTERS for
+ * the purpose of creating/editing real (simple & complex) events. A caller
+ * qualifies for a group when:
+ *   - they have an active assignment (member_group_assignment row),
+ *   - the assignment is flagged Group Admin (is_group_admin = true),
+ *   - the assignment has not expired (expires_at IS NULL OR expires_at > now()),
+ *   - the group is active (member_group.is_active != false),
+ *   - the group has events enabled (member_group.events_enabled = true).
+ *
+ * This mirrors the group-email access helper (#1517): access is gated on the
+ * explicit per-assignment Group Admin flag, NOT on the assignment's role. The
+ * legacy events_enabled_roles role gating is intentionally NOT consulted.
+ *
+ * Returns { tenantContext, memberId, identityId, groups: [{ groupId, groupName,
+ * role, allRoles, canCreate }] }. `canCreate` is always true for returned groups
+ * (kept for backwards-compatible call-sites). On 0 qualifying groups the caller
+ * list is empty — write call-sites MUST 403.
  */
 export async function getCallerGroupEventsAccess(req) {
   const tenantContext = await getTenantContext(req);
@@ -38,27 +49,28 @@ export async function getCallerGroupEventsAccess(req) {
 
   const { data: assignments, error: assignErr } = await supabase
     .from('member_group_assignment')
-    .select('group_id, group_role, expires_at')
+    .select('group_id, group_role, expires_at, is_group_admin')
     .eq('member_id', memberId);
   if (assignErr) {
     return { error: 'Failed to resolve group access', status: 500, tenantContext, memberId, identityId, groups: [] };
   }
 
-  const liveAssignments = (assignments || []).filter((a) => {
+  const liveAdminAssignments = (assignments || []).filter((a) => {
     if (!a.group_id || !a.group_role) return false;
+    if (a.is_group_admin !== true) return false;
     if (!a.expires_at) return true;
     return new Date(a.expires_at).toISOString() > nowIso;
   });
 
-  if (liveAssignments.length === 0) {
+  if (liveAdminAssignments.length === 0) {
     return { tenantContext, memberId, identityId, groups: [] };
   }
 
-  const groupIds = [...new Set(liveAssignments.map((a) => a.group_id))];
+  const groupIds = [...new Set(liveAdminAssignments.map((a) => a.group_id))];
 
   const { data: groupRows, error: groupErr } = await supabase
     .from('member_group')
-    .select('id, name, is_active, events_enabled, events_enabled_roles, roles, tenant_id')
+    .select('id, name, is_active, events_enabled, roles, tenant_id')
     .eq('tenant_id', tenantContext.tenantId)
     .in('id', groupIds);
   if (groupErr) {
@@ -74,59 +86,66 @@ export async function getCallerGroupEventsAccess(req) {
 
   const seen = new Set();
   const out = [];
-  for (const a of liveAssignments) {
+  for (const a of liveAdminAssignments) {
     const g = enabledGroups.get(a.group_id);
     if (!g) continue;
-    const key = `${a.group_id}::${a.group_role}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const allowed = Array.isArray(g.events_enabled_roles) ? g.events_enabled_roles : [];
+    if (seen.has(g.id)) continue;
+    seen.add(g.id);
     out.push({
       groupId: g.id,
       groupName: g.name,
       role: a.group_role,
       allRoles: Array.isArray(g.roles) ? g.roles : [],
-      eventsEnabledRoles: allowed,
-      canCreate: allowed.includes(a.group_role),
+      canCreate: true,
     });
   }
 
   return { tenantContext, memberId, identityId, groups: out };
 }
 
+/**
+ * Returns the matched administered-group entry for `groupId`, or null.
+ */
 export function requireGroupEventsAccess(groups, groupId) {
   if (!groupId) return null;
-  return groups.find((g) => g.groupId === groupId) || null;
+  return (groups || []).find((g) => g.groupId === groupId) || null;
 }
 
 /**
- * Helper: looks up the event row, confirms it's a group event the caller
- * has any access to, and returns { event, access } or an { error, status }
- * shape. Used by group-event detail / rsvp / patch / delete endpoints.
+ * Resolve the set of member_group ids the caller is an ACTIVE member of
+ * (regardless of admin flag). Used for /Events visibility of group-only events.
+ * Returns { tenantContext, memberId, groupIds: Set<string> }.
  */
-export async function loadGroupEventForCaller(req, eventId) {
-  if (!supabase) return { error: 'Database not configured', status: 503 };
-  if (!eventId) return { error: 'eventId required', status: 400 };
-
-  const access = await getCallerGroupEventsAccess(req);
-  if (access.error) return { error: access.error, status: access.status };
-
-  const { data: event, error: evErr } = await supabase
-    .from('event')
-    .select('*')
-    .eq('id', eventId)
-    .maybeSingle();
-  if (evErr || !event) return { error: 'Event not found', status: 404 };
-
-  if (!event.member_group_id) return { error: 'Not a group event', status: 404 };
-  if (event.tenant_id !== access.tenantContext.tenantId) {
-    return { error: 'Event not found', status: 404 };
+export async function getCallerGroupMembershipIds(req) {
+  const tenantContext = await getTenantContext(req);
+  const memberId = tenantContext.memberId;
+  if (!tenantContext.tenantId || !memberId || !supabase) {
+    return { tenantContext, memberId: memberId || null, groupIds: new Set() };
   }
 
-  const groupAccess = requireGroupEventsAccess(access.groups, event.member_group_id);
-  if (!groupAccess) {
-    return { error: 'You are not a member of this event\'s group', status: 403 };
+  const nowIso = new Date().toISOString();
+  const { data: assignments } = await supabase
+    .from('member_group_assignment')
+    .select('group_id, expires_at')
+    .eq('member_id', memberId);
+
+  const liveIds = (assignments || [])
+    .filter((a) => a.group_id && (!a.expires_at || new Date(a.expires_at).toISOString() > nowIso))
+    .map((a) => a.group_id);
+
+  if (liveIds.length === 0) {
+    return { tenantContext, memberId, groupIds: new Set() };
   }
 
-  return { event, access, groupAccess };
+  // Restrict to active groups in this tenant.
+  const { data: groupRows } = await supabase
+    .from('member_group')
+    .select('id, is_active, tenant_id')
+    .eq('tenant_id', tenantContext.tenantId)
+    .in('id', [...new Set(liveIds)]);
+
+  const active = new Set(
+    (groupRows || []).filter((g) => g.is_active !== false).map((g) => g.id)
+  );
+  return { tenantContext, memberId, groupIds: active };
 }

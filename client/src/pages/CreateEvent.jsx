@@ -107,6 +107,17 @@ export default function CreateEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+
+  // Task #1519: Group-limited mode for Group Admins. Entered via
+  // ?group_event=1&group_id=<uuid> (GroupEvents.jsx links this way). In this
+  // mode the editor locks member_group_id, allows free tickets only, replaces
+  // Zoom with a manual meeting link, and exposes an audience (group-only /
+  // public) choice — mirroring the server guardrails in groupAdminEventWrite.js.
+  const groupSearchParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const groupId = groupSearchParams.get('group_id') || null;
+  const isGroupLimited = groupSearchParams.get('group_event') === '1' && !!groupId;
+  const [groupEventPublic, setGroupEventPublic] = useState(false);
+
   const [eventTiming, setEventTiming] = useState("published"); // published or tbc - affects date requirements
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isFeatured, setIsFeatured] = useState(false);
@@ -174,6 +185,7 @@ export default function CreateEvent() {
     zoom_webinar_id: null,
     zoom_meeting_id: null,
     online_url: "",
+    online_meeting_url: "",
     cta_override_url: "",
     cta_override_mode: "card",
     timezone: "Europe/London"
@@ -239,6 +251,14 @@ export default function CreateEvent() {
     queryKey: ['/api/entities/Program'],
     queryFn: () => base44.entities.Program.list()
   });
+
+  // Resolve the locked group's name for the read-only banner (group-limited mode).
+  const { data: limitedGroup } = useQuery({
+    queryKey: ['/api/entities/MemberGroup', groupId],
+    queryFn: () => base44.entities.MemberGroup.get(groupId),
+    enabled: isGroupLimited && !!groupId
+  });
+  const groupName = limitedGroup?.name || '';
 
   // Fetch roles for ticket class assignment
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
@@ -627,16 +647,23 @@ export default function CreateEvent() {
       errors.push('Please set a start date and time');
     }
     
-    // Only require Zoom webinar/meeting for non-TBC online events
-    if (eventTiming !== 'tbc' && isOnline) {
-      const hasZoomSelection = (zoomType === 'webinar' && selectedWebinarId) || (zoomType === 'meeting' && selectedMeetingId);
-      if (!hasZoomSelection) {
-        errors.push(`Please select a Zoom ${zoomType} for online events`);
+    // Group-limited online events use a manual meeting link instead of Zoom.
+    if (isGroupLimited) {
+      if (isOnline && !formData.online_meeting_url?.trim()) {
+        errors.push('Please enter a meeting link for this online event');
       }
-    }
+    } else {
+      // Only require Zoom webinar/meeting for non-TBC online events
+      if (eventTiming !== 'tbc' && isOnline) {
+        const hasZoomSelection = (zoomType === 'webinar' && selectedWebinarId) || (zoomType === 'meeting' && selectedMeetingId);
+        if (!hasZoomSelection) {
+          errors.push(`Please select a Zoom ${zoomType} for online events`);
+        }
+      }
 
-    if (eventTiming !== 'tbc' && isOnline && loadingJoinLinkSettings) {
-      errors.push('Please wait for settings to finish loading');
+      if (eventTiming !== 'tbc' && isOnline && loadingJoinLinkSettings) {
+        errors.push('Please wait for settings to finish loading');
+      }
     }
 
     // Validation for one-off event ticket classes
@@ -654,7 +681,8 @@ export default function CreateEvent() {
           }
 
           // Price validation: either is_free must be true, or price must be > 0
-          if (!ticket.is_free) {
+          // (skipped in group-limited mode — tickets are forced free on save)
+          if (!isGroupLimited && !ticket.is_free) {
             if (ticket.price === "" || ticket.price === null || ticket.price === undefined) {
               errors.push(`Ticket "${ticket.name || ticketLabel}": Enter a price or toggle "Free Ticket" on`);
             } else {
@@ -762,9 +790,10 @@ export default function CreateEvent() {
       show_ticket_availability: showTicketAvailability,
       // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
       qr_on_confirmation: isOnline ? true : qrOnConfirmation,
-      // TBC events can optionally have a Zoom webinar or meeting
-      zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
-      zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
+      // TBC events can optionally have a Zoom webinar or meeting.
+      // Group-limited events never use Zoom — they use a manual meeting link.
+      zoom_webinar_id: isGroupLimited ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
+      zoom_meeting_id: isGroupLimited ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
@@ -785,36 +814,49 @@ export default function CreateEvent() {
       accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean)
     };
 
+    // Group-limited mode: lock the event to its group, carry the audience choice,
+    // and store the manual meeting link (no Zoom). Mirrors groupAdminEventWrite.js.
+    if (isGroupLimited) {
+      eventData.member_group_id = groupId;
+      eventData.group_event_public = groupEventPublic === true;
+      eventData.online_meeting_url = isOnline ? (formData.online_meeting_url?.trim() || null) : null;
+      eventData.online_url = null;
+    }
+
     // Add ticket classes for one-off events as JSON in pricing_config field
     if (!isProgramEvent) {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
           id: ticket.id,
           name: ticket.name,
-          price: parseFloat(ticket.price),
-          role_ids: ticket.role_ids || [],
-          member_group_ids: ticket.member_group_ids || [],
+          // Group-limited events allow free tickets only.
+          price: isGroupLimited ? 0 : parseFloat(ticket.price),
+          is_free: isGroupLimited ? true : (ticket.is_free || false),
+          role_ids: isGroupLimited ? [] : (ticket.role_ids || []),
+          member_group_ids: isGroupLimited ? [] : (ticket.member_group_ids || []),
           is_default: ticket.is_default || false,
-          visibility_mode: ticket.visibility_mode || 'members_only',
-          role_match_only: ticket.role_match_only || false,
-          offer_type: ticket.offer_type,
+          // Group events: ticket visibility follows the event audience choice, so
+          // the single free ticket is shown to anyone who can see the event.
+          visibility_mode: isGroupLimited ? 'members_and_public' : (ticket.visibility_mode || 'members_only'),
+          role_match_only: isGroupLimited ? false : (ticket.role_match_only || false),
+          offer_type: isGroupLimited ? 'none' : ticket.offer_type,
           // Ticket availability: null = unlimited, number = limited
           available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
           is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
-          // VAT rate fields for Xero invoice generation
-          vat_rate_key: ticket.vat_rate_key || null,
-          vat_rate_label: ticket.vat_rate_label || null,
-          vat_rate_percentage: ticket.vat_rate_percentage || null,
-          is_group_ticket: ticket.is_group_ticket || false,
-          group_size: ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
-          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null
+          // VAT rate fields for Xero invoice generation (free tickets carry none)
+          vat_rate_key: isGroupLimited ? null : (ticket.vat_rate_key || null),
+          vat_rate_label: isGroupLimited ? null : (ticket.vat_rate_label || null),
+          vat_rate_percentage: isGroupLimited ? null : (ticket.vat_rate_percentage || null),
+          is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
+          group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
+          group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null
         };
 
-        if (ticket.offer_type === "bogo") {
+        if (!isGroupLimited && ticket.offer_type === "bogo") {
           ticketData.bogo_buy_quantity = parseInt(ticket.bogo_buy_quantity);
           ticketData.bogo_get_free_quantity = parseInt(ticket.bogo_get_free_quantity);
           ticketData.bogo_logic_type = ticket.bogo_logic_type;
-        } else if (ticket.offer_type === "bulk_discount") {
+        } else if (!isGroupLimited && ticket.offer_type === "bulk_discount") {
           ticketData.bulk_discount_threshold = parseInt(ticket.bulk_discount_threshold);
           ticketData.bulk_discount_percentage = parseFloat(ticket.bulk_discount_percentage);
         }
@@ -891,6 +933,54 @@ export default function CreateEvent() {
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* Group Event banner + audience choice (group-limited mode only) */}
+          {isGroupLimited && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Group Event
+                </CardTitle>
+                <CardDescription>This event belongs to your group</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-900" data-testid="text-group-locked">
+                    This event is for <span className="font-semibold">{groupName || 'your group'}</span>.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-base font-medium">Who can see this event?</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      type="button"
+                      variant={!groupEventPublic ? 'default' : 'outline'}
+                      onClick={() => setGroupEventPublic(false)}
+                      data-testid="button-audience-group"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Group members only
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={groupEventPublic ? 'default' : 'outline'}
+                      onClick={() => setGroupEventPublic(true)}
+                      data-testid="button-audience-public"
+                    >
+                      <Globe className="h-4 w-4 mr-2" />
+                      Public
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {groupEventPublic
+                      ? 'Anyone can view and register for this event.'
+                      : 'Only members of your group can view and register for this event.'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Event Status Selector */}
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
@@ -1003,7 +1093,7 @@ export default function CreateEvent() {
                     </p>
                     <p className="text-sm text-slate-600">
                       {isOnline 
-                        ? 'Event will be hosted via Zoom'
+                        ? (isGroupLimited ? 'Event will be hosted via your own meeting link' : 'Event will be hosted via Zoom')
                         : 'Event will be held at a physical location'
                       }
                     </p>
@@ -1035,7 +1125,24 @@ export default function CreateEvent() {
                 </div>
               )}
 
-              {isOnline && (
+              {isOnline && isGroupLimited && (
+                <div className="space-y-2">
+                  <Label htmlFor="online_meeting_url">Meeting link</Label>
+                  <Input
+                    id="online_meeting_url"
+                    type="url"
+                    placeholder="https://meet.example.com/your-meeting"
+                    value={formData.online_meeting_url}
+                    onChange={(e) => handleInputChange('online_meeting_url', e.target.value)}
+                    data-testid="input-online-meeting-url"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Paste the link attendees will use to join (Zoom, Google Meet, Teams, etc.). Set the start and end times above.
+                  </p>
+                </div>
+              )}
+
+              {isOnline && !isGroupLimited && (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Zoom Event Type</Label>
@@ -1221,7 +1328,8 @@ export default function CreateEvent() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Program vs One-off Toggle */}
+              {/* Program vs One-off Toggle (hidden for group-limited events — group events are always one-off free events) */}
+              {!isGroupLimited && (
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                 <div className="space-y-0.5">
                   <Label htmlFor="program-toggle" className="text-base font-medium">
@@ -1253,9 +1361,10 @@ export default function CreateEvent() {
                   </span>
                 </div>
               </div>
+              )}
 
               {/* Program Selection - Only shown when isProgramEvent is true */}
-              {isProgramEvent && (
+              {!isGroupLimited && isProgramEvent && (
                 <div className="space-y-2">
                   <Label htmlFor="program">Program *</Label>
                   <Select
@@ -1851,12 +1960,16 @@ export default function CreateEvent() {
                             )}
                           </div>
                           <div className="flex items-center gap-2 text-sm text-slate-500">
-                            <span>£{ticket.price || "0.00"}</span>
-                            <span className="text-slate-300">|</span>
-                            <span className="flex items-center gap-1">
-                              <Users className="h-3 w-3" />
-                              {getRoleNames(ticket.role_ids)}
-                            </span>
+                            <span>{isGroupLimited ? "Free" : `£${ticket.price || "0.00"}`}</span>
+                            {!isGroupLimited && (
+                              <>
+                                <span className="text-slate-300">|</span>
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {getRoleNames(ticket.role_ids)}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1884,9 +1997,9 @@ export default function CreateEvent() {
                     {/* Ticket Details - Collapsible */}
                     {expandedTickets[ticket.id] && (
                       <div className="p-4 space-y-4 border-t border-slate-200">
-                        {/* Ticket Name and Price */}
+                        {/* Ticket Name and Price (price hidden for group-limited events — free only) */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="space-y-2 md:col-span-2">
+                          <div className={`space-y-2 ${isGroupLimited ? 'md:col-span-3' : 'md:col-span-2'}`}>
                             <Label htmlFor={`ticket-name-${ticket.id}`}>Ticket Name *</Label>
                             <Input
                               id={`ticket-name-${ticket.id}`}
@@ -1895,7 +2008,11 @@ export default function CreateEvent() {
                               placeholder="e.g. Member Ticket"
                               data-testid={`input-ticket-name-${ticket.id}`}
                             />
+                            {isGroupLimited && (
+                              <p className="text-xs text-slate-500">Group events are free to attend.</p>
+                            )}
                           </div>
+                          {!isGroupLimited && (
                           <div className="space-y-2">
                             <Label htmlFor={`ticket-price-${ticket.id}`}>Price (£) *</Label>
                             <div className="flex items-center gap-3">
@@ -1927,6 +2044,7 @@ export default function CreateEvent() {
                               </div>
                             </div>
                           </div>
+                          )}
                         </div>
 
                         {/* Ticket Availability */}
@@ -1968,7 +2086,8 @@ export default function CreateEvent() {
                           </div>
                         </div>
 
-                        {/* Group Ticket */}
+                        {/* Group Ticket (hidden for group-limited events) */}
+                        {!isGroupLimited && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -2020,8 +2139,11 @@ export default function CreateEvent() {
                             </div>
                           )}
                         </div>
+                        )}
 
-                        {/* Role Assignment */}
+                        {/* Role Assignment / Member Group / Visibility (hidden for group-limited events) */}
+                        {!isGroupLimited && (
+                        <>
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-slate-500" />
@@ -2541,6 +2663,8 @@ export default function CreateEvent() {
                             </p>
                           )}
                         </div>
+                        </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2626,10 +2750,21 @@ export default function CreateEvent() {
                       <span className="font-medium text-blue-900">Online Event</span>
                     </div>
                     <p className="text-sm text-blue-800">
-                      Participants will join via Zoom. The join link will be provided upon registration.
+                      {isGroupLimited
+                        ? 'Participants will join via the meeting link you provided in the Event Type section.'
+                        : 'Participants will join via Zoom. The join link will be provided upon registration.'}
                     </p>
                   </div>
-                  {formData.online_url && (
+                  {isGroupLimited && formData.online_meeting_url && (
+                    <div className="space-y-2">
+                      <Label>Meeting link</Label>
+                      <div className="flex items-center gap-2 p-3 bg-slate-100 rounded-lg">
+                        <LinkIcon className="h-4 w-4 text-slate-500" />
+                        <span className="text-sm text-slate-600 truncate">{formData.online_meeting_url}</span>
+                      </div>
+                    </div>
+                  )}
+                  {!isGroupLimited && formData.online_url && (
                     <div className="space-y-2">
                       <Label>Zoom Join URL</Label>
                       <div className="flex items-center gap-2 p-3 bg-slate-100 rounded-lg">

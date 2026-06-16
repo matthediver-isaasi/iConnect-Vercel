@@ -4,6 +4,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -1354,6 +1355,24 @@ export default async function handler(req, res) {
             if (!check.ok) return res.status(check.status).json(check.body);
           }
         }
+      }
+
+      // Task #1519: Group-Admin event-write authorization + guardrails.
+      // For Event/ComplexEvent (and their children) writes by a non-tenant-admin
+      // caller, restrict to administered groups and enforce free/no-zoom/audience
+      // guardrails. Tenant admins pass through unchanged.
+      if (isEventFamilyEntity(entity)) {
+        const authz = await authorizeGroupAdminEventWrite({
+          entity,
+          op: 'create',
+          body: sanitizedBody,
+          tenantCtx,
+          req,
+        });
+        if (!authz.ok) {
+          return res.status(authz.status || 403).json({ error: authz.error });
+        }
+        Object.assign(sanitizedBody, authz.body);
       }
 
       const { data, error } = await supabase

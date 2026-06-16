@@ -6,6 +6,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { deleteEventWithCancellations } from '../../_lib/eventDeletion.js';
+import { authorizeGroupAdminEventDelete } from '../../_lib/groupAdminEventWrite.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -19,13 +20,16 @@ export default async function handler(req, res) {
 
   const ctx = await getTenantContext(req);
   if (!ctx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
-  if (!(await hasAdminAccess(ctx))) return res.status(403).json({ error: 'Admin access required' });
 
   const tenantId = ctx.tenantId;
   if (!tenantId) return res.status(400).json({ error: 'Tenant context required' });
 
   const { id } = req.query;
   if (!id) return res.status(400).json({ error: 'Event id required' });
+
+  // Tenant admins always allowed; Group Admins only for events they administer (Task #1519).
+  const delAuthz = await authorizeGroupAdminEventDelete({ eventId: id, eventTable: 'event', tenantCtx: ctx, req });
+  if (!delAuthz.ok) return res.status(delAuthz.status || 403).json({ error: delAuthz.error });
 
   const { organiser_message, suppress_emails } = req.body || {};
 

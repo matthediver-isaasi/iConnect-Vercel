@@ -574,6 +574,8 @@ export default function CreateComplexEvent() {
   const params = new URLSearchParams(location.search);
   const editId = params.get("id");
   const isEditMode = !!editId;
+  const groupEventParam = params.get("group_event") === "1";
+  const groupIdParam = params.get("group_id") || null;
 
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
@@ -603,6 +605,7 @@ export default function CreateComplexEvent() {
     cta_override_url: "",
     cta_override_mode: "card",
     program_tag: "",
+    group_event_public: false,
   });
 
   const [tracks, setTracks] = useState([]);
@@ -797,6 +800,25 @@ export default function CreateComplexEvent() {
     queryFn: () => base44.entities.ComplexEvent.get(editId),
     enabled: isEditMode,
   });
+
+  // Task #1519: Group-Admin limited mode for the complex event editor.
+  const { data: authMe } = useQuery({
+    queryKey: ['authMe'],
+    queryFn: async () => {
+      const r = await fetch('/api/auth/me', { credentials: 'include' });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+  });
+  const isTenantAdmin = authMe?.isAdmin === true;
+  const lockedGroupId = groupIdParam || existingEvent?.member_group_id || null;
+  const isGroupLimited = groupEventParam || (!!existingEvent?.member_group_id && !isTenantAdmin);
+  const lockedGroupName = useMemo(
+    () => memberGroups.find((g) => g.id === lockedGroupId)?.name || null,
+    [memberGroups, lockedGroupId]
+  );
 
   const { data: existingTracks = [], isLoading: loadingTracks } = useQuery({
     queryKey: ["/api/entities/ComplexEventTrack", editId],
@@ -1196,6 +1218,7 @@ export default function CreateComplexEvent() {
         program_tag: existingEvent.program_tag || "",
         cta_override_url: existingEvent.cta_override_url || "",
         cta_override_mode: existingEvent.cta_override_mode || "card",
+        group_event_public: existingEvent.group_event_public === true,
       });
       setSlugManuallyEdited(true);
       setSeoTitle(existingEvent.seo_title || "");
@@ -1636,6 +1659,13 @@ export default function CreateComplexEvent() {
 
   const addTicketClass = () => {
     const newTicket = createEmptyTicketClass(ticketClasses.length === 0, defaultVatRate);
+    if (isGroupLimited) {
+      newTicket.is_free = true;
+      newTicket.price = '0';
+      newTicket.early_bird_enabled = false;
+      newTicket.is_group_ticket = false;
+      newTicket.offer_type = 'none';
+    }
     setTicketClasses(prev => [...prev, newTicket]);
     setExpandedTickets(prev => ({ ...prev, [newTicket._localId]: true }));
   };
@@ -1729,6 +1759,11 @@ export default function CreateComplexEvent() {
       return;
     }
 
+    if (isGroupLimited && !lockedGroupId) {
+      toast.error("This group event is missing its group. Please reopen it from the Group Events page.");
+      return;
+    }
+
     if (!unlimitedSeats) {
       const seats = parseInt(formData.available_seats);
       if (!formData.available_seats || isNaN(seats) || seats < 1) {
@@ -1777,6 +1812,10 @@ export default function CreateComplexEvent() {
         program_tag: formData.program_tag || null,
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
+        ...(isGroupLimited ? {
+          member_group_id: lockedGroupId,
+          group_event_public: formData.group_event_public === true,
+        } : {}),
       };
 
       let eventId;
@@ -1858,7 +1897,7 @@ export default function CreateComplexEvent() {
           timezone: formData.timezone,
         };
 
-        if (session.is_online) {
+        if (session.is_online && !isGroupLimited) {
           sessionPayload.zoom_type = session.zoom_type || 'meeting';
           sessionPayload.zoom_host_id = session.zoom_host_id || null;
           sessionPayload.zoom_host_email = session.zoom_host_email || null;
@@ -1944,14 +1983,14 @@ export default function CreateComplexEvent() {
         const tcPayload = {
           complex_event_id: eventId,
           name: ticket.name || "Standard Ticket",
-          price: parseFloat(ticket.price) || 0,
-          is_free: ticket.is_free || false,
-          early_bird_enabled: ticket.early_bird_enabled || false,
-          early_bird_price: ticket.early_bird_enabled && ticket.early_bird_price ? parseFloat(ticket.early_bird_price) : null,
-          early_bird_deadline: ticket.early_bird_enabled && ticket.early_bird_deadline ? ticket.early_bird_deadline : null,
-          is_group_ticket: ticket.is_group_ticket || false,
-          group_size: ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
-          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,
+          price: isGroupLimited ? 0 : (parseFloat(ticket.price) || 0),
+          is_free: isGroupLimited ? true : (ticket.is_free || false),
+          early_bird_enabled: isGroupLimited ? false : (ticket.early_bird_enabled || false),
+          early_bird_price: !isGroupLimited && ticket.early_bird_enabled && ticket.early_bird_price ? parseFloat(ticket.early_bird_price) : null,
+          early_bird_deadline: !isGroupLimited && ticket.early_bird_enabled && ticket.early_bird_deadline ? ticket.early_bird_deadline : null,
+          is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
+          group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
+          group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,
           vat_rate_key: ticket.vat_rate_key || null,
           vat_rate_label: ticket.vat_rate_label || null,
           vat_rate_percentage: ticket.vat_rate_percentage || null,
@@ -1959,12 +1998,12 @@ export default function CreateComplexEvent() {
           role_ids: ticket.role_ids || [],
           member_group_ids: ticket.member_group_ids || [],
           role_match_only: ticket.role_match_only || false,
-          offer_type: ticket.offer_type || 'none',
-          bogo_logic_type: ticket.offer_type === 'bogo' ? (ticket.bogo_logic_type || 'buy_x_get_y_free') : null,
-          bogo_buy_quantity: ticket.offer_type === 'bogo' && ticket.bogo_buy_quantity ? parseInt(ticket.bogo_buy_quantity) : null,
-          bogo_get_free_quantity: ticket.offer_type === 'bogo' && ticket.bogo_get_free_quantity ? parseInt(ticket.bogo_get_free_quantity) : null,
-          bulk_discount_threshold: ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_threshold ? parseInt(ticket.bulk_discount_threshold) : null,
-          bulk_discount_percentage: ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_percentage ? parseFloat(ticket.bulk_discount_percentage) : null,
+          offer_type: isGroupLimited ? 'none' : (ticket.offer_type || 'none'),
+          bogo_logic_type: !isGroupLimited && ticket.offer_type === 'bogo' ? (ticket.bogo_logic_type || 'buy_x_get_y_free') : null,
+          bogo_buy_quantity: !isGroupLimited && ticket.offer_type === 'bogo' && ticket.bogo_buy_quantity ? parseInt(ticket.bogo_buy_quantity) : null,
+          bogo_get_free_quantity: !isGroupLimited && ticket.offer_type === 'bogo' && ticket.bogo_get_free_quantity ? parseInt(ticket.bogo_get_free_quantity) : null,
+          bulk_discount_threshold: !isGroupLimited && ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_threshold ? parseInt(ticket.bulk_discount_threshold) : null,
+          bulk_discount_percentage: !isGroupLimited && ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_percentage ? parseFloat(ticket.bulk_discount_percentage) : null,
           available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
           is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
           linked_track_ids: ticket.all_tracks ? [] : (ticket.linked_track_ids || []).map(id => trackIdMap[id] || id),
@@ -2075,6 +2114,58 @@ export default function CreateComplexEvent() {
 
         <TabsContent value="details">
           <>
+            {/* Task #1519: Group event banner + audience control (limited mode) */}
+            {isGroupLimited && (
+              <Card className="border-blue-200 bg-blue-50/40 shadow-sm mb-6" data-testid="card-group-event">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Users className="h-5 w-5 text-blue-600" />
+                    Group Event
+                  </CardTitle>
+                  <CardDescription>
+                    This event is locked to a group and limited to free tickets with a manual online link.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2 p-3 rounded-lg border-2 border-blue-200 bg-white">
+                    <Building2 className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span className="text-sm text-slate-700">
+                      This event is for{" "}
+                      <span className="font-semibold text-slate-900" data-testid="text-locked-group-name">
+                        {lockedGroupName || "your group"}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium mb-3 block">Audience</Label>
+                    <p className="text-xs text-slate-500 mb-3">Choose who can see and register for this event</p>
+                    <RadioGroup
+                      value={formData.group_event_public ? "public" : "group_only"}
+                      onValueChange={(v) => updateField("group_event_public", v === "public")}
+                      className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                      data-testid="radio-group-audience"
+                    >
+                      <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${!formData.group_event_public ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <RadioGroupItem value="group_only" id="audience-group-only" data-testid="radio-audience-group-only" />
+                        <Label htmlFor="audience-group-only" className="cursor-pointer flex-1">
+                          <span className="font-medium">Group members only</span>
+                          <p className="text-xs text-slate-500">Only members of this group can see it</p>
+                        </Label>
+                      </div>
+                      <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.group_event_public ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <RadioGroupItem value="public" id="audience-public" data-testid="radio-audience-public" />
+                        <Label htmlFor="audience-public" className="cursor-pointer flex-1">
+                          <span className="font-medium">Public</span>
+                          <p className="text-xs text-slate-500">Anyone can see and register</p>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Event Status Card — matches EditEvent */}
             <Card className="border-slate-200 shadow-sm mb-6">
               <CardHeader className="pb-4">
@@ -3206,35 +3297,44 @@ export default function CreateComplexEvent() {
                             data-testid={`input-ticket-name-${ticket._localId}`}
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`ticket-price-${ticket._localId}`}>Price (£) *</Label>
-                          <div className="flex items-center gap-3">
-                            <div className="relative w-28">
-                              <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-                              <Input
-                                id={`ticket-price-${ticket._localId}`}
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={ticket.is_free ? '0' : ticket.price}
-                                onChange={(e) => updateTicketClass(ticket._localId, 'price', e.target.value)}
-                                placeholder="0.00"
-                                className="pl-9"
-                                disabled={ticket.is_free}
-                                data-testid={`input-ticket-price-${ticket._localId}`}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Switch
-                                id={`ticket-free-${ticket._localId}`}
-                                checked={ticket.is_free || false}
-                                onCheckedChange={(val) => setTicketFree(ticket._localId, val)}
-                                data-testid={`switch-free-${ticket._localId}`}
-                              />
-                              <Label htmlFor={`ticket-free-${ticket._localId}`} className="text-sm font-medium">Free</Label>
+                        {isGroupLimited ? (
+                          <div className="space-y-2">
+                            <Label>Price</Label>
+                            <div className="flex items-center h-9">
+                              <Badge variant="secondary" data-testid={`badge-free-ticket-${ticket._localId}`}>Free ticket</Badge>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Label htmlFor={`ticket-price-${ticket._localId}`}>Price (£) *</Label>
+                            <div className="flex items-center gap-3">
+                              <div className="relative w-28">
+                                <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                <Input
+                                  id={`ticket-price-${ticket._localId}`}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={ticket.is_free ? '0' : ticket.price}
+                                  onChange={(e) => updateTicketClass(ticket._localId, 'price', e.target.value)}
+                                  placeholder="0.00"
+                                  className="pl-9"
+                                  disabled={ticket.is_free}
+                                  data-testid={`input-ticket-price-${ticket._localId}`}
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  id={`ticket-free-${ticket._localId}`}
+                                  checked={ticket.is_free || false}
+                                  onCheckedChange={(val) => setTicketFree(ticket._localId, val)}
+                                  data-testid={`switch-free-${ticket._localId}`}
+                                />
+                                <Label htmlFor={`ticket-free-${ticket._localId}`} className="text-sm font-medium">Free</Label>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="border rounded-md p-3 space-y-3">
@@ -3281,7 +3381,7 @@ export default function CreateComplexEvent() {
                         )}
                       </div>
 
-                      {!ticket.is_free && (
+                      {!ticket.is_free && !isGroupLimited && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -3382,6 +3482,7 @@ export default function CreateComplexEvent() {
                         </div>
                       </div>
 
+                      {!isGroupLimited && (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2">
                           <Switch
@@ -3433,6 +3534,7 @@ export default function CreateComplexEvent() {
                           </div>
                         )}
                       </div>
+                      )}
 
                       <div className="space-y-2">
                         <Label className="flex items-center gap-2">
@@ -3761,7 +3863,7 @@ export default function CreateComplexEvent() {
                         </div>
                       </div>
 
-                      {availableVatRates.length > 0 && (
+                      {availableVatRates.length > 0 && !isGroupLimited && (
                         <div className="space-y-1.5">
                           <Label>VAT Rate</Label>
                           <Select
@@ -3796,6 +3898,8 @@ export default function CreateComplexEvent() {
                         </div>
                       )}
 
+                      {!isGroupLimited && (
+                      <>
                       <Separator />
 
                       <div className="space-y-4">
@@ -3912,6 +4016,8 @@ export default function CreateComplexEvent() {
                           </div>
                         )}
                       </div>
+                      </>
+                      )}
                     </div>
                   )}
               </div>
@@ -4405,15 +4511,18 @@ export default function CreateComplexEvent() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Location</Label>
+                <Label>{isGroupLimited && sessionForm.is_online ? "Meeting link / Location" : "Location"}</Label>
                 <Input
                   value={sessionForm.location}
                   onChange={(e) =>
                     setSessionForm((prev) => ({ ...prev, location: e.target.value }))
                   }
-                  placeholder='Physical address or "virtual"'
+                  placeholder={isGroupLimited && sessionForm.is_online ? "Paste your meeting link" : 'Physical address or "virtual"'}
                   data-testid="input-session-location"
                 />
+                {isGroupLimited && sessionForm.is_online && (
+                  <p className="text-xs text-slate-500">Group events use a manual meeting link — Zoom is not available.</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Delivery Mode</Label>
@@ -4432,7 +4541,7 @@ export default function CreateComplexEvent() {
               </div>
             </div>
 
-            {(() => {
+            {!isGroupLimited && (() => {
               // task-692: always show the session Zoom panel for saved
               // sessions (regardless of is_online) so admins can attach a
               // Zoom link from any session that is being edited.
@@ -4492,7 +4601,7 @@ export default function CreateComplexEvent() {
               );
             })()}
 
-            {sessionForm.is_online && (
+            {sessionForm.is_online && !isGroupLimited && (
               <ZoomSessionConfig
                 zoomType={sessionForm.zoom_type}
                 zoomHostId={sessionForm.zoom_host_id}
