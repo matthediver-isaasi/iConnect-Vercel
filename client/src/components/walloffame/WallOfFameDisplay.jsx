@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { LazyImage } from "@/components/ui/lazy-image";
 
 export default function WallOfFameDisplay({ 
   sectionId,
+  categoryId = null,
   showCategoryName = true,
   customTitle,
   titleFontFamily = 'Poppins',
@@ -80,15 +81,51 @@ export default function WallOfFameDisplay({
     enabled: !!sectionId,
   });
 
-  // Auto-select category if there's only one
+  // Category selection: a pinned categoryId (from the canvas inspector) jumps
+  // straight to that category and skips the navigation grid; otherwise fall
+  // back to auto-selecting when there's only one category. We track the
+  // previous section/categoryId so that switching section or clearing the pin
+  // reliably reverts the internal selection (otherwise stale state would keep
+  // rendering the old category instead of the default navigation grid).
+  const prevSectionIdRef = useRef(sectionId);
+  const prevCategoryIdRef = useRef(categoryId);
   useEffect(() => {
-    if (!categoriesLoading && categories.length === 1 && !selectedCategory) {
+    if (categoriesLoading) return;
+
+    const sectionChanged = prevSectionIdRef.current !== sectionId;
+    const categoryIdChanged = prevCategoryIdRef.current !== categoryId;
+    prevSectionIdRef.current = sectionId;
+    prevCategoryIdRef.current = categoryId;
+
+    // Pinned to a specific category: always reflect it (or fall back to the
+    // navigation grid if the pinned category no longer exists).
+    if (categoryId) {
+      const match = categories.find((c) => String(c.id) === String(categoryId)) || null;
+      if (!selectedCategory || String(selectedCategory.id) !== String(match?.id)) {
+        setSelectedCategory(match);
+        setFlippedPerson(null);
+      }
+      return;
+    }
+
+    // Not pinned. If the section just changed or the pin was just cleared,
+    // revert to the default view (single category auto-selects, otherwise the
+    // navigation grid).
+    if (sectionChanged || categoryIdChanged) {
+      setSelectedCategory(categories.length === 1 ? categories[0] : null);
+      setFlippedPerson(null);
+      return;
+    }
+
+    // Initial load with no pin: auto-select when there's exactly one category.
+    if (categories.length === 1 && !selectedCategory) {
       setSelectedCategory(categories[0]);
     }
-  }, [categories, categoriesLoading, selectedCategory]);
+  }, [categories, categoriesLoading, selectedCategory, categoryId, sectionId]);
 
-  // Check if we should show the back button (only when more than one category)
-  const showBackButton = categories.length > 1;
+  // Check if we should show the back button (only when more than one category
+  // and the block isn't pinned to a single category).
+  const showBackButton = !categoryId && categories.length > 1;
 
   const { data: people = [], isLoading: peopleLoading } = useQuery({
     queryKey: ['public-wall-of-fame-people', selectedCategory?.id],

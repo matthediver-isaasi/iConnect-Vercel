@@ -4170,6 +4170,7 @@ function WallOfFameRender({ block, breakpoint }) {
         ) : (
           <WallOfFameDisplay
             sectionId={c.sectionId}
+            categoryId={c.categoryId || null}
             cardsPerRow={cols}
             cardGap={gap}
             showPhoto={c.showPhoto !== false}
@@ -4206,6 +4207,44 @@ function WallOfFameSectionPicker({ value, onChange, testId }) {
   );
 }
 
+function useWallOfFameCategories(sectionId) {
+  return useQuery({
+    queryKey: ['canvas', 'public-wall-of-fame-categories', sectionId],
+    queryFn: async () => (await publicClient.listWallOfFameCategories(sectionId)) || [],
+    enabled: !!sectionId,
+    staleTime: 60_000,
+  });
+}
+
+const WALL_OF_FAME_ALL_CATEGORIES = '__all__';
+
+function WallOfFameCategoryPicker({ sectionId, value, onChange, testId }) {
+  const { data: categories, isLoading } = useWallOfFameCategories(sectionId);
+  const options = (Array.isArray(categories) ? categories : [])
+    .map((cat) => ({ value: String(cat.id), label: cat.name || '(untitled category)' }));
+  return (
+    <Field
+      label="Category (optional)"
+      hint={isLoading ? 'Loading categories…' : 'Pin the block to a single category, skipping the category navigation.'}
+    >
+      <Select
+        value={value ? String(value) : WALL_OF_FAME_ALL_CATEGORIES}
+        onValueChange={(v) => onChange(v === WALL_OF_FAME_ALL_CATEGORIES ? null : v)}
+      >
+        <SelectTrigger className="h-8" data-testid={testId}>
+          <SelectValue placeholder="All categories" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={WALL_OF_FAME_ALL_CATEGORIES}>All categories</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 function WallOfFameInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
@@ -4213,9 +4252,17 @@ function WallOfFameInspector({ block, update }) {
     <>
       <WallOfFameSectionPicker
         value={c.sectionId}
-        onChange={(v) => set({ sectionId: v })}
+        onChange={(v) => set({ sectionId: v, categoryId: null })}
         testId="select-wall-of-fame-section"
       />
+      {c.sectionId ? (
+        <WallOfFameCategoryPicker
+          sectionId={c.sectionId}
+          value={c.categoryId}
+          onChange={(v) => set({ categoryId: v })}
+          testId="select-wall-of-fame-category"
+        />
+      ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap ?? 24} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-wall-of-fame-gap" />
       <ToggleField label="Show photo" value={c.showPhoto !== false} onChange={(v) => set({ showPhoto: v })} testId="toggle-wall-of-fame-photo" />

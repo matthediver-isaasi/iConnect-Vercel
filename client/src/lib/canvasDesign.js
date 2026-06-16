@@ -924,6 +924,7 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       sectionId: '',
+      categoryId: null,
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 24,
       showPhoto: true,
