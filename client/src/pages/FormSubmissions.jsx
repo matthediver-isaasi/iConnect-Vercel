@@ -32,8 +32,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download, FileDown, Calendar, Inbox, Bookmark, Save, Pencil } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -55,6 +56,41 @@ import SubmissionReplies from "@/components/forms/SubmissionReplies";
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
+
+// Email normalisation/extraction helpers mirroring
+// scripts/event-form-completion-report.mjs so the banner totals match the
+// script exactly. Email is the only reliable join key between bookings and
+// submissions; always compare lower-cased and trimmed.
+const normEmail = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : null);
+
+const isEmailValue = (v) =>
+  typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+// Resolve a submission's submitter email the same way the script does: prefer
+// the persisted column, then email-typed / email-named form fields, then any
+// value in submission_data that parses as an email.
+function extractSubmissionEmail(submission, fields) {
+  if (isEmailValue(submission?.submitted_by_email)) {
+    return submission.submitted_by_email.trim();
+  }
+  const data = submission?.submission_data || {};
+  for (const field of fields) {
+    if (!field || !field.id) continue;
+    const idLower = (field.id || '').toLowerCase();
+    const labelLower = (field.label || '').toLowerCase();
+    const looksLikeEmail =
+      field.type === 'email' ||
+      idLower.includes('email') || idLower.includes('e-mail') ||
+      labelLower.includes('email') || labelLower.includes('e-mail');
+    if (!looksLikeEmail) continue;
+    const val = data[field.id];
+    if (isEmailValue(val)) return val.trim();
+  }
+  for (const value of Object.values(data)) {
+    if (isEmailValue(value)) return value.trim();
+  }
+  return null;
+}
 
 export default function FormSubmissionsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -115,6 +151,7 @@ export default function FormSubmissionsPage() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [isExportingWord, setIsExportingWord] = useState(false);
   const [exportProgress, setExportProgress] = useState(null);
+  const [bannerDetailsOpen, setBannerDetailsOpen] = useState(false);
   const tenantBranding = useTenantBranding();
 
   const queryClient = useQueryClient();
@@ -276,6 +313,115 @@ export default function FormSubmissionsPage() {
     if (!eventId) return null;
     return eventsById[eventId] || { id: eventId, title: 'Linked event' };
   };
+
+  // When a single event-linked form is selected, surface a completion banner
+  // above the submissions list. Resolves the form's linked event; renders
+  // nothing for "All Forms" or non-event-linked forms.
+  const selectedFormEvent = useMemo(() => {
+    if (selectedForm === 'all') return null;
+    const form = formsById[selectedForm];
+    if (!form || !form.is_event_related || !form.related_event_id) return null;
+    return {
+      form,
+      eventId: form.related_event_id,
+      standardTitle: eventsById[form.related_event_id]?.title || null,
+    };
+  }, [selectedForm, formsById, eventsById]);
+
+  // Load the linked event's attendees from BOTH booking shapes (an event lives
+  // in one or the other). listAll pages past PostgREST's 1000-row cap so large
+  // events aren't truncated. Also resolves a complex-event title when the event
+  // isn't a standard event (eventsById only holds standard events).
+  const bannerEventId = selectedFormEvent?.eventId || null;
+  const { data: bannerData, isLoading: bannerLoading } = useQuery({
+    queryKey: ['event-form-completion', bannerEventId],
+    enabled: !!bannerEventId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const fetchAll = async (entity) => {
+        try {
+          return await entity.listAll({ filter: { event_id: bannerEventId } });
+        } catch {
+          return [];
+        }
+      };
+      const [standard, complex] = await Promise.all([
+        fetchAll(base44.entities.Booking),
+        fetchAll(base44.entities.ComplexEventBooking),
+      ]);
+      let complexTitle = null;
+      if (!eventsById[bannerEventId]?.title) {
+        try {
+          const ce = await base44.entities.ComplexEvent.get(bannerEventId);
+          complexTitle = ce?.title || null;
+        } catch {
+          complexTitle = null;
+        }
+      }
+      return { standard: standard || [], complex: complex || [], complexTitle };
+    },
+  });
+
+  // Compute received / waiting totals against the event's ACTIVE attendee list,
+  // matching scripts/event-form-completion-report.mjs: de-duplicate bookings by
+  // lower-cased email (an active booking upgrades a cancelled one for the same
+  // email), then count active attendees whose email matches a submission for
+  // this form. Counts against ALL submissions for the form, independent of the
+  // page's status/date/tab filters.
+  const bannerCompletion = useMemo(() => {
+    if (!selectedFormEvent || !bannerData) return null;
+    const fields = Array.isArray(selectedFormEvent.form.fields)
+      ? selectedFormEvent.form.fields
+      : [];
+
+    const fullName = (first, last) =>
+      [first, last].filter(Boolean).join(' ').trim() || '(no name)';
+
+    const attendeesByEmail = new Map();
+    for (const b of [...(bannerData.standard || []), ...(bannerData.complex || [])]) {
+      const email = normEmail(b.attendee_email);
+      if (!email) continue;
+      const cancelled = b.status === 'cancelled';
+      const name = fullName(b.attendee_first_name, b.attendee_last_name);
+      const existing = attendeesByEmail.get(email);
+      if (!existing) {
+        attendeesByEmail.set(email, { email, name, cancelled });
+      } else if (existing.cancelled && !cancelled) {
+        // Prefer an active booking over a cancelled one for the same email.
+        existing.cancelled = false;
+        existing.name = name;
+      }
+    }
+
+    const submittedEmails = new Set();
+    for (const s of submissions) {
+      if (s.form_id !== selectedFormEvent.form.id) continue;
+      const email = normEmail(extractSubmissionEmail(s, fields));
+      if (email) submittedEmails.add(email);
+    }
+
+    const activeAttendees = [...attendeesByEmail.values()]
+      .filter((a) => !a.cancelled)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const completedAttendees = [];
+    const waitingAttendees = [];
+    for (const a of activeAttendees) {
+      if (submittedEmails.has(a.email)) completedAttendees.push(a);
+      else waitingAttendees.push(a);
+    }
+
+    return {
+      total: activeAttendees.length,
+      completed: completedAttendees.length,
+      waiting: waitingAttendees.length,
+      completedAttendees,
+      waitingAttendees,
+    };
+  }, [selectedFormEvent, bannerData, submissions]);
+
+  const bannerEventTitle =
+    selectedFormEvent?.standardTitle || bannerData?.complexTitle || 'Linked event';
 
   const sortedForms = useMemo(() => {
     return [...forms].sort((a, b) =>
@@ -1774,6 +1920,103 @@ export default function FormSubmissionsPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {selectedFormEvent && (
+          <Alert className="mb-4 border-slate-200" data-testid="banner-event-completion">
+            <Calendar className="h-4 w-4" />
+            <AlertTitle data-testid="text-event-completion-title">
+              Event form{bannerLoading ? '' : ` — ${bannerEventTitle}`}
+            </AlertTitle>
+            <AlertDescription>
+              {bannerLoading || !bannerCompletion ? (
+                <span className="flex items-center gap-2 text-slate-600">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading attendee completion…
+                </span>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+                    <span>
+                      This form is linked to event "<strong>{bannerEventTitle}</strong>".
+                    </span>
+                    <span className="flex items-center gap-1.5" data-testid="text-completion-received">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <strong>{bannerCompletion.completed}</strong> received / completed
+                    </span>
+                    <span className="flex items-center gap-1.5" data-testid="text-completion-waiting">
+                      <Clock className="w-4 h-4 text-slate-500" />
+                      <strong>{bannerCompletion.waiting}</strong> waiting to complete
+                    </span>
+                    <span className="text-slate-500">
+                      of {bannerCompletion.total} active {bannerCompletion.total === 1 ? 'attendee' : 'attendees'}
+                    </span>
+                    {bannerCompletion.total > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-foreground"
+                        onClick={() => setBannerDetailsOpen((open) => !open)}
+                        aria-expanded={bannerDetailsOpen}
+                        data-testid="button-toggle-attendee-breakdown"
+                      >
+                        {bannerDetailsOpen ? (
+                          <ChevronUp className="w-4 h-4 mr-1" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 mr-1" />
+                        )}
+                        {bannerDetailsOpen ? 'Hide attendees' : 'View attendees'}
+                      </Button>
+                    )}
+                  </div>
+
+                  {bannerDetailsOpen && bannerCompletion.total > 0 && (
+                    <div
+                      className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 pt-3 border-t border-slate-200"
+                      data-testid="attendee-breakdown"
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-2 font-medium text-foreground">
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                          Completed ({bannerCompletion.completed})
+                        </div>
+                        {bannerCompletion.completedAttendees.length === 0 ? (
+                          <p className="text-sm text-slate-500">No attendees have completed this form yet.</p>
+                        ) : (
+                          <ul className="space-y-1" data-testid="list-completed-attendees">
+                            {bannerCompletion.completedAttendees.map((a) => (
+                              <li key={`completed-${a.email}`} className="text-sm">
+                                <span className="text-foreground">{a.name}</span>{' '}
+                                <span className="text-slate-500">&lt;{a.email}&gt;</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-2 font-medium text-foreground">
+                          <Clock className="w-4 h-4 text-slate-500" />
+                          Waiting to complete ({bannerCompletion.waiting})
+                        </div>
+                        {bannerCompletion.waitingAttendees.length === 0 ? (
+                          <p className="text-sm text-slate-500">Everyone has completed this form.</p>
+                        ) : (
+                          <ul className="space-y-1" data-testid="list-waiting-attendees">
+                            {bannerCompletion.waitingAttendees.map((a) => (
+                              <li key={`waiting-${a.email}`} className="text-sm">
+                                <span className="text-foreground">{a.name}</span>{' '}
+                                <span className="text-slate-500">&lt;{a.email}&gt;</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {filteredSubmissions.length > 0 && (
           <Card className="border-slate-200 mb-4">
