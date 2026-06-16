@@ -812,6 +812,7 @@ export const BLOCK_DEFAULTS = {
     content: {
       eventId: '',
       categoryIds: [],
+      categoryOrder: [],
       columns: { desktop: 4, tablet: 2, mobile: 1 },
       gap: 16,
       showDescription: true,

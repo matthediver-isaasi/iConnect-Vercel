@@ -10,7 +10,7 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
-  Award,
+  Award, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -188,6 +188,59 @@ function MultiCheckboxField({ label, value, onChange, options, testId, hint }) {
             </label>
           );
         })}
+      </div>
+    </Field>
+  );
+}
+
+// Up/down reorder list for a set of options. `value` is an ordered list of
+// ids; any option not present in `value` is shown after the ordered ones in
+// the order it arrives in `options`. onChange always receives the full id list
+// covering every option, so the stored order stays in sync with availability.
+function CategoryReorderField({ label = 'Category display order', options, value, onChange, testId, hint }) {
+  const available = options.map((o) => String(o.value));
+  const stored = (Array.isArray(value) ? value.map(String) : []).filter((id) => available.includes(id));
+  const ordered = [...stored, ...available.filter((id) => !stored.includes(id))];
+  const labelFor = (id) => options.find((o) => String(o.value) === id)?.label || id;
+  const move = (idx, dir) => {
+    const target = idx + dir;
+    if (target < 0 || target >= ordered.length) return;
+    const next = [...ordered];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  };
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex flex-col gap-1.5" data-testid={testId}>
+        {ordered.map((id, idx) => (
+          <div
+            key={id}
+            className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1"
+            data-testid={`${testId}-item-${id}`}
+          >
+            <span className="flex-1 truncate text-xs text-slate-700">{labelFor(id)}</span>
+            <Button
+              size="icon"
+              variant="ghost"
+              disabled={idx === 0}
+              onClick={() => move(idx, -1)}
+              data-testid={`${testId}-up-${id}`}
+              aria-label={`Move ${labelFor(id)} up`}
+            >
+              <ChevronUp className="w-3 h-3" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              disabled={idx === ordered.length - 1}
+              onClick={() => move(idx, 1)}
+              data-testid={`${testId}-down-${id}`}
+              aria-label={`Move ${labelFor(id)} down`}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </Button>
+          </div>
+        ))}
       </div>
     </Field>
   );
@@ -2488,8 +2541,11 @@ function SpeakerGridInspector({ block, update, breakpoint }) {
 // ============================================================================
 // SPONSOR GRID
 // ============================================================================
-function useEventSponsors(eventValue) {
+function useEventSponsors(eventValue, categoryOrder) {
   const value = eventValue ? String(eventValue) : '';
+  // Stable key so the grouping memo only recomputes when the order actually
+  // changes (the array prop identity may change every render).
+  const orderKey = Array.isArray(categoryOrder) ? categoryOrder.map(String).join(',') : '';
   const { data: allEvents } = useQuery({
     queryKey: ['canvas', 'public-events'],
     queryFn: () => publicClient.listEvents(),
@@ -2555,12 +2611,23 @@ function useEventSponsors(eventValue) {
       const meta = catMeta.get(key);
       result.push({ id: key, name: meta?.name || '', order: meta?.order ?? 9998, sponsors: list });
     }
-    result.sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name));
+    // Per-block category order override (Task #1503). Categories listed in the
+    // override sort first, in the override's order; everything not listed falls
+    // back to the existing stored-order/alphabetical sort after them. The
+    // synthetic "Other" bucket is never part of the override and stays last.
+    const orderList = orderKey ? orderKey.split(',') : [];
+    const orderIndex = new Map(orderList.map((id, i) => [id, i]));
+    result.sort((a, b) => {
+      const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Infinity;
+      const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
+      if (ai !== bi) return ai - bi;
+      return (a.order - b.order) || a.name.localeCompare(b.name);
+    });
     if (byCat.has('__none__')) {
       result.push({ id: '__none__', name: 'Other', order: 9999, sponsors: byCat.get('__none__') });
     }
     return result;
-  }, [data]);
+  }, [data, orderKey]);
 
   // Per-assignment, event-specific sponsorship detail (e.g. "Lunch"), keyed by
   // sponsor id. UNIQUE(event_id, sponsor_id) guarantees one detail per sponsor.
@@ -2701,7 +2768,7 @@ function SponsorCard({ sponsor, showDescription, showSponsorDetail, detail, name
 
 function SponsorGridRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
-  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId);
+  const { hasEvent, groups, detailById, totalSponsors, isLoading, isError } = useEventSponsors(c.eventId, c.categoryOrder);
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 16;
   const [selected, setSelected] = useState(null);
@@ -2838,11 +2905,13 @@ function SponsorGridInspector({ block, update, breakpoint }) {
     value: g.id,
     label: g.id === '__none__' ? (g.name || 'Other') : (g.name || 'Untitled category'),
   }));
+  // The "Other" bucket can't be reordered — it always renders last.
+  const orderableOptions = categoryOptions.filter((o) => o.value !== '__none__');
   return (
     <>
       <EventCarouselPickerRow
         value={c.eventId || ''}
-        onChange={(v) => set({ eventId: v, categoryIds: [] })}
+        onChange={(v) => set({ eventId: v, categoryIds: [], categoryOrder: [] })}
         testId="select-sponsor-grid-event"
       />
       {hasEvent && categoryOptions.length > 0 ? (
@@ -2853,6 +2922,15 @@ function SponsorGridInspector({ block, update, breakpoint }) {
           options={categoryOptions}
           testId="multiselect-sponsor-grid-categories"
           hint="Leave all unchecked to show every sponsor for the event."
+        />
+      ) : null}
+      {hasEvent && orderableOptions.length > 1 ? (
+        <CategoryReorderField
+          options={orderableOptions}
+          value={c.categoryOrder}
+          onChange={(v) => set({ categoryOrder: v })}
+          testId="reorder-sponsor-grid-categories"
+          hint="Use the arrows to set the order categories appear in. 'Other' always shows last."
         />
       ) : null}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
