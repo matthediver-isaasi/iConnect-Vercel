@@ -390,28 +390,14 @@ function formatSessionTime(dateStr, timeZone = 'UTC') {
   }
 }
 
-export function replacePlaceholders(template, data) {
-  const { event, booking, complexEventData } = data;
-
+// Resolve the booking-scoped placeholder tokens shared between transactional
+// event emails and bulk campaigns. Handles both [[booking.*]] and the legacy
+// {{...}} forms documented in client/src/lib/emailPlaceholders.js. Kept here as
+// the single source of truth so campaign sends reuse it rather than duplicating
+// the token map. `booking` may be a partial row; missing fields resolve to the
+// same defaults transactional emails already use.
+export function replaceBookingPlaceholders(template, booking) {
   let result = template || '';
-
-  result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
-  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date, event?.timezone));
-  result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
-  result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
-
-  result = result.replace(/\[\[member\.first_name\]\]/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\[\[member\.last_name\]\]/gi, booking?.attendee_last_name || '');
-  result = result.replace(/\[\[member\.email\]\]/gi, booking?.attendee_email || '');
-  result = result.replace(/\[\[attendee\.first_name\]\]/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking?.attendee_last_name || '');
-  result = result.replace(/\[\[attendee\.email\]\]/gi, booking?.attendee_email || '');
-
-  result = result.replace(/\[\[event\.name\]\]/gi, event?.title || '');
-  result = result.replace(/\[\[event\.title\]\]/gi, event?.title || '');
-  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date, event?.timezone));
-  result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
 
   result = result.replace(/\{\{booking_id\}\}/gi, booking?.id || '');
   result = result.replace(/\[\[booking\.id\]\]/gi, booking?.id || '');
@@ -452,6 +438,34 @@ export function replacePlaceholders(template, data) {
     result = result.replace(/\{\{offer_discount_amount\}\}/gi, '');
     result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, '');
   }
+
+  return result;
+}
+
+export function replacePlaceholders(template, data) {
+  const { event, booking, complexEventData } = data;
+
+  let result = template || '';
+
+  result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
+  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date, event?.timezone));
+  result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
+  result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
+
+  result = result.replace(/\[\[member\.first_name\]\]/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\[\[member\.last_name\]\]/gi, booking?.attendee_last_name || '');
+  result = result.replace(/\[\[member\.email\]\]/gi, booking?.attendee_email || '');
+  result = result.replace(/\[\[attendee\.first_name\]\]/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking?.attendee_last_name || '');
+  result = result.replace(/\[\[attendee\.email\]\]/gi, booking?.attendee_email || '');
+
+  result = result.replace(/\[\[event\.name\]\]/gi, event?.title || '');
+  result = result.replace(/\[\[event\.title\]\]/gi, event?.title || '');
+  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date, event?.timezone));
+  result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
+
+  result = replaceBookingPlaceholders(result, booking);
 
   const zoomLink = event?.zoom_join_url || booking?.zoom_join_url || '';
   if (zoomLink) {

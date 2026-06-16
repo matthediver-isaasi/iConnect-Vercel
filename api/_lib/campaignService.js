@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import crypto from 'crypto';
@@ -752,6 +753,24 @@ export function generateTrackingToken(campaignId, recipientId, linkIndex) {
   return Buffer.from(data).toString('base64url');
 }
 
+// Decode the HTML entities a stored href can carry (most importantly &amp;,
+// which the rich-text editor writes for a typed `&`) back to their literal
+// characters. Without this the entity is percent-encoded verbatim into the
+// tracking redirect and survives the round-trip, splitting query strings into
+// bogus params like `amp;booking_id` instead of `booking_id`.
+function decodeHtmlEntitiesInUrl(url) {
+  if (!url) return url;
+  return url
+    .replace(/&amp;/gi, '&')
+    .replace(/&#0*38;/g, '&')
+    .replace(/&#x0*26;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#x0*27;/gi, "'");
+}
+
 export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost = null) {
   if (!html) return html;
 
@@ -769,8 +788,14 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
         return match;
       }
 
+      // Normalize entity-encoded ampersands (and other entities) to their
+      // literal form before wrapping, so the destination link carried in the
+      // tracking redirect uses single `&` separators and its query params
+      // arrive intact.
+      const cleanUrl = decodeHtmlEntitiesInUrl(url);
+
       const token = generateTrackingToken(campaignId, recipientId, linkIndex);
-      const trackUrl = `${baseUrl}/api/track/click?t=${token}&url=${encodeURIComponent(url)}`;
+      const trackUrl = `${baseUrl}/api/track/click?t=${token}&url=${encodeURIComponent(cleanUrl)}`;
       linkIndex++;
 
       return `<a ${prefix}${trackUrl}${suffix}>`;
@@ -2726,6 +2751,129 @@ async function resolveEventQrImageUrl(recipient, campaign, tenantId, requestHost
   return null;
 }
 
+// Resolve the event ids a campaign's booking tokens should be scoped to. Reuses
+// the QR event-scope (event_attendees / audience_list event_attendees segments)
+// and additionally resolves event_form targets (and event_form audience
+// segments) to their related event, so a booking lookup can be pinned to the
+// campaign's event rather than matching any of the recipient's bookings.
+async function resolveCampaignBookingEventScope(campaign, tenantId) {
+  const scope = await resolveCampaignEventScope(campaign, tenantId);
+  if (scope && scope.length > 0) return scope;
+
+  const formIds = new Set();
+  if (campaign.target_type === 'event_form'
+    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0) {
+    for (const id of campaign.target_ids) if (id) formIds.add(id);
+  } else if (campaign.target_type === 'audience_list'
+    && Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0) {
+    try {
+      const { data: lists } = await supabase
+        .from('audience_list')
+        .select('id, target_audiences')
+        .eq('tenant_id', tenantId)
+        .in('id', campaign.target_ids);
+      for (const list of lists || []) {
+        const segs = list.target_audiences;
+        if (!Array.isArray(segs)) continue;
+        for (const seg of segs) {
+          if (seg?.type === 'event_form' && Array.isArray(seg.ids)) {
+            for (const id of seg.ids) if (id) formIds.add(id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Campaign Booking] audience_list event_form scope failed:', e?.message);
+    }
+  }
+
+  if (formIds.size === 0) return null;
+  try {
+    const { data: forms } = await supabase
+      .from('form')
+      .select('id, related_event_id')
+      .eq('tenant_id', tenantId)
+      .in('id', [...formIds]);
+    const eventIds = [...new Set((forms || []).map(f => f.related_event_id).filter(Boolean))];
+    return eventIds.length > 0 ? eventIds : null;
+  } catch (e) {
+    console.warn('[Campaign Booking] form->event resolution failed:', e?.message);
+    return null;
+  }
+}
+
+// Resolve the recipient's OWN booking row (attendee-level, unique id) for
+// [[booking.*]] token substitution in a campaign send. Matches by the
+// recipient's email against attendee_email (so each colleague booked together
+// gets their own row, not the booking-group reference), falling back to the
+// booker member for legacy bookings with no attendee_email. Scoped to the
+// campaign's event(s) when determinable. Returns a normalized booking object
+// (the fields replaceBookingPlaceholders consumes) or null when none matches.
+async function resolveRecipientBooking(recipient, campaign, tenantId) {
+  const email = (recipient?.email || '').trim();
+  const memberId = recipient?.member_id || null;
+  if (!email && !memberId) return null;
+
+  const escapeLike = (s) => String(s).replace(/([%_\\])/g, '\\$1');
+  const eventIds = await resolveCampaignBookingEventScope(campaign, tenantId);
+
+  const normalize = (row, totalKey) => ({
+    id: row.id,
+    booking_reference: row.booking_reference,
+    ticket_class_name: row.ticket_class_name,
+    ticket_price: row.ticket_price,
+    total_cost: row[totalKey],
+  });
+
+  const lookup = async (table, totalKey) => {
+    const sel = `id, booking_reference, ticket_class_name, ticket_price, ${totalKey}, attendee_email, member_id, created_at`;
+    // Attendee-level match: the recipient is the attendee.
+    if (email) {
+      let q = supabase
+        .from(table)
+        .select(sel)
+        .eq('tenant_id', tenantId)
+        .ilike('attendee_email', escapeLike(email))
+        .eq('status', 'confirmed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (eventIds) q = q.in('event_id', eventIds);
+      const { data } = await q;
+      if (data && data.length > 0) return normalize(data[0], totalKey);
+    }
+    // Booker fallback: legacy booking with no attendee_email, keyed by booker.
+    if (memberId) {
+      let q = supabase
+        .from(table)
+        .select(sel)
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .eq('status', 'confirmed')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (eventIds) q = q.in('event_id', eventIds);
+      const { data } = await q;
+      const row = (data || []).find(r => !(r.attendee_email || '').trim());
+      if (row) return normalize(row, totalKey);
+    }
+    return null;
+  };
+
+  try {
+    const simple = await lookup('booking', 'total_cost');
+    if (simple) return simple;
+  } catch (e) {
+    console.warn('[Campaign Booking] simple booking lookup failed:', e?.message);
+  }
+  try {
+    const complex = await lookup('complex_event_booking', 'total_paid');
+    if (complex) return complex;
+  } catch (e) {
+    console.warn('[Campaign Booking] complex booking lookup failed:', e?.message);
+  }
+
+  return null;
+}
+
 async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo) {
   try {
     let html = campaign.html_content || '';
@@ -2827,6 +2975,22 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
     if (recipientOrg) {
       html = replacePlaceholders(html, 'organization', recipientOrg, placeholderContext);
       subject = replacePlaceholders(subject, 'organization', recipientOrg, placeholderContext);
+    }
+
+    // Resolve [[booking.*]] tokens against the recipient's own booking row.
+    // Must run BEFORE rewriteLinksForTracking so a resolved id ends up inside
+    // the tracked URL. When the recipient has no matching booking the tokens
+    // resolve to empty (an empty booking object), matching how other unmatched
+    // placeholders behave rather than leaking the raw [[booking.id]] text.
+    if (/\[\[booking\.|\{\{booking_/i.test(html) || /\[\[booking\.|\{\{booking_/i.test(subject)) {
+      let booking = null;
+      try {
+        booking = await resolveRecipientBooking(recipient, campaign, tenantId);
+      } catch (bookingErr) {
+        console.warn('[Campaign] booking resolution failed for recipient', recipient.id, bookingErr?.message);
+      }
+      html = replaceBookingPlaceholders(html, booking || {});
+      subject = replaceBookingPlaceholders(subject, booking || {});
     }
 
     html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
