@@ -7,9 +7,9 @@ import { getTenantContext } from './tenantContext.js';
  *   - they have an active assignment (member_group_assignment row),
  *   - the group is active (member_group.is_active = true),
  *   - the assignment has not expired (expires_at IS NULL OR expires_at > now()),
- *   - the assignment's group_role is in member_group.ems_enabled_roles.
+ *   - the assignment is flagged as Group Admin (is_group_admin = true).
  *
- * Returns { tenantContext, memberId, groups: [{ groupId, groupName, role, emsEnabledRoles, allRoles }] }.
+ * Returns { tenantContext, memberId, groups: [{ groupId, groupName, role, allRoles }] }.
  * On 0 qualifying groups the caller list is empty — callers MUST 403.
  *
  * Also exposes a `requireGroupAccess(groups, groupId)` helper to assert the
@@ -37,7 +37,7 @@ export async function getCallerEmsAccess(req) {
   // OR syntax.
   const { data: assignments, error: assignErr } = await supabase
     .from('member_group_assignment')
-    .select('group_id, group_role, expires_at')
+    .select('group_id, group_role, expires_at, is_group_admin')
     .eq('member_id', memberId);
 
   if (assignErr) {
@@ -59,7 +59,7 @@ export async function getCallerEmsAccess(req) {
 
   const { data: groupRows, error: groupErr } = await supabase
     .from('member_group')
-    .select('id, name, is_active, ems_enabled_roles, roles, tenant_id')
+    .select('id, name, is_active, roles, tenant_id')
     .eq('tenant_id', tenantContext.tenantId)
     .in('id', groupIds);
 
@@ -79,8 +79,9 @@ export async function getCallerEmsAccess(req) {
   for (const a of liveAssignments) {
     const g = activeGroups.get(a.group_id);
     if (!g) continue;
-    const allowed = Array.isArray(g.ems_enabled_roles) ? g.ems_enabled_roles : [];
-    if (!allowed.includes(a.group_role)) continue;
+    // Sending is gated by the explicit per-assignment Group Admin flag, not by
+    // the assignment's role. Treat missing/null as not-admin.
+    if (a.is_group_admin !== true) continue;
     const key = `${a.group_id}::${a.group_role}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -88,7 +89,6 @@ export async function getCallerEmsAccess(req) {
       groupId: g.id,
       groupName: g.name,
       role: a.group_role,
-      emsEnabledRoles: allowed,
       allRoles: Array.isArray(g.roles) ? g.roles : [],
     });
   }

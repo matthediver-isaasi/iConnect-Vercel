@@ -77,7 +77,6 @@ export default function MemberGroupManagementPage() {
     header_image_url: '',
     allow_self_join: false,
     default_self_join_role: '',
-    ems_enabled_roles: [],
     projects_enabled: false,
     projects_enabled_roles: [],
     events_enabled: false,
@@ -360,7 +359,6 @@ export default function MemberGroupManagementPage() {
       header_image_url: '',
       allow_self_join: false,
       default_self_join_role: '',
-      ems_enabled_roles: [],
       projects_enabled: false,
       projects_enabled_roles: [],
       events_enabled: false,
@@ -385,7 +383,6 @@ export default function MemberGroupManagementPage() {
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
       default_self_join_role: group.default_self_join_role || '',
-      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? group.ems_enabled_roles : [],
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
@@ -410,7 +407,6 @@ export default function MemberGroupManagementPage() {
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
       default_self_join_role: group.default_self_join_role || '',
-      ems_enabled_roles: Array.isArray(group.ems_enabled_roles) ? [...group.ems_enabled_roles] : [],
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
@@ -534,10 +530,9 @@ export default function MemberGroupManagementPage() {
       .trim().length > 0;
     const trimmedTerms = termsHasText ? rawTerms : '';
 
-    // Prune leadership_roles / ems_enabled_roles / projects_enabled_roles to only roles still on the group.
+    // Prune leadership_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
     const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
-    const prunedEms = (groupForm.ems_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedEvents = (groupForm.events_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedForum = (groupForm.forum_enabled_roles || []).filter((r) => validRoles.has(r));
@@ -546,7 +541,6 @@ export default function MemberGroupManagementPage() {
       ...groupForm,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
       leadership_roles: prunedLeadership,
-      ems_enabled_roles: prunedEms,
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
@@ -604,7 +598,6 @@ export default function MemberGroupManagementPage() {
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
       leadership_roles: (groupForm.leadership_roles || []).filter(r => r !== role),
-      ems_enabled_roles: (groupForm.ems_enabled_roles || []).filter(r => r !== role),
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       events_enabled_roles: (groupForm.events_enabled_roles || []).filter(r => r !== role),
       forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
@@ -622,12 +615,6 @@ export default function MemberGroupManagementPage() {
     const current = new Set(groupForm.events_enabled_roles || []);
     if (current.has(role)) current.delete(role); else current.add(role);
     setGroupForm({ ...groupForm, events_enabled_roles: Array.from(current) });
-  };
-
-  const toggleEmsRole = (role) => {
-    const current = new Set(groupForm.ems_enabled_roles || []);
-    if (current.has(role)) current.delete(role); else current.add(role);
-    setGroupForm({ ...groupForm, ems_enabled_roles: Array.from(current) });
   };
 
   const toggleProjectsRole = (role) => {
@@ -1460,40 +1447,6 @@ export default function MemberGroupManagementPage() {
                         </SelectContent>
                       </Select>
                     )}
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-2 border-t border-slate-200 space-y-3">
-                <div className="flex flex-col gap-1">
-                  <Label>Roles allowed to send group emails</Label>
-                  <span className="text-xs text-slate-500">
-                    Members assigned one of these roles will see a "Group Email" page where they can email the rest of the group.
-                  </span>
-                </div>
-                {(groupForm.roles || []).length === 0 ? (
-                  <p className="text-xs text-slate-500">Add at least one role above to choose who can send group emails.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {groupForm.roles.map((role) => {
-                      const checked = (groupForm.ems_enabled_roles || []).includes(role);
-                      return (
-                        <label
-                          key={role}
-                          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
-                          data-testid={`label-ems-role-${role}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleEmsRole(role)}
-                            className="w-4 h-4"
-                            data-testid={`checkbox-ems-role-${role}`}
-                          />
-                          <span>{role}</span>
-                        </label>
-                      );
-                    })}
                   </div>
                 )}
               </div>
