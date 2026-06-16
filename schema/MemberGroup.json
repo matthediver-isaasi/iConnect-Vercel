@@ -36,14 +36,6 @@
         "type": "string",
         "description": "Role assigned automatically when a member self-joins this group"
       },
-      "ems_enabled_roles": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "default": [],
-        "description": "Roles within this group that are allowed to send EMS group emails to other members"
-      },
       "classification_id": {
         "type": "string",
         "description": "Optional MemberGroupClassification this group belongs to (organisational label only, no behaviour)"

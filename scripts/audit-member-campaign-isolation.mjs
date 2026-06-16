@@ -10,8 +10,7 @@
  *      unchanged.
  *   2. Every member-originated row (created_by_member_id IS NOT NULL) ALSO has
  *      a non-null member_group_id, an audience that targets only that group,
- *      and the owning member is still a member_group_assignment row whose
- *      group_role is in member_group.ems_enabled_roles.
+ *      and the owning member is still a member_group_assignment row.
  *   3. No member-originated row leaks across tenants
  *      (member.tenant_id === campaign.tenant_id === group.tenant_id).
  *   4. Endpoint fail-closed behavior: every /api/member-campaigns/* route
@@ -101,7 +100,7 @@ async function main() {
       .maybeSingle();
     const { data: group } = await supabase
       .from('member_group')
-      .select('id, tenant_id, ems_enabled_roles, is_active')
+      .select('id, tenant_id, is_active')
       .eq('id', r.member_group_id)
       .maybeSingle();
 
@@ -113,17 +112,14 @@ async function main() {
 
     const { data: assignment } = await supabase
       .from('member_group_assignment')
-      .select('group_role, expires_at')
+      .select('group_role, is_group_admin, expires_at')
       .eq('group_id', r.member_group_id)
       .eq('member_id', r.created_by_member_id)
       .maybeSingle();
     if (!assignment) {
       console.warn(`  ⚠ row ${r.id}: owner is no longer assigned to the group (historical data)`);
-    } else {
-      const allowed = Array.isArray(group.ems_enabled_roles) ? group.ems_enabled_roles : [];
-      if (!allowed.includes(assignment.group_role)) {
-        console.warn(`  ⚠ row ${r.id}: owner role "${assignment.group_role}" no longer in ems_enabled_roles (historical data)`);
-      }
+    } else if (assignment.is_group_admin !== true) {
+      console.warn(`  ⚠ row ${r.id}: owner is no longer a group admin (historical data)`);
     }
   }
   if (memberRows.length > 0 && failures.length === 0) ok('member-originated rows are scoped correctly');
