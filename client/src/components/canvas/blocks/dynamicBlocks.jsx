@@ -4141,33 +4141,43 @@ function WallOfFameRender({ block, breakpoint }) {
   const cols = columnsForBreakpoint(c, breakpoint);
   const gap = c.gap ?? 24;
   const { data: sections, isLoading, isError } = useWallOfFameSections();
+  // When full-bleed, the block spans 100vw but its content should re-align to
+  // the page's centered content column. `--cb-content-width` is published by
+  // the stage stylesheet per breakpoint (1200/768/375); falls back to 1200.
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
 
   if (!c.sectionId) {
     return (
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Wall of Fame'}>
-        {isLoading ? (
-          <ListSkeleton count={3} columns={cols} gap={gap} />
-        ) : (
-          <EmptyState icon={Award} text={c.emptyText || 'Select a Wall of Fame section in the inspector.'} />
-        )}
+        <div className="w-full h-full" style={railStyle}>
+          {isLoading ? (
+            <ListSkeleton count={3} columns={cols} gap={gap} />
+          ) : (
+            <EmptyState icon={Award} text={c.emptyText || 'Select a Wall of Fame section in the inspector.'} />
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Wall of Fame'}>
-      {isError ? (
-        <ErrorState message="Couldn't load the Wall of Fame right now." />
-      ) : (
-        <WallOfFameDisplay
-          sectionId={c.sectionId}
-          cardsPerRow={cols}
-          cardGap={gap}
-          showPhoto={c.showPhoto !== false}
-          showJobTitle={c.showJobTitle !== false}
-          showBioSnippet={!!c.showBioSnippet}
-        />
-      )}
+      <div className="w-full h-full" style={railStyle}>
+        {isError ? (
+          <ErrorState message="Couldn't load the Wall of Fame right now." />
+        ) : (
+          <WallOfFameDisplay
+            sectionId={c.sectionId}
+            cardsPerRow={cols}
+            cardGap={gap}
+            showPhoto={c.showPhoto !== false}
+            showJobTitle={c.showJobTitle !== false}
+            showBioSnippet={!!c.showBioSnippet}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -4211,6 +4221,12 @@ function WallOfFameInspector({ block, update }) {
       <ToggleField label="Show photo" value={c.showPhoto !== false} onChange={(v) => set({ showPhoto: v })} testId="toggle-wall-of-fame-photo" />
       <ToggleField label="Show job title" value={c.showJobTitle !== false} onChange={(v) => set({ showJobTitle: v })} testId="toggle-wall-of-fame-job-title" />
       <ToggleField label="Show bio snippet" value={!!c.showBioSnippet} onChange={(v) => set({ showBioSnippet: v })} testId="toggle-wall-of-fame-bio-snippet" />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-wall-of-fame-full-bleed"
+      />
       <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-wall-of-fame-empty" />
     </>
   );

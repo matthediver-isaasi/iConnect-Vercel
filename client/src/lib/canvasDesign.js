@@ -186,6 +186,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.HERO,
   BLOCK_TYPES.NEWS_TICKER,
   BLOCK_TYPES.MEGA_MENU,
+  BLOCK_TYPES.WALL_OF_FAME,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -928,6 +929,7 @@ export const BLOCK_DEFAULTS = {
       showPhoto: true,
       showJobTitle: true,
       showBioSnippet: false,
+      fullBleed: false,
       emptyText: 'Select a Wall of Fame section in the inspector.',
     },
   },
