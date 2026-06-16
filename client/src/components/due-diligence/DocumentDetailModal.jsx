@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   FileText, Image, FileSpreadsheet, File, Check, X, Clock, 
   Upload, Download, Send, Loader2, ChevronDown, ChevronUp, ExternalLink,
-  MessageSquare, History, Copy, Globe
+  MessageSquare, History, Copy, Globe, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
@@ -139,7 +139,7 @@ function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
   );
 }
 
-function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, updatingVersionId, updatingAction, hasApprovedVersion, onAddComment, isAddingComment }) {
+function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onUnapprove, onReject, updatingVersionId, updatingAction, hasApprovedVersion, onAddComment, isAddingComment }) {
   const statusConfig = STATUS_CONFIG[version.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const [expanded, setExpanded] = useState(showPreview);
@@ -151,6 +151,7 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
   // Check if this specific version is being updated
   const isThisVersionUpdating = updatingVersionId === version.id;
   const isApproving = isThisVersionUpdating && updatingAction === 'approve';
+  const isUnapproving = isThisVersionUpdating && updatingAction === 'unapprove';
   const isRejecting = isThisVersionUpdating && updatingAction === 'reject';
   const isAnyUpdating = !!updatingVersionId;
 
@@ -182,21 +183,39 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant={isApproved ? 'default' : 'outline'}
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onApprove(version); }}
-            disabled={isAnyUpdating || isApproved}
-            className={`h-7 px-2 ${isApproved ? 'bg-green-600 hover:bg-green-700' : ''}`}
-            data-testid={`button-approve-version-${version.id}`}
-          >
-            {isApproving ? (
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-            ) : (
-              <Check className="w-3 h-3 mr-1" />
-            )}
-            {isApproving ? 'Approving...' : 'Approve'}
-          </Button>
+          {isApproved ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onUnapprove(version); }}
+              disabled={isAnyUpdating}
+              className="h-7 px-2"
+              data-testid={`button-unapprove-version-${version.id}`}
+            >
+              {isUnapproving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <RotateCcw className="w-3 h-3 mr-1" />
+              )}
+              {isUnapproving ? 'Unapproving...' : 'Unapprove'}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => { e.stopPropagation(); onApprove(version); }}
+              disabled={isAnyUpdating}
+              className="h-7 px-2"
+              data-testid={`button-approve-version-${version.id}`}
+            >
+              {isApproving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3 mr-1" />
+              )}
+              {isApproving ? 'Approving...' : 'Approve'}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -370,6 +389,12 @@ export default function DocumentDetailModal({
     const previousApprovedId = (approvedVersion && approvedVersion.id !== version.id) ? approvedVersion.id : null;
     updateStatusMutation.mutate({ status: 'approved', version, previousApprovedId });
   }, [approvedVersion, updateStatusMutation]);
+
+  const handleUnapproveVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('unapprove');
+    updateStatusMutation.mutate({ status: 'pending', version });
+  }, [updateStatusMutation]);
 
   const handleRejectVersion = useCallback((version) => {
     setUpdatingVersionId(version.id);
@@ -742,6 +767,7 @@ export default function DocumentDetailModal({
                       onSelect={setSelectedVersion}
                       showPreview={index === 0}
                       onApprove={handleApproveVersion}
+                      onUnapprove={handleUnapproveVersion}
                       onReject={handleRejectVersion}
                       updatingVersionId={updatingVersionId}
                       updatingAction={updatingAction}
@@ -757,6 +783,7 @@ export default function DocumentDetailModal({
                     onSelect={() => {}}
                     showPreview={true}
                     onApprove={handleApproveVersion}
+                    onUnapprove={handleUnapproveVersion}
                     onReject={handleRejectVersion}
                     updatingVersionId={updatingVersionId}
                     updatingAction={updatingAction}
