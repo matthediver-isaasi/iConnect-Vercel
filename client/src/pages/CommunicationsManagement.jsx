@@ -2517,7 +2517,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-0.5">
-                    <Label htmlFor="switch-ignore-opt-outs" className="text-sm font-medium text-warning-foreground">
+                    <Label htmlFor="switch-ignore-opt-outs" className="text-sm font-medium text-warning">
                       Send to everyone, ignoring opt-out choices
                     </Label>
                     <p className="text-xs text-muted-foreground">
@@ -2532,7 +2532,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   />
                 </div>
                 {editListIgnoreOptOuts && (
-                  <div className="flex items-start gap-2 text-xs text-warning-foreground" data-testid="text-ignore-opt-outs-warning">
+                  <div className="flex items-start gap-2 text-xs text-warning" data-testid="text-ignore-opt-outs-warning">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />
                     <span>Members who have opted out of all communications or this category will still receive emails sent to this list.</span>
                   </div>
