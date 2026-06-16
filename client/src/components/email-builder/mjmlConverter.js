@@ -239,9 +239,29 @@ const childBlockToMjml = (block) => {
         align="${block.styles.textAlign || 'center'}"
         padding="${getPaddingAttr(block.styles)}"
       >${dynamicButtonToMjml(block)}</mj-text>`);
+    case BLOCK_TYPES.PLACEHOLDER:
+      return placeholderToMjml(block);
     default:
       return '';
   }
+};
+
+// Emits the chosen standard placeholder token (e.g. [[member.first_name]] or
+// {{event_name}}) as literal text. The token is deliberately NOT passed through
+// escapeHtml — the {{...}} / [[...]] characters must survive un-escaped so the
+// downstream send-time resolvers still match them. No DYN_BLOCK markers are
+// emitted because this element is auto-resolving, not a hideable per-send slot.
+const placeholderToMjml = (block) => {
+  const pFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
+  const token = block.placeholder || '';
+  return `<mj-text
+        ${pFontFamily}
+        align="${block.styles.textAlign || 'left'}"
+        font-size="${block.styles.fontSize || '14px'}"
+        color="${block.styles.color || '#333333'}"
+        line-height="${block.styles.lineHeight || '1.5'}"
+        padding="${getPaddingAttr(block.styles)}"
+      >${token}</mj-text>`;
 };
 
 const dynamicTextToMjml = (block) => {
@@ -495,6 +515,17 @@ const blockToMjml = (block) => {
       `);
     }
 
+    case BLOCK_TYPES.PLACEHOLDER: {
+      const phSectionPad = getCombinedSectionPadding(block.styles);
+      return `
+        <mj-section padding="${phSectionPad}">
+          <mj-column>
+            ${placeholderToMjml(block)}
+          </mj-column>
+        </mj-section>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -534,6 +565,9 @@ const blockToMjml = (block) => {
             return childBlockToMjml(b);
           }
           if (b.type === BLOCK_TYPES.DYNAMIC_BUTTON) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.PLACEHOLDER) {
             return childBlockToMjml(b);
           }
           return '';

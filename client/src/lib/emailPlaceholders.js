@@ -1387,6 +1387,20 @@ export const EMAIL_PLACEHOLDERS = [
   ),
 ];
 
+// Produce a short, human-readable label for a placeholder token, suitable for
+// a chip/label in the email builder (e.g. '[[member.first_name]]' →
+// 'Member · First name'). Falls back to a humanised token when the token is not
+// in the inventory.
+export function placeholderFriendlyLabel(token) {
+  if (!token) return '';
+  const found = EMAIL_PLACEHOLDERS.find((p) => p.token === token);
+  const inner = String(token).replace(/^[\[{]+/, '').replace(/[\]}]+$/, '');
+  const field = inner.split('.').pop().replace(/_/g, ' ').trim();
+  const humanField = field ? field.charAt(0).toUpperCase() + field.slice(1) : token;
+  if (found) return `${found.category} · ${humanField}`;
+  return humanField;
+}
+
 export function groupPlaceholdersByCategory(placeholders = EMAIL_PLACEHOLDERS) {
   const grouped = new Map();
   for (const cat of PLACEHOLDER_CATEGORIES) grouped.set(cat, []);

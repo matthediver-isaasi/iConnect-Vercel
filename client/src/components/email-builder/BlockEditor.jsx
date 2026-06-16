@@ -7,6 +7,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
+import { groupPlaceholdersByCategory, placeholderFriendlyLabel } from '@/lib/emailPlaceholders';
 import { toast } from 'sonner';
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { 
@@ -24,7 +27,9 @@ import {
   FileText,
   ArrowUp,
   ArrowDown,
-  GripVertical
+  GripVertical,
+  ChevronsUpDown,
+  Check
 } from 'lucide-react';
 import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
 import RichTextEditor from './RichTextEditor';
@@ -1791,6 +1796,172 @@ function DynamicButtonBlockEditor({ block, onChange, isChild, globalFontFamily }
   );
 }
 
+function PlaceholderBlockEditor({ block, onChange, isChild }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  const groups = useMemo(() => groupPlaceholdersByCategory(), []);
+  const currentLabel = block.placeholder
+    ? (block.label || placeholderFriendlyLabel(block.placeholder))
+    : '';
+
+  const selectPlaceholder = (token) => {
+    onChange({ ...block, placeholder: token, label: placeholderFriendlyLabel(token) });
+    setPickerOpen(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        A Field inserts a standard placeholder token (e.g. the member's first name)
+        into the email. It is automatically replaced with the real value when the
+        email is sent — there is nothing to fill in per send.
+      </div>
+
+      <div className="space-y-2">
+        <Label>Placeholder</Label>
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              className="w-full justify-between font-normal"
+              data-testid="placeholder-picker-trigger"
+            >
+              <span className="truncate">{currentLabel || 'Select a placeholder…'}</span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[320px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search placeholders…" data-testid="placeholder-picker-search" />
+              <CommandList>
+                <CommandEmpty>No placeholders found.</CommandEmpty>
+                {groups.map((group) => (
+                  <CommandGroup key={group.category} heading={group.category}>
+                    {group.items.map((item) => (
+                      <CommandItem
+                        key={`${group.category}-${item.token}`}
+                        value={`${item.token} ${item.description || ''} ${group.category}`}
+                        onSelect={() => selectPlaceholder(item.token)}
+                        data-testid={`placeholder-option-${item.token}`}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${block.placeholder === item.token ? 'opacity-100' : 'opacity-0'}`}
+                        />
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate text-sm">{placeholderFriendlyLabel(item.token)}</span>
+                          <span className="truncate font-mono text-xs text-muted-foreground">{item.token}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                ))}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {block.placeholder && (
+          <p className="font-mono text-xs text-muted-foreground" data-testid="placeholder-selected-token">
+            {block.placeholder}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="placeholder-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '14px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="placeholder-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+            <SelectItem value="18px">18px</SelectItem>
+            <SelectItem value="20px">20px</SelectItem>
+            <SelectItem value="24px">24px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="placeholder-color"
+          />
+          <Input
+            value={block.styles.color || '#333333'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="placeholder-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'left'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="placeholder-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1805,6 +1976,7 @@ const blockEditors = {
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockEditor,
   [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockEditor,
   [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockEditor,
+  [BLOCK_TYPES.PLACEHOLDER]: PlaceholderBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {

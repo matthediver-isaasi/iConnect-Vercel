@@ -832,6 +832,42 @@ function DynamicButtonBlockPreview({ block, isChild, globalFontFamily }) {
   return <ButtonBlockPreview block={resolved} isChild={false} globalFontFamily={globalFontFamily} />;
 }
 
+// Renders the chosen standard placeholder as a friendly chip in the builder. It
+// is auto-resolved at send time, so it is NEVER click-to-edit/hideable — it
+// renders identically whether or not a SlotEditContext is present.
+function PlaceholderBlockPreview({ block, isChild, globalFontFamily }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const fontFamily = block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif';
+  const fontSize = block.styles.fontSize || '14px';
+  const textAlign = block.styles.textAlign || 'left';
+  const lineHeight = block.styles.lineHeight || '1.5';
+  const label = block.label || block.placeholder || 'Field';
+
+  const phEl = (
+    <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, lineHeight }}>
+      <span
+        style={{
+          display: 'inline-block',
+          padding: '1px 6px',
+          borderRadius: 4,
+          backgroundColor: 'rgba(16,185,129,0.12)',
+          color: '#047857',
+          fontFamily,
+          fontSize,
+        }}
+        title={block.placeholder || ''}
+        data-testid="placeholder-preview"
+      >
+        {label}
+      </span>
+    </div>
+  );
+
+  if (isChild) return phEl;
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{phEl}</div>;
+}
+
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
@@ -844,6 +880,7 @@ const contentBlockPreviewComponents = {
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
   [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockPreview,
   [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockPreview,
+  [BLOCK_TYPES.PLACEHOLDER]: PlaceholderBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -860,6 +897,7 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.DYNAMIC_TEXT]: DynamicTextBlockPreview,
   [BLOCK_TYPES.DYNAMIC_IMAGE]: DynamicImageBlockPreview,
   [BLOCK_TYPES.DYNAMIC_BUTTON]: DynamicButtonBlockPreview,
+  [BLOCK_TYPES.PLACEHOLDER]: PlaceholderBlockPreview,
 };
 
 function ReadOnlySectionPreview({ block, globalFontFamily }) {

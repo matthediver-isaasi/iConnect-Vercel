@@ -12,9 +12,13 @@ export const BLOCK_TYPES = {
   DYNAMIC_TEXT: 'dynamic_text',
   DYNAMIC_IMAGE: 'dynamic_image',
   DYNAMIC_BUTTON: 'dynamic_button',
+  PLACEHOLDER: 'placeholder',
 };
 
 // Block types whose content is filled in per-send (Dynamic data palette).
+// NOTE: PLACEHOLDER is intentionally NOT here — it carries a fixed standard
+// placeholder token that is auto-resolved at send time, so it must never be
+// collected as a fillable per-send slot.
 export const DYNAMIC_BLOCK_TYPES = [
   BLOCK_TYPES.DYNAMIC_TEXT,
   BLOCK_TYPES.DYNAMIC_IMAGE,
@@ -336,6 +340,33 @@ export const createBlock = (type, props = {}) => {
           marginLeft: '0',
           borderRadius: '4px',
           textAlign: 'center',
+          ...props.styles,
+        },
+      };
+    case BLOCK_TYPES.PLACEHOLDER:
+      return {
+        id,
+        type,
+        // The fixed standard placeholder token this block emits literally into
+        // the HTML (e.g. '[[member.first_name]]' or '{{event_name}}'). It is
+        // auto-resolved by the existing send-time substitution — NOT a per-send
+        // fillable slot, so it never carries a `dynamic_N` token.
+        placeholder: props.placeholder || '',
+        label: props.label || '',
+        styles: {
+          fontFamily: '',
+          color: '#333333',
+          fontSize: '14px',
+          lineHeight: '1.5',
+          textAlign: 'left',
+          paddingTop: '10',
+          paddingRight: '20',
+          paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
           ...props.styles,
         },
       };

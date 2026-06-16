@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { Type, Image, MousePointer2, Minus, MoveVertical, Columns, SquareDashed, Share2, LinkIcon, QrCode, Braces } from 'lucide-react';
+import { Type, Image, MousePointer2, Minus, MoveVertical, Columns, SquareDashed, Share2, LinkIcon, QrCode, Braces, Tag } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 
 const structureItems = [
@@ -22,6 +22,7 @@ const dynamicDataItems = [
   { type: BLOCK_TYPES.DYNAMIC_TEXT, icon: Braces, label: 'Dynamic Text' },
   { type: BLOCK_TYPES.DYNAMIC_IMAGE, icon: Image, label: 'Dynamic Image' },
   { type: BLOCK_TYPES.DYNAMIC_BUTTON, icon: MousePointer2, label: 'Dynamic Button' },
+  { type: BLOCK_TYPES.PLACEHOLDER, icon: Tag, label: 'Field' },
 ];
 
 function DraggablePaletteItem({ type, icon: Icon, label }) {
