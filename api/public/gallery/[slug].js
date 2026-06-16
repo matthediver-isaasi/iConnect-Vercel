@@ -25,6 +25,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Gallery handle is required' });
   }
 
+  // Pagination: page (1-based, default 1) and limit (default 24, capped at 100).
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
   if (!supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
@@ -73,18 +79,20 @@ export default async function handler(req, res) {
         ...base,
         is_locked: true,
         photos: [],
+        total_photos: 0,
         login_redirect_url: `https://${tenantDomain}/login?returnTo=${encodeURIComponent(
           `/gallery/${gallery.slug}`
         )}`,
       });
     }
 
-    const { data: photos, error: pErr } = await supabase
+    const { data: photos, error: pErr, count } = await supabase
       .from('gallery_photo')
-      .select(PUBLIC_PHOTO_COLUMNS)
+      .select(PUBLIC_PHOTO_COLUMNS, { count: 'exact' })
       .eq('gallery_id', gallery.id)
       .order('display_order', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .range(from, to);
 
     if (pErr) {
       console.error('[Public Gallery API] Photos query error:', pErr);
@@ -95,6 +103,7 @@ export default async function handler(req, res) {
       ...base,
       is_locked: false,
       photos: photos || [],
+      total_photos: count ?? 0,
     });
   } catch (err) {
     console.error('[Public Gallery API] Error:', err);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -8,20 +8,25 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, Lock } from "lucide-react";
+import { Image as ImageIcon, Lock, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   GalleryImage,
   Lightbox,
   resolveAlt,
 } from "@/components/iedit/elements/IEditGalleryElement";
 
+const PAGE_SIZE = 24;
+
 export default function GalleryViewPage() {
   const { slug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { authResolved, sessionValidated } = useLayoutContext();
   const { memberInfo } = useMemberAccess();
   const { optimised: srOptimised } = useScreenReader();
 
   const isAuthenticated = sessionValidated && !!memberInfo;
+
+  const page = Math.max(1, parseInt(searchParams.get("page"), 10) || 1);
 
   const [openGallery, setOpenGallery] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -29,30 +34,42 @@ export default function GalleryViewPage() {
   // Hybrid loading: logged-in viewers use the authenticated entity API (which
   // returns public AND private galleries they may view); anonymous viewers use
   // the public endpoint, which hides photos for private galleries and tells us
-  // where to send the visitor to log in.
-  const { data, isLoading } = useQuery({
-    queryKey: ["gallery-by-slug", slug, isAuthenticated],
+  // where to send the visitor to log in. Both paths fetch only the current
+  // page of photos plus an exact total count so we can render page controls.
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["gallery-by-slug", slug, isAuthenticated, page],
     enabled: authResolved && !!slug,
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       if (isAuthenticated) {
         const galleries = (await base44.entities.Gallery.list("display_order")) || [];
         const gallery = galleries.find((g) => g.slug === slug);
-        if (!gallery) return { gallery: null, isLocked: false };
-        const allPhotos = (await base44.entities.GalleryPhoto.list("display_order")) || [];
-        const photos = allPhotos.filter((p) => p.gallery_id === gallery.id);
-        return { gallery: { ...gallery, photos }, isLocked: false };
+        if (!gallery) return { gallery: null, isLocked: false, totalPhotos: 0 };
+        const result = await base44.entities.GalleryPhoto.list({
+          filter: { gallery_id: gallery.id },
+          sort: { display_order: "asc", created_at: "asc" },
+          limit: PAGE_SIZE,
+          offset: (page - 1) * PAGE_SIZE,
+          queryParams: { count: "exact" },
+        });
+        const photos = Array.isArray(result?.data) ? result.data : [];
+        const totalPhotos = Number.isFinite(result?.count) ? result.count : photos.length;
+        return { gallery: { ...gallery, photos }, isLocked: false, totalPhotos };
       }
 
       try {
-        const result = await publicClient.getGallery(slug);
-        if (!result) return { gallery: null, isLocked: false };
+        const result = await publicClient.getGallery(slug, page, PAGE_SIZE);
+        if (!result) return { gallery: null, isLocked: false, totalPhotos: 0 };
         return {
           gallery: result,
           isLocked: !!result.is_locked,
           loginRedirectUrl: result.login_redirect_url || null,
+          totalPhotos: Number.isFinite(result.total_photos)
+            ? result.total_photos
+            : (result.photos?.length || 0),
         };
       } catch {
-        return { gallery: null, isLocked: false };
+        return { gallery: null, isLocked: false, totalPhotos: 0 };
       }
     },
   });
@@ -60,6 +77,49 @@ export default function GalleryViewPage() {
   const gallery = data?.gallery || null;
   const isLocked = data?.isLocked || false;
   const loginRedirectUrl = data?.loginRedirectUrl || null;
+  const totalPhotos = data?.totalPhotos || 0;
+  const totalPages = Math.max(1, Math.ceil(totalPhotos / PAGE_SIZE));
+
+  const goToPage = (next) => {
+    const target = Math.min(Math.max(1, next), totalPages);
+    if (target === page) return;
+    const params = new URLSearchParams(searchParams);
+    if (target === 1) {
+      params.delete("page");
+    } else {
+      params.set("page", String(target));
+    }
+    setSearchParams(params);
+  };
+
+  // Scroll back to the top whenever the visible page changes so the new photos
+  // are in view rather than leaving the viewer scrolled to the old bottom.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else if (page <= 3) {
+      for (let i = 1; i <= 4; i++) pages.push(i);
+      pages.push("...");
+      pages.push(totalPages);
+    } else if (page >= totalPages - 2) {
+      pages.push(1);
+      pages.push("...");
+      for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      pages.push("...");
+      for (let i = page - 1; i <= page + 1; i++) pages.push(i);
+      pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   // Private gallery viewed by an anonymous visitor: send them to login and
   // return them here afterwards.
@@ -136,11 +196,11 @@ export default function GalleryViewPage() {
             {gallery.description}
           </p>
         )}
-        <p className="text-sm text-slate-500 mt-2">
-          {photos.length} photo{photos.length === 1 ? "" : "s"}
+        <p className="text-sm text-slate-500 mt-2" data-testid="text-gallery-photo-count">
+          {totalPhotos} photo{totalPhotos === 1 ? "" : "s"}
         </p>
 
-        {photos.length === 0 ? (
+        {totalPhotos === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-20">
             <ImageIcon className="w-12 h-12 text-slate-300 mb-3" />
             <p className="text-slate-500" data-testid="text-gallery-empty">
@@ -180,6 +240,61 @@ export default function GalleryViewPage() {
               );
             })}
           </div>
+        )}
+
+        {totalPhotos > PAGE_SIZE && (
+          <nav
+            className="flex flex-wrap items-center justify-center gap-2 mt-8"
+            aria-label="Gallery pages"
+            data-testid="nav-gallery-pagination"
+          >
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => goToPage(page - 1)}
+              disabled={page === 1 || isFetching}
+              aria-label="Previous page"
+              data-testid="button-gallery-prev-page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+
+            {getPageNumbers().map((p, idx) =>
+              p === "..." ? (
+                <span
+                  key={`ellipsis-${idx}`}
+                  className="px-2 text-slate-400"
+                  aria-hidden="true"
+                >
+                  …
+                </span>
+              ) : (
+                <Button
+                  key={p}
+                  variant={p === page ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => goToPage(p)}
+                  disabled={isFetching}
+                  aria-label={`Page ${p}`}
+                  aria-current={p === page ? "page" : undefined}
+                  data-testid={`button-gallery-page-${p}`}
+                >
+                  {p}
+                </Button>
+              )
+            )}
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => goToPage(page + 1)}
+              disabled={page === totalPages || isFetching}
+              aria-label="Next page"
+              data-testid="button-gallery-next-page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </nav>
         )}
       </div>
 

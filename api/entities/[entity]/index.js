@@ -487,7 +487,14 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       // List entities
       const { filter, sort, limit, offset, expand } = req.query;
-      let query = supabase.from(tableName).select(expand || '*');
+      // Opt-in exact total count (gated by ?count=exact). When requested, the
+      // response shape becomes { data, count } instead of a bare array so
+      // paginated callers can compute the total number of pages. Existing
+      // callers that don't pass the flag are unaffected.
+      const wantsCount = req.query.count === 'exact';
+      let query = supabase
+        .from(tableName)
+        .select(expand || '*', wantsCount ? { count: 'exact' } : undefined);
       
       // Apply tenant isolation filter (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
@@ -987,7 +994,7 @@ export default async function handler(req, res) {
       if (limit) query = query.limit(parseInt(limit));
       if (offset) query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit || '100') - 1);
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
       if (error) {
         console.error(`Entity list error for ${entity} (table: ${tableName}):`, error);
         return res.status(500).json({ 
@@ -1014,6 +1021,10 @@ export default async function handler(req, res) {
           isPrivileged,
         });
         return res.json(filtered || []);
+      }
+
+      if (wantsCount) {
+        return res.json({ data: data || [], count: count ?? 0 });
       }
 
       return res.json(data || []);
