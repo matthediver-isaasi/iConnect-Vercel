@@ -24,11 +24,6 @@ export default function EventSponsorsCard({ eventId, eventType = "simple" }) {
   const groupedSponsors = useMemo(() => {
     if (assignments.length === 0 || sponsors.length === 0) return [];
 
-    const assignmentCategoryMap = {};
-    assignments.forEach(a => {
-      assignmentCategoryMap[a.sponsor_id] = a.category_id;
-    });
-
     const sponsorIds = assignments.map(a => a.sponsor_id).filter(Boolean);
     const eventSponsors = sponsorIds
       .map(id => sponsorMap[id])
@@ -40,7 +35,7 @@ export default function EventSponsorsCard({ eventId, eventType = "simple" }) {
     const uncategorized = [];
 
     eventSponsors.forEach(sponsor => {
-      const catId = assignmentCategoryMap[sponsor.id] || sponsor.category_id;
+      const catId = sponsor.category_id;
       if (catId) {
         if (!groups[catId]) groups[catId] = [];
         groups[catId].push(sponsor);
