@@ -2184,10 +2184,31 @@ function AccordionInspector({ block, update }) {
 }
 
 // TESTIMONIALS ---------------------------------------------------------------
-function TestimonialsRender({ block }) {
+function TestimonialsRender({ block, breakpoint }) {
   const c = block.content || {};
   const items = c.items || [];
+  // Resolve tenant typography styles for the quote text and the
+  // author/role attribution, mirroring how Card/Hero consume them. When
+  // unset (or the chosen style is later deleted) we fall back to the
+  // original Tailwind sizes (text-sm / text-xs).
+  const tenantStyles = useTenantTypographyStyles();
+  const quoteStyleObj = resolveTenantStyle(c.quoteTypographyStyleId, tenantStyles);
+  const attributionStyleObj = resolveTenantStyle(c.attributionTypographyStyleId, tenantStyles);
+  const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
+  const bpForInline = isPreview ? breakpoint : 'desktop';
   if (items.length === 0) return null;
+  const quoteInline = quoteStyleObj
+    ? buildTypographyInlineStyle(quoteStyleObj, { breakpoint: bpForInline })
+    : null;
+  const attributionInline = attributionStyleObj
+    ? buildTypographyInlineStyle(attributionStyleObj, { breakpoint: bpForInline })
+    : null;
+  // Internal card padding — defaults to the original 12px; an explicit 0
+  // is honoured (matches the Card block's contentPadding behaviour).
+  const cardPadding = c.cardPadding == null ? 12 : (Number(c.cardPadding) || 0);
+  // Card colours default to the original white/slate look when unset.
+  const cardBg = c.cardBgColor || '#ffffff';
+  const cardBorder = c.cardBorderColor || '#e2e8f0';
   const containerClass =
     c.layout === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'
       : c.layout === 'carousel' ? 'flex gap-3 overflow-x-auto snap-x'
@@ -2197,11 +2218,12 @@ function TestimonialsRender({ block }) {
       {items.map((t, i) => (
         <figure
           key={i}
-          className="rounded-md border border-slate-200 bg-white p-3 min-w-[240px] snap-start"
+          className="rounded-md border min-w-[240px] snap-start"
+          style={{ padding: cardPadding, background: cardBg, borderColor: cardBorder }}
         >
           <Quote className="w-4 h-4 text-slate-400 mb-1" aria-hidden="true" />
-          <blockquote className="text-sm text-slate-800">{t.quote}</blockquote>
-          <figcaption className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+          <blockquote className={quoteInline ? 'text-slate-800' : 'text-sm text-slate-800'} style={quoteInline || undefined}>{t.quote}</blockquote>
+          <figcaption className={`mt-2 flex items-center gap-2 ${attributionInline ? 'text-slate-600' : 'text-xs text-slate-600'}`} style={attributionInline || undefined}>
             {t.photo ? (
               <img src={t.photo} alt="" loading="lazy" decoding="async" className="w-6 h-6 rounded-full object-cover" />
             ) : null}
@@ -2231,6 +2253,44 @@ function TestimonialsInspector({ block, update }) {
           { value: 'grid', label: 'Grid' },
         ]}
         testId="select-testimonials-layout"
+      />
+      <NumberField
+        label="Card padding (px)"
+        value={c.cardPadding == null ? 12 : c.cardPadding}
+        onChange={(v) => set({ cardPadding: v })}
+        min={0}
+        max={64}
+        testId="input-testimonials-card-padding"
+      />
+      <ColorField
+        label="Card background colour"
+        value={c.cardBgColor}
+        onChange={(v) => set({ cardBgColor: v })}
+        testId="input-testimonials-card-bg-color"
+      />
+      <ColorField
+        label="Card border colour"
+        value={c.cardBorderColor}
+        onChange={(v) => set({ cardBorderColor: v })}
+        testId="input-testimonials-card-border-color"
+      />
+      <TypographyStyleField
+        label="Quote style"
+        value={c.quoteTypographyStyleId}
+        onChange={(id) => set({ quoteTypographyStyleId: id })}
+        testId="select-testimonials-quote-typography"
+      />
+      <TypographyStyleField
+        label="Attribution style"
+        value={c.attributionTypographyStyleId}
+        onChange={(id) => set({ attributionTypographyStyleId: id })}
+        testId="select-testimonials-attribution-typography"
+      />
+      <ToggleField
+        label="Full-bleed (span full screen width)"
+        value={!!c.fullBleed}
+        onChange={(v) => set({ fullBleed: v })}
+        testId="toggle-testimonials-full-bleed"
       />
       <Field label="Items">
         <ArrayList

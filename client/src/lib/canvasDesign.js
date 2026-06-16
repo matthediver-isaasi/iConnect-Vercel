@@ -187,6 +187,7 @@ export const FULL_BLEED_BLOCK_TYPES = new Set([
   BLOCK_TYPES.NEWS_TICKER,
   BLOCK_TYPES.MEGA_MENU,
   BLOCK_TYPES.WALL_OF_FAME,
+  BLOCK_TYPES.TESTIMONIALS,
 ]);
 
 export function blockSupportsFullBleed(type) {
@@ -396,6 +397,12 @@ export const BLOCK_DEFAULTS = {
       items: [
         { quote: 'A glowing review of your work.', author: 'Jane Smith', role: 'Customer', photo: '' },
       ],
+      cardPadding: 12,
+      cardBgColor: '',
+      cardBorderColor: '',
+      quoteTypographyStyleId: '',
+      attributionTypographyStyleId: '',
+      fullBleed: false,
     },
   },
   [BLOCK_TYPES.CUSTOM_HTML]: {
