@@ -161,6 +161,7 @@ export const BLOCK_TYPES = {
   EVENT_SESSIONS: 'event-sessions',
   EVENT_CAROUSEL: 'event-carousel',
   SPEAKER_CAROUSEL: 'speaker-carousel',
+  SPEAKER_GRID: 'speaker-grid',
   SPONSOR_GRID: 'sponsor-grid',
   SPONSOR_CAROUSEL: 'sponsor-carousel',
   ARTICLE_LIST: 'article-list',
@@ -774,6 +775,8 @@ export const BLOCK_DEFAULTS = {
     content: {
       eventId: '',
       ctaLabel: 'See all speakers',
+      ctaMode: 'popup',
+      ctaHref: '',
       speakersPerView: 1,
       showJobTitle: true,
       showOrganization: true,
@@ -784,6 +787,21 @@ export const BLOCK_DEFAULTS = {
       transition: 'slide',
       transitionMs: 400,
       pauseOnHover: false,
+      emptyText: 'Pick an event with assigned speakers in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPEAKER_GRID]: {
+    name: 'Speaker grid',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      eventId: '',
+      columns: { desktop: 4, tablet: 2, mobile: 1 },
+      gap: 16,
+      paginate: false,
+      rowsPerPage: 2,
+      showJobTitle: true,
+      showOrganization: true,
       emptyText: 'Pick an event with assigned speakers in the inspector.',
     },
   },
@@ -1553,6 +1571,9 @@ export function validateBlock(block) {
     case BLOCK_TYPES.SPEAKER_CAROUSEL:
       if (!c.eventId) errors.push('Speaker carousel requires an event.');
       break;
+    case BLOCK_TYPES.SPEAKER_GRID:
+      if (!c.eventId) errors.push('Speaker grid requires an event.');
+      break;
     case BLOCK_TYPES.SPONSOR_GRID:
       if (!c.eventId) errors.push('Sponsor grid requires an event.');
       break;
@@ -1721,6 +1742,11 @@ const RESPONSIVE_VAR_FIELDS = {
     { contentKey: 'nameFontSize',  varName: '--cb-sp-name-fs',  unit: 'px' },
     { contentKey: 'titleFontSize', varName: '--cb-sp-title-fs', unit: 'px' },
     { contentKey: 'orgFontSize',   varName: '--cb-sp-org-fs',   unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPEAKER_GRID]: [
+    { contentKey: 'nameFontSize',  varName: '--cb-spgr-name-fs',  unit: 'px' },
+    { contentKey: 'titleFontSize', varName: '--cb-spgr-title-fs', unit: 'px' },
+    { contentKey: 'orgFontSize',   varName: '--cb-spgr-org-fs',   unit: 'px' },
   ],
   [BLOCK_TYPES.SPONSOR_GRID]: [
     { contentKey: 'nameFontSize', varName: '--cb-spg-name-fs', unit: 'px' },

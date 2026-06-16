@@ -122,7 +122,7 @@ function TextField({ label, value, onChange, placeholder, testId, multiline }) {
 // the page's anchors and fills in a `#anchor-id` value when one is picked.
 // The available-anchors list comes from CanvasAnchorContext so every link
 // field across the registry shares one source of truth.
-function LinkField({ label, value, onChange, placeholder, testId }) {
+export function LinkField({ label, value, onChange, placeholder, testId }) {
   const { anchors, pages } = useCanvasAnchors();
   const usableAnchors = (anchors || []).filter((a) => a.anchorId);
   // Task #1448: other canvas pages that expose anchors. Picking one of these

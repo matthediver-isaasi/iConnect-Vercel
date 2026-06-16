@@ -48,6 +48,7 @@ import {
   buildTypographyInlineStyle,
   buildTenantTypographyResponsiveCss,
   hasResponsiveTypographyOverride,
+  LinkField,
 } from './registry';
 
 // ---- Shared small primitives (duplicated minimally from registry.jsx to
@@ -1859,6 +1860,8 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
   const showArrows = hasMany && c.showArrows !== false;
   const showIndicators = hasMany && c.showIndicators !== false;
   const ctaLabel = c.ctaLabel || 'See all speakers';
+  const ctaMode = c.ctaMode || 'popup';
+  const ctaHref = c.ctaHref || '';
 
   // Responsive font sizing — inline px literal in forced-breakpoint preview,
   // CSS var (driven by buildCanvasCss @media rules) on real public pages.
@@ -2011,14 +2014,25 @@ function SpeakerCarouselRender({ block, asEditor, breakpoint }) {
 
       {ctaLabel ? (
         <div className="shrink-0 flex justify-center px-4 py-3 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={() => { setShowAll(true); setAutoplayPausedAt(Date.now()); }}
-            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-            data-testid="button-speaker-carousel-see-all"
-          >
-            {ctaLabel} <ArrowRight className="w-4 h-4" aria-hidden="true" />
-          </button>
+          {ctaMode === 'link' && ctaHref ? (
+            <a
+              href={asEditor ? undefined : ctaHref}
+              onClick={(e) => { if (asEditor) e.preventDefault(); }}
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+              data-testid="link-speaker-carousel-see-all"
+            >
+              {ctaLabel} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setShowAll(true); setAutoplayPausedAt(Date.now()); }}
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+              data-testid="button-speaker-carousel-see-all"
+            >
+              {ctaLabel} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
         </div>
       ) : null}
 
@@ -2081,6 +2095,24 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
         testId="input-speaker-carousel-cta-label"
         hint="Shown below the carousel; leave blank to hide the “See all” link."
       />
+      <SelectField
+        label="CTA behaviour"
+        value={c.ctaMode || 'popup'}
+        onChange={(v) => set({ ctaMode: v })}
+        options={[
+          { value: 'popup', label: 'Open popup' },
+          { value: 'link', label: 'Go to link' },
+        ]}
+        testId="select-speaker-carousel-cta-mode"
+      />
+      {(c.ctaMode || 'popup') === 'link' ? (
+        <LinkField
+          label="CTA link"
+          value={c.ctaHref}
+          onChange={(v) => set({ ctaHref: v })}
+          testId="input-speaker-carousel-cta-href"
+        />
+      ) : null}
       <ToggleField
         label="Show job title"
         value={c.showJobTitle !== false}
@@ -2186,6 +2218,268 @@ function SpeakerCarouselInspector({ block, update, breakpoint }) {
         value={c.emptyText}
         onChange={(v) => set({ emptyText: v })}
         testId="input-speaker-carousel-empty"
+      />
+    </>
+  );
+}
+
+// ============================================================================
+// SPEAKER GRID
+// ============================================================================
+// Lays out an event's speakers in a responsive grid (columns per breakpoint),
+// with optional pagination. Reuses the same speaker data hook, card body and
+// detail dialog as the Speaker carousel.
+function SpeakerGridCard({ speaker, content, nameStyle, titleStyle, orgStyle, onClick }) {
+  const c = content || {};
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border border-slate-200 bg-white overflow-hidden h-full flex flex-col items-center justify-start text-center gap-3 px-4 py-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 hover-elevate"
+      data-testid={`button-speaker-grid-${speaker.id}`}
+      aria-label={`View details for ${speaker.full_name || 'speaker'}`}
+    >
+      <Avatar className="w-20 h-20">
+        {speaker.profile_photo_url ? (
+          <AvatarImage src={speaker.profile_photo_url} alt={speaker.full_name} />
+        ) : null}
+        <AvatarFallback className="text-lg">{speakerInitials(speaker.full_name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 w-full">
+        <div
+          className="text-base font-semibold text-slate-900 truncate"
+          style={nameStyle}
+          data-testid={`text-speaker-grid-name-${speaker.id}`}
+        >
+          {speaker.full_name}
+        </div>
+        {c.showJobTitle !== false && speaker.job_title ? (
+          <div className="text-sm text-slate-600 truncate" style={titleStyle}>{speaker.job_title}</div>
+        ) : null}
+        {c.showOrganization !== false && speaker.organization ? (
+          <div className="text-sm text-slate-500 truncate" style={orgStyle}>{speaker.organization}</div>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+function SpeakerGridRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const { hasEvent, speakers, isLoading, isError } = useEventSpeakers(c.eventId);
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const gap = c.gap ?? 16;
+  const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(0);
+
+  const count = speakers.length;
+  const paginate = !!c.paginate;
+  const rowsPerPage = Math.max(1, Math.floor(Number(c.rowsPerPage) || 1));
+  const perPage = Math.max(1, cols * rowsPerPage);
+  const pageCount = paginate ? Math.max(1, Math.ceil(count / perPage)) : 1;
+
+  // Keep the current page in range when the speaker count / columns change.
+  useEffect(() => {
+    if (page > Math.max(0, pageCount - 1)) setPage(0);
+  }, [pageCount, page]);
+
+  // Empty / no-speaker states show an editor placeholder, but render nothing
+  // disruptive on the published public page.
+  if (!hasEvent) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Mic} text={c.emptyText || 'Pick an event with assigned speakers in the inspector.'} />;
+  }
+  if (isLoading) return <ListSkeleton count={Math.min(count || 4, 4)} columns={cols} gap={gap} />;
+  if (isError) {
+    if (!asEditor) return null;
+    return <ErrorState message="Couldn't load speakers right now." />;
+  }
+  if (count === 0) {
+    if (!asEditor) return null;
+    return <EmptyState icon={Mic} text="The selected event has no speakers yet." />;
+  }
+
+  // Responsive font sizing — inline px literal in forced-breakpoint preview,
+  // CSS var (driven by buildCanvasCss @media rules) on real public pages.
+  const isForcedPreview = !!breakpoint;
+  const nameFontSize = resolveResponsiveValue(c.nameFontSize, breakpoint);
+  const titleFontSize = resolveResponsiveValue(c.titleFontSize, breakpoint);
+  const orgFontSize = resolveResponsiveValue(c.orgFontSize, breakpoint);
+  const cssVar = (raw, name) => (hasAnyResponsiveValue(raw) ? `var(${name})` : null);
+  const nameStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(nameFontSize)) nameStyle.fontSize = `${nameFontSize}px`;
+  } else {
+    const v = cssVar(c.nameFontSize, '--cb-spgr-name-fs');
+    if (v) nameStyle.fontSize = v;
+  }
+  const titleStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(titleFontSize)) titleStyle.fontSize = `${titleFontSize}px`;
+  } else {
+    const v = cssVar(c.titleFontSize, '--cb-spgr-title-fs');
+    if (v) titleStyle.fontSize = v;
+  }
+  const orgStyle = {};
+  if (isForcedPreview) {
+    if (Number.isFinite(orgFontSize)) orgStyle.fontSize = `${orgFontSize}px`;
+  } else {
+    const v = cssVar(c.orgFontSize, '--cb-spgr-org-fs');
+    if (v) orgStyle.fontSize = v;
+  }
+
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = paginate
+    ? speakers.slice(safePage * perPage, safePage * perPage + perPage)
+    : speakers;
+
+  return (
+    <div className="w-full h-full overflow-auto flex flex-col" aria-label={block.a11y?.ariaLabel || 'Speakers'} data-testid="speaker-grid">
+      <div style={gridStyle(cols, gap)}>
+        {visible.map((s) => (
+          <SpeakerGridCard
+            key={s.id}
+            speaker={s}
+            content={c}
+            nameStyle={nameStyle}
+            titleStyle={titleStyle}
+            orgStyle={orgStyle}
+            onClick={() => setSelected(s)}
+          />
+        ))}
+      </div>
+
+      {paginate && pageCount > 1 ? (
+        <div className="shrink-0 flex items-center justify-center gap-3 pt-4">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={safePage <= 0}
+            className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+            aria-label="Previous page"
+            data-testid="button-speaker-grid-prev"
+          >
+            <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden="true" />
+          </button>
+          <span className="text-sm text-slate-600" data-testid="text-speaker-grid-page">
+            Page {safePage + 1} of {pageCount}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            disabled={safePage >= pageCount - 1}
+            className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm disabled:opacity-40"
+            aria-label="Next page"
+            data-testid="button-speaker-grid-next"
+          >
+            <ChevronRight className="w-4 h-4 text-slate-700" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Single-speaker detail dialog */}
+      <Dialog open={!!selected} onOpenChange={(o) => { if (!o) setSelected(null); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-speaker-grid-detail">
+          <DialogHeader>
+            <DialogTitle>Speaker</DialogTitle>
+            <DialogDescription className="sr-only">Speaker profile details</DialogDescription>
+          </DialogHeader>
+          <SpeakerDetail speaker={selected} content={c} />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SpeakerGridInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <EventCarouselPickerRow
+        value={c.eventId || ''}
+        onChange={(v) => set({ eventId: v })}
+        testId="select-speaker-grid-event"
+      />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField
+        label="Gap (px)"
+        min={0}
+        value={c.gap ?? 16}
+        onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
+        testId="input-speaker-grid-gap"
+      />
+      <ToggleField
+        label="Paginate"
+        value={!!c.paginate}
+        onChange={(v) => set({ paginate: v })}
+        testId="toggle-speaker-grid-paginate"
+        hint="Split speakers across pages with prev/next controls."
+      />
+      {c.paginate ? (
+        <NumberField
+          label="Rows per page"
+          min={1}
+          value={c.rowsPerPage ?? 2}
+          onChange={(v) => set({ rowsPerPage: Math.max(1, Math.floor(Number(v) || 1)) })}
+          testId="input-speaker-grid-rows-per-page"
+          hint="Number of speaker rows shown before paging."
+        />
+      ) : null}
+      <ToggleField
+        label="Show job title"
+        value={c.showJobTitle !== false}
+        onChange={(v) => set({ showJobTitle: v })}
+        testId="toggle-speaker-grid-job-title"
+      />
+      <ToggleField
+        label="Show organization"
+        value={c.showOrganization !== false}
+        onChange={(v) => set({ showOrganization: v })}
+        testId="toggle-speaker-grid-org"
+      />
+      <TextField
+        label="Empty state text"
+        value={c.emptyText}
+        onChange={(v) => set({ emptyText: v })}
+        testId="input-speaker-grid-empty"
+        hint="Shown in the editor when no event or no speakers are found."
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Name</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Name font size (px)"
+        min={1}
+        value={c.nameFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ nameFontSize: v })}
+        testId="input-speaker-grid-name-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Job title</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Job title font size (px)"
+        min={1}
+        value={c.titleFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ titleFontSize: v })}
+        testId="input-speaker-grid-title-font-size"
+      />
+
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <Label className="text-xs font-semibold text-slate-700">Organization</Label>
+      </div>
+      <ResponsiveNumberField
+        label="Organization font size (px)"
+        min={1}
+        value={c.orgFontSize}
+        breakpoint={breakpoint}
+        onChange={(v) => set({ orgFontSize: v })}
+        testId="input-speaker-grid-org-font-size"
       />
     </>
   );
@@ -4357,6 +4651,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <SpeakerCarouselRender {...props} asEditor />,
     Renderer: SpeakerCarouselRender,
     Inspector: SpeakerCarouselInspector,
+  },
+  [BLOCK_TYPES.SPEAKER_GRID]: {
+    label: 'Speaker grid',
+    icon: Mic,
+    category: 'data',
+    Editor: (props) => <SpeakerGridRender {...props} asEditor />,
+    Renderer: SpeakerGridRender,
+    Inspector: SpeakerGridInspector,
   },
   [BLOCK_TYPES.SPONSOR_GRID]: {
     label: 'Sponsor grid',
