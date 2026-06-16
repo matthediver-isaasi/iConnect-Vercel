@@ -563,6 +563,14 @@ class PublicClient {
     return this._fetch('/api/public/galleries');
   }
 
+  // Single shareable gallery by URL handle (task #1456). Public galleries
+  // return their photos; private galleries return a locked response with a
+  // login_redirect_url for anonymous viewers.
+  async getGallery(slug) {
+    if (!slug) return null;
+    return this._fetch(`/api/public/gallery/${encodeURIComponent(slug)}`);
+  }
+
   async listComplexEvents() {
     return this._fetch('/api/public/complex-events');
   }

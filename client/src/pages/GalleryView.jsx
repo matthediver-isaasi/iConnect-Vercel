@@ -1,0 +1,197 @@
+import { useEffect, useMemo, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useScreenReader } from "@/contexts/ScreenReaderContext";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Image as ImageIcon, Lock } from "lucide-react";
+import {
+  GalleryImage,
+  Lightbox,
+  resolveAlt,
+} from "@/components/iedit/elements/IEditGalleryElement";
+
+export default function GalleryViewPage() {
+  const { slug } = useParams();
+  const { authResolved, sessionValidated } = useLayoutContext();
+  const { memberInfo } = useMemberAccess();
+  const { optimised: srOptimised } = useScreenReader();
+
+  const isAuthenticated = sessionValidated && !!memberInfo;
+
+  const [openGallery, setOpenGallery] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Hybrid loading: logged-in viewers use the authenticated entity API (which
+  // returns public AND private galleries they may view); anonymous viewers use
+  // the public endpoint, which hides photos for private galleries and tells us
+  // where to send the visitor to log in.
+  const { data, isLoading } = useQuery({
+    queryKey: ["gallery-by-slug", slug, isAuthenticated],
+    enabled: authResolved && !!slug,
+    queryFn: async () => {
+      if (isAuthenticated) {
+        const galleries = (await base44.entities.Gallery.list("display_order")) || [];
+        const gallery = galleries.find((g) => g.slug === slug);
+        if (!gallery) return { gallery: null, isLocked: false };
+        const allPhotos = (await base44.entities.GalleryPhoto.list("display_order")) || [];
+        const photos = allPhotos.filter((p) => p.gallery_id === gallery.id);
+        return { gallery: { ...gallery, photos }, isLocked: false };
+      }
+
+      try {
+        const result = await publicClient.getGallery(slug);
+        if (!result) return { gallery: null, isLocked: false };
+        return {
+          gallery: result,
+          isLocked: !!result.is_locked,
+          loginRedirectUrl: result.login_redirect_url || null,
+        };
+      } catch {
+        return { gallery: null, isLocked: false };
+      }
+    },
+  });
+
+  const gallery = data?.gallery || null;
+  const isLocked = data?.isLocked || false;
+  const loginRedirectUrl = data?.loginRedirectUrl || null;
+
+  // Private gallery viewed by an anonymous visitor: send them to login and
+  // return them here afterwards.
+  useEffect(() => {
+    if (isLocked && loginRedirectUrl) {
+      window.location.href = loginRedirectUrl;
+    }
+  }, [isLocked, loginRedirectUrl]);
+
+  useEffect(() => {
+    if (gallery?.title) {
+      document.title = gallery.title;
+    }
+    return () => {
+      document.title = "Portal";
+    };
+  }, [gallery?.title]);
+
+  const photos = useMemo(
+    () => (Array.isArray(gallery?.photos) ? gallery.photos : []),
+    [gallery]
+  );
+
+  if (!authResolved || isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <div className="animate-pulse text-slate-600" data-testid="text-gallery-loading">
+          Loading…
+        </div>
+      </div>
+    );
+  }
+
+  // Anonymous viewer of a private gallery — redirect is in flight.
+  if (isLocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <div className="text-center">
+          <Lock className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+          <p className="text-slate-600" data-testid="text-gallery-redirecting">
+            This gallery is for members only. Redirecting you to log in…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!gallery) {
+    return (
+      <div className="min-h-screen p-4 md:p-8">
+        <div className="max-w-4xl mx-auto text-center py-16">
+          <h2 className="text-2xl font-bold text-slate-900 mb-4" data-testid="text-gallery-not-found">
+            Gallery not found
+          </h2>
+          <p className="text-slate-600 mb-6">
+            This gallery doesn't exist or is no longer available.
+          </p>
+          <Link to="/">
+            <Button data-testid="button-gallery-home">Back to home</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-slate-900" data-testid="text-gallery-view-title">
+          {gallery.title}
+        </h1>
+        {gallery.description && (
+          <p className="text-slate-600 mt-2" data-testid="text-gallery-view-description">
+            {gallery.description}
+          </p>
+        )}
+        <p className="text-sm text-slate-500 mt-2">
+          {photos.length} photo{photos.length === 1 ? "" : "s"}
+        </p>
+
+        {photos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center py-20">
+            <ImageIcon className="w-12 h-12 text-slate-300 mb-3" />
+            <p className="text-slate-500" data-testid="text-gallery-empty">
+              There are no photos in this gallery yet.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+            {photos.map((photo, index) => {
+              const { alt, role } = resolveAlt(photo, gallery.title, srOptimised);
+              return (
+                <Card
+                  key={photo.id}
+                  className="overflow-hidden cursor-pointer hover-elevate"
+                  onClick={() => {
+                    setActiveIndex(index);
+                    setOpenGallery(true);
+                  }}
+                  data-testid={`card-gallery-photo-${photo.id}`}
+                >
+                  <div className="relative aspect-[4/3] bg-slate-100 flex items-center justify-center">
+                    <GalleryImage
+                      photo={photo}
+                      className="w-full h-full object-cover"
+                      alt={alt}
+                      role={role}
+                    />
+                  </div>
+                  {(photo.caption || photo.alt_text) && (
+                    <div className="p-3">
+                      <p className="text-sm text-slate-600 line-clamp-2">
+                        {photo.caption || photo.alt_text}
+                      </p>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {openGallery && photos.length > 0 && (
+        <Lightbox
+          gallery={gallery}
+          activeIndex={activeIndex}
+          onIndexChange={setActiveIndex}
+          onClose={() => setOpenGallery(false)}
+          srOptimised={srOptimised}
+        />
+      )}
+    </div>
+  );
+}

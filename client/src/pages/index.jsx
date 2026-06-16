@@ -34,6 +34,8 @@ import ArticleEditor from "./ArticleEditor";
 
 import ArticleView from "./ArticleView";
 
+import GalleryView from "./GalleryView";
+
 import PublicAbout from "./PublicAbout";
 
 import PublicContact from "./PublicContact";
@@ -433,6 +435,8 @@ const PAGES = {
     
     ArticleView: ArticleView,
     
+    GalleryView: GalleryView,
+    
     PublicAbout: PublicAbout,
     
     PublicContact: PublicContact,
@@ -720,6 +724,10 @@ function _getCurrentPage(url) {
         return 'ComplexEventDetail';
     }
     
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'gallery') {
+        return 'GalleryView';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
@@ -791,6 +799,7 @@ function PagesContent() {
                 <Route path="/articleeditor" element={<ArticleEditor />} />
                 
                 <Route path="/ArticleView" element={<ArticleView />} />
+                <Route path="/gallery/:slug" element={<GalleryView />} />
                 
                 <Route path="/PublicAbout" element={<PublicAbout />} />
                 

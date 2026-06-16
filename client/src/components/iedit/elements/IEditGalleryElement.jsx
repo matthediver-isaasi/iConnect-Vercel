@@ -123,7 +123,7 @@ export function IEditGalleryElementEditor({ element, onChange }) {
  * Guests see public galleries only (via publicClient).
  * Logged-in members see public + private (via base44 entity API).
  */
-function resolveAlt(photo, fallback, srOptimised) {
+export function resolveAlt(photo, fallback, srOptimised) {
   const explicit = (photo?.alt_text || '').trim();
   if (explicit) return { alt: explicit, role: undefined };
   if (srOptimised) return { alt: '', role: 'presentation' };
@@ -257,7 +257,7 @@ export function IEditGalleryElementRenderer({ element, memberInfo }) {
   );
 }
 
-function GalleryImage({ photo, className, alt, role }) {
+export function GalleryImage({ photo, className, alt, role }) {
   const [src, setSrc] = useState(null);
 
   useEffect(() => {
@@ -281,7 +281,7 @@ function GalleryImage({ photo, className, alt, role }) {
   return <img src={src} alt={alt} role={role} className={className} loading="lazy" />;
 }
 
-function Lightbox({ gallery, activeIndex, onIndexChange, onClose, srOptimised }) {
+export function Lightbox({ gallery, activeIndex, onIndexChange, onClose, srOptimised }) {
   const photos = gallery.photos || [];
   const photo = photos[activeIndex];
 

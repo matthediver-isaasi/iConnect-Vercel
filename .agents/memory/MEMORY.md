@@ -21,3 +21,4 @@
 - [Canvas layer groups](canvas-layer-groups.md) — group hidden/lock are DERIVED from members (only name+collapsed stored); renderer ignores groups; layers use nested SortableContexts.
 - [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
 - [Canvas anchor links / link-field surfaces](canvas-anchor-links.md) — anchorId→id only in CanvasPageRenderer (not stage); every block link field must use shared LinkField; RichTextEditor anchorOptions is additive (shared w/ email-builder).
+- [Hybrid public/by-slug page registration](hybrid-byslug-page-registration.md) — a new /prefix/:slug hybrid page must be wired in 4 places (_getCurrentPage prefix + Route + PAGES map + Layout hybridPages) or it renders with wrong auth/chrome.

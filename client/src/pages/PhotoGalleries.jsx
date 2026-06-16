@@ -194,6 +194,7 @@ export default function PhotoGalleries() {
       <GalleryEditDialog
         open={isCreateOpen || editing !== null}
         gallery={editing}
+        galleries={orderedGalleries}
         onClose={() => {
           setIsCreateOpen(false);
           setEditing(null);
@@ -225,10 +226,20 @@ export default function PhotoGalleries() {
   );
 }
 
-function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
+function slugifyHandle(value) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function GalleryEditDialog({ open, gallery, galleries = [], onClose, onSaved }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isPublic, setIsPublic] = useState(false);
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
   const [migrating, setMigrating] = useState(false);
 
   useEffect(() => {
@@ -236,11 +247,42 @@ function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
       setTitle(gallery?.title || "");
       setDescription(gallery?.description || "");
       setIsPublic(gallery?.is_public ?? false);
+      setSlug(gallery?.slug || "");
+      // Existing galleries already have a slug, so treat it as user-set; new
+      // galleries auto-suggest from the title until the user edits the handle.
+      setSlugTouched(!!gallery?.slug);
     }
   }, [open, gallery]);
 
+  // Auto-suggest the handle from the title until the user edits it manually.
+  useEffect(() => {
+    if (open && !slugTouched) {
+      setSlug(slugifyHandle(title));
+    }
+  }, [title, slugTouched, open]);
+
   const previousIsPublic = gallery?.is_public ?? false;
   const visibilityChanged = !!gallery?.id && previousIsPublic !== isPublic;
+
+  const normalizedSlug = slugifyHandle(slug);
+  const slugFormatInvalid = slug.length > 0 && normalizedSlug !== slug;
+  const slugDuplicate =
+    !!normalizedSlug &&
+    galleries.some(
+      (g) => g.id !== gallery?.id && (g.slug || "") === normalizedSlug
+    );
+  const slugError = !normalizedSlug
+    ? "A URL handle is required."
+    : slugFormatInvalid
+    ? "Use only lowercase letters, numbers and hyphens."
+    : slugDuplicate
+    ? "This handle is already used by another gallery."
+    : "";
+
+  const shareUrl =
+    typeof window !== "undefined" && normalizedSlug
+      ? `${window.location.origin}/gallery/${normalizedSlug}`
+      : "";
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -250,15 +292,17 @@ function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
           title,
           description: description || null,
           is_public: isPublic,
+          slug: normalizedSlug,
           display_order: 0,
         });
       }
 
       // UPDATE flow: leak-safe ordering when visibility flips.
-      // 1) First save title/description without flipping is_public.
+      // 1) First save title/description/slug without flipping is_public.
       await base44.entities.Gallery.update(gallery.id, {
         title,
         description: description || null,
+        slug: normalizedSlug,
       });
 
       if (!visibilityChanged) {
@@ -347,6 +391,35 @@ function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
               data-testid="input-gallery-description"
             />
           </div>
+          <div>
+            <Label htmlFor="g-slug">URL handle</Label>
+            <Input
+              id="g-slug"
+              value={slug}
+              onChange={(e) => {
+                setSlugTouched(true);
+                setSlug(e.target.value);
+              }}
+              onBlur={() => setSlug((s) => slugifyHandle(s))}
+              placeholder="e.g. annual-conference-2026"
+              data-testid="input-gallery-slug"
+            />
+            {slugError ? (
+              <p className="text-xs text-destructive mt-1" data-testid="text-gallery-slug-error">
+                {slugError}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 mt-1">
+                Shareable link:{" "}
+                <span className="break-all text-slate-700" data-testid="text-gallery-share-url">
+                  {shareUrl}
+                </span>{" "}
+                <span className="text-slate-500">
+                  ({isPublic ? "public — no login required" : "members-only — login required"})
+                </span>
+              </p>
+            )}
+          </div>
           <div className="flex items-start gap-2">
             <Checkbox
               id="g-public"
@@ -382,7 +455,7 @@ function GalleryEditDialog({ open, gallery, onClose, onSaved }) {
           </Button>
           <Button
             onClick={() => saveMutation.mutate()}
-            disabled={!title.trim() || isBusy}
+            disabled={!title.trim() || !!slugError || isBusy}
             data-testid="button-save-gallery"
           >
             {migrating ? "Moving photos…" : saveMutation.isPending ? "Saving…" : "Save"}
