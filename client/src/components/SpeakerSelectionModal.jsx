@@ -123,7 +123,7 @@ export function SpeakerSelectionModal({
           <div className="flex-1 flex flex-col border rounded-lg border-purple-200 bg-purple-50/30">
             <div className="p-3 border-b border-purple-200 bg-purple-50">
               <h3 className="font-medium text-sm text-purple-700">
-                Selected Speakers ({tempSelected.length})
+                Selected Speakers ({selectedSpeakers.length})
               </h3>
             </div>
             <ScrollArea className="flex-1 p-2">

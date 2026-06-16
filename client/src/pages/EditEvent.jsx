@@ -540,6 +540,19 @@ export default function EditEvent() {
     );
   };
 
+  // Task #1509: a speaker can be deleted while still referenced by speaker_ids.
+  // Split the selection into ids that resolve to an actual (active) speaker and
+  // ids that no longer do, so the count stays honest and the admin can clear
+  // stale references rather than being stuck with an invisible entry.
+  const resolvedSpeakerIds = useMemo(
+    () => selectedSpeakers.filter(id => speakers.some(s => s.id === id)),
+    [selectedSpeakers, speakers]
+  );
+  const unresolvedSpeakerIds = useMemo(
+    () => (loadingSpeakers ? [] : selectedSpeakers.filter(id => !speakers.some(s => s.id === id))),
+    [selectedSpeakers, speakers, loadingSpeakers]
+  );
+
   // Get speaker names for display
   const getSpeakerNames = (speakerIds) => {
     if (!speakerIds || speakerIds.length === 0) return "No speakers selected";
@@ -2114,16 +2127,16 @@ export default function EditEvent() {
                       data-testid="button-select-speakers"
                     >
                       <Mic className="h-4 w-4 mr-2 text-purple-600" />
-                      {selectedSpeakers.length === 0 
+                      {resolvedSpeakerIds.length === 0 
                         ? `Click to select ${speakerPlural.toLowerCase()}...` 
-                        : `${selectedSpeakers.length} ${selectedSpeakers.length !== 1 ? speakerPlural.toLowerCase() : speakerSingular.toLowerCase()} selected`
+                        : `${resolvedSpeakerIds.length} ${resolvedSpeakerIds.length !== 1 ? speakerPlural.toLowerCase() : speakerSingular.toLowerCase()} selected`
                       }
                     </Button>
                     
                     {/* Show selected speakers as chips */}
-                    {selectedSpeakers.length > 0 && (
+                    {resolvedSpeakerIds.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedSpeakers.map(speakerId => {
+                        {resolvedSpeakerIds.map(speakerId => {
                           const speaker = speakers.find(s => s.id === speakerId);
                           if (!speaker) return null;
                           return (
@@ -2163,6 +2176,40 @@ export default function EditEvent() {
                       onConfirm={setSelectedSpeakers}
                     />
                   </>
+                )}
+
+                {/* Task #1509: surface unresolved (deleted) speaker references so
+                    the admin can clear stale ids that show no speaker. Kept
+                    outside the picker conditional above so it stays visible and
+                    removable even when no active speakers exist. */}
+                {unresolvedSpeakerIds.length > 0 && (
+                  <div className="mt-2 p-3 bg-warning/10 border border-warning rounded-md space-y-2" data-testid="alert-unresolved-speakers">
+                    <div className="flex items-center gap-2 text-sm text-warning-foreground">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <span>
+                        {unresolvedSpeakerIds.length} unresolved {unresolvedSpeakerIds.length !== 1 ? speakerPlural.toLowerCase() : speakerSingular.toLowerCase()} (the referenced {unresolvedSpeakerIds.length !== 1 ? speakerPlural.toLowerCase() : speakerSingular.toLowerCase()} no longer exist). Remove to fix the count.
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {unresolvedSpeakerIds.map(speakerId => (
+                        <div
+                          key={speakerId}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background border border-warning text-warning-foreground"
+                        >
+                          <Mic className="h-3.5 w-3.5 text-warning" />
+                          <span className="text-xs font-mono">{speakerId.slice(0, 8)}…</span>
+                          <button
+                            type="button"
+                            onClick={() => toggleSpeaker(speakerId)}
+                            className="ml-1 text-warning hover:opacity-80"
+                            data-testid={`button-remove-unresolved-speaker-${speakerId}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
 

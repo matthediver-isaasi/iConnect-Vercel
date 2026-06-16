@@ -11,6 +11,7 @@ import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
 import { syncBlogPostAuthors } from '../../_lib/blogPostAuthors.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { getAccountingProvider } from '../../_lib/accountingProvider.js';
+import { pruneSpeakerIdsFromReferences } from '../../_lib/speakerReferences.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -1615,6 +1616,25 @@ export default async function handler(req, res) {
           success: true, 
           message: `Organization deleted. ${memberIds.length} members were anonymized and unlinked.` 
         });
+      }
+
+      // Speaker (Task #1509): prune this speaker's id from every event and
+      // complex-event session that references it, so no event is left pointing
+      // at a non-existent speaker. Scoped to the speaker's own tenant.
+      if (entity === 'Speaker' && tenantCtx.tenantId) {
+        try {
+          const prune = await pruneSpeakerIdsFromReferences(supabase, {
+            tenantId: tenantCtx.tenantId,
+            speakerIds: id,
+          });
+          if (prune.errors.length > 0) {
+            console.error(`[Speaker Delete] Reference prune errors for ${id}:`, prune.errors);
+          } else {
+            console.log(`[Speaker Delete] Pruned references for ${id}: ${prune.eventsUpdated} event(s), ${prune.sessionsUpdated} session(s)`);
+          }
+        } catch (pruneErr) {
+          console.error(`[Speaker Delete] Error pruning references for ${id}:`, pruneErr);
+        }
       }
 
       console.log(`[Entity DELETE] About to delete from ${tableName} where id=${id}`);
