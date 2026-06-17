@@ -1,11 +1,22 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { parseISO } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -32,9 +43,14 @@ import {
   Crown,
   Linkedin,
   Briefcase,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { filterGroupEventVisibility } from "@/hooks/useEventsData";
+import { useEventTypes } from "@/hooks/useEventTypes";
+import { parseEventTypes } from "@/lib/utils";
+import EventCard from "@/components/events/EventCard";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
 import DOMPurify from "dompurify";
@@ -48,6 +64,19 @@ function getInitials(name) {
 }
 
 const MEMBERS_PER_PAGE = 24;
+const EVENTS_PER_PAGE = 9;
+
+function isEventInPast(event) {
+  const dateStr = event.end_date || event.start_date;
+  if (!dateStr) return false;
+  try {
+    const eventDate =
+      typeof dateStr === "string" ? parseISO(dateStr) : new Date(dateStr);
+    return eventDate < new Date();
+  } catch {
+    return false;
+  }
+}
 
 function getMemberDisplay(member) {
   const first = (member.first_name || "").trim();
@@ -263,6 +292,111 @@ export default function MemberGroupDetailPage() {
     const start = (currentPage - 1) * MEMBERS_PER_PAGE;
     return filteredMembers.slice(start, start + MEMBERS_PER_PAGE);
   }, [filteredMembers, currentPage]);
+
+  // --- Group events section ---
+  const isEventAdmin = !isFeatureExcluded("events.browse-events.create");
+  const { eventTypes } = useEventTypes();
+
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ["public-system-settings"],
+    queryFn: () => publicClient.listSystemSettings(),
+  });
+
+  const { data: groupEventsRaw = [], isLoading: loadingEvents } = useQuery({
+    queryKey: ["member-group-events", groupId],
+    queryFn: () => base44.entities.Event.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const [eventSearch, setEventSearch] = useState("");
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
+  const [deliveryModeFilter, setDeliveryModeFilter] = useState("all");
+  const [showPastEvents, setShowPastEvents] = useState(false);
+  const [eventPage, setEventPage] = useState(1);
+
+  // Apply group-event audience rules: public group events for everyone,
+  // group-only events only for admins or members of THIS group. Dormant
+  // bespoke RSVP events are hidden by the shared helper.
+  const accessibleGroupEvents = useMemo(() => {
+    const visible = filterGroupEventVisibility(groupEventsRaw, {
+      isAdmin: isEventAdmin,
+      myGroupIds: isJoined ? [groupId] : [],
+    });
+    return visible.filter((event) => {
+      const isDraft =
+        event.event_state === "draft" ||
+        (!event.event_state && event.status === "draft");
+      // Drafts are hidden from non-admins.
+      return isDraft ? isEventAdmin : true;
+    });
+  }, [groupEventsRaw, isEventAdmin, isJoined, groupId]);
+
+  const eventTypeNames = useMemo(
+    () => eventTypes.map((t) => (typeof t === "object" ? t.name : t)).filter(Boolean),
+    [eventTypes]
+  );
+
+  const filteredGroupEvents = useMemo(() => {
+    const q = eventSearch.trim().toLowerCase();
+    return accessibleGroupEvents
+      .filter((event) => {
+        const matchesSearch =
+          !q ||
+          event.title?.toLowerCase().includes(q) ||
+          event.description?.toLowerCase().includes(q) ||
+          event.location?.toLowerCase().includes(q);
+
+        let matchesType = true;
+        if (eventTypeFilter !== "all") {
+          matchesType = parseEventTypes(event.event_type).includes(eventTypeFilter);
+        }
+
+        let matchesDelivery = true;
+        if (deliveryModeFilter !== "all") {
+          const online = event.is_online === true;
+          matchesDelivery = deliveryModeFilter === "online" ? online : !online;
+        }
+
+        const matchesTime = showPastEvents || !isEventInPast(event);
+
+        return matchesSearch && matchesType && matchesDelivery && matchesTime;
+      })
+      .sort((a, b) => {
+        const aTbc = a.status === "tbc" || !a.start_date;
+        const bTbc = b.status === "tbc" || !b.start_date;
+        if (aTbc && !bTbc) return 1;
+        if (!aTbc && bTbc) return -1;
+        if (aTbc && bTbc) return (a.title || "").localeCompare(b.title || "");
+        return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+      });
+  }, [
+    accessibleGroupEvents,
+    eventSearch,
+    eventTypeFilter,
+    deliveryModeFilter,
+    showPastEvents,
+  ]);
+
+  const pastEventsCount = useMemo(
+    () => accessibleGroupEvents.filter((e) => isEventInPast(e)).length,
+    [accessibleGroupEvents]
+  );
+
+  useEffect(() => {
+    setEventPage(1);
+  }, [eventSearch, eventTypeFilter, deliveryModeFilter, showPastEvents, groupId]);
+
+  const eventTotalPages = Math.max(
+    1,
+    Math.ceil(filteredGroupEvents.length / EVENTS_PER_PAGE)
+  );
+  const currentEventPage = Math.min(eventPage, eventTotalPages);
+  const pagedEvents = useMemo(() => {
+    const start = (currentEventPage - 1) * EVENTS_PER_PAGE;
+    return filteredGroupEvents.slice(start, start + EVENTS_PER_PAGE);
+  }, [filteredGroupEvents, currentEventPage]);
 
   const isLoading =
     !accessChecked || loadingGroup || loadingAssignments || loadingMembers;
@@ -668,6 +802,168 @@ export default function MemberGroupDetailPage() {
             >
               No vacancies have been posted yet.
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6" data-testid="card-group-events-section">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Calendar className="w-5 h-5 text-slate-600" />
+              <h2
+                className="text-lg font-semibold text-slate-900"
+                data-testid="text-events-heading"
+              >
+                Events ({filteredGroupEvents.length})
+              </h2>
+            </div>
+
+            {loadingEvents ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array(3)
+                  .fill(0)
+                  .map((_, i) => (
+                    <Card key={i} className="animate-pulse" data-testid="skeleton-event">
+                      <div className="h-48 bg-slate-200" />
+                      <CardContent className="p-6">
+                        <div className="h-4 bg-slate-200 rounded mb-2" />
+                        <div className="h-4 bg-slate-200 rounded w-2/3" />
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            ) : accessibleGroupEvents.length === 0 ? (
+              <div className="text-center py-8 text-slate-500" data-testid="text-no-events">
+                No events for this group yet.
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-3 mb-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <Input
+                        value={eventSearch}
+                        onChange={(e) => setEventSearch(e.target.value)}
+                        placeholder="Search events..."
+                        className="pl-9"
+                        data-testid="input-search-events"
+                      />
+                    </div>
+                    {eventTypeNames.length > 0 && (
+                      <Select value={eventTypeFilter} onValueChange={setEventTypeFilter}>
+                        <SelectTrigger
+                          className="w-[180px]"
+                          data-testid="select-event-type"
+                        >
+                          <SelectValue placeholder="All types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All types</SelectItem>
+                          {eventTypeNames.map((name) => (
+                            <SelectItem key={name} value={name}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Select
+                      value={deliveryModeFilter}
+                      onValueChange={setDeliveryModeFilter}
+                    >
+                      <SelectTrigger
+                        className="w-[170px]"
+                        data-testid="select-delivery-mode"
+                      >
+                        <SelectValue placeholder="All formats" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All formats</SelectItem>
+                        <SelectItem value="online">Online</SelectItem>
+                        <SelectItem value="offline">In-person</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {pastEventsCount > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="toggle-past-events"
+                        checked={showPastEvents}
+                        onCheckedChange={setShowPastEvents}
+                        data-testid="switch-past-events"
+                      />
+                      <Label
+                        htmlFor="toggle-past-events"
+                        className="text-sm text-slate-600 cursor-pointer"
+                      >
+                        Show past events ({pastEventsCount})
+                      </Label>
+                    </div>
+                  )}
+                </div>
+
+                {filteredGroupEvents.length === 0 ? (
+                  <div
+                    className="text-center py-8 text-slate-500"
+                    data-testid="text-no-events-matching"
+                  >
+                    No events match your search or filters.
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
+                      data-testid="grid-group-events"
+                    >
+                      {pagedEvents.map((event) => (
+                        <EventCard
+                          key={event.id}
+                          event={event}
+                          isFeatureExcluded={isFeatureExcluded}
+                          isAdmin={isEventAdmin}
+                          systemSettings={systemSettings}
+                          memberInfo={memberInfo}
+                        />
+                      ))}
+                    </div>
+
+                    {eventTotalPages > 1 && (
+                      <div
+                        className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-200"
+                        data-testid="pagination-events"
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEventPage((p) => Math.max(1, p - 1))}
+                          disabled={currentEventPage <= 1}
+                          data-testid="button-events-prev"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+                        </Button>
+                        <div
+                          className="text-sm text-slate-600"
+                          data-testid="text-events-page-indicator"
+                        >
+                          Page {currentEventPage} of {eventTotalPages}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setEventPage((p) => Math.min(eventTotalPages, p + 1))
+                          }
+                          disabled={currentEventPage >= eventTotalPages}
+                          data-testid="button-events-next"
+                        >
+                          Next <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
