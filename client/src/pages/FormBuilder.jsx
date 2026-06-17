@@ -4755,6 +4755,7 @@ export default function FormBuilderPage() {
     prevent_duplicate_email_submission: false,
     owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
     is_application_form: false,
+    is_job_posting: false, // Flags this form for the member-group vacancy form picker
     application_level: "member",
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
@@ -5258,6 +5259,7 @@ export default function FormBuilderPage() {
               }] 
             : []),
         prefill_source: existingForm.prefill_source || "none",
+        is_job_posting: existingForm.is_job_posting || false,
         visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
           ...rule,
           rule_type: rule.rule_type || 'visibility',
@@ -5879,6 +5881,16 @@ export default function FormBuilderPage() {
                   data-testid="switch-allow-submitter-email-copy"
                 />
                 <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
+              </div>
+
+              <div className="flex items-center gap-2" title="When enabled, this form appears in the member-group vacancy form picker so a vacancy can collect applications through it. For the applicant's details to pre-fill, set Prefill Source to 'member' on the Submission Settings tab.">
+                <Switch
+                  id="is_job_posting"
+                  checked={formData.is_job_posting}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_job_posting: checked })}
+                  data-testid="switch-is-job-posting"
+                />
+                <Label htmlFor="is_job_posting" className="text-sm">Job posting application form</Label>
               </div>
 
               <div className="flex items-center gap-2" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">

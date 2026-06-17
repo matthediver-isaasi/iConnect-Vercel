@@ -18,8 +18,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, submitterCopyRequested, submitterCopyEmail } = req.body;
-  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none');
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail } = req.body;
+  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -167,7 +167,11 @@ export default async function handler(req, res) {
       ...(prefill_organization_id && { organization_id: prefill_organization_id }),
       // For event-linked forms, associate the submission with the form's
       // chosen event so admins can review submissions per event.
-      ...(form.is_event_related && form.related_event_id && { event_id: form.related_event_id })
+      ...(form.is_event_related && form.related_event_id && { event_id: form.related_event_id }),
+      // Task #1539: when the form was opened from a member-group vacancy
+      // ("Express interest"), carry the vacancy association onto the row so the
+      // group admin's submissions review modal can find it.
+      ...(vacancy_id && { vacancy_id })
     };
 
     const { data: submission, error: insertError } = await supabase

@@ -54,6 +54,14 @@
       ],
       "default": "open",
       "description": "Whether this vacancy is open for applications or closed"
+    },
+    "application_form_id": {
+      "type": "string",
+      "description": "Optional reference to the Form (flagged is_job_posting) used to collect applications. When set, 'Express interest' opens that form pre-filled with the member. When null, the legacy optional-message express-interest flow is used."
+    },
+    "applicants_viewed_at": {
+      "type": "string",
+      "description": "Timestamp the group admin last opened the submissions review modal for this vacancy. Drives the 'new entry' indicator on the posting card."
     }
   },
   "required": [

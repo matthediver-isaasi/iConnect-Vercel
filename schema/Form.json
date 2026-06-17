@@ -90,6 +90,11 @@
         "default": false,
         "description": "Whether this is an application form that requires uniqueness validation"
       },
+      "is_job_posting": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this form is a job-posting application form. When true it appears in the member-group vacancy form picker so a vacancy can collect applications through it. For member pre-fill to populate, set prefill_source to 'member'."
+      },
       "application_level": {
         "type": "string",
         "enum": [

@@ -60,6 +60,9 @@ import {
   Send,
   Trash2,
   X,
+  Pencil,
+  FileText,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -117,7 +120,33 @@ const EMPTY_VACANCY_FORM = {
   term_value: "",
   term_unit: "years",
   max_terms: "",
+  application_form_id: "none",
 };
+
+function countNewSubmissions(subs, viewedAt) {
+  if (!viewedAt) return subs.length;
+  const v = new Date(viewedAt).getTime();
+  return subs.filter((s) => {
+    const t = s.created_date ? new Date(s.created_date).getTime() : 0;
+    return t > v;
+  }).length;
+}
+
+function renderAnswerValue(val) {
+  if (val == null || val === "") return "—";
+  if (Array.isArray(val)) {
+    return (
+      val
+        .map((v) =>
+          v && typeof v === "object" ? v.label || v.value || JSON.stringify(v) : v
+        )
+        .filter((v) => v !== "" && v != null)
+        .join(", ") || "—"
+    );
+  }
+  if (typeof val === "object") return val.label || val.value || JSON.stringify(val);
+  return String(val);
+}
 
 function isEventInPast(event) {
   const dateStr = event.end_date || event.start_date;
@@ -156,6 +185,9 @@ export default function MemberGroupDetailPage() {
   const [interestMessage, setInterestMessage] = useState("");
   const [removeVacancyTarget, setRemoveVacancyTarget] = useState(null);
   const [applicantsVacancy, setApplicantsVacancy] = useState(null);
+  const [editingVacancyId, setEditingVacancyId] = useState(null);
+  const [submissionsVacancy, setSubmissionsVacancy] = useState(null);
+  const [expandedSubmissionId, setExpandedSubmissionId] = useState(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -327,6 +359,79 @@ export default function MemberGroupDetailPage() {
     [myApplications]
   );
 
+  // Job-posting forms (admin only) populate the vacancy form picker and provide
+  // field labels for the submissions review modal.
+  const { data: jobPostingForms = [] } = useQuery({
+    queryKey: ["job-posting-forms"],
+    queryFn: async () => {
+      const all = await base44.entities.Form.list();
+      return (all || []).filter((f) => f.is_job_posting === true);
+    },
+    enabled: accessChecked && isGroupAdmin,
+    staleTime: 0,
+  });
+
+  // Public form list lets any member resolve a linked form's slug from its id
+  // for the "Express interest" navigation.
+  const { data: publicForms = [] } = useQuery({
+    queryKey: ["public-forms-for-vacancies"],
+    queryFn: () => publicClient.listForms(),
+    enabled: accessChecked,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const formSlugById = useMemo(() => {
+    const map = new Map();
+    for (const f of publicForms) if (f?.id) map.set(f.id, f.slug);
+    for (const f of jobPostingForms) if (f?.id) map.set(f.id, f.slug);
+    return map;
+  }, [publicForms, jobPostingForms]);
+
+  const formLinkedVacancyIds = useMemo(
+    () => vacancies.filter((v) => v.application_form_id).map((v) => v.id),
+    [vacancies]
+  );
+
+  const { data: submissionsByVacancy = {} } = useQuery({
+    queryKey: ["vacancy-submissions", groupId, formLinkedVacancyIds.join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        formLinkedVacancyIds.map(async (vid) => {
+          const subs = await base44.entities.FormSubmission.filter({
+            vacancy_id: vid,
+          }).catch(() => []);
+          const list = Array.isArray(subs) ? subs : [];
+          list.sort((a, b) => {
+            const at = a.created_date ? new Date(a.created_date).getTime() : 0;
+            const bt = b.created_date ? new Date(b.created_date).getTime() : 0;
+            return bt - at;
+          });
+          return [vid, list];
+        })
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: accessChecked && isGroupAdmin && formLinkedVacancyIds.length > 0,
+    staleTime: 0,
+  });
+
+  const submissionsForm = useMemo(
+    () =>
+      jobPostingForms.find(
+        (f) => f.id === submissionsVacancy?.application_form_id
+      ) || null,
+    [jobPostingForms, submissionsVacancy]
+  );
+
+  const fieldLabelById = useMemo(() => {
+    const map = new Map();
+    const fields = submissionsForm?.fields || [];
+    for (const f of fields) {
+      if (f && f.id) map.set(f.id, f.label || f.id);
+    }
+    return map;
+  }, [submissionsForm]);
+
   const visibleVacancies = useMemo(() => {
     const list = isGroupAdmin
       ? vacancies
@@ -338,7 +443,7 @@ export default function MemberGroupDetailPage() {
     });
   }, [vacancies, isGroupAdmin]);
 
-  const createVacancyMutation = useMutation({
+  const saveVacancyMutation = useMutation({
     mutationFn: async () => {
       const title = vacancyForm.role_title.trim();
       const description = vacancyForm.role_description.trim();
@@ -346,9 +451,7 @@ export default function MemberGroupDetailPage() {
       if (!description) throw new Error("Role description is required");
       const toNum = (v) =>
         v === "" || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
-      return base44.entities.Vacancy.create({
-        member_group_id: groupId,
-        posted_by_member_id: memberInfo?.id || null,
+      const payload = {
         role_title: title,
         role_description: description,
         commitment_value: toNum(vacancyForm.commitment_value),
@@ -356,19 +459,89 @@ export default function MemberGroupDetailPage() {
         term_value: toNum(vacancyForm.term_value),
         term_unit: vacancyForm.term_unit,
         max_terms: toNum(vacancyForm.max_terms),
+        application_form_id:
+          vacancyForm.application_form_id &&
+          vacancyForm.application_form_id !== "none"
+            ? vacancyForm.application_form_id
+            : null,
+      };
+      if (editingVacancyId) {
+        return base44.entities.Vacancy.update(editingVacancyId, payload);
+      }
+      return base44.entities.Vacancy.create({
+        ...payload,
+        member_group_id: groupId,
+        posted_by_member_id: memberInfo?.id || null,
         status: "open",
       });
     },
     onSuccess: () => {
+      const wasEdit = !!editingVacancyId;
       queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
       setShowPostVacancy(false);
       setVacancyForm(EMPTY_VACANCY_FORM);
-      toast.success("Vacancy posted");
+      setEditingVacancyId(null);
+      toast.success(wasEdit ? "Vacancy updated" : "Vacancy posted");
     },
     onError: (error) => {
-      toast.error("Failed to post vacancy: " + (error?.message || "Unknown error"));
+      toast.error("Failed to save vacancy: " + (error?.message || "Unknown error"));
     },
   });
+
+  const markSubmissionsViewedMutation = useMutation({
+    mutationFn: async (vacancy) =>
+      base44.entities.Vacancy.update(vacancy.id, {
+        applicants_viewed_at: new Date().toISOString(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+    },
+  });
+
+  const openEditVacancy = (vacancy) => {
+    setEditingVacancyId(vacancy.id);
+    setVacancyForm({
+      role_title: vacancy.role_title || "",
+      role_description: vacancy.role_description || "",
+      commitment_value: vacancy.commitment_value ?? "",
+      commitment_unit: vacancy.commitment_unit || "hours_per_month",
+      term_value: vacancy.term_value ?? "",
+      term_unit: vacancy.term_unit || "years",
+      max_terms: vacancy.max_terms ?? "",
+      application_form_id: vacancy.application_form_id || "none",
+    });
+    setShowPostVacancy(true);
+  };
+
+  const openSubmissions = (vacancy) => {
+    setSubmissionsVacancy(vacancy);
+    setExpandedSubmissionId(null);
+    const subs = submissionsByVacancy[vacancy.id] || [];
+    const newCount = countNewSubmissions(subs, vacancy.applicants_viewed_at);
+    if (newCount > 0) markSubmissionsViewedMutation.mutate(vacancy);
+  };
+
+  const handleExpressInterest = (vacancy) => {
+    if (vacancy.application_form_id) {
+      const slug = formSlugById.get(vacancy.application_form_id);
+      if (slug && memberInfo?.id) {
+        navigate(
+          `${createPageUrl("FormView")}?slug=${encodeURIComponent(
+            slug
+          )}&member_id=${encodeURIComponent(
+            memberInfo.id
+          )}&vacancy_id=${encodeURIComponent(vacancy.id)}`
+        );
+        return;
+      }
+      toast.error(
+        "This vacancy's application form is currently unavailable. Please try again later."
+      );
+      return;
+    }
+    setInterestVacancy(vacancy);
+    setInterestMessage("");
+  };
 
   const toggleVacancyStatusMutation = useMutation({
     mutationFn: async (vacancy) => {
@@ -1046,14 +1219,60 @@ export default function MemberGroupDetailPage() {
                         </div>
                         {isGroupAdmin && (
                           <div className="flex flex-wrap items-center gap-2">
+                            {vacancy.application_form_id ? (
+                              (() => {
+                                const subs = submissionsByVacancy[vacancy.id] || [];
+                                const newCount = countNewSubmissions(
+                                  subs,
+                                  vacancy.applicants_viewed_at
+                                );
+                                return (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openSubmissions(vacancy)}
+                                    data-testid={`button-view-submissions-${vacancy.id}`}
+                                  >
+                                    <FileText className="w-4 h-4 mr-2" />
+                                    Submissions
+                                    <Badge
+                                      variant="secondary"
+                                      className="ml-2"
+                                      data-testid={`badge-submissions-count-${vacancy.id}`}
+                                    >
+                                      {subs.length}
+                                    </Badge>
+                                    {newCount > 0 && (
+                                      <Badge
+                                        variant="default"
+                                        className="ml-1"
+                                        data-testid={`badge-submissions-new-${vacancy.id}`}
+                                      >
+                                        {newCount} new
+                                      </Badge>
+                                    )}
+                                  </Button>
+                                );
+                              })()
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setApplicantsVacancy(vacancy)}
+                                data-testid={`button-view-applicants-${vacancy.id}`}
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                Applicants
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setApplicantsVacancy(vacancy)}
-                              data-testid={`button-view-applicants-${vacancy.id}`}
+                              onClick={() => openEditVacancy(vacancy)}
+                              data-testid={`button-edit-vacancy-${vacancy.id}`}
                             >
-                              <Eye className="w-4 h-4 mr-2" />
-                              Applicants
+                              <Pencil className="w-4 h-4 mr-2" />
+                              Edit
                             </Button>
                             <Button
                               variant="outline"
@@ -1108,7 +1327,7 @@ export default function MemberGroupDetailPage() {
 
                       {!isClosed && (
                         <div className="mt-4">
-                          {alreadyApplied ? (
+                          {alreadyApplied && !vacancy.application_form_id ? (
                             <div
                               className="inline-flex items-center text-sm text-green-700"
                               data-testid={`text-vacancy-applied-${vacancy.id}`}
@@ -1120,10 +1339,7 @@ export default function MemberGroupDetailPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => {
-                                setInterestVacancy(vacancy);
-                                setInterestMessage("");
-                              }}
+                              onClick={() => handleExpressInterest(vacancy)}
                               disabled={!memberInfo?.id}
                               data-testid={`button-express-interest-${vacancy.id}`}
                             >
@@ -1408,17 +1624,21 @@ export default function MemberGroupDetailPage() {
       <Dialog
         open={showPostVacancy}
         onOpenChange={(open) => {
-          if (createVacancyMutation.isPending) return;
+          if (saveVacancyMutation.isPending) return;
           setShowPostVacancy(open);
-          if (!open) setVacancyForm(EMPTY_VACANCY_FORM);
+          if (!open) {
+            setVacancyForm(EMPTY_VACANCY_FORM);
+            setEditingVacancyId(null);
+          }
         }}
       >
         <DialogContent className="max-w-lg" data-testid="dialog-post-vacancy">
           <DialogHeader>
-            <DialogTitle>Post a vacancy</DialogTitle>
+            <DialogTitle>{editingVacancyId ? "Edit vacancy" : "Post a vacancy"}</DialogTitle>
             <DialogDescription>
-              Advertise an open position for "{group.name}". Members will be able to
-              express interest.
+              {editingVacancyId
+                ? `Update this open position for "${group.name}".`
+                : `Advertise an open position for "${group.name}". Members will be able to express interest.`}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
@@ -1528,31 +1748,62 @@ export default function MemberGroupDetailPage() {
                 data-testid="input-vacancy-max-terms"
               />
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-form">Application form</Label>
+              <Select
+                value={vacancyForm.application_form_id}
+                onValueChange={(v) =>
+                  setVacancyForm((f) => ({ ...f, application_form_id: v }))
+                }
+              >
+                <SelectTrigger
+                  id="vacancy-form"
+                  data-testid="select-vacancy-form"
+                >
+                  <SelectValue placeholder="None (collect a short message)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    None (collect a short message)
+                  </SelectItem>
+                  {jobPostingForms.map((form) => (
+                    <SelectItem key={form.id} value={form.id}>
+                      {form.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {jobPostingForms.length === 0
+                  ? "No job-posting forms yet. Enable \u201CJob posting application form\u201D on a form's settings to use it here."
+                  : "When set, \u201CExpress interest\u201D opens this form. Set the form's Prefill Source to \u201Cmember\u201D so applicant details fill in automatically."}
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setShowPostVacancy(false)}
-              disabled={createVacancyMutation.isPending}
+              disabled={saveVacancyMutation.isPending}
               data-testid="button-cancel-vacancy"
             >
               Cancel
             </Button>
             <Button
-              onClick={() => createVacancyMutation.mutate()}
+              onClick={() => saveVacancyMutation.mutate()}
               disabled={
-                createVacancyMutation.isPending ||
+                saveVacancyMutation.isPending ||
                 !vacancyForm.role_title.trim() ||
                 !vacancyForm.role_description.trim()
               }
               data-testid="button-submit-vacancy"
             >
-              {createVacancyMutation.isPending ? (
+              {saveVacancyMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : (
                 <UserPlus className="w-4 h-4 mr-2" />
               )}
-              Post vacancy
+              {editingVacancyId ? "Save changes" : "Post vacancy"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1693,6 +1944,128 @@ export default function MemberGroupDetailPage() {
               variant="outline"
               onClick={() => setApplicantsVacancy(null)}
               data-testid="button-close-applicants"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!submissionsVacancy}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSubmissionsVacancy(null);
+            setExpandedSubmissionId(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl" data-testid="dialog-submissions">
+          <DialogHeader>
+            <DialogTitle>Applications</DialogTitle>
+            <DialogDescription>
+              Form submissions for "{submissionsVacancy?.role_title}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {(() => {
+              const subs = submissionsVacancy
+                ? submissionsByVacancy[submissionsVacancy.id] || []
+                : [];
+              if (subs.length === 0) {
+                return (
+                  <div
+                    className="text-center py-8 text-slate-500"
+                    data-testid="text-no-submissions"
+                  >
+                    No applications have been submitted yet.
+                  </div>
+                );
+              }
+              return (
+                <div className="flex flex-col gap-3" data-testid="list-submissions">
+                  {subs.map((sub) => {
+                    const expanded = expandedSubmissionId === sub.id;
+                    const who =
+                      sub.submitted_by_name ||
+                      sub.submitted_by_email ||
+                      "Anonymous submission";
+                    const when = sub.created_date
+                      ? new Date(sub.created_date).toLocaleString()
+                      : "";
+                    const data = sub.submission_data || {};
+                    const entries = Object.entries(data).filter(
+                      ([, v]) => v !== "" && v != null
+                    );
+                    return (
+                      <div
+                        key={sub.id}
+                        className="rounded-md border border-slate-200"
+                        data-testid={`card-submission-${sub.id}`}
+                      >
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between gap-3 p-3 text-left hover-elevate rounded-md"
+                          onClick={() =>
+                            setExpandedSubmissionId(expanded ? null : sub.id)
+                          }
+                          data-testid={`button-toggle-submission-${sub.id}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-900 truncate">
+                              {who}
+                            </div>
+                            {when && (
+                              <div className="text-xs text-slate-500 truncate">
+                                {when}
+                              </div>
+                            )}
+                          </div>
+                          <ChevronDown
+                            className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                              expanded ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                        {expanded && (
+                          <div
+                            className="border-t border-slate-200 p-3 flex flex-col gap-2"
+                            data-testid={`detail-submission-${sub.id}`}
+                          >
+                            {entries.length === 0 ? (
+                              <p className="text-sm text-slate-500">
+                                No answers recorded.
+                              </p>
+                            ) : (
+                              entries.map(([fieldId, value]) => (
+                                <div key={fieldId} className="flex flex-col">
+                                  <span className="text-xs font-medium text-slate-500">
+                                    {fieldLabelById.get(fieldId) || fieldId}
+                                  </span>
+                                  <span className="text-sm text-slate-800 whitespace-pre-wrap">
+                                    {renderAnswerValue(value)}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSubmissionsVacancy(null);
+                setExpandedSubmissionId(null);
+              }}
+              data-testid="button-close-submissions"
             >
               <X className="w-4 h-4 mr-2" />
               Close

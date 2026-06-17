@@ -44,6 +44,7 @@ export default function FormViewPage() {
   const contractInstanceId = urlParams.get('contract_instance');
   const signerEmail = urlParams.get('signer_email');
   const briefId = urlParams.get('brief_id');
+  const vacancyId = urlParams.get('vacancy_id');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -2130,6 +2131,7 @@ export default function FormViewPage() {
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
       ...(effectiveRoleId && { role_id: effectiveRoleId }),
       ...(briefId && { brief_id: briefId }),
+      ...(vacancyId && { vacancy_id: vacancyId }),
       ...(wantsSubmitterCopy && {
         submitterCopyRequested: true,
         submitterCopyEmail: submitterCopyEmail.trim(),
