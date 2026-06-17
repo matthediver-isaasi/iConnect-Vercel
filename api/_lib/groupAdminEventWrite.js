@@ -56,6 +56,42 @@ function isFreeTicket(tc) {
   return true;
 }
 
+/**
+ * Task #1523: fields the group-limited event editor UI (Task #1522) HIDES.
+ * Hiding inputs is not access control — a crafted API request could still set a
+ * Featured flag, add speakers, set a CTA override, enable seat/availability
+ * display, etc. Coerce each to the neutral default the hidden control would have
+ * produced so group events behave exactly as the UI implies.
+ *
+ * Only fields actually present in the payload are touched. This keeps partial
+ * (PATCH) updates safe and tolerates the column differences between the `event`
+ * and `complex_event` tables (e.g. `event` has `speaker_ids`, `complex_event`
+ * does not) without writing columns that do not exist.
+ */
+function normalizeHiddenGroupEventFields(out) {
+  if (!out || typeof out !== 'object') return;
+  if ('is_featured' in out) out.is_featured = false;
+  if ('status' in out && out.status === 'tbc') out.status = 'published';
+  if ('qr_on_confirmation' in out) out.qr_on_confirmation = true;
+  if ('show_seat_count' in out) out.show_seat_count = true;
+  if ('show_ticket_availability' in out) out.show_ticket_availability = false;
+  if ('speaker_ids' in out) out.speaker_ids = [];
+  if ('event_type' in out) out.event_type = null;
+  if ('internal_reference' in out) out.internal_reference = null;
+  if ('cta_override_url' in out) out.cta_override_url = null;
+  if ('cta_override_mode' in out) out.cta_override_mode = 'card';
+  if ('dietary_options' in out) out.dietary_options = [];
+  if ('allergy_options' in out) out.allergy_options = [];
+  if ('accessibility_options' in out) out.accessibility_options = [];
+
+  // Guest-view-all and third-party-consent toggles live inside pricing_config.
+  const pc = out.pricing_config;
+  if (pc && typeof pc === 'object' && !Array.isArray(pc)) {
+    if ('allowGuestsToViewAllTickets' in pc) pc.allowGuestsToViewAllTickets = false;
+    if ('collectThirdPartyConsent' in pc) pc.collectThirdPartyConsent = false;
+  }
+}
+
 async function parentComplexEvent(complexEventId) {
   if (!complexEventId) return null;
   const { data } = await supabase
@@ -172,6 +208,9 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
       }
       const tcs = out?.pricing_config?.ticket_classes;
       if (Array.isArray(tcs)) {
+        if (tcs.length > 1) {
+          return { ok: false, status: 403, error: 'Group events can only have one ticket type' };
+        }
         for (const tc of tcs) {
           if (!isFreeTicket(tc)) {
             return { ok: false, status: 403, error: 'Group events can only offer free tickets' };
@@ -179,6 +218,12 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
         }
       }
     }
+
+    // Task #1523: coerce the controls the group-limited UI hides (featured, tbc
+    // timing, QR, speakers, event type, internal reference, CTA override, seat /
+    // availability display, dietary/allergy/accessibility, guest-view-all,
+    // third-party consent) to their neutral defaults.
+    normalizeHiddenGroupEventFields(out);
     return { ok: true, body: out };
   }
 
@@ -191,6 +236,17 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     }
     if (!isFreeTicket(out)) {
       return { ok: false, status: 403, error: 'Group events can only offer free tickets' };
+    }
+    // Task #1523: group events are limited to a single ticket type. Block adding
+    // a second ticket class to an administered group's complex event.
+    if (op === 'create') {
+      const { count } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id', { count: 'exact', head: true })
+        .eq('complex_event_id', ceId);
+      if ((count || 0) >= 1) {
+        return { ok: false, status: 403, error: 'Group events can only have one ticket type' };
+      }
     }
     out.is_free = true;
     out.price = 0;
