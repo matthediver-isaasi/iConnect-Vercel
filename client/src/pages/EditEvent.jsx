@@ -1914,6 +1914,7 @@ export default function EditEvent() {
               <CardDescription>Configure when and how members can access this event</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {!isGroupLimited && (
               <div className="flex items-center justify-between p-3 rounded-lg border-2 border-slate-200">
                 <div>
                   <Label className="font-medium">Featured Event</Label>
@@ -1925,6 +1926,7 @@ export default function EditEvent() {
                   data-testid="switch-is-featured"
                 />
               </div>
+              )}
 
               {/* Event Timing - affects date requirements */}
               <div>
@@ -1943,6 +1945,7 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Event has confirmed dates</p>
                     </Label>
                   </div>
+                  {!isGroupLimited && (
                   <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                     <RadioGroupItem value="tbc" id="timing-tbc" data-testid="radio-timing-tbc" />
                     <Label htmlFor="timing-tbc" className="cursor-pointer flex-1">
@@ -1950,6 +1953,7 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Dates not yet set</p>
                     </Label>
                   </div>
+                  )}
                 </RadioGroup>
                 {eventTiming === 'tbc' && (
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
@@ -2194,6 +2198,7 @@ export default function EditEvent() {
               </div>
 
               {/* Speakers Selection */}
+              {!isGroupLimited && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-slate-500" />
@@ -2304,6 +2309,7 @@ export default function EditEvent() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Event Sponsors - Collapsible */}
               <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -2454,6 +2460,7 @@ export default function EditEvent() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {!isGroupLimited && (
                 <div className="space-y-2">
                   <Label htmlFor="internal_reference">Internal Reference</Label>
                   <Input
@@ -2467,6 +2474,7 @@ export default function EditEvent() {
                     For internal use only. Not shown to attendees but included on invoices.
                   </p>
                 </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="xero_account_code">Xero Account Code</Label>
@@ -2488,7 +2496,7 @@ export default function EditEvent() {
                 </div>
               </div>
 
-              {eventTypes.length > 0 && (
+              {eventTypes.length > 0 && !isGroupLimited && (
                 <div className="space-y-2">
                   <Label htmlFor="event_type">Event Type</Label>
                   <Popover>
@@ -2545,6 +2553,7 @@ export default function EditEvent() {
                   </div>
                 )}
 
+              {!isGroupLimited && (
               <div className="space-y-2">
                 <Label htmlFor="cta_override_url">CTA Override URL</Label>
                 <Input
@@ -2583,6 +2592,7 @@ export default function EditEvent() {
                   </p>
                 </div>
               </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -2730,6 +2740,7 @@ export default function EditEvent() {
                     </CardTitle>
                     <CardDescription>Create different ticket types for different user roles</CardDescription>
                   </div>
+                  {!isGroupLimited && (
                   <Button
                     type="button"
                     variant="outline"
@@ -2740,6 +2751,7 @@ export default function EditEvent() {
                     <Plus className="h-4 w-4 mr-1" />
                     Add Ticket
                   </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -3583,7 +3595,7 @@ export default function EditEvent() {
                 )}
 
                 {/* Allow Guests to View All Tickets Toggle */}
-                {ticketClasses.length > 0 && (
+                {ticketClasses.length > 0 && !isGroupLimited && (
                   <div className="mt-6 pt-4 border-t border-slate-200">
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                       <div className="flex items-start gap-3">
@@ -3754,7 +3766,7 @@ export default function EditEvent() {
                 </p>
                 
                 {/* Per-event seat visibility toggle - only shown when global setting is ON */}
-                {globalShowSeats && (
+                {globalShowSeats && !isGroupLimited && (
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div>
                       <Label htmlFor="show-seat-count" className="text-sm">Show seat count</Label>
@@ -3770,7 +3782,7 @@ export default function EditEvent() {
                 )}
                 
                 {/* Per-event ticket availability visibility toggle - for one-off events */}
-                {isOneOffEvent && (
+                {isOneOffEvent && !isGroupLimited && (
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div>
                       <Label htmlFor="show-ticket-availability" className="text-sm">Show ticket availability</Label>
@@ -3786,7 +3798,7 @@ export default function EditEvent() {
                 )}
 
                 {/* Per-event entrance QR toggle - in-person events only */}
-                {!isOnlineEvent && (
+                {!isOnlineEvent && !isGroupLimited && (
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div className="flex items-center gap-2">
                       <QrCode className="h-4 w-4 text-slate-500" />
@@ -3838,6 +3850,7 @@ export default function EditEvent() {
             </CardContent>
           </Card>
 
+          {!isGroupLimited && (
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
@@ -3856,6 +3869,7 @@ export default function EditEvent() {
               />
             </CardContent>
           </Card>
+          )}
 
           {isDonationGloballyEnabled && (
             <Card className="border-slate-200 shadow-sm mb-6">

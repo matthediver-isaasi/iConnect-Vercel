@@ -991,6 +991,7 @@ export default function CreateEvent() {
               <CardDescription>Configure when and how members can access this event</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {!isGroupLimited && (
               <div className="flex items-center justify-between p-3 rounded-lg border-2 border-slate-200">
                 <div>
                   <Label className="font-medium">Featured Event</Label>
@@ -1002,6 +1003,7 @@ export default function CreateEvent() {
                   data-testid="switch-is-featured"
                 />
               </div>
+              )}
 
               {/* Event Timing - affects date requirements */}
               <div>
@@ -1020,6 +1022,7 @@ export default function CreateEvent() {
                       <p className="text-xs text-slate-500">Event has confirmed dates</p>
                     </Label>
                   </div>
+                  {!isGroupLimited && (
                   <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                     <RadioGroupItem value="tbc" id="timing-tbc" data-testid="radio-timing-tbc" />
                     <Label htmlFor="timing-tbc" className="cursor-pointer flex-1">
@@ -1027,6 +1030,7 @@ export default function CreateEvent() {
                       <p className="text-xs text-slate-500">Dates not yet set</p>
                     </Label>
                   </div>
+                  )}
                 </RadioGroup>
                 {eventTiming === 'tbc' && (
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
@@ -1106,7 +1110,7 @@ export default function CreateEvent() {
                 />
               </div>
 
-              {!isOnline && (
+              {!isOnline && !isGroupLimited && (
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <QrCode className="h-5 w-5 text-blue-600" />
@@ -1487,6 +1491,7 @@ export default function CreateEvent() {
               </div>
 
               {/* Speakers Selection */}
+              {!isGroupLimited && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-slate-500" />
@@ -1563,6 +1568,7 @@ export default function CreateEvent() {
                   </>
                 )}
               </div>
+              )}
 
               {/* Event Filter Tags - Grouped by Category */}
               {eventCategories.length > 0 && (
@@ -1681,6 +1687,7 @@ export default function CreateEvent() {
                 </div>
               )}
 
+              {!isGroupLimited && (<>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="internal_reference">Internal Reference</Label>
@@ -1792,6 +1799,7 @@ export default function CreateEvent() {
                   </p>
                 </div>
               </div>
+              </>)}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1905,6 +1913,7 @@ export default function CreateEvent() {
                     </CardTitle>
                     <CardDescription>Create different ticket types for different user roles</CardDescription>
                   </div>
+                  {!isGroupLimited && (
                   <Button
                     type="button"
                     variant="outline"
@@ -1915,6 +1924,7 @@ export default function CreateEvent() {
                     <Plus className="h-4 w-4 mr-1" />
                     Add Ticket
                   </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -2688,7 +2698,7 @@ export default function CreateEvent() {
                 )}
 
                 {/* Allow Guests to View All Tickets Toggle */}
-                {ticketClasses.length > 0 && (
+                {ticketClasses.length > 0 && !isGroupLimited && (
                   <div className="mt-6 pt-4 border-t border-slate-200">
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                       <div className="flex items-start gap-3">
@@ -2827,7 +2837,7 @@ export default function CreateEvent() {
                 </p>
                 
                 {/* Per-event seat visibility toggle - only shown when global setting is ON */}
-                {globalShowSeats && (
+                {globalShowSeats && !isGroupLimited && (
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div>
                       <Label htmlFor="show-seat-count" className="text-sm">Show seat count</Label>
@@ -2843,7 +2853,7 @@ export default function CreateEvent() {
                 )}
                 
                 {/* Per-event ticket availability visibility toggle - for one-off events */}
-                {!isProgramEvent && (
+                {!isProgramEvent && !isGroupLimited && (
                   <div className="flex items-center justify-between pt-2 border-t">
                     <div>
                       <Label htmlFor="show-ticket-availability" className="text-sm">Show ticket availability</Label>
@@ -2883,6 +2893,7 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
 
+          {!isGroupLimited && (
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
@@ -2901,6 +2912,7 @@ export default function CreateEvent() {
               />
             </CardContent>
           </Card>
+          )}
 
           <div className="flex items-center justify-end gap-4">
             <Button
