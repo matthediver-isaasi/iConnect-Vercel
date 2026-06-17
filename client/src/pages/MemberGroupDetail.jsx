@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Crown,
   Linkedin,
+  Briefcase,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -193,6 +194,16 @@ export default function MemberGroupDetailPage() {
     () => myAssignments.some((a) => a.group_id === groupId),
     [myAssignments, groupId]
   );
+
+  const isGroupAdmin = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    return myAssignments.some((a) => {
+      if (a.group_id !== groupId) return false;
+      if (a.is_group_admin !== true) return false;
+      if (!a.expires_at) return true;
+      return new Date(a.expires_at).toISOString() > nowIso;
+    });
+  }, [myAssignments, groupId]);
 
   const hasTermsOfReference = useMemo(() => {
     const raw = group?.terms_of_reference;
@@ -624,6 +635,39 @@ export default function MemberGroupDetailPage() {
                 )}
               </>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6" data-testid="card-vacancies-section">
+          <CardContent className="p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-slate-600" />
+                <h2
+                  className="text-lg font-semibold text-slate-900"
+                  data-testid="text-vacancies-heading"
+                >
+                  Vacancies
+                </h2>
+              </div>
+              {isGroupAdmin && (
+                <Button
+                  onClick={() => {
+                    toast.info("Vacancy posting is coming soon.");
+                  }}
+                  data-testid="button-post-vacancy"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Post vacancy
+                </Button>
+              )}
+            </div>
+            <div
+              className="text-center py-8 text-slate-500"
+              data-testid="text-no-vacancies"
+            >
+              No vacancies have been posted yet.
+            </div>
           </CardContent>
         </Card>
       </div>
