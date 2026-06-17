@@ -307,6 +307,8 @@ const entityToTable = {
   'ExternalWriter': 'external_writer',
   'ExternalWriterDocument': 'external_writer_document',
   'CrmTagColor': 'crm_tag_color',
+  'Vacancy': 'vacancy',
+  'VacancyApplication': 'vacancy_application',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -1174,6 +1176,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
+            'Vacancy', 'VacancyApplication',
             'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
@@ -1212,6 +1215,28 @@ export default async function handler(req, res) {
         }
         sanitizedBody.member_id = tenantCtx.memberId;
         delete sanitizedBody.organization_id;
+      }
+
+      // Task #1536: expressing interest in a vacancy is personal — force the
+      // applicant to the requesting member (no spoofing), and reject duplicate
+      // applications for the same vacancy by the same member.
+      if (entityNorm === 'vacancyapplication') {
+        if (!tenantCtx.memberId) {
+          return res.status(403).json({ error: 'Member context required to express interest' });
+        }
+        sanitizedBody.member_id = tenantCtx.memberId;
+        if (!sanitizedBody.vacancy_id) {
+          return res.status(400).json({ error: 'vacancy_id is required' });
+        }
+        const { data: existingApp } = await supabase
+          .from('vacancy_application')
+          .select('id')
+          .eq('vacancy_id', sanitizedBody.vacancy_id)
+          .eq('member_id', tenantCtx.memberId)
+          .maybeSingle();
+        if (existingApp) {
+          return res.status(409).json({ error: 'You have already expressed interest in this vacancy' });
+        }
       }
       
       // SPECIAL CASE: FormSubmission can be created by unauthenticated users (public/embedded forms)

@@ -296,6 +296,8 @@ class EntitiesProxy {
   get ExternalWriter() { return this._getEntity('ExternalWriter'); }
   get ExternalWriterDocument() { return this._getEntity('ExternalWriterDocument'); }
   get CrmTagColor() { return this._getEntity('CrmTagColor'); }
+  get Vacancy() { return this._getEntity('Vacancy'); }
+  get VacancyApplication() { return this._getEntity('VacancyApplication'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

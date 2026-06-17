@@ -19,6 +19,15 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +53,13 @@ import {
   Linkedin,
   Briefcase,
   Calendar,
+  Clock,
+  CalendarClock,
+  Repeat,
+  Eye,
+  Send,
+  Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -65,6 +81,43 @@ function getInitials(name) {
 
 const MEMBERS_PER_PAGE = 24;
 const EVENTS_PER_PAGE = 9;
+
+const COMMITMENT_UNIT_LABELS = {
+  hours_per_month: "hours / month",
+  hours_per_week: "hours / week",
+};
+const TERM_UNIT_LABELS = {
+  months: "months",
+  years: "years",
+};
+
+function formatCommitment(vacancy) {
+  if (vacancy.commitment_value == null || vacancy.commitment_value === "") return null;
+  const unit = COMMITMENT_UNIT_LABELS[vacancy.commitment_unit] || vacancy.commitment_unit || "";
+  return `${vacancy.commitment_value} ${unit}`.trim();
+}
+
+function formatTerm(vacancy) {
+  if (vacancy.term_value == null || vacancy.term_value === "") return null;
+  const unit = TERM_UNIT_LABELS[vacancy.term_unit] || vacancy.term_unit || "";
+  return `${vacancy.term_value} ${unit}`.trim();
+}
+
+function formatMaxTerms(vacancy) {
+  if (vacancy.max_terms == null || vacancy.max_terms === "") return null;
+  const n = Number(vacancy.max_terms);
+  return `Max ${vacancy.max_terms} ${n === 1 ? "term" : "terms"}`;
+}
+
+const EMPTY_VACANCY_FORM = {
+  role_title: "",
+  role_description: "",
+  commitment_value: "",
+  commitment_unit: "hours_per_month",
+  term_value: "",
+  term_unit: "years",
+  max_terms: "",
+};
 
 function isEventInPast(event) {
   const dateStr = event.end_date || event.start_date;
@@ -97,6 +150,12 @@ export default function MemberGroupDetailPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [showPostVacancy, setShowPostVacancy] = useState(false);
+  const [vacancyForm, setVacancyForm] = useState(EMPTY_VACANCY_FORM);
+  const [interestVacancy, setInterestVacancy] = useState(null);
+  const [interestMessage, setInterestMessage] = useState("");
+  const [removeVacancyTarget, setRemoveVacancyTarget] = useState(null);
+  const [applicantsVacancy, setApplicantsVacancy] = useState(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -243,6 +302,153 @@ export default function MemberGroupDetailPage() {
       .trim();
     return text.length > 0;
   }, [group?.terms_of_reference]);
+
+  const { data: vacancies = [], isLoading: loadingVacancies } = useQuery({
+    queryKey: ["group-vacancies", groupId],
+    queryFn: () => base44.entities.Vacancy.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ["my-vacancy-applications", memberInfo?.id],
+    queryFn: async () => {
+      if (!memberInfo?.id) return [];
+      return base44.entities.VacancyApplication.filter({ member_id: memberInfo.id });
+    },
+    enabled: accessChecked && !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const appliedVacancyIds = useMemo(
+    () => new Set(myApplications.map((a) => a.vacancy_id)),
+    [myApplications]
+  );
+
+  const visibleVacancies = useMemo(() => {
+    const list = isGroupAdmin
+      ? vacancies
+      : vacancies.filter((v) => v.status !== "closed");
+    return [...list].sort((a, b) => {
+      const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bt - at;
+    });
+  }, [vacancies, isGroupAdmin]);
+
+  const createVacancyMutation = useMutation({
+    mutationFn: async () => {
+      const title = vacancyForm.role_title.trim();
+      const description = vacancyForm.role_description.trim();
+      if (!title) throw new Error("Role title is required");
+      if (!description) throw new Error("Role description is required");
+      const toNum = (v) =>
+        v === "" || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+      return base44.entities.Vacancy.create({
+        member_group_id: groupId,
+        posted_by_member_id: memberInfo?.id || null,
+        role_title: title,
+        role_description: description,
+        commitment_value: toNum(vacancyForm.commitment_value),
+        commitment_unit: vacancyForm.commitment_unit,
+        term_value: toNum(vacancyForm.term_value),
+        term_unit: vacancyForm.term_unit,
+        max_terms: toNum(vacancyForm.max_terms),
+        status: "open",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+      setShowPostVacancy(false);
+      setVacancyForm(EMPTY_VACANCY_FORM);
+      toast.success("Vacancy posted");
+    },
+    onError: (error) => {
+      toast.error("Failed to post vacancy: " + (error?.message || "Unknown error"));
+    },
+  });
+
+  const toggleVacancyStatusMutation = useMutation({
+    mutationFn: async (vacancy) => {
+      const nextStatus = vacancy.status === "closed" ? "open" : "closed";
+      return base44.entities.Vacancy.update(vacancy.id, { status: nextStatus });
+    },
+    onSuccess: (_data, vacancy) => {
+      queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+      toast.success(
+        vacancy.status === "closed" ? "Vacancy reopened" : "Vacancy closed"
+      );
+    },
+    onError: (error) => {
+      toast.error("Failed to update vacancy: " + (error?.message || "Unknown error"));
+    },
+  });
+
+  const removeVacancyMutation = useMutation({
+    mutationFn: async (vacancy) => base44.entities.Vacancy.delete(vacancy.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-vacancies", groupId] });
+      setRemoveVacancyTarget(null);
+      toast.success("Vacancy removed");
+    },
+    onError: (error) => {
+      toast.error("Failed to remove vacancy: " + (error?.message || "Unknown error"));
+    },
+  });
+
+  const expressInterestMutation = useMutation({
+    mutationFn: async () => {
+      if (!memberInfo?.id) throw new Error("You must be signed in to express interest");
+      if (!interestVacancy?.id) throw new Error("No vacancy selected");
+      return base44.entities.VacancyApplication.create({
+        vacancy_id: interestVacancy.id,
+        message: interestMessage.trim() || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["my-vacancy-applications", memberInfo?.id],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["vacancy-applicants", interestVacancy?.id],
+      });
+      setInterestVacancy(null);
+      setInterestMessage("");
+      toast.success("Interest registered. The group admins will be in touch.");
+    },
+    onError: (error) => {
+      toast.error(
+        "Failed to express interest: " + (error?.message || "Unknown error")
+      );
+    },
+  });
+
+  const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
+    queryKey: ["vacancy-applicants", applicantsVacancy?.id],
+    queryFn: async () => {
+      if (!applicantsVacancy?.id) return [];
+      const apps = await base44.entities.VacancyApplication.filter({
+        vacancy_id: applicantsVacancy.id,
+      });
+      const withMembers = await Promise.all(
+        apps.map(async (app) => {
+          const member = app.member_id
+            ? await base44.entities.Member.get(app.member_id).catch(() => null)
+            : null;
+          return { ...app, __member: member };
+        })
+      );
+      return withMembers.sort((a, b) => {
+        const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bt - at;
+      });
+    },
+    enabled: accessChecked && isGroupAdmin && !!applicantsVacancy?.id,
+    staleTime: 0,
+  });
 
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPage, setMemberPage] = useState(1);
@@ -781,13 +987,14 @@ export default function MemberGroupDetailPage() {
                   className="text-lg font-semibold text-slate-900"
                   data-testid="text-vacancies-heading"
                 >
-                  Vacancies
+                  Vacancies ({visibleVacancies.length})
                 </h2>
               </div>
               {isGroupAdmin && (
                 <Button
                   onClick={() => {
-                    toast.info("Vacancy posting is coming soon.");
+                    setVacancyForm(EMPTY_VACANCY_FORM);
+                    setShowPostVacancy(true);
                   }}
                   data-testid="button-post-vacancy"
                 >
@@ -796,12 +1003,141 @@ export default function MemberGroupDetailPage() {
                 </Button>
               )}
             </div>
-            <div
-              className="text-center py-8 text-slate-500"
-              data-testid="text-no-vacancies"
-            >
-              No vacancies have been posted yet.
-            </div>
+
+            {loadingVacancies ? (
+              <div className="flex items-center justify-center py-8 text-slate-500">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading vacancies...
+              </div>
+            ) : visibleVacancies.length === 0 ? (
+              <div
+                className="text-center py-8 text-slate-500"
+                data-testid="text-no-vacancies"
+              >
+                No vacancies have been posted yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4" data-testid="list-vacancies">
+                {visibleVacancies.map((vacancy) => {
+                  const commitment = formatCommitment(vacancy);
+                  const term = formatTerm(vacancy);
+                  const maxTerms = formatMaxTerms(vacancy);
+                  const isClosed = vacancy.status === "closed";
+                  const alreadyApplied = appliedVacancyIds.has(vacancy.id);
+                  return (
+                    <div
+                      key={vacancy.id}
+                      className="rounded-md border border-slate-200 p-4"
+                      data-testid={`card-vacancy-${vacancy.id}`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3
+                            className="text-base font-semibold text-slate-900"
+                            data-testid={`text-vacancy-title-${vacancy.id}`}
+                          >
+                            {vacancy.role_title}
+                          </h3>
+                          {isClosed && (
+                            <Badge variant="secondary" data-testid={`badge-vacancy-closed-${vacancy.id}`}>
+                              Closed
+                            </Badge>
+                          )}
+                        </div>
+                        {isGroupAdmin && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setApplicantsVacancy(vacancy)}
+                              data-testid={`button-view-applicants-${vacancy.id}`}
+                            >
+                              <Eye className="w-4 h-4 mr-2" />
+                              Applicants
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleVacancyStatusMutation.mutate(vacancy)}
+                              disabled={toggleVacancyStatusMutation.isPending}
+                              data-testid={`button-toggle-vacancy-${vacancy.id}`}
+                            >
+                              {isClosed ? "Reopen" : "Close"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => setRemoveVacancyTarget(vacancy)}
+                              data-testid={`button-remove-vacancy-${vacancy.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      <p
+                        className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
+                        data-testid={`text-vacancy-description-${vacancy.id}`}
+                      >
+                        {vacancy.role_description}
+                      </p>
+
+                      {(commitment || term || maxTerms) && (
+                        <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
+                          {commitment && (
+                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-commitment-${vacancy.id}`}>
+                              <Clock className="w-4 h-4 text-slate-400" />
+                              {commitment}
+                            </span>
+                          )}
+                          {term && (
+                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-term-${vacancy.id}`}>
+                              <CalendarClock className="w-4 h-4 text-slate-400" />
+                              {term}
+                            </span>
+                          )}
+                          {maxTerms && (
+                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-maxterms-${vacancy.id}`}>
+                              <Repeat className="w-4 h-4 text-slate-400" />
+                              {maxTerms}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {!isClosed && (
+                        <div className="mt-4">
+                          {alreadyApplied ? (
+                            <div
+                              className="inline-flex items-center text-sm text-green-700"
+                              data-testid={`text-vacancy-applied-${vacancy.id}`}
+                            >
+                              <Check className="w-4 h-4 mr-2" />
+                              You've expressed interest
+                            </div>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setInterestVacancy(vacancy);
+                                setInterestMessage("");
+                              }}
+                              disabled={!memberInfo?.id}
+                              data-testid={`button-express-interest-${vacancy.id}`}
+                            >
+                              <Send className="w-4 h-4 mr-2" />
+                              Express interest
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1064,6 +1400,342 @@ export default function MemberGroupDetailPage() {
                 <UserPlus className="w-4 h-4 mr-2" />
               )}
               Agree and join
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={showPostVacancy}
+        onOpenChange={(open) => {
+          if (createVacancyMutation.isPending) return;
+          setShowPostVacancy(open);
+          if (!open) setVacancyForm(EMPTY_VACANCY_FORM);
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-post-vacancy">
+          <DialogHeader>
+            <DialogTitle>Post a vacancy</DialogTitle>
+            <DialogDescription>
+              Advertise an open position for "{group.name}". Members will be able to
+              express interest.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-title">Role title</Label>
+              <Input
+                id="vacancy-title"
+                value={vacancyForm.role_title}
+                onChange={(e) =>
+                  setVacancyForm((f) => ({ ...f, role_title: e.target.value }))
+                }
+                placeholder="e.g. Treasurer"
+                data-testid="input-vacancy-title"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-description">Role description</Label>
+              <Textarea
+                id="vacancy-description"
+                value={vacancyForm.role_description}
+                onChange={(e) =>
+                  setVacancyForm((f) => ({ ...f, role_description: e.target.value }))
+                }
+                rows={4}
+                placeholder="Describe the responsibilities and what you're looking for."
+                data-testid="input-vacancy-description"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Time commitment</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  value={vacancyForm.commitment_value}
+                  onChange={(e) =>
+                    setVacancyForm((f) => ({ ...f, commitment_value: e.target.value }))
+                  }
+                  placeholder="e.g. 4"
+                  className="w-28"
+                  data-testid="input-vacancy-commitment-value"
+                />
+                <Select
+                  value={vacancyForm.commitment_unit}
+                  onValueChange={(v) =>
+                    setVacancyForm((f) => ({ ...f, commitment_unit: v }))
+                  }
+                >
+                  <SelectTrigger
+                    className="w-[180px]"
+                    data-testid="select-vacancy-commitment-unit"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hours_per_month">hours / month</SelectItem>
+                    <SelectItem value="hours_per_week">hours / week</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Term of office</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  value={vacancyForm.term_value}
+                  onChange={(e) =>
+                    setVacancyForm((f) => ({ ...f, term_value: e.target.value }))
+                  }
+                  placeholder="e.g. 3"
+                  className="w-28"
+                  data-testid="input-vacancy-term-value"
+                />
+                <Select
+                  value={vacancyForm.term_unit}
+                  onValueChange={(v) =>
+                    setVacancyForm((f) => ({ ...f, term_unit: v }))
+                  }
+                >
+                  <SelectTrigger
+                    className="w-[180px]"
+                    data-testid="select-vacancy-term-unit"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="months">months</SelectItem>
+                    <SelectItem value="years">years</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-max-terms">Maximum terms</Label>
+              <Input
+                id="vacancy-max-terms"
+                type="number"
+                min="0"
+                value={vacancyForm.max_terms}
+                onChange={(e) =>
+                  setVacancyForm((f) => ({ ...f, max_terms: e.target.value }))
+                }
+                placeholder="e.g. 2"
+                className="w-28"
+                data-testid="input-vacancy-max-terms"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowPostVacancy(false)}
+              disabled={createVacancyMutation.isPending}
+              data-testid="button-cancel-vacancy"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createVacancyMutation.mutate()}
+              disabled={
+                createVacancyMutation.isPending ||
+                !vacancyForm.role_title.trim() ||
+                !vacancyForm.role_description.trim()
+              }
+              data-testid="button-submit-vacancy"
+            >
+              {createVacancyMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <UserPlus className="w-4 h-4 mr-2" />
+              )}
+              Post vacancy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!interestVacancy}
+        onOpenChange={(open) => {
+          if (expressInterestMutation.isPending) return;
+          if (!open) {
+            setInterestVacancy(null);
+            setInterestMessage("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-express-interest">
+          <DialogHeader>
+            <DialogTitle>Express interest</DialogTitle>
+            <DialogDescription>
+              Let the group admins know you're interested in "{interestVacancy?.role_title}".
+              You can add an optional message.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="interest-message">Message (optional)</Label>
+            <Textarea
+              id="interest-message"
+              value={interestMessage}
+              onChange={(e) => setInterestMessage(e.target.value)}
+              rows={4}
+              placeholder="Tell them a bit about why you're interested."
+              data-testid="input-interest-message"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setInterestVacancy(null);
+                setInterestMessage("");
+              }}
+              disabled={expressInterestMutation.isPending}
+              data-testid="button-cancel-interest"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => expressInterestMutation.mutate()}
+              disabled={expressInterestMutation.isPending}
+              data-testid="button-submit-interest"
+            >
+              {expressInterestMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Express interest
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!applicantsVacancy}
+        onOpenChange={(open) => {
+          if (!open) setApplicantsVacancy(null);
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-applicants">
+          <DialogHeader>
+            <DialogTitle>Applicants</DialogTitle>
+            <DialogDescription>
+              Members who expressed interest in "{applicantsVacancy?.role_title}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] overflow-y-auto">
+            {loadingApplicants ? (
+              <div className="flex items-center justify-center py-8 text-slate-500">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading applicants...
+              </div>
+            ) : applicants.length === 0 ? (
+              <div
+                className="text-center py-8 text-slate-500"
+                data-testid="text-no-applicants"
+              >
+                No one has expressed interest yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3" data-testid="list-applicants">
+                {applicants.map((app) => {
+                  const member = app.__member;
+                  const display = member ? getMemberDisplay(member) : null;
+                  const name = display ? display.displayName : "Unknown member";
+                  return (
+                    <div
+                      key={app.id}
+                      className="rounded-md border border-slate-200 p-3"
+                      data-testid={`card-applicant-${app.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9">
+                          {display?.showAvatarImage && member?.profile_image_url ? (
+                            <AvatarImage src={member.profile_image_url} alt={name} />
+                          ) : null}
+                          <AvatarFallback>{getInitials(name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div
+                            className="text-sm font-medium text-slate-900 truncate"
+                            data-testid={`text-applicant-name-${app.id}`}
+                          >
+                            {name}
+                          </div>
+                          {member?.email && !display?.anonymised && (
+                            <div className="text-xs text-slate-500 truncate">
+                              {member.email}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {app.message && (
+                        <p
+                          className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
+                          data-testid={`text-applicant-message-${app.id}`}
+                        >
+                          {app.message}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setApplicantsVacancy(null)}
+              data-testid="button-close-applicants"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!removeVacancyTarget}
+        onOpenChange={(open) => {
+          if (!open && !removeVacancyMutation.isPending) setRemoveVacancyTarget(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-remove-vacancy">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove vacancy</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove "{removeVacancyTarget?.role_title}"? This
+              will also remove any expressions of interest and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={removeVacancyMutation.isPending}
+              data-testid="button-cancel-remove-vacancy"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (removeVacancyTarget) removeVacancyMutation.mutate(removeVacancyTarget);
+              }}
+              disabled={removeVacancyMutation.isPending}
+              data-testid="button-confirm-remove-vacancy"
+            >
+              {removeVacancyMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

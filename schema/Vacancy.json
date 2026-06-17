@@ -1,0 +1,64 @@
+{
+  "name": "Vacancy",
+  "type": "object",
+  "properties": {
+    "member_group_id": {
+      "type": "string",
+      "description": "Reference to the MemberGroup this vacancy belongs to"
+    },
+    "posted_by_member_id": {
+      "type": "string",
+      "description": "Reference to the Member (group admin) who posted this vacancy"
+    },
+    "role_title": {
+      "type": "string",
+      "description": "Title of the position being advertised"
+    },
+    "role_description": {
+      "type": "string",
+      "description": "Multi-line description of the role"
+    },
+    "commitment_value": {
+      "type": "number",
+      "description": "Numeric value of the time commitment for the role"
+    },
+    "commitment_unit": {
+      "type": "string",
+      "enum": [
+        "hours_per_month",
+        "hours_per_week"
+      ],
+      "description": "Unit for the commitment value"
+    },
+    "term_value": {
+      "type": "number",
+      "description": "Numeric value of the term of office"
+    },
+    "term_unit": {
+      "type": "string",
+      "enum": [
+        "months",
+        "years"
+      ],
+      "description": "Unit for the term of office value"
+    },
+    "max_terms": {
+      "type": "number",
+      "description": "Maximum number of terms a person can serve in this role"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "default": "open",
+      "description": "Whether this vacancy is open for applications or closed"
+    }
+  },
+  "required": [
+    "member_group_id",
+    "role_title",
+    "role_description"
+  ]
+}

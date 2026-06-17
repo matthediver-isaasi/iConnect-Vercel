@@ -186,6 +186,10 @@ export const entityTenantScope = {
 
   // CRM Tag colours - per-tenant tag colour assignments
   'CrmTagColor': TENANT_SCOPE.TENANT,
+
+  // Group vacancies + member applications (Task #1536)
+  'Vacancy': TENANT_SCOPE.TENANT,
+  'VacancyApplication': TENANT_SCOPE.TENANT,
 };
 
 /**

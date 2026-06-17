@@ -19,6 +19,22 @@ errors.
    `get <Name>() { return this._getEntity('<Name>'); }`.
 4. `schema/<Name>.json` — entity definition (properties + required).
 
+**Gotcha — TENANT-scoped tables with no `organization_id` column:** the POST
+handler in `api/entities/[entity]/index.js` force-sets `organization_id =
+tenantCtx.organizationId` for any TENANT entity that is NOT in its
+`entitiesWithoutOrgId` allowlist. If your new table only has `tenant_id` (no
+`organization_id`), you MUST add the entity to that list or every insert fails
+("column organization_id does not exist"). `tenant_id` itself is auto-set from
+the session, so never send it from the client.
+
+**Forcing a per-member owner on write:** TENANT scope does NOT force `member_id`
+(only MEMBER scope does, but MEMBER scope also restricts reads to the owner). For
+"personal" rows under a tenant-readable table (e.g. an application a member files
+that admins must also read), keep TENANT scope and add a `entityNorm === '<x>'`
+special-case in the POST handler that sets `sanitizedBody.member_id =
+tenantCtx.memberId` (and do duplicate/uniqueness checks there). See the
+`formsubmissionsavedview` / `vacancyapplication` blocks.
+
 **Why:** these maps are the source of truth for tenant scoping and table
 resolution; they are not auto-generated from the DB.
 
