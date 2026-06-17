@@ -40,6 +40,8 @@ import {
   Download,
   Award,
   FolderTree,
+  UserCog,
+  ArrowRight,
 } from "lucide-react";
 import { format } from "date-fns";
 import ResourceFilter from "../components/resources/ResourceFilter";
@@ -56,6 +58,8 @@ import { COUNTRIES } from "@/data/countries";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { ChevronsUpDown } from "lucide-react";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -813,6 +817,37 @@ export default function PreferencesPage() {
   });
 
 
+  // --- Fetch role-change request rules (admin-configured) ---
+  const { data: roleChangeRules = [] } = useQuery({
+    queryKey: ['role-change-requests-config'],
+    queryFn: async () => {
+      try {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'role_change_requests');
+        if (!setting?.setting_value) return [];
+        const parsed = JSON.parse(setting.setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('[Preferences] Error fetching role change rules:', error);
+        return [];
+      }
+    },
+    staleTime: 60000
+  });
+
+  // --- Fetch all roles (for resolving target role names in role-change rules) ---
+  const { data: allRoles = [] } = useQuery({
+    queryKey: ['all-roles-for-role-change'],
+    enabled: roleChangeRules.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("role")
+        .select("id, name");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // --- Fetch roles with badge info for the member ---
   const { data: memberRoles = [], isLoading: rolesLoading } = useQuery({
     queryKey: ["memberRolesWithBadges", memberRoleIds],
@@ -852,6 +887,7 @@ export default function PreferencesPage() {
     { id: 'profile_information', visible: true },
     { id: 'communications', visible: true },
     { id: 'additional_info', visible: true },
+    { id: 'role_change_request', visible: true },
     { id: 'engagement_stats', visible: true },
     { id: 'engagement_awards', visible: true },
     { id: 'groups', visible: true },
@@ -3156,6 +3192,68 @@ export default function PreferencesPage() {
             </CardContent>
           </Card>
         );
+
+      case 'role_change_request': {
+        if (isFeatureExcluded('user.about-me.role-change-request')) return null;
+
+        const matchingRules = (roleChangeRules || []).filter(rule =>
+          rule?.source_role_id &&
+          rule?.target_role_id &&
+          rule?.form_slug &&
+          memberRoleIds.includes(rule.source_role_id)
+        );
+
+        // Hide the card entirely when there is nothing the member can request
+        if (matchingRules.length === 0) return null;
+
+        const roleNameById = (id) =>
+          allRoles.find(r => r.id === id)?.name || 'another role';
+
+        return (
+          <Card key="role_change_request" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCog className="w-5 h-5 text-blue-600" />
+                Request Role Change
+              </CardTitle>
+              <CardDescription>
+                Based on your current role, you can request to change to the role(s) below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {matchingRules.map((rule, index) => {
+                const targetName = roleNameById(rule.target_role_id);
+                const requestUrl = `${createPageUrl('FormView')}?slug=${encodeURIComponent(rule.form_slug)}${memberRecord?.id ? `&member_id=${encodeURIComponent(memberRecord.id)}` : ''}`;
+                return (
+                  <div
+                    key={`${rule.source_role_id}-${rule.target_role_id}-${index}`}
+                    className="p-4 rounded-lg border border-slate-200 bg-white flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                    data-testid={`role-change-option-${index}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900" data-testid={`text-role-change-target-${index}`}>
+                          {targetName}
+                        </span>
+                        <ArrowRight className="w-4 h-4 text-slate-400" />
+                      </div>
+                      {rule.description && (
+                        <p className="text-sm text-slate-600 mt-1">{rule.description}</p>
+                      )}
+                    </div>
+                    <Link to={requestUrl} className="flex-shrink-0">
+                      <Button className="gap-2 w-full sm:w-auto" data-testid={`button-request-role-change-${index}`}>
+                        Request change
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      }
 
       default:
         return null;

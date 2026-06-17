@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink, ChevronDown, ChevronUp, FolderTree } from "lucide-react";
+import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink, ChevronDown, ChevronUp, FolderTree, UserCog, Plus, Trash2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -40,6 +40,8 @@ export default function PreferenceSettingsPage() {
   const [showResourceVisibility, setShowResourceVisibility] = useState(false);
   const [hiddenResourceCategoryIds, setHiddenResourceCategoryIds] = useState([]);
   const [resourceVisibilityChanged, setResourceVisibilityChanged] = useState(false);
+  const [roleChangeRules, setRoleChangeRules] = useState([]);
+  const [roleChangeRulesChanged, setRoleChangeRulesChanged] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -210,6 +212,112 @@ export default function PreferenceSettingsPage() {
       }
     }
   }, [hiddenResourceCategoriesSetting]);
+
+  // Fetch roles for role-change rule configuration
+  const { data: rolesList = [], isLoading: rolesListLoading } = useQuery({
+    queryKey: ['roles-for-role-change'],
+    queryFn: async () => {
+      try {
+        const roles = await base44.entities.Role.list();
+        return (roles || []).sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '')
+        );
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch forms for role-change rule configuration
+  const { data: formsList = [], isLoading: formsListLoading } = useQuery({
+    queryKey: ['forms-for-role-change'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || [])
+          .filter(f => f.slug)
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch role-change rules setting record
+  const { data: roleChangeSetting } = useQuery({
+    queryKey: ['role-change-requests-record'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const found = allSettings.find(s => s.setting_key === 'role_change_requests');
+      return found || null;
+    },
+    staleTime: 0
+  });
+
+  // Initialize role-change rules from saved setting
+  useEffect(() => {
+    if (roleChangeSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(roleChangeSetting.setting_value);
+        if (Array.isArray(parsed)) {
+          setRoleChangeRules(parsed);
+        }
+      } catch {
+        setRoleChangeRules([]);
+      }
+    }
+  }, [roleChangeSetting]);
+
+  // Mutation to save role-change rules
+  const updateRoleChangeRulesMutation = useMutation({
+    mutationFn: async (rules) => {
+      const value = JSON.stringify(rules);
+      if (roleChangeSetting) {
+        return await base44.entities.SystemSettings.update(roleChangeSetting.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'role_change_requests',
+          setting_value: value,
+          description: 'Rules defining which roles members can request to change to, and the form used to request each change'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['role-change-requests-record'] });
+      setRoleChangeRulesChanged(false);
+      toast.success('Role change rules saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save role change rules:', error);
+      toast.error('Failed to save role change rules: ' + error.message);
+    }
+  });
+
+  const handleAddRoleChangeRule = () => {
+    setRoleChangeRules(prev => [
+      ...prev,
+      { source_role_id: '', target_role_id: '', description: '', form_slug: '' }
+    ]);
+    setRoleChangeRulesChanged(true);
+  };
+
+  const handleUpdateRoleChangeRule = (index, field, value) => {
+    setRoleChangeRules(prev => prev.map((rule, i) =>
+      i === index ? { ...rule, [field]: value } : rule
+    ));
+    setRoleChangeRulesChanged(true);
+  };
+
+  const handleRemoveRoleChangeRule = (index) => {
+    setRoleChangeRules(prev => prev.filter((_, i) => i !== index));
+    setRoleChangeRulesChanged(true);
+  };
+
+  const handleSaveRoleChangeRules = () => {
+    updateRoleChangeRulesMutation.mutate(roleChangeRules);
+  };
 
   useEffect(() => {
     if (savedOrder && Array.isArray(savedOrder)) {
@@ -590,6 +698,154 @@ export default function PreferenceSettingsPage() {
               </Link>
             </div>
           </CardHeader>
+        </Card>
+
+        {/* Role Change Requests */}
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <UserCog className="w-5 h-5 text-blue-600" />
+                  Role Change
+                </CardTitle>
+                <CardDescription>
+                  Define which roles members can request to change to. Each rule lets a member with the source role request the target role via a form, prefilled with their details.
+                </CardDescription>
+              </div>
+              <Button
+                onClick={handleAddRoleChangeRule}
+                className="gap-2"
+                data-testid="button-add-role-change-rule"
+              >
+                <Plus className="w-4 h-4" />
+                Add Rule
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {rolesListLoading || formsListLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {roleChangeRules.length === 0 && (
+                  <p className="text-sm text-slate-500 py-4">
+                    No role change rules have been created yet. Click "Add Rule" to let members request a role change.
+                  </p>
+                )}
+                {roleChangeRules.map((rule, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-lg border border-slate-200 bg-white space-y-4"
+                    data-testid={`role-change-rule-${index}`}
+                  >
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className="flex-1 min-w-[160px] space-y-2">
+                        <Label>From role</Label>
+                        <Select
+                          value={rule.source_role_id || ''}
+                          onValueChange={(value) => handleUpdateRoleChangeRule(index, 'source_role_id', value)}
+                        >
+                          <SelectTrigger data-testid={`select-source-role-${index}`}>
+                            <SelectValue placeholder="Select source role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rolesList.map(role => (
+                              <SelectItem key={role.id} value={role.id}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="hidden sm:flex items-center self-stretch pt-7 text-slate-400">
+                        <ArrowRight className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-[160px] space-y-2">
+                        <Label>To role</Label>
+                        <Select
+                          value={rule.target_role_id || ''}
+                          onValueChange={(value) => handleUpdateRoleChangeRule(index, 'target_role_id', value)}
+                        >
+                          <SelectTrigger data-testid={`select-target-role-${index}`}>
+                            <SelectValue placeholder="Select target role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rolesList.map(role => (
+                              <SelectItem key={role.id} value={role.id}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="pt-7">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveRoleChangeRule(index)}
+                          data-testid={`button-remove-role-change-rule-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Description</Label>
+                      <Textarea
+                        value={rule.description || ''}
+                        onChange={(e) => handleUpdateRoleChangeRule(index, 'description', e.target.value)}
+                        placeholder="Explain this role change to members (e.g. what it grants and any requirements)"
+                        className="resize-none"
+                        rows={2}
+                        data-testid={`input-role-change-description-${index}`}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Request form</Label>
+                      <Select
+                        value={rule.form_slug || ''}
+                        onValueChange={(value) => handleUpdateRoleChangeRule(index, 'form_slug', value)}
+                      >
+                        <SelectTrigger data-testid={`select-role-change-form-${index}`}>
+                          <SelectValue placeholder="Select a form" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formsList.map(form => (
+                            <SelectItem key={form.id} value={form.slug}>
+                              {form.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+
+                {roleChangeRulesChanged && (
+                  <div className="flex justify-end pt-4 border-t">
+                    <Button
+                      onClick={handleSaveRoleChangeRules}
+                      disabled={updateRoleChangeRulesMutation.isPending}
+                      className="gap-2 bg-blue-600 hover:bg-blue-700"
+                      data-testid="button-save-role-change-rules"
+                    >
+                      {updateRoleChangeRulesMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save Role Change Rules
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
         </Card>
 
         {/* Custom Field Visibility on Preferences Page */}
