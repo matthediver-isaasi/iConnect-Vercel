@@ -200,6 +200,11 @@ export async function sendMembershipFeeTokenEmail({
   // (tenant, org, year), reuse it instead of minting a duplicate. Manual
   // "Email fees" intentionally re-sends, but the cron path benefits from
   // reuse so repeated cron runs don't pile up tokens for the same year.
+  //
+  // We only reuse a *pending* token. A `po_submitted` token must NOT be
+  // silently re-priced underneath an existing submission — if its snapshot
+  // is stale and the admin re-emails (e.g. after a discount change), we mint
+  // a fresh pending token so the new email links to a page matching its body.
   let token = null;
   let tokenId = null;
   let expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -214,7 +219,7 @@ export async function sendMembershipFeeTokenEmail({
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (existing && new Date(existing.expires_at) > new Date()) {
+    if (existing && existing.status === 'pending' && new Date(existing.expires_at) > new Date()) {
       token = existing.token;
       tokenId = existing.id;
       expiresAt = new Date(existing.expires_at);
@@ -272,22 +277,44 @@ export async function sendMembershipFeeTokenEmail({
     } else {
       tokenId = inserted?.id || null;
     }
-  } else if (xeroInvoiceId || xeroInvoiceNumber || xeroOnlineInvoiceUrl || historyRecordId) {
+  } else {
+    // Reusing an existing pending token: refresh the snapshotted cost fields
+    // to the freshly-computed values so the public PO page (which reads cost
+    // straight off the token row) always matches the latest email body.
+    // Without this, changing a discount + re-emailing shows the new amount in
+    // the email but the old amount on the linked page.
+    const { error: refreshErr } = await client
+      .from('membership_fee_token')
+      .update({
+        final_cost: finalCost,
+        cost_breakdown: costBreakdown || {},
+        currency,
+        tier_label: tierLabel,
+        po_number: poNumber,
+        recipient_email: toEmails.join(', '),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', tokenId);
+    if (refreshErr) {
+      console.warn('[FeeTokenEmail] Token snapshot refresh failed (non-fatal):', refreshErr.message);
+    }
+
     // Backfill xero details onto the reused token if the caller has them.
-    try {
-      await client
+    // Kept as a separate update so the core snapshot refresh above still
+    // succeeds on legacy schemas where the xero columns may not exist.
+    if (xeroInvoiceId || xeroInvoiceNumber || xeroOnlineInvoiceUrl || historyRecordId) {
+      const { error: xeroErr } = await client
         .from('membership_fee_token')
         .update({
           xero_invoice_id: xeroInvoiceId,
           xero_invoice_number: xeroInvoiceNumber,
           xero_online_invoice_url: xeroOnlineInvoiceUrl,
           history_record_id: historyRecordId,
-          recipient_email: toEmails.join(', '),
-          updated_at: new Date().toISOString(),
         })
         .eq('id', tokenId);
-    } catch (updErr) {
-      console.warn('[FeeTokenEmail] Token backfill failed (non-fatal):', updErr.message);
+      if (xeroErr) {
+        console.warn('[FeeTokenEmail] Token xero backfill failed (non-fatal):', xeroErr.message);
+      }
     }
   }
 
