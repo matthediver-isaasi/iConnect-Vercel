@@ -235,11 +235,16 @@ const applyTransformation = (value, transformation) => {
       return strValue.toLowerCase();
     case 'titlecase':
       return strValue.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-    case 'extract_domain':
-      if (strValue.includes('@')) {
-        return strValue.split('@')[1] || strValue;
+    case 'extract_domain': {
+      let domain = strValue.trim();
+      if (domain.includes('@')) {
+        domain = domain.split('@').pop() || domain;
       }
-      return strValue;
+      domain = domain.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+      domain = domain.replace(/^www\./i, '');
+      domain = domain.split(/[/?#]/)[0];
+      return domain.toLowerCase() || strValue;
+    }
     case 'extract_username':
       if (strValue.includes('@')) {
         return strValue.split('@')[0] || strValue;

@@ -31,7 +31,7 @@ const TRANSFORMATIONS = [
   { value: 'uppercase', label: 'UPPERCASE', description: 'Convert to uppercase' },
   { value: 'lowercase', label: 'lowercase', description: 'Convert to lowercase' },
   { value: 'titlecase', label: 'Title Case', description: 'Capitalize first letter of each word' },
-  { value: 'extract_domain', label: 'Extract domain', description: 'Get domain from email (after @)' },
+  { value: 'extract_domain', label: 'Extract domain', description: 'Get domain from a website URL or email' },
   { value: 'extract_username', label: 'Extract username', description: 'Get username from email (before @)' },
   { value: 'first_word', label: 'First word', description: 'Extract first word only' },
   { value: 'last_word', label: 'Last word', description: 'Extract last word only' },
