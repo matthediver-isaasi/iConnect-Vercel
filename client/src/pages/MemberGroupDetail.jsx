@@ -1019,6 +1019,18 @@ export default function MemberGroupDetailPage() {
                   </Tooltip>
                 </TooltipProvider>
               )}
+              {isGroupAdmin &&
+                !isFeatureExcluded("membership.member-group-email") && (
+                <Button
+                  variant="outline"
+                  className="ml-auto"
+                  onClick={() => navigate(`/GroupEmail?group_id=${groupId}`)}
+                  data-testid="button-send-group-email"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Send group email
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1372,8 +1384,7 @@ export default function MemberGroupDetailPage() {
               </div>
               {isGroupAdmin &&
                 (group?.events_enabled ||
-                  group?.complex_events_enabled ||
-                  !isFeatureExcluded("membership.member-group-email")) && (
+                  group?.complex_events_enabled) && (
                 <div className="flex flex-wrap items-center gap-2">
                   {group?.events_enabled && (
                     <Button
@@ -1395,16 +1406,6 @@ export default function MemberGroupDetailPage() {
                     >
                       <Layers className="w-4 h-4 mr-2" />
                       New multi-session event
-                    </Button>
-                  )}
-                  {!isFeatureExcluded("membership.member-group-email") && (
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate(`/GroupEmail?group_id=${groupId}`)}
-                      data-testid="button-send-group-email"
-                    >
-                      <Mail className="w-4 h-4 mr-2" />
-                      Send group email
                     </Button>
                   )}
                 </div>
