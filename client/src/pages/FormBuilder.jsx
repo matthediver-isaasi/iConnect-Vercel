@@ -4518,12 +4518,18 @@ function FieldCard({
                 const minRequired = Number.isFinite(rawMin)
                   ? Math.max(0, Math.min(rawMin, subQuestions.length))
                   : subQuestions.length;
+                const rawMax = Number(field.max_completed);
+                const maxAllowed = Number.isFinite(rawMax)
+                  ? Math.max(minRequired, Math.min(rawMax, subQuestions.length))
+                  : subQuestions.length;
 
                 const updateSubQuestions = (nextSubs) => {
                   const boundedMin = Math.max(0, Math.min(minRequired, nextSubs.length));
+                  const boundedMax = Math.max(boundedMin, Math.min(maxAllowed, nextSubs.length));
                   updateField(originalIndex, {
                     sub_questions: nextSubs,
                     min_completed: boundedMin,
+                    max_completed: boundedMax,
                   });
                 };
 
@@ -4640,17 +4646,44 @@ function FieldCard({
                           const parsed = parseInt(e.target.value, 10);
                           const safe = Number.isFinite(parsed) ? parsed : 0;
                           const bounded = Math.max(0, Math.min(safe, subQuestions.length));
-                          updateField(originalIndex, { min_completed: bounded });
+                          const nextMax = Math.max(bounded, maxAllowed);
+                          updateField(originalIndex, { min_completed: bounded, max_completed: nextMax });
                         }}
                         className="h-8 text-xs w-24"
                         disabled={subQuestions.length === 0}
                         data-testid={`input-min-completed-${field.id}`}
                       />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Maximum answers allowed</Label>
+                      <p className="text-xs text-slate-500">
+                        Once this many sub-questions are answered, the remaining ones are disabled.
+                      </p>
+                      <Input
+                        type="number"
+                        min={minRequired}
+                        max={subQuestions.length}
+                        value={maxAllowed}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          const safe = Number.isFinite(parsed) ? parsed : subQuestions.length;
+                          const bounded = Math.max(0, Math.min(safe, subQuestions.length));
+                          const nextMin = Math.min(minRequired, bounded);
+                          updateField(originalIndex, { max_completed: bounded, min_completed: nextMin });
+                        }}
+                        className="h-8 text-xs w-24"
+                        disabled={subQuestions.length === 0}
+                        data-testid={`input-max-completed-${field.id}`}
+                      />
                       {subQuestions.length > 0 && (
                         <p className="text-xs text-slate-400">
-                          {minRequired === 0
+                          {minRequired === 0 && maxAllowed >= subQuestions.length
                             ? 'No answers required (optional).'
-                            : `Respondents must answer at least ${minRequired} of ${subQuestions.length}.`}
+                            : minRequired === maxAllowed
+                              ? `Answer exactly ${minRequired} of ${subQuestions.length}`
+                              : maxAllowed >= subQuestions.length
+                                ? `Answer at least ${minRequired} of ${subQuestions.length}`
+                                : `Answer between ${minRequired} and ${maxAllowed} of ${subQuestions.length}`}
                         </p>
                       )}
                     </div>

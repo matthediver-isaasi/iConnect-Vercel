@@ -9,12 +9,17 @@ export const isFieldValueFilled = (field, value) => {
     const minRequired = Number.isFinite(rawMin)
       ? Math.max(0, Math.min(rawMin, subQuestions.length))
       : subQuestions.length;
-    if (minRequired === 0) return true;
+    const rawMax = Number(field.max_completed);
+    const maxAllowed = Number.isFinite(rawMax)
+      ? Math.max(minRequired, Math.min(rawMax, subQuestions.length))
+      : subQuestions.length;
     const answers = (value && typeof value === 'object') ? value : {};
     const answeredCount = subQuestions.reduce((count, sq) => {
       const answer = answers[sq.id];
       return count + (typeof answer === 'string' && answer.trim() ? 1 : 0);
     }, 0);
+    if (answeredCount > maxAllowed) return false;
+    if (minRequired === 0) return true;
     return answeredCount >= minRequired;
   }
 

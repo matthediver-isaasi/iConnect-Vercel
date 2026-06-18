@@ -1672,6 +1672,20 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         const minRequired = Number.isFinite(rawMin)
           ? Math.max(0, Math.min(rawMin, subQuestions.length))
           : subQuestions.length;
+        const rawMax = Number(field.max_completed);
+        const maxAllowed = Number.isFinite(rawMax)
+          ? Math.max(minRequired, Math.min(rawMax, subQuestions.length))
+          : subQuestions.length;
+        const answeredCount = subQuestions.reduce((count, sq) => {
+          const answer = groupedValue[sq.id];
+          return count + (typeof answer === 'string' && answer.trim() ? 1 : 0);
+        }, 0);
+
+        const groupedHelperText = minRequired === maxAllowed
+          ? `Answer exactly ${minRequired} of ${subQuestions.length}`
+          : maxAllowed >= subQuestions.length
+            ? `Answer at least ${minRequired} of ${subQuestions.length}`
+            : `Answer between ${minRequired} and ${maxAllowed} of ${subQuestions.length}`;
 
         const handleSubQuestionChange = (subId, subValue) => {
           onChange({ ...groupedValue, [subId]: subValue });
@@ -1693,28 +1707,32 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             className="space-y-4 p-4 bg-slate-50 border border-slate-200 rounded-lg"
             data-testid={`grouped-question-${field.id}`}
           >
-            {minRequired > 0 && (
+            {(minRequired > 0 || maxAllowed < subQuestions.length) && (
               <p className="text-sm text-slate-500" data-testid={`grouped-question-helper-${field.id}`}>
-                Answer at least {minRequired} of {subQuestions.length}
+                {groupedHelperText}
               </p>
             )}
-            {subQuestions.map((sq) => (
-              <div key={sq.id} className="space-y-1.5">
-                <Label htmlFor={`${field.id}-${sq.id}`} className="text-sm">
-                  {sq.label || 'Untitled question'}
-                </Label>
-                <Textarea
-                  id={`${field.id}-${sq.id}`}
-                  value={groupedValue[sq.id] || ''}
-                  onChange={(e) => handleSubQuestionChange(sq.id, e.target.value)}
-                  placeholder={sq.placeholder || ''}
-                  disabled={isFieldDisabled}
-                  rows={3}
-                  className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
-                  data-testid={`textarea-grouped-${field.id}-${sq.id}`}
-                />
-              </div>
-            ))}
+            {subQuestions.map((sq) => {
+              const isEmpty = !(typeof groupedValue[sq.id] === 'string' && groupedValue[sq.id].trim());
+              const subDisabled = isFieldDisabled || (isEmpty && answeredCount >= maxAllowed);
+              return (
+                <div key={sq.id} className="space-y-1.5">
+                  <Label htmlFor={`${field.id}-${sq.id}`} className="text-sm">
+                    {sq.label || 'Untitled question'}
+                  </Label>
+                  <Textarea
+                    id={`${field.id}-${sq.id}`}
+                    value={groupedValue[sq.id] || ''}
+                    onChange={(e) => handleSubQuestionChange(sq.id, e.target.value)}
+                    placeholder={sq.placeholder || ''}
+                    disabled={subDisabled}
+                    rows={3}
+                    className={subDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
+                    data-testid={`textarea-grouped-${field.id}-${sq.id}`}
+                  />
+                </div>
+              );
+            })}
           </div>
         );
       }
