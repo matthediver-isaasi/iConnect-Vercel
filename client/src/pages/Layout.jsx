@@ -7,6 +7,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
+import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
@@ -940,6 +941,35 @@ const { data: memberRole } = useQuery({
   },
 });
 
+// Fetch the current member's group assignments to determine whether they are a
+// group admin of at least one (non-expired) group. Group admins get an
+// additional grant path to the Support page even when their role excludes it.
+const { data: myGroupAssignments = [], isFetched: groupAssignmentsFetched } = useQuery({
+  queryKey: ['member-group-assignments-self', memberInfo && memberInfo.id],
+  enabled: !!(memberInfo && memberInfo.id),
+  queryFn: async () => {
+    if (!memberInfo || !memberInfo.id) return [];
+    try {
+      return await base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
+    } catch (error) {
+      console.error('Error loading member group assignments:', error);
+      return [];
+    }
+  },
+});
+
+// True when the current member has at least one MemberGroupAssignment with
+// is_group_admin === true and no expiry (or an expiry in the future). Expiry is
+// evaluated the same way as the existing group-admin checks (MemberGroupDetail).
+const isCurrentMemberGroupAdmin = useMemo(() => {
+  const nowIso = new Date().toISOString();
+  return (myGroupAssignments || []).some((a) => {
+    if (a.is_group_admin !== true) return false;
+    if (!a.expires_at) return true;
+    return new Date(a.expires_at).toISOString() > nowIso;
+  });
+}, [myGroupAssignments]);
+
 // Fetch dynamic navigation items from database - only for authenticated users
 // Unauthenticated users use public navigation items instead
 const { data: dynamicNavItems = [] } = useQuery({
@@ -1158,7 +1188,14 @@ useEffect(() => {
   // Uses the new hierarchical role visibility system
   const isFeatureExcluded = (featureId) => {
     if (!memberInfo || !featureId) return false;
-    
+
+    // Group-admin grant path: members who admin at least one (non-expired) group
+    // can always reach the Support page even when their role/member settings
+    // exclude it. Scoped narrowly to the Support feature so nothing else changes.
+    if (isCurrentMemberGroupAdmin && migrateLegacyFeatureId(featureId) === 'support.help') {
+      return false;
+    }
+
     // Combine role-level exclusions with member-specific exclusions
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
@@ -1323,13 +1360,17 @@ useEffect(() => {
   useEffect(() => {
     const isFeatureExcludedFn = (featureId) => {
       if (!memberInfo || !featureId) return false;
+      // Group admins always get Support access (see local isFeatureExcluded).
+      if (isCurrentMemberGroupAdmin && migrateLegacyFeatureId(featureId) === 'support.help') {
+        return false;
+      }
       const roleExclusions = memberRole?.excluded_features || [];
       const memberExclusions = memberInfo.member_excluded_features || [];
       const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
-  }, [memberInfo, memberRole, setContextIsFeatureExcluded]);
+  }, [memberInfo, memberRole, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
 
   // Update context with reloadMemberInfo function
   useEffect(() => {
@@ -1578,13 +1619,24 @@ useEffect(() => {
       if (currentPageName === fallbackPage) {
         return;
       }
+
+      // The Support page has a group-admin grant path (isCurrentMemberGroupAdmin).
+      // That status comes from an async query; until it has resolved, don't
+      // redirect away from the Support page or we'd bounce a valid group admin
+      // before their assignments load. Wait for the query to settle first.
+      const currentPageFeatureId =
+        pageToFeatureIdMap[currentPageName] || `page_${currentPageName}`;
+      const isSupportPage = migrateLegacyFeatureId(currentPageFeatureId) === 'support.help';
+      if (isSupportPage && memberInfo.id && !groupAssignmentsFetched) {
+        return;
+      }
       
       // Check if page is excluded by role/member settings (covers both user and admin pages)
       if (isCurrentPageExcluded()) {
         window.location.href = createPageUrl(fallbackPage);
       }
     }
-  }, [currentPageName, memberInfo, memberRole]);
+  }, [currentPageName, memberInfo, memberRole, isCurrentMemberGroupAdmin, groupAssignmentsFetched]);
 
   // Save sidebar scroll position to sessionStorage on scroll
   React.useEffect(() => {
