@@ -576,6 +576,7 @@ export default function CreateComplexEvent() {
   const isEditMode = !!editId;
   const groupEventParam = params.get("group_event") === "1";
   const groupIdParam = params.get("group_id") || null;
+  const fromParam = params.get("from") || null;
 
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
@@ -814,7 +815,10 @@ export default function CreateComplexEvent() {
   });
   const isTenantAdmin = authMe?.isAdmin === true;
   const lockedGroupId = groupIdParam || existingEvent?.member_group_id || null;
-  const isGroupLimited = groupEventParam || (!!existingEvent?.member_group_id && !isTenantAdmin);
+  // Any complex event that belongs to a member group is edited in the reduced/
+  // gated group-event UI — including for tenant admins — so the client never
+  // offers options the server rejects for group events.
+  const isGroupLimited = groupEventParam || !!existingEvent?.member_group_id;
   const lockedGroupName = useMemo(
     () => memberGroups.find((g) => g.id === lockedGroupId)?.name || null,
     [memberGroups, lockedGroupId]
@@ -2049,18 +2053,32 @@ export default function CreateComplexEvent() {
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEvent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/EventSponsorAssignment"] });
+      // Group events return to where they came from: the group events list
+      // (when opened from there) or the member group detail page.
+      const returnGroupId = groupIdParam || existingEvent?.member_group_id || null;
+      const groupReturnUrl = returnGroupId
+        ? (fromParam === 'GroupEvents'
+            ? createPageUrl("GroupEvents")
+            : createPageUrl("MemberGroupDetail") + "?id=" + returnGroupId)
+        : null;
       if (isEditMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTrack", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
         toast.success("Complex event updated");
-        baselineSnapshotRef.current = buildSnapshot();
-        pendingBaselineResetRef.current = true;
-        setIsDirtyState(false);
-        setSponsorsInitialized(false);
+        // Group events leave the editor and return to the group page; normal
+        // events stay on the editor as before.
+        if (groupReturnUrl) {
+          setTimeout(() => { window.location.href = groupReturnUrl; }, 500);
+        } else {
+          baselineSnapshotRef.current = buildSnapshot();
+          pendingBaselineResetRef.current = true;
+          setIsDirtyState(false);
+          setSponsorsInitialized(false);
+        }
       } else {
         toast.success("Complex event created");
-        window.location.href = createPageUrl("Events");
+        window.location.href = groupReturnUrl || createPageUrl("Events");
       }
     } catch (err) {
       console.error("Save error:", err);

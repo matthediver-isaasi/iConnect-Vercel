@@ -658,7 +658,18 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const handleEditClick = (e) => {
     e.stopPropagation();
-    window.location.href = createPageUrl('EditEvent') + '?id=' + event.id;
+    // Complex (multi-session) events open in the complex editor; simple events
+    // use EditEvent. When the event belongs to a member group, carry the group
+    // context so the editor opens directly in the gated group-event UI and
+    // returns to the member group page after saving.
+    const base = event.is_complex
+      ? createPageUrl('CreateComplexEvent')
+      : createPageUrl('EditEvent');
+    let url = base + '?id=' + event.id;
+    if (event.member_group_id) {
+      url += '&group_event=1&group_id=' + event.member_group_id;
+    }
+    window.location.href = url;
   };
 
   const handleConfirmDelete = () => {

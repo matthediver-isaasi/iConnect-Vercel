@@ -128,6 +128,7 @@ export default function EditEvent() {
   // Tenant admins always see the full editor unchanged.
   const groupEventParam = urlParams.get('group_event') === '1';
   const groupIdParam = urlParams.get('group_id') || null;
+  const fromParam = urlParams.get('from') || null;
   const { isAdmin } = useServerAdminAuth({ redirectOnDeny: false });
   const [groupEventPublic, setGroupEventPublic] = useState(false);
 
@@ -262,8 +263,12 @@ export default function EditEvent() {
   });
 
   // Derived group-limited state (depends on the loaded event).
+  // Any event that belongs to a member group is edited in the reduced/gated
+  // group-event UI — including for tenant admins — so the client never offers
+  // options (paid tickets, Zoom, group switching) the server rejects for group
+  // events. The URL params keep entering directly from the group surfaces fast.
   const groupId = groupIdParam || event?.member_group_id || null;
-  const isGroupLimited = (groupEventParam && !!groupIdParam) || (!!event?.member_group_id && isAdmin === false);
+  const isGroupLimited = (groupEventParam && !!groupIdParam) || !!event?.member_group_id;
 
   // Resolve the locked group's name for the read-only banner.
   const { data: limitedGroup } = useQuery({
@@ -1610,8 +1615,18 @@ export default function EditEvent() {
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
         queryClient.invalidateQueries({ queryKey: ['/api/entities/EventSponsorAssignment'] });
+        // Group events return to where they came from: the group events list
+        // (when opened from there) or the member group detail page. Non-group
+        // events keep the existing redirect to the general Events list.
+        const returnGroupId = groupIdParam || event?.member_group_id || null;
         setTimeout(() => {
-          window.location.href = createPageUrl('Events');
+          if (returnGroupId) {
+            window.location.href = fromParam === 'GroupEvents'
+              ? createPageUrl('GroupEvents')
+              : createPageUrl('MemberGroupDetail') + '?id=' + returnGroupId;
+          } else {
+            window.location.href = createPageUrl('Events');
+          }
         }, 500);
       }
     });

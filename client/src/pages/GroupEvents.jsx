@@ -50,12 +50,12 @@ export default function GroupEventsPage() {
   const newSimple = (groupId) =>
     navigate(`/CreateEvent?group_event=1&group_id=${groupId}&from=GroupEvents`);
   const newComplex = (groupId) =>
-    navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}`);
+    navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}&from=GroupEvents`);
   const editEvent = (groupId, ev) => {
     if (ev.is_complex) {
-      navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}&id=${ev.id}`);
+      navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}&id=${ev.id}&from=GroupEvents`);
     } else {
-      navigate(`/EditEvent?group_event=1&group_id=${groupId}&id=${ev.id}`);
+      navigate(`/EditEvent?group_event=1&group_id=${groupId}&id=${ev.id}&from=GroupEvents`);
     }
   };
 
