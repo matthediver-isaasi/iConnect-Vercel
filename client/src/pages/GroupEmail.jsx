@@ -165,7 +165,10 @@ export default function GroupEmailPage() {
 
   useEffect(() => {
     if (qualifying.length > 0 && !activeGroupId) {
-      setActiveGroupId(qualifying[0].id);
+      const requestedGroupId = new URLSearchParams(window.location.search).get("group_id");
+      const requested =
+        requestedGroupId && qualifying.find((g) => g.id === requestedGroupId);
+      setActiveGroupId(requested ? requested.id : qualifying[0].id);
     }
   }, [qualifying, activeGroupId]);
 

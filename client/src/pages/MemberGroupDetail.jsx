@@ -67,6 +67,7 @@ import {
   Repeat,
   Eye,
   Send,
+  Mail,
   Trash2,
   X,
   Pencil,
@@ -1369,7 +1370,10 @@ export default function MemberGroupDetailPage() {
                   Events ({filteredGroupEvents.length})
                 </h2>
               </div>
-              {isGroupAdmin && (group?.events_enabled || group?.complex_events_enabled) && (
+              {isGroupAdmin &&
+                (group?.events_enabled ||
+                  group?.complex_events_enabled ||
+                  !isFeatureExcluded("membership.member-group-email")) && (
                 <div className="flex flex-wrap items-center gap-2">
                   {group?.events_enabled && (
                     <Button
@@ -1391,6 +1395,16 @@ export default function MemberGroupDetailPage() {
                     >
                       <Layers className="w-4 h-4 mr-2" />
                       New multi-session event
+                    </Button>
+                  )}
+                  {!isFeatureExcluded("membership.member-group-email") && (
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate(`/GroupEmail?group_id=${groupId}`)}
+                      data-testid="button-send-group-email"
+                    >
+                      <Mail className="w-4 h-4 mr-2" />
+                      Send group email
                     </Button>
                   )}
                 </div>
