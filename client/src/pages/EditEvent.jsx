@@ -1929,6 +1929,7 @@ export default function EditEvent() {
               )}
 
               {/* Event Timing - affects date requirements */}
+              {!isGroupLimited && (
               <div>
                 <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
                 <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
@@ -1945,7 +1946,6 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Event has confirmed dates</p>
                     </Label>
                   </div>
-                  {!isGroupLimited && (
                   <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                     <RadioGroupItem value="tbc" id="timing-tbc" data-testid="radio-timing-tbc" />
                     <Label htmlFor="timing-tbc" className="cursor-pointer flex-1">
@@ -1953,7 +1953,6 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Dates not yet set</p>
                     </Label>
                   </div>
-                  )}
                 </RadioGroup>
                 {eventTiming === 'tbc' && (
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
@@ -1961,6 +1960,7 @@ export default function EditEvent() {
                   </p>
                 )}
               </div>
+              )}
 
               {/* Event State - affects visibility and registration */}
               <div>
