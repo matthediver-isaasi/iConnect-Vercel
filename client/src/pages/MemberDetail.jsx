@@ -1,9 +1,9 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
@@ -144,8 +144,11 @@ export default function MemberDetail() {
     handleSkipWorkflow,
     handleSkipAllWorkflows,
   } = useWorkflowConfirmation();
+  const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'overview');
+  const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(0);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -723,6 +726,56 @@ export default function MemberDetail() {
       if (error) throw error;
       return data || [];
     },
+  });
+
+  const { data: memberFormSubmissions = [], isLoading: formSubmissionsLoading } = useQuery({
+    queryKey: ['member-form-submissions', id],
+    enabled: !!id && activeTab === 'forms',
+    queryFn: async () => {
+      try {
+        const submissions = await base44.entities.FormSubmission.list({
+          filter: { member_id: id }
+        });
+        return (submissions || []).sort((a, b) =>
+          new Date(b.created_date || 0) - new Date(a.created_date || 0)
+        );
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: memberFormsMap = {} } = useQuery({
+    queryKey: ['member-forms-for-submissions', memberFormSubmissions.map(s => s.form_id).join(',')],
+    enabled: memberFormSubmissions.length > 0,
+    queryFn: async () => {
+      try {
+        const formIds = [...new Set(memberFormSubmissions.map(s => s.form_id).filter(Boolean))];
+        const formsData = {};
+        for (const formId of formIds) {
+          const form = await base44.entities.Form.get(formId);
+          if (form) formsData[formId] = form;
+        }
+        return formsData;
+      } catch {
+        return {};
+      }
+    }
+  });
+
+  const deleteFormSubmissionMutation = useMutation({
+    mutationFn: async (submissionId) => {
+      await base44.entities.FormSubmission.delete(submissionId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-form-submissions', id] });
+      toast.success('Form submission deleted');
+      setDeleteSubmissionId(null);
+      setDeleteConfirmStep(0);
+    },
+    onError: (error) => {
+      toast.error('Failed to delete submission: ' + error.message);
+    }
   });
 
   const memberRoleIds = useMemo(() => {
@@ -1708,6 +1761,10 @@ export default function MemberDetail() {
             <Mail className="w-4 h-4" />
             Communications
           </TabsTrigger>
+          <TabsTrigger value="forms" className="gap-1" data-testid="tab-member-forms">
+            <ClipboardCheck className="w-4 h-4" />
+            Forms
+          </TabsTrigger>
           {!member?.organization_id && (
             <TabsTrigger value="membership" className="gap-1" data-testid="tab-member-membership">
               <Wallet className="w-4 h-4" />
@@ -2656,6 +2713,107 @@ export default function MemberDetail() {
             />
           )}
         </TabsContent>
+
+          <TabsContent value="forms" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="w-5 h-5 text-blue-600" />
+                  Form Submissions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {formSubmissionsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  </div>
+                ) : memberFormSubmissions.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>No form submissions for this member</p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Form submissions linked to this member will appear here
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {memberFormSubmissions.map(submission => {
+                      const form = memberFormsMap[submission.form_id];
+                      const isDeleting = deleteSubmissionId === submission.id;
+                      return (
+                        <div
+                          key={submission.id}
+                          className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg"
+                          data-testid={`submission-${submission.id}`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium text-slate-900 dark:text-slate-100">
+                                {form?.name || 'Unknown Form'}
+                              </h4>
+                              <p className="text-sm text-slate-500 mt-1">
+                                Submitted: {submission.created_date ? format(new Date(submission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <Link to={`/FormSubmission/${submission.id}?back=${encodeURIComponent(`/members/${id}?tab=forms`)}`}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  data-testid={`button-view-submission-${submission.id}`}
+                                >
+                                  <Eye className="w-4 h-4 mr-1" />
+                                  View Full
+                                </Button>
+                              </Link>
+                              {isAdmin && (
+                                <Button
+                                  variant={isDeleting && deleteConfirmStep === 1 ? 'destructive' : 'outline'}
+                                  size="sm"
+                                  onClick={() => {
+                                    if (isDeleting && deleteConfirmStep === 1) {
+                                      deleteFormSubmissionMutation.mutate(submission.id);
+                                    } else {
+                                      setDeleteSubmissionId(submission.id);
+                                      setDeleteConfirmStep(1);
+                                    }
+                                  }}
+                                  disabled={deleteFormSubmissionMutation.isPending}
+                                  data-testid={`button-delete-submission-${submission.id}`}
+                                >
+                                  {deleteFormSubmissionMutation.isPending && isDeleting ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Trash2 className="w-4 h-4 mr-1" />
+                                      {isDeleting && deleteConfirmStep === 1 ? 'Confirm Delete' : 'Delete'}
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {isDeleting && deleteConfirmStep === 1 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeleteSubmissionId(null);
+                                    setDeleteConfirmStep(0);
+                                  }}
+                                  data-testid={`button-cancel-delete-${submission.id}`}
+                                >
+                                  Cancel
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {!member?.organization_id && (
             <TabsContent value="membership" className="space-y-6">
