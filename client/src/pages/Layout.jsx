@@ -144,6 +144,12 @@ const navigationItems = [
     featureId: "page_MyJobPostings"
   },
   {
+    title: "Volunteer Board",
+    url: createPageUrl("VolunteerBoard"),
+    icon: UserPlus,
+    featureId: "membership.volunteer-board"
+  },
+  {
     title: "Forum",
     url: createPageUrl("Forum"),
     icon: MessageSquare,

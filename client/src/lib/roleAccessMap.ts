@@ -225,6 +225,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Groups (Self-Join)"
       },
       {
+        id: "membership.volunteer-board",
+        label: "Volunteer Board"
+      },
+      {
         id: "membership.member-group-email",
         label: "Group Email"
       },

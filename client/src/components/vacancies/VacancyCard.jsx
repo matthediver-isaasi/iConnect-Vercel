@@ -1,0 +1,188 @@
+import React from "react";
+import { Link } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Clock,
+  CalendarClock,
+  Repeat,
+  Users,
+  Send,
+  Check,
+  Users2,
+} from "lucide-react";
+
+const COMMITMENT_UNIT_LABELS = {
+  hours_per_month: "hours / month",
+  hours_per_week: "hours / week",
+};
+const TERM_UNIT_LABELS = {
+  months: "months",
+  years: "years",
+};
+
+export function formatCommitment(vacancy) {
+  if (vacancy.commitment_value == null || vacancy.commitment_value === "") return null;
+  const unit = COMMITMENT_UNIT_LABELS[vacancy.commitment_unit] || vacancy.commitment_unit || "";
+  return `${vacancy.commitment_value} ${unit}`.trim();
+}
+
+export function formatTerm(vacancy) {
+  if (vacancy.term_value == null || vacancy.term_value === "") return null;
+  const unit = TERM_UNIT_LABELS[vacancy.term_unit] || vacancy.term_unit || "";
+  return `${vacancy.term_value} ${unit}`.trim();
+}
+
+export function formatMaxTerms(vacancy) {
+  if (vacancy.max_terms == null || vacancy.max_terms === "") return null;
+  const n = Number(vacancy.max_terms);
+  return `Max ${vacancy.max_terms} ${n === 1 ? "term" : "terms"}`;
+}
+
+export function getPositionsAvailable(vacancy) {
+  const n = Number(vacancy?.positions_available);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/**
+ * Shared presentation for a single vacancy: title, status badges, description,
+ * the metadata-icon row (commitment / term / max-terms / positions) and the
+ * express-interest control. Group-admin-only controls are passed in via
+ * `adminActions` so they stay out of this shared unit.
+ */
+export default function VacancyCard({
+  vacancy,
+  alreadyApplied = false,
+  positionsTotal,
+  positionsRemaining,
+  onExpressInterest,
+  expressDisabled = false,
+  adminActions = null,
+  groupName = null,
+  groupUrl = null,
+}) {
+  const commitment = formatCommitment(vacancy);
+  const term = formatTerm(vacancy);
+  const maxTerms = formatMaxTerms(vacancy);
+  const isClosed = vacancy.status === "closed";
+  const total =
+    positionsTotal != null ? positionsTotal : getPositionsAvailable(vacancy);
+  const remaining =
+    positionsRemaining != null ? positionsRemaining : total;
+  const isFilled = remaining <= 0;
+
+  return (
+    <div
+      className="rounded-md border border-slate-200 p-4"
+      data-testid={`card-vacancy-${vacancy.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3
+              className="text-base font-semibold text-slate-900"
+              data-testid={`text-vacancy-title-${vacancy.id}`}
+            >
+              {vacancy.role_title}
+            </h3>
+            {isClosed && (
+              <Badge variant="secondary" data-testid={`badge-vacancy-closed-${vacancy.id}`}>
+                Closed
+              </Badge>
+            )}
+            {!isClosed && isFilled && (
+              <Badge variant="secondary" data-testid={`badge-vacancy-filled-${vacancy.id}`}>
+                Filled
+              </Badge>
+            )}
+          </div>
+          {groupName && (
+            groupUrl ? (
+              <Link
+                to={groupUrl}
+                className="inline-flex items-center gap-1.5 text-sm text-blue-700 hover:underline w-fit"
+                data-testid={`link-vacancy-group-${vacancy.id}`}
+              >
+                <Users2 className="w-4 h-4" />
+                {groupName}
+              </Link>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1.5 text-sm text-slate-600"
+                data-testid={`text-vacancy-group-${vacancy.id}`}
+              >
+                <Users2 className="w-4 h-4 text-slate-400" />
+                {groupName}
+              </span>
+            )
+          )}
+        </div>
+        {adminActions && (
+          <div className="flex flex-wrap items-center gap-2">{adminActions}</div>
+        )}
+      </div>
+
+      <p
+        className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
+        data-testid={`text-vacancy-description-${vacancy.id}`}
+      >
+        {vacancy.role_description}
+      </p>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
+        {commitment && (
+          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-commitment-${vacancy.id}`}>
+            <Clock className="w-4 h-4 text-slate-400" />
+            {commitment}
+          </span>
+        )}
+        {term && (
+          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-term-${vacancy.id}`}>
+            <CalendarClock className="w-4 h-4 text-slate-400" />
+            {term}
+          </span>
+        )}
+        {maxTerms && (
+          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-maxterms-${vacancy.id}`}>
+            <Repeat className="w-4 h-4 text-slate-400" />
+            {maxTerms}
+          </span>
+        )}
+        <span
+          className="inline-flex items-center gap-1.5"
+          data-testid={`text-vacancy-positions-${vacancy.id}`}
+        >
+          <Users className="w-4 h-4 text-slate-400" />
+          {isFilled
+            ? `All ${total} position${total === 1 ? "" : "s"} filled`
+            : `${remaining} of ${total} position${total === 1 ? "" : "s"} remaining`}
+        </span>
+      </div>
+
+      {!isClosed && (
+        <div className="mt-4">
+          {alreadyApplied && !vacancy.application_form_id ? (
+            <div
+              className="inline-flex items-center text-sm text-green-700"
+              data-testid={`text-vacancy-applied-${vacancy.id}`}
+            >
+              <Check className="w-4 h-4 mr-2" />
+              You've expressed interest
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onExpressInterest?.(vacancy)}
+              disabled={expressDisabled}
+              data-testid={`button-express-interest-${vacancy.id}`}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Express interest
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

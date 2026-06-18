@@ -226,6 +226,8 @@ import MemberGroups from "./MemberGroups";
 
 import MemberGroupDetail from "./MemberGroupDetail";
 
+import VolunteerBoard from "./VolunteerBoard";
+
 import GroupEmail from "./GroupEmail";
 
 import GroupProjects from "./GroupProjects";
@@ -619,6 +621,8 @@ const PAGES = {
     
     MemberGroupDetail: MemberGroupDetail,
     
+    VolunteerBoard: VolunteerBoard,
+    
     GroupEmail: GroupEmail,
     
     GroupProjects: GroupProjects,
@@ -1003,6 +1007,8 @@ function PagesContent() {
                 <Route path="/MemberGroups" element={<MemberGroups />} />
                 
                 <Route path="/MemberGroupDetail" element={<MemberGroupDetail />} />
+                
+                <Route path="/VolunteerBoard" element={<VolunteerBoard />} />
                 
                 <Route path="/GroupEmail" element={<GroupEmail />} />
                 

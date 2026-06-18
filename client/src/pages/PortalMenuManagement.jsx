@@ -178,6 +178,7 @@ const builtInPages = [
   { value: "TourManagement", label: "Tour Management" },
   { value: "TrainingFundManagement", label: "Training Fund Management" },
   { value: "UnpackedInternationalEmployability", label: "Unpacked International Employability" },
+  { value: "VolunteerBoard", label: "Volunteer Board" },
   { value: "VoucherManagement", label: "Voucher Management" },
   { value: "ViewPage", label: "View Page" },
   { value: "WallOfFameManagement", label: "Wall of Fame" },
