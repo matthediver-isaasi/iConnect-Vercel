@@ -34,6 +34,24 @@ export default function MemberGroupsPage() {
     refetchOnMount: true,
   });
 
+  const { data: openVacancies = [] } = useQuery({
+    queryKey: ['member-groups-open-vacancies'],
+    queryFn: () => base44.entities.Vacancy.filter({ status: 'open' }),
+    enabled: accessChecked,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const openVacancyCountByGroup = useMemo(() => {
+    const map = {};
+    for (const v of openVacancies) {
+      if (v.member_group_id && v.status !== 'closed') {
+        map[v.member_group_id] = (map[v.member_group_id] || 0) + 1;
+      }
+    }
+    return map;
+  }, [openVacancies]);
+
   const visibleGroups = useMemo(() => {
     return groups
       .filter((g) => g.allow_self_join && g.is_active !== false)
@@ -119,6 +137,18 @@ export default function MemberGroupsPage() {
                   data-testid={`card-group-${group.id}`}
                 >
                   <div className="relative w-full h-40 bg-slate-100">
+                    {openVacancyCountByGroup[group.id] > 0 && (
+                      <div className="absolute top-2 right-2 z-10">
+                        <Badge
+                          className="bg-green-100 text-green-700 text-xs"
+                          data-testid={`badge-open-vacancies-${group.id}`}
+                        >
+                          {openVacancyCountByGroup[group.id] > 1
+                            ? `${openVacancyCountByGroup[group.id]} open vacancies`
+                            : 'Open vacancies'}
+                        </Badge>
+                      </div>
+                    )}
                     {group.header_image_url ? (
                       <img
                         src={group.header_image_url}
