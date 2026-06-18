@@ -1579,7 +1579,7 @@ export default function MemberGroupDetailPage() {
             </div>
 
             {loadingEvents ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid sm:grid-cols-2 gap-6">
                 {Array(3)
                   .fill(0)
                   .map((_, i) => (
@@ -1673,7 +1673,7 @@ export default function MemberGroupDetailPage() {
                 ) : (
                   <>
                     <div
-                      className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
+                      className="grid sm:grid-cols-2 gap-6"
                       data-testid="grid-group-events"
                     >
                       {pagedEvents.map((event) => (
