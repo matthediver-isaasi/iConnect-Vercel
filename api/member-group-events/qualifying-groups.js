@@ -72,6 +72,8 @@ export default async function handler(req, res) {
       name: g.groupName,
       callerRole: g.role,
       canCreate: g.canCreate,
+      simpleEnabled: g.simpleEnabled === true,
+      complexEnabled: g.complexEnabled === true,
       events: simpleByGroup.get(g.groupId) || [],
       complexEvents: complexByGroup.get(g.groupId) || [],
     })),

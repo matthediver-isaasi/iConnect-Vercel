@@ -62,6 +62,8 @@ import {
   Calendar,
   Clock,
   CalendarClock,
+  Plus,
+  Layers,
   Repeat,
   Eye,
   Send,
@@ -1509,14 +1511,42 @@ export default function MemberGroupDetailPage() {
 
         <Card className="mt-6" data-testid="card-group-events-section">
           <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Calendar className="w-5 h-5 text-slate-600" />
-              <h2
-                className="text-lg font-semibold text-slate-900"
-                data-testid="text-events-heading"
-              >
-                Events ({filteredGroupEvents.length})
-              </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-slate-600" />
+                <h2
+                  className="text-lg font-semibold text-slate-900"
+                  data-testid="text-events-heading"
+                >
+                  Events ({filteredGroupEvents.length})
+                </h2>
+              </div>
+              {isGroupAdmin && (group?.events_enabled || group?.complex_events_enabled) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {group?.events_enabled && (
+                    <Button
+                      onClick={() =>
+                        navigate(`/CreateEvent?group_event=1&group_id=${groupId}`)
+                      }
+                      data-testid="button-new-group-event"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      New event
+                    </Button>
+                  )}
+                  {group?.complex_events_enabled && (
+                    <Button
+                      onClick={() =>
+                        navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}`)
+                      }
+                      data-testid="button-new-group-complex-event"
+                    >
+                      <Layers className="w-4 h-4 mr-2" />
+                      New multi-session event
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
             {loadingEvents ? (

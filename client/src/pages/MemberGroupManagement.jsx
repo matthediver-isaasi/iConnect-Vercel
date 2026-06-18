@@ -80,6 +80,7 @@ export default function MemberGroupManagementPage() {
     projects_enabled: false,
     projects_enabled_roles: [],
     events_enabled: false,
+    complex_events_enabled: false,
     forum_enabled: false,
     forum_enabled_roles: [],
     classification_id: '',
@@ -361,6 +362,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled: false,
       projects_enabled_roles: [],
       events_enabled: false,
+      complex_events_enabled: false,
       forum_enabled: false,
       forum_enabled_roles: [],
       classification_id: '',
@@ -384,6 +386,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
+      complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
@@ -407,6 +410,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
+      complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
@@ -539,6 +543,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled: !!groupForm.projects_enabled,
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
+      complex_events_enabled: !!groupForm.complex_events_enabled,
       forum_enabled: !!groupForm.forum_enabled,
       forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
       classification_id: groupForm.classification_id || null,
@@ -1495,9 +1500,9 @@ export default function MemberGroupManagementPage() {
               <div className="pt-2 border-t border-slate-200 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-col gap-1">
-                    <Label>Enable group events</Label>
+                    <Label>Allow simple events</Label>
                     <span className="text-xs text-slate-500">
-                      Group Admins of this group can create and manage real events scoped to this group (free tickets only, manual online links). Group members see these events on the Events page; the organiser can also choose to make a group event public.
+                      Group Admins of this group can create and manage real single events scoped to this group (free tickets only, manual online links). Group members see these events on the Events page; the organiser can also choose to make a group event public.
                     </span>
                   </div>
                   <input
@@ -1509,7 +1514,23 @@ export default function MemberGroupManagementPage() {
                   />
                 </div>
 
-                {groupForm.events_enabled && (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Allow multi-session events</Label>
+                    <span className="text-xs text-slate-500">
+                      Group Admins of this group can create and manage real multi-session (complex) events scoped to this group, with tracks and sessions (free tickets only, manual online links).
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.complex_events_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, complex_events_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-complex-events-enabled"
+                  />
+                </div>
+
+                {(groupForm.events_enabled || groupForm.complex_events_enabled) && (
                   <p className="text-xs text-slate-500" data-testid="text-events-admin-note">
                     Event management is available to members flagged as Group Admin in the Members list above.
                   </p>

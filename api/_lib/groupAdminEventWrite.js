@@ -175,6 +175,12 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     return { ok: false, status: 403, error: 'You do not have permission to manage events' };
   }
 
+  // Task #1561: per-group split flags. simpleEnabled gates simple `event`
+  // writes; complexEnabled gates `complex_event` (and its children) writes.
+  const groupFlags = new Map((access.groups || []).map((g) => [g.groupId, g]));
+  const groupAllowsSimple = (groupId) => groupFlags.get(groupId)?.simpleEnabled === true;
+  const groupAllowsComplex = (groupId) => groupFlags.get(groupId)?.complexEnabled === true;
+
   const out = { ...body };
 
   // ---- Parent events (Event / ComplexEvent) ----
@@ -190,6 +196,12 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     }
     if (!groupId || !adminGroupIds.has(groupId)) {
       return { ok: false, status: 403, error: 'You can only manage events for groups you administer' };
+    }
+    if (n === 'event' && !groupAllowsSimple(groupId)) {
+      return { ok: false, status: 403, error: 'This group does not allow simple events' };
+    }
+    if (n === 'complexevent' && !groupAllowsComplex(groupId)) {
+      return { ok: false, status: 403, error: 'This group does not allow multi-session events' };
     }
     out.member_group_id = groupId;
     out.group_event_public = out.group_event_public === true;
@@ -234,6 +246,9 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     if (!parent || !parent.member_group_id || !adminGroupIds.has(parent.member_group_id)) {
       return { ok: false, status: 403, error: 'You can only manage tickets for events you administer' };
     }
+    if (!groupAllowsComplex(parent.member_group_id)) {
+      return { ok: false, status: 403, error: 'This group does not allow multi-session events' };
+    }
     if (!isFreeTicket(out)) {
       return { ok: false, status: 403, error: 'Group events can only offer free tickets' };
     }
@@ -260,6 +275,9 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     if (!parent || !parent.member_group_id || !adminGroupIds.has(parent.member_group_id)) {
       return { ok: false, status: 403, error: 'You can only manage sessions for events you administer' };
     }
+    if (!groupAllowsComplex(parent.member_group_id)) {
+      return { ok: false, status: 403, error: 'This group does not allow multi-session events' };
+    }
     if (out.zoom_meeting_id || out.zoom_webinar_id || (out.zoom_type && out.zoom_type !== 'none') || out.auto_create_zoom === true) {
       return { ok: false, status: 403, error: 'Zoom is not available for group events' };
     }
@@ -275,6 +293,9 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
     const parent = await parentComplexEvent(ceId);
     if (!parent || !parent.member_group_id || !adminGroupIds.has(parent.member_group_id)) {
       return { ok: false, status: 403, error: 'You can only manage tracks for events you administer' };
+    }
+    if (!groupAllowsComplex(parent.member_group_id)) {
+      return { ok: false, status: 403, error: 'This group does not allow multi-session events' };
     }
     return { ok: true, body: out };
   }

@@ -96,22 +96,26 @@ export default function GroupEventsPage() {
                 <Badge variant="outline">{group.callerRole}</Badge>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => newSimple(group.id)}
-                  data-testid={`button-new-event-${group.id}`}
-                >
-                  <Plus className="w-4 h-4 mr-2" /> New event
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => newComplex(group.id)}
-                  data-testid={`button-new-complex-event-${group.id}`}
-                >
-                  <Layers className="w-4 h-4 mr-2" /> New multi-session event
-                </Button>
+                {group.simpleEnabled && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => newSimple(group.id)}
+                    data-testid={`button-new-event-${group.id}`}
+                  >
+                    <Plus className="w-4 h-4 mr-2" /> New event
+                  </Button>
+                )}
+                {group.complexEnabled && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => newComplex(group.id)}
+                    data-testid={`button-new-complex-event-${group.id}`}
+                  >
+                    <Layers className="w-4 h-4 mr-2" /> New multi-session event
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

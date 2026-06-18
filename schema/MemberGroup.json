@@ -47,6 +47,16 @@
       "terms_of_reference": {
         "type": "string",
         "description": "Optional multi-line terms of reference shown to members when self-joining; the member must agree before the join completes"
+      },
+      "events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create simple (single) events scoped to the group"
+      },
+      "complex_events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create complex (multi-session) events scoped to the group"
       }
     },
     "required": [

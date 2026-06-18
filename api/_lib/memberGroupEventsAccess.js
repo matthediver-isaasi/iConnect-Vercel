@@ -70,17 +70,23 @@ export async function getCallerGroupEventsAccess(req) {
 
   const { data: groupRows, error: groupErr } = await supabase
     .from('member_group')
-    .select('id, name, is_active, events_enabled, roles, tenant_id')
+    .select('id, name, is_active, events_enabled, complex_events_enabled, roles, tenant_id')
     .eq('tenant_id', tenantContext.tenantId)
     .in('id', groupIds);
   if (groupErr) {
     return { error: 'Failed to resolve group access', status: 500, tenantContext, memberId, identityId, groups: [] };
   }
 
+  // Task #1561: events_enabled is the SIMPLE-events flag; complex_events_enabled
+  // is the complex (multi-session) flag. A group qualifies for the events
+  // management surfaces when EITHER flag is on; per-type creation is then gated
+  // on the matching flag (simpleEnabled / complexEnabled).
   const enabledGroups = new Map();
   (groupRows || []).forEach((g) => {
     if (g.is_active === false) return;
-    if (g.events_enabled !== true) return;
+    const simpleEnabled = g.events_enabled === true;
+    const complexEnabled = g.complex_events_enabled === true;
+    if (!simpleEnabled && !complexEnabled) return;
     enabledGroups.set(g.id, g);
   });
 
@@ -97,6 +103,8 @@ export async function getCallerGroupEventsAccess(req) {
       role: a.group_role,
       allRoles: Array.isArray(g.roles) ? g.roles : [],
       canCreate: true,
+      simpleEnabled: g.events_enabled === true,
+      complexEnabled: g.complex_events_enabled === true,
     });
   }
 

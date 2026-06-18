@@ -5,7 +5,11 @@ description: How Group Admins reuse the real event editors under guardrails, and
 
 # Group-Admin scoped event editing
 
-Group Admins (the `n` boolean on `MemberGroupAssignment` — NOT a dedicated `is_group_admin` column, NOT the dropped `events_enabled_roles`) of `events_enabled` groups can create/edit the REAL simple `Event` and `ComplexEvent` (no bespoke RSVP system anymore).
+Group Admins (the `n` boolean on `MemberGroupAssignment` — NOT a dedicated `is_group_admin` column, NOT the dropped `events_enabled_roles`) of events-enabled groups can create/edit the REAL simple `Event` and `ComplexEvent` (no bespoke RSVP system anymore).
+
+## Two independent events flags (split out of the original single `events_enabled`)
+`member_group.events_enabled` is now the SIMPLE-events flag; `member_group.complex_events_enabled` is the COMPLEX (multi-session) flag. A group qualifies for the events surfaces when EITHER is on; per-type creation is gated on the matching flag. `getCallerGroupEventsAccess` exposes `simpleEnabled`/`complexEnabled` per group; `authorizeGroupAdminEventWrite` requires simple for `event` writes and complex for `complexevent` + its children (ticket class/session/track). UI toggles live on `/MemberGroupManagement`; gated create buttons on `/MemberGroupDetail` and `/GroupEvents` (the latter via the qualifying-groups API echoing the two flags). `complex_events_enabled` was backfilled from `events_enabled` so pre-split groups keep both.
+**Why:** orgs wanted to allow lightweight single events without exposing the heavier multi-session builder (or vice versa).
 
 ## Two enforcement layers that MUST match
 - **Server (authoritative):** `api/_lib/groupAdminEventWrite.js` — `authorizeGroupAdminEventWrite` is wired into the generic entity API POST (`api/entities/[entity]/index.js`) and PATCH (`api/entities/[entity]/[id].js`); `authorizeGroupAdminEventDelete` guards both `delete-with-cancellations` endpoints. Tenant admins (`hasAdminAccess`) pass straight through unchanged.
