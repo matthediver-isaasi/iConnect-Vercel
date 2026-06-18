@@ -39,6 +39,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Users,
   UserPlus,
   Loader2,
@@ -178,6 +184,7 @@ export default function MemberGroupDetailPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [showTermsView, setShowTermsView] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showPostVacancy, setShowPostVacancy] = useState(false);
   const [vacancyForm, setVacancyForm] = useState(EMPTY_VACANCY_FORM);
@@ -951,6 +958,25 @@ export default function MemberGroupDetailPage() {
                   Join Group
                 </Button>
               )}
+              {hasTermsOfReference && (
+                <TooltipProvider delayDuration={100}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setShowTermsView(true)}
+                        data-testid="button-view-terms"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      View terms of reference
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1620,6 +1646,36 @@ export default function MemberGroupDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showTermsView} onOpenChange={setShowTermsView}>
+        <DialogContent
+          className="max-w-2xl"
+          data-testid="dialog-view-terms-of-reference"
+        >
+          <DialogHeader>
+            <DialogTitle>Terms of reference</DialogTitle>
+            <DialogDescription>
+              Terms of reference for "{group.name}".
+            </DialogDescription>
+          </DialogHeader>
+          <div
+            className="max-h-[55vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 prose prose-sm max-w-none"
+            data-testid="text-view-terms-of-reference"
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(group.terms_of_reference || ""),
+            }}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowTermsView(false)}
+              data-testid="button-close-view-terms"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={showPostVacancy}
