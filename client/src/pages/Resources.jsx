@@ -132,8 +132,10 @@ export default function ResourcesPage() {
       const allResources = await base44.entities.Resource.list('-release_date');
       console.log('[Resources] Total resources from API:', allResources.length);
       
-      // Filter by status and permissions for authenticated users
+      // Filter by status and permissions for authenticated users.
+      // Group resources (member_group_id set) live only on MemberGroupDetail.
       let filtered = allResources.filter(resource => {
+        if (resource.member_group_id) return false;
         if (resource.status === 'draft') return false;
         if (isAdmin) return true;
         if (resource.is_public === true) return true;

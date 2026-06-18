@@ -50,6 +50,7 @@ export default async function handler(req, res) {
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
+      .is('member_group_id', null)
       .order('release_date', { ascending: false });
 
     if (error) {

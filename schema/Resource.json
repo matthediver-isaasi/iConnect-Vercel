@@ -78,6 +78,10 @@
         "type": "string",
         "description": "Reference to ResourceFolder entity - the folder this resource belongs to"
       },
+      "member_group_id": {
+        "type": "string",
+        "description": "Optional reference to a member_group. When set, this resource belongs to that group and is shown on its MemberGroupDetail Resources card. Null = tenant-wide resource."
+      },
       "status": {
         "type": "string",
         "enum": [

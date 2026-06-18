@@ -8,6 +8,7 @@ import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/g
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
+import { handleMemberGroupFilesChange } from '../../_lib/memberGroupFilesAccess.js';
 import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 import { sendBriefNotification } from '../../article-briefs/notify.js';
 import { rebuildSearchTextForEntity } from '../../_lib/searchTextBuilder.js';
@@ -1585,6 +1586,11 @@ export default async function handler(req, res) {
           await handleMemberGroupForumChange({ entityNorm, data, beforeData: null });
         } catch (err) {
           console.error('[Entity POST] member-group forum hook failed:', err.message || err);
+        }
+        try {
+          await handleMemberGroupFilesChange({ entityNorm, data, beforeData: null });
+        } catch (err) {
+          console.error('[Entity POST] member-group files hook failed:', err.message || err);
         }
       }
 

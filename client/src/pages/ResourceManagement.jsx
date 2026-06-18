@@ -83,7 +83,12 @@ export default function ResourceManagementPage() {
 
   const { data: resources = [], isLoading } = useQuery({
     queryKey: ['admin-resources'],
-    queryFn: () => base44.entities.Resource.list('-release_date'),
+    queryFn: async () => {
+      const all = await base44.entities.Resource.list('-release_date');
+      // Group resources (member_group_id set) are managed on MemberGroupDetail,
+      // not in the tenant-wide resource library.
+      return all.filter((r) => !r.member_group_id);
+    },
     staleTime: 0,
     refetchOnMount: true,
   });

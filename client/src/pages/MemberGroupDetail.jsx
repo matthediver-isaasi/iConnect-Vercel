@@ -80,6 +80,8 @@ import { filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { parseEventTypes } from "@/lib/utils";
 import EventCard from "@/components/events/EventCard";
+import ResourceCard from "@/components/resources/ResourceCard";
+import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
 import DOMPurify from "dompurify";
@@ -104,6 +106,15 @@ function getInitials(name) {
 
 const MEMBERS_PER_PAGE = 24;
 const EVENTS_PER_PAGE = 9;
+const RESOURCES_PER_PAGE = 9;
+
+const EMPTY_RESOURCE_FORM = {
+  title: "",
+  description: "",
+  resource_type: "download",
+  target_url: "",
+  is_public: false,
+};
 
 const EMPTY_VACANCY_FORM = {
   role_title: "",
@@ -825,6 +836,161 @@ export default function MemberGroupDetailPage() {
     const start = (currentEventPage - 1) * EVENTS_PER_PAGE;
     return filteredGroupEvents.slice(start, start + EVENTS_PER_PAGE);
   }, [filteredGroupEvents, currentEventPage]);
+
+  // --- Group resources section ---
+  const { data: groupResources = [], isLoading: loadingResources } = useQuery({
+    queryKey: ["member-group-resources", groupId],
+    queryFn: () => base44.entities.Resource.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const isAuthenticated = !!memberInfo?.email;
+
+  const [resourceSearch, setResourceSearch] = useState("");
+  const [resourcePage, setResourcePage] = useState(1);
+  const [showResourceDialog, setShowResourceDialog] = useState(false);
+  const [resourceForm, setResourceForm] = useState(EMPTY_RESOURCE_FORM);
+  const [resourceFile, setResourceFile] = useState(null);
+  const [resourceImageFile, setResourceImageFile] = useState(null);
+  const [resourceUploadProgress, setResourceUploadProgress] = useState(0);
+
+  // Non-admins never see member-only resources of another group; the public
+  // ResourceCard handles the login gate, but here everyone viewing is already
+  // a member, so we show all of the group's resources to members and admins.
+  const visibleResources = useMemo(() => {
+    if (isGroupAdmin || isJoined) return groupResources;
+    // Non-member, non-admin viewers only see public group resources.
+    return groupResources.filter((r) => r.is_public === true);
+  }, [groupResources, isGroupAdmin, isJoined]);
+
+  const filteredResources = useMemo(() => {
+    const q = resourceSearch.trim().toLowerCase();
+    return visibleResources
+      .filter((r) => {
+        if (!q) return true;
+        return (
+          r.title?.toLowerCase().includes(q) ||
+          r.description?.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        const aDate = new Date(a.published_date || a.created_date || 0).getTime();
+        const bDate = new Date(b.published_date || b.created_date || 0).getTime();
+        return bDate - aDate;
+      });
+  }, [visibleResources, resourceSearch]);
+
+  useEffect(() => {
+    setResourcePage(1);
+  }, [resourceSearch, groupId]);
+
+  const resourceTotalPages = Math.max(
+    1,
+    Math.ceil(filteredResources.length / RESOURCES_PER_PAGE)
+  );
+  const currentResourcePage = Math.min(resourcePage, resourceTotalPages);
+  const pagedResources = useMemo(() => {
+    const start = (currentResourcePage - 1) * RESOURCES_PER_PAGE;
+    return filteredResources.slice(start, start + RESOURCES_PER_PAGE);
+  }, [filteredResources, currentResourcePage]);
+
+  const createResourceMutation = useMutation({
+    mutationFn: async (form) => {
+      const isDownload = form.resource_type === "download";
+
+      let targetUrl = (form.target_url || "").trim();
+
+      // Direct file upload for downloadable resources (no repository picker).
+      if (isDownload) {
+        if (!resourceFile) {
+          throw new Error("Please choose a file to upload.");
+        }
+        setResourceUploadProgress(1);
+        const uploaded = await uploadFileWithProgress(resourceFile, {
+          type: UPLOAD_TYPES.UPLOAD,
+          entityId: groupId,
+          onProgress: (p) => setResourceUploadProgress(p),
+        });
+        targetUrl = uploaded.file_url;
+
+        // Mirror the upload into the group's File Repository folder so tenant
+        // admins find it in /FileManagement. Best-effort: a failure here must
+        // not block resource creation.
+        try {
+          let folderId = null;
+          const folders = await base44.entities.FileRepositoryFolder.filter({
+            member_group_id: groupId,
+          });
+          if (Array.isArray(folders) && folders.length > 0) {
+            folderId = folders[0].id;
+          }
+          let fileType = "other";
+          if (resourceFile.type.startsWith("image/")) fileType = "image";
+          else if (resourceFile.type.startsWith("video/")) fileType = "video";
+          else if (
+            resourceFile.type.includes("pdf") ||
+            resourceFile.type.includes("document")
+          )
+            fileType = "document";
+
+          await base44.entities.FileRepository.create({
+            file_name: uploaded.file_name,
+            file_url: uploaded.file_url,
+            file_type: fileType,
+            mime_type: uploaded.mime_type,
+            file_size: uploaded.file_size,
+            uploaded_by: memberInfo?.email || "unknown",
+            folder_id: folderId,
+            storage_path: uploaded.storage_path,
+            bucket: uploaded.bucket,
+          });
+        } catch (err) {
+          console.error("[MemberGroupDetail] file repository sync failed:", err);
+        }
+      } else if (!targetUrl) {
+        throw new Error("Please enter a URL for this resource.");
+      }
+
+      let imageUrl = undefined;
+      if (resourceImageFile) {
+        const uploadedImage = await uploadFileWithProgress(resourceImageFile, {
+          type: UPLOAD_TYPES.UPLOAD,
+          entityId: groupId,
+        });
+        imageUrl = uploadedImage.file_url;
+      }
+
+      return base44.entities.Resource.create({
+        title: form.title.trim(),
+        description: (form.description || "").trim(),
+        resource_type: form.resource_type,
+        target_url: targetUrl,
+        is_public: form.is_public === true,
+        status: "active",
+        member_group_id: groupId,
+        ...(imageUrl ? { image_url: imageUrl } : {}),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-resources", groupId],
+      });
+      setShowResourceDialog(false);
+      setResourceForm(EMPTY_RESOURCE_FORM);
+      setResourceFile(null);
+      setResourceImageFile(null);
+      setResourceUploadProgress(0);
+      toast.success("Resource created successfully");
+    },
+    onError: (error) => {
+      setResourceUploadProgress(0);
+      toast.error(
+        "Failed to create resource: " + (error?.message || "Unknown error")
+      );
+    },
+  });
 
   const isLoading =
     !accessChecked || loadingGroup || loadingAssignments || loadingMembers;
@@ -1561,7 +1727,316 @@ export default function MemberGroupDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        <Card className="mt-6" data-testid="card-group-resources-section">
+          <CardContent className="p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-slate-600" />
+                <h2
+                  className="text-lg font-semibold text-slate-900"
+                  data-testid="text-resources-heading"
+                >
+                  Resources ({filteredResources.length})
+                </h2>
+              </div>
+              {isGroupAdmin && (
+                <Button
+                  onClick={() => {
+                    setResourceForm(EMPTY_RESOURCE_FORM);
+                    setResourceFile(null);
+                    setResourceImageFile(null);
+                    setResourceUploadProgress(0);
+                    setShowResourceDialog(true);
+                  }}
+                  data-testid="button-new-group-resource"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create resource
+                </Button>
+              )}
+            </div>
+
+            {loadingResources ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array(3)
+                  .fill(0)
+                  .map((_, i) => (
+                    <Card
+                      key={i}
+                      className="animate-pulse"
+                      data-testid="skeleton-resource"
+                    >
+                      <div className="h-48 bg-slate-200" />
+                      <CardContent className="p-6">
+                        <div className="h-4 bg-slate-200 rounded mb-2" />
+                        <div className="h-4 bg-slate-200 rounded w-2/3" />
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            ) : visibleResources.length === 0 ? (
+              <div
+                className="text-center py-8 text-slate-500"
+                data-testid="text-no-resources"
+              >
+                No resources for this group yet.
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input
+                      value={resourceSearch}
+                      onChange={(e) => setResourceSearch(e.target.value)}
+                      placeholder="Search resources..."
+                      className="pl-9"
+                      data-testid="input-search-resources"
+                    />
+                  </div>
+                </div>
+
+                {filteredResources.length === 0 ? (
+                  <div
+                    className="text-center py-8 text-slate-500"
+                    data-testid="text-no-resources-matching"
+                  >
+                    No resources match your search.
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
+                      data-testid="grid-group-resources"
+                    >
+                      {pagedResources.map((resource) => (
+                        <ResourceCard
+                          key={resource.id}
+                          resource={resource}
+                          isAuthenticated={isAuthenticated}
+                        />
+                      ))}
+                    </div>
+
+                    {resourceTotalPages > 1 && (
+                      <div
+                        className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-200"
+                        data-testid="pagination-resources"
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setResourcePage((p) => Math.max(1, p - 1))
+                          }
+                          disabled={currentResourcePage <= 1}
+                          data-testid="button-resources-prev"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+                        </Button>
+                        <div
+                          className="text-sm text-slate-600"
+                          data-testid="text-resources-page-indicator"
+                        >
+                          Page {currentResourcePage} of {resourceTotalPages}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setResourcePage((p) =>
+                              Math.min(resourceTotalPages, p + 1)
+                            )
+                          }
+                          disabled={currentResourcePage >= resourceTotalPages}
+                          data-testid="button-resources-next"
+                        >
+                          Next <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      <Dialog
+        open={showResourceDialog}
+        onOpenChange={(open) => {
+          if (!createResourceMutation.isPending) setShowResourceDialog(open);
+        }}
+      >
+        <DialogContent
+          className="max-w-lg"
+          data-testid="dialog-create-resource"
+        >
+          <DialogHeader>
+            <DialogTitle>Create resource</DialogTitle>
+            <DialogDescription>
+              Add a resource for this group. Members of this group will see it on
+              this page.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="resource-title">Title</Label>
+              <Input
+                id="resource-title"
+                value={resourceForm.title}
+                onChange={(e) =>
+                  setResourceForm((f) => ({ ...f, title: e.target.value }))
+                }
+                placeholder="Resource title"
+                data-testid="input-resource-title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="resource-description">Description</Label>
+              <Textarea
+                id="resource-description"
+                value={resourceForm.description}
+                onChange={(e) =>
+                  setResourceForm((f) => ({
+                    ...f,
+                    description: e.target.value,
+                  }))
+                }
+                placeholder="Short description (optional)"
+                data-testid="input-resource-description"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select
+                value={resourceForm.resource_type}
+                onValueChange={(value) =>
+                  setResourceForm((f) => ({ ...f, resource_type: value }))
+                }
+              >
+                <SelectTrigger data-testid="select-resource-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="download">File download</SelectItem>
+                  <SelectItem value="external_link">External link</SelectItem>
+                  <SelectItem value="video">Video</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {resourceForm.resource_type === "download" ? (
+              <div className="space-y-2">
+                <Label htmlFor="resource-file">File</Label>
+                <Input
+                  id="resource-file"
+                  type="file"
+                  onChange={(e) =>
+                    setResourceFile(e.target.files?.[0] || null)
+                  }
+                  data-testid="input-resource-file"
+                />
+                {resourceFile && (
+                  <p className="text-xs text-slate-500" data-testid="text-resource-file-name">
+                    {resourceFile.name}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="resource-url">URL</Label>
+                <Input
+                  id="resource-url"
+                  value={resourceForm.target_url}
+                  onChange={(e) =>
+                    setResourceForm((f) => ({
+                      ...f,
+                      target_url: e.target.value,
+                    }))
+                  }
+                  placeholder="https://..."
+                  data-testid="input-resource-url"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="resource-image">Cover image (optional)</Label>
+              <Input
+                id="resource-image"
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setResourceImageFile(e.target.files?.[0] || null)
+                }
+                data-testid="input-resource-image"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                id="resource-public"
+                checked={resourceForm.is_public}
+                onCheckedChange={(checked) =>
+                  setResourceForm((f) => ({ ...f, is_public: checked }))
+                }
+                data-testid="switch-resource-public"
+              />
+              <Label
+                htmlFor="resource-public"
+                className="text-sm text-slate-600 cursor-pointer"
+              >
+                Visible to non-members (public)
+              </Label>
+            </div>
+
+            {createResourceMutation.isPending &&
+              resourceForm.resource_type === "download" &&
+              resourceUploadProgress > 0 && (
+                <p
+                  className="text-xs text-slate-500"
+                  data-testid="text-resource-upload-progress"
+                >
+                  Uploading… {resourceUploadProgress}%
+                </p>
+              )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowResourceDialog(false)}
+              disabled={createResourceMutation.isPending}
+              data-testid="button-cancel-resource"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createResourceMutation.mutate(resourceForm)}
+              disabled={
+                createResourceMutation.isPending ||
+                !resourceForm.title.trim()
+              }
+              data-testid="button-save-resource"
+            >
+              {createResourceMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Create resource"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={confirmLeave}
