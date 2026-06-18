@@ -309,6 +309,7 @@ const entityToTable = {
   'CrmTagColor': 'crm_tag_color',
   'Vacancy': 'vacancy',
   'VacancyApplication': 'vacancy_application',
+  'VacancyAward': 'vacancy_award',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -1176,7 +1177,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Vacancy', 'VacancyApplication',
+            'Vacancy', 'VacancyApplication', 'VacancyAward',
             'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
@@ -1236,6 +1237,31 @@ export default async function handler(req, res) {
           .maybeSingle();
         if (existingApp) {
           return res.status(409).json({ error: 'You have already expressed interest in this vacancy' });
+        }
+      }
+
+      // Task #1550: awarding a vacancy position is performed by a group admin —
+      // force the recorded "awarded by" to the requesting member (no spoofing)
+      // and reject awarding the same member the same vacancy twice.
+      if (entityNorm === 'vacancyaward') {
+        if (!tenantCtx.memberId) {
+          return res.status(403).json({ error: 'Member context required to award a position' });
+        }
+        sanitizedBody.awarded_by_member_id = tenantCtx.memberId;
+        if (!sanitizedBody.vacancy_id) {
+          return res.status(400).json({ error: 'vacancy_id is required' });
+        }
+        if (!sanitizedBody.awarded_member_id) {
+          return res.status(400).json({ error: 'awarded_member_id is required' });
+        }
+        const { data: existingAward } = await supabase
+          .from('vacancy_award')
+          .select('id')
+          .eq('vacancy_id', sanitizedBody.vacancy_id)
+          .eq('awarded_member_id', sanitizedBody.awarded_member_id)
+          .maybeSingle();
+        if (existingAward) {
+          return res.status(409).json({ error: 'This member has already been awarded this vacancy' });
         }
       }
       

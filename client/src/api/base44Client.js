@@ -298,6 +298,7 @@ class EntitiesProxy {
   get CrmTagColor() { return this._getEntity('CrmTagColor'); }
   get Vacancy() { return this._getEntity('Vacancy'); }
   get VacancyApplication() { return this._getEntity('VacancyApplication'); }
+  get VacancyAward() { return this._getEntity('VacancyAward'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

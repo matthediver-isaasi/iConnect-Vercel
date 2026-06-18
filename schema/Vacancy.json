@@ -62,6 +62,11 @@
     "applicants_viewed_at": {
       "type": "string",
       "description": "Timestamp the group admin last opened the submissions review modal for this vacancy. Drives the 'new entry' indicator on the posting card."
+    },
+    "positions_available": {
+      "type": "number",
+      "default": 1,
+      "description": "How many people this vacancy needs. Defaults to 1; existing vacancies without a value behave as a single position."
     }
   },
   "required": [

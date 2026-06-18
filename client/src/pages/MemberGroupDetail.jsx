@@ -45,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  Award,
   Users,
   UserPlus,
   Loader2,
@@ -127,7 +128,13 @@ const EMPTY_VACANCY_FORM = {
   term_unit: "years",
   max_terms: "",
   application_form_id: "none",
+  positions_available: "1",
 };
+
+function getPositionsAvailable(vacancy) {
+  const n = Number(vacancy?.positions_available);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 
 function countNewSubmissions(subs, viewedAt) {
   if (!viewedAt) return subs.length;
@@ -366,6 +373,31 @@ export default function MemberGroupDetailPage() {
     [myApplications]
   );
 
+  // Awards for this group's vacancies drive the remaining-positions count and
+  // the "already awarded" markers in the review modals.
+  const { data: groupAwards = [] } = useQuery({
+    queryKey: ["group-vacancy-awards", groupId],
+    queryFn: () =>
+      base44.entities.VacancyAward.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId && isGroupAdmin,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const awardsByVacancy = useMemo(() => {
+    const map = new Map();
+    for (const a of groupAwards) {
+      if (!a.vacancy_id) continue;
+      if (!map.has(a.vacancy_id)) map.set(a.vacancy_id, []);
+      map.get(a.vacancy_id).push(a);
+    }
+    return map;
+  }, [groupAwards]);
+
+  const getAwardsForVacancy = (vacancyId) => awardsByVacancy.get(vacancyId) || [];
+  const getRemainingPositions = (vacancy) =>
+    Math.max(0, getPositionsAvailable(vacancy) - getAwardsForVacancy(vacancy.id).length);
+
   // Job-posting forms (admin only) populate the vacancy form picker and provide
   // field labels for the submissions review modal.
   const { data: jobPostingForms = [] } = useQuery({
@@ -458,6 +490,7 @@ export default function MemberGroupDetailPage() {
       if (!description) throw new Error("Role description is required");
       const toNum = (v) =>
         v === "" || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+      const positions = toNum(vacancyForm.positions_available);
       const payload = {
         role_title: title,
         role_description: description,
@@ -466,6 +499,7 @@ export default function MemberGroupDetailPage() {
         term_value: toNum(vacancyForm.term_value),
         term_unit: vacancyForm.term_unit,
         max_terms: toNum(vacancyForm.max_terms),
+        positions_available: positions && positions > 0 ? Math.floor(positions) : 1,
         application_form_id:
           vacancyForm.application_form_id &&
           vacancyForm.application_form_id !== "none"
@@ -516,6 +550,7 @@ export default function MemberGroupDetailPage() {
       term_unit: vacancy.term_unit || "years",
       max_terms: vacancy.max_terms ?? "",
       application_form_id: vacancy.application_form_id || "none",
+      positions_available: String(getPositionsAvailable(vacancy)),
     });
     setShowPostVacancy(true);
   };
@@ -605,6 +640,66 @@ export default function MemberGroupDetailPage() {
     },
   });
 
+  // Award a vacancy position to a member: records the award, then upserts the
+  // member's group assignment so their group_role becomes the vacancy's role.
+  const awardPositionMutation = useMutation({
+    mutationFn: async ({ vacancy, memberId, email, sourceType, sourceId }) => {
+      if (!vacancy?.id) throw new Error("No vacancy selected");
+      if (getRemainingPositions(vacancy) <= 0) {
+        throw new Error("All positions for this vacancy are already filled.");
+      }
+      // Form submissions don't carry a member id — resolve one from the
+      // submitter's email so we can award and assign the role.
+      let resolvedMemberId = memberId || null;
+      if (!resolvedMemberId && email) {
+        const matches = await base44.entities.Member.filter({
+          email: email.trim().toLowerCase(),
+        }).catch(() => []);
+        resolvedMemberId = matches?.[0]?.id || null;
+      }
+      if (!resolvedMemberId) {
+        throw new Error(
+          "This applicant isn't linked to a member record, so the position can't be awarded."
+        );
+      }
+      const role = (vacancy.role_title || "").trim();
+      await base44.entities.VacancyAward.create({
+        member_group_id: groupId,
+        vacancy_id: vacancy.id,
+        awarded_member_id: resolvedMemberId,
+        source_type: sourceType || null,
+        source_id: sourceId || null,
+      });
+      const existing = groupAssignments.find(
+        (a) => a.member_id === resolvedMemberId && a.group_id === groupId
+      );
+      if (existing) {
+        if (role && existing.group_role !== role) {
+          await base44.entities.MemberGroupAssignment.update(existing.id, {
+            group_role: role,
+          });
+        }
+      } else {
+        await base44.entities.MemberGroupAssignment.create({
+          group_id: groupId,
+          member_id: memberId,
+          group_role: role || "Member",
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-vacancy-awards", groupId] });
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-assignments-group", groupId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["member-group-members", groupId] });
+      toast.success("Position awarded");
+    },
+    onError: (error) => {
+      toast.error("Failed to award position: " + (error?.message || "Unknown error"));
+    },
+  });
+
   const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
     queryKey: ["vacancy-applicants", applicantsVacancy?.id],
     queryFn: async () => {
@@ -647,6 +742,20 @@ export default function MemberGroupDetailPage() {
       .map((m) => ({ ...m, __display: getMemberDisplay(m) }))
       .sort((a, b) => a.__display.displayName.localeCompare(b.__display.displayName));
   }, [members]);
+
+  const groupRoles = useMemo(
+    () => (Array.isArray(group?.roles) ? group.roles.filter(Boolean) : []),
+    [group]
+  );
+
+  // When editing a legacy vacancy whose free-text role is no longer in the
+  // group's configured roles, still surface it so the Select stays valid.
+  const vacancyRoleOptions = useMemo(() => {
+    const opts = [...groupRoles];
+    const current = vacancyForm.role_title;
+    if (current && !opts.includes(current)) opts.unshift(current);
+    return opts;
+  }, [groupRoles, vacancyForm.role_title]);
 
   const leadershipRoleSet = useMemo(
     () => new Set(Array.isArray(group?.leadership_roles) ? group.leadership_roles : []),
@@ -1223,6 +1332,9 @@ export default function MemberGroupDetailPage() {
                   const maxTerms = formatMaxTerms(vacancy);
                   const isClosed = vacancy.status === "closed";
                   const alreadyApplied = appliedVacancyIds.has(vacancy.id);
+                  const positionsTotal = getPositionsAvailable(vacancy);
+                  const positionsRemaining = getRemainingPositions(vacancy);
+                  const isFilled = positionsRemaining <= 0;
                   return (
                     <div
                       key={vacancy.id}
@@ -1240,6 +1352,11 @@ export default function MemberGroupDetailPage() {
                           {isClosed && (
                             <Badge variant="secondary" data-testid={`badge-vacancy-closed-${vacancy.id}`}>
                               Closed
+                            </Badge>
+                          )}
+                          {!isClosed && isFilled && (
+                            <Badge variant="secondary" data-testid={`badge-vacancy-filled-${vacancy.id}`}>
+                              Filled
                             </Badge>
                           )}
                         </div>
@@ -1328,28 +1445,35 @@ export default function MemberGroupDetailPage() {
                         {vacancy.role_description}
                       </p>
 
-                      {(commitment || term || maxTerms) && (
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
-                          {commitment && (
-                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-commitment-${vacancy.id}`}>
-                              <Clock className="w-4 h-4 text-slate-400" />
-                              {commitment}
-                            </span>
-                          )}
-                          {term && (
-                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-term-${vacancy.id}`}>
-                              <CalendarClock className="w-4 h-4 text-slate-400" />
-                              {term}
-                            </span>
-                          )}
-                          {maxTerms && (
-                            <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-maxterms-${vacancy.id}`}>
-                              <Repeat className="w-4 h-4 text-slate-400" />
-                              {maxTerms}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
+                        {commitment && (
+                          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-commitment-${vacancy.id}`}>
+                            <Clock className="w-4 h-4 text-slate-400" />
+                            {commitment}
+                          </span>
+                        )}
+                        {term && (
+                          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-term-${vacancy.id}`}>
+                            <CalendarClock className="w-4 h-4 text-slate-400" />
+                            {term}
+                          </span>
+                        )}
+                        {maxTerms && (
+                          <span className="inline-flex items-center gap-1.5" data-testid={`text-vacancy-maxterms-${vacancy.id}`}>
+                            <Repeat className="w-4 h-4 text-slate-400" />
+                            {maxTerms}
+                          </span>
+                        )}
+                        <span
+                          className="inline-flex items-center gap-1.5"
+                          data-testid={`text-vacancy-positions-${vacancy.id}`}
+                        >
+                          <Users className="w-4 h-4 text-slate-400" />
+                          {isFilled
+                            ? `All ${positionsTotal} position${positionsTotal === 1 ? "" : "s"} filled`
+                            : `${positionsRemaining} of ${positionsTotal} position${positionsTotal === 1 ? "" : "s"} remaining`}
+                        </span>
+                      </div>
 
                       {!isClosed && (
                         <div className="mt-4">
@@ -1699,16 +1823,37 @@ export default function MemberGroupDetailPage() {
           </DialogHeader>
           <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="vacancy-title">Role title</Label>
-              <Input
-                id="vacancy-title"
-                value={vacancyForm.role_title}
-                onChange={(e) =>
-                  setVacancyForm((f) => ({ ...f, role_title: e.target.value }))
-                }
-                placeholder="e.g. Treasurer"
-                data-testid="input-vacancy-title"
-              />
+              <Label htmlFor="vacancy-title">Role</Label>
+              {groupRoles.length === 0 ? (
+                <div
+                  className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+                  data-testid="text-no-group-roles"
+                >
+                  This group has no roles configured yet. Add roles in the group's
+                  settings before posting a vacancy.
+                </div>
+              ) : (
+                <Select
+                  value={vacancyForm.role_title || undefined}
+                  onValueChange={(v) =>
+                    setVacancyForm((f) => ({ ...f, role_title: v }))
+                  }
+                >
+                  <SelectTrigger
+                    id="vacancy-title"
+                    data-testid="select-vacancy-title"
+                  >
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vacancyRoleOptions.map((role) => (
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="vacancy-description">Role description</Label>
@@ -1803,6 +1948,25 @@ export default function MemberGroupDetailPage() {
                 className="w-28"
                 data-testid="input-vacancy-max-terms"
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-positions">Number of positions</Label>
+              <Input
+                id="vacancy-positions"
+                type="number"
+                min="1"
+                step="1"
+                value={vacancyForm.positions_available}
+                onChange={(e) =>
+                  setVacancyForm((f) => ({ ...f, positions_available: e.target.value }))
+                }
+                placeholder="1"
+                className="w-28"
+                data-testid="input-vacancy-positions"
+              />
+              <p className="text-xs text-muted-foreground">
+                How many people you need for this role. Defaults to 1.
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="vacancy-form">Application form</Label>
@@ -1950,48 +2114,90 @@ export default function MemberGroupDetailPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-3" data-testid="list-applicants">
-                {applicants.map((app) => {
-                  const member = app.__member;
-                  const display = member ? getMemberDisplay(member) : null;
-                  const name = display ? display.displayName : "Unknown member";
-                  return (
-                    <div
-                      key={app.id}
-                      className="rounded-md border border-slate-200 p-3"
-                      data-testid={`card-applicant-${app.id}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9">
-                          {display?.showAvatarImage && member?.profile_image_url ? (
-                            <AvatarImage src={member.profile_image_url} alt={name} />
-                          ) : null}
-                          <AvatarFallback>{getInitials(name)}</AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <div
-                            className="text-sm font-medium text-slate-900 truncate"
-                            data-testid={`text-applicant-name-${app.id}`}
-                          >
-                            {name}
-                          </div>
-                          {member?.email && !display?.anonymised && (
-                            <div className="text-xs text-slate-500 truncate">
-                              {member.email}
+                {(() => {
+                  const vacancyAwards = getAwardsForVacancy(applicantsVacancy?.id);
+                  const awardedMemberIds = new Set(
+                    vacancyAwards.map((a) => a.awarded_member_id).filter(Boolean)
+                  );
+                  const remaining = getRemainingPositions(applicantsVacancy);
+                  return applicants.map((app) => {
+                    const member = app.__member;
+                    const display = member ? getMemberDisplay(member) : null;
+                    const name = display ? display.displayName : "Unknown member";
+                    const isAwarded =
+                      app.member_id && awardedMemberIds.has(app.member_id);
+                    return (
+                      <div
+                        key={app.id}
+                        className="rounded-md border border-slate-200 p-3"
+                        data-testid={`card-applicant-${app.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar className="h-9 w-9">
+                              {display?.showAvatarImage && member?.profile_image_url ? (
+                                <AvatarImage src={member.profile_image_url} alt={name} />
+                              ) : null}
+                              <AvatarFallback>{getInitials(name)}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div
+                                className="text-sm font-medium text-slate-900 truncate"
+                                data-testid={`text-applicant-name-${app.id}`}
+                              >
+                                {name}
+                              </div>
+                              {member?.email && !display?.anonymised && (
+                                <div className="text-xs text-slate-500 truncate">
+                                  {member.email}
+                                </div>
+                              )}
                             </div>
+                          </div>
+                          {isAwarded ? (
+                            <Badge
+                              variant="secondary"
+                              data-testid={`badge-applicant-awarded-${app.id}`}
+                            >
+                              <Check className="w-3.5 h-3.5 mr-1" />
+                              Awarded
+                            </Badge>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                !app.member_id ||
+                                remaining <= 0 ||
+                                awardPositionMutation.isPending
+                              }
+                              onClick={() =>
+                                awardPositionMutation.mutate({
+                                  vacancy: applicantsVacancy,
+                                  memberId: app.member_id,
+                                  sourceType: "application",
+                                  sourceId: app.id,
+                                })
+                              }
+                              data-testid={`button-award-applicant-${app.id}`}
+                            >
+                              <Award className="w-4 h-4 mr-2" />
+                              Award position
+                            </Button>
                           )}
                         </div>
+                        {app.message && (
+                          <p
+                            className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
+                            data-testid={`text-applicant-message-${app.id}`}
+                          >
+                            {app.message}
+                          </p>
+                        )}
                       </div>
-                      {app.message && (
-                        <p
-                          className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
-                          data-testid={`text-applicant-message-${app.id}`}
-                        >
-                          {app.message}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -2039,6 +2245,11 @@ export default function MemberGroupDetailPage() {
                   </div>
                 );
               }
+              const vacancyAwards = getAwardsForVacancy(submissionsVacancy?.id);
+              const awardedSourceIds = new Set(
+                vacancyAwards.map((a) => a.source_id).filter(Boolean)
+              );
+              const submissionsRemaining = getRemainingPositions(submissionsVacancy);
               return (
                 <div className="flex flex-col gap-3" data-testid="list-submissions">
                   {subs.map((sub) => {
@@ -2054,36 +2265,70 @@ export default function MemberGroupDetailPage() {
                     const entries = Object.entries(data).filter(
                       ([, v]) => v !== "" && v != null
                     );
+                    const isAwarded = awardedSourceIds.has(sub.id);
                     return (
                       <div
                         key={sub.id}
                         className="rounded-md border border-slate-200"
                         data-testid={`card-submission-${sub.id}`}
                       >
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between gap-3 p-3 text-left hover-elevate rounded-md"
-                          onClick={() =>
-                            setExpandedSubmissionId(expanded ? null : sub.id)
-                          }
-                          data-testid={`button-toggle-submission-${sub.id}`}
-                        >
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-slate-900 truncate">
-                              {who}
-                            </div>
-                            {when && (
-                              <div className="text-xs text-slate-500 truncate">
-                                {when}
+                        <div className="flex items-center gap-2 p-3">
+                          <button
+                            type="button"
+                            className="flex-1 flex items-center justify-between gap-3 text-left min-w-0"
+                            onClick={() =>
+                              setExpandedSubmissionId(expanded ? null : sub.id)
+                            }
+                            data-testid={`button-toggle-submission-${sub.id}`}
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-slate-900 truncate">
+                                {who}
                               </div>
-                            )}
-                          </div>
-                          <ChevronDown
-                            className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
-                              expanded ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
+                              {when && (
+                                <div className="text-xs text-slate-500 truncate">
+                                  {when}
+                                </div>
+                              )}
+                            </div>
+                            <ChevronDown
+                              className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${
+                                expanded ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                          {isAwarded ? (
+                            <Badge
+                              variant="secondary"
+                              data-testid={`badge-submission-awarded-${sub.id}`}
+                            >
+                              <Check className="w-3.5 h-3.5 mr-1" />
+                              Awarded
+                            </Badge>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                !sub.submitted_by_email ||
+                                submissionsRemaining <= 0 ||
+                                awardPositionMutation.isPending
+                              }
+                              onClick={() =>
+                                awardPositionMutation.mutate({
+                                  vacancy: submissionsVacancy,
+                                  email: sub.submitted_by_email,
+                                  sourceType: "submission",
+                                  sourceId: sub.id,
+                                })
+                              }
+                              data-testid={`button-award-submission-${sub.id}`}
+                            >
+                              <Award className="w-4 h-4 mr-2" />
+                              Award position
+                            </Button>
+                          )}
+                        </div>
                         {expanded && (
                           <div
                             className="border-t border-slate-200 p-3 flex flex-col gap-2"
