@@ -42,6 +42,27 @@ export default function MemberGroupsPage() {
     refetchOnMount: true,
   });
 
+  const { data: myAssignments = [] } = useQuery({
+    queryKey: ['member-group-assignments-self', memberInfo?.id],
+    queryFn: async () => {
+      if (!memberInfo?.id) return [];
+      return base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
+    },
+    enabled: accessChecked && !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const assignmentByGroup = useMemo(() => {
+    const map = {};
+    for (const a of myAssignments) {
+      if (a.group_id && !map[a.group_id]) {
+        map[a.group_id] = a;
+      }
+    }
+    return map;
+  }, [myAssignments]);
+
   const openVacancyCountByGroup = useMemo(() => {
     const map = {};
     for (const v of openVacancies) {
@@ -121,6 +142,13 @@ export default function MemberGroupsPage() {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {visibleGroups.map((group) => {
+              const myAssignment = assignmentByGroup[group.id];
+              const isJoined = !!myAssignment;
+              const isGroupAdmin =
+                !!myAssignment &&
+                myAssignment.is_group_admin === true &&
+                (!myAssignment.expires_at ||
+                  new Date(myAssignment.expires_at).toISOString() > new Date().toISOString());
               return (
                 <Card
                   key={group.id}
@@ -178,13 +206,32 @@ export default function MemberGroupsPage() {
                         {group.description}
                       </p>
                     )}
-                    {group.default_self_join_role && (
+                    {isGroupAdmin && (
                       <div className="mb-3">
-                        <span className="text-xs text-slate-500">You'll join as: </span>
-                        <Badge className="bg-blue-100 text-blue-700 text-xs">
-                          {group.default_self_join_role}
+                        <Badge
+                          className="bg-purple-100 text-purple-700 text-xs"
+                          data-testid={`badge-group-admin-${group.id}`}
+                        >
+                          Group admin
                         </Badge>
                       </div>
+                    )}
+                    {isJoined ? (
+                      <div className="mb-3" data-testid={`text-joined-role-${group.id}`}>
+                        <span className="text-xs text-slate-500">You have joined the group as </span>
+                        <Badge className="bg-green-100 text-green-700 text-xs">
+                          {myAssignment.group_role || group.default_self_join_role}
+                        </Badge>
+                      </div>
+                    ) : (
+                      group.default_self_join_role && (
+                        <div className="mb-3" data-testid={`text-join-as-${group.id}`}>
+                          <span className="text-xs text-slate-500">You'll join as: </span>
+                          <Badge className="bg-blue-100 text-blue-700 text-xs">
+                            {group.default_self_join_role}
+                          </Badge>
+                        </div>
+                      )
                     )}
                     <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
                       <Button
