@@ -1526,7 +1526,7 @@ export default function MemberGroupDetailPage() {
                   {group?.events_enabled && (
                     <Button
                       onClick={() =>
-                        navigate(`/CreateEvent?group_event=1&group_id=${groupId}`)
+                        navigate(`/CreateEvent?group_event=1&group_id=${groupId}&from=MemberGroupDetail`)
                       }
                       data-testid="button-new-group-event"
                     >

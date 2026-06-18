@@ -116,6 +116,16 @@ export default function CreateEvent() {
   const groupSearchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const groupId = groupSearchParams.get('group_id') || null;
   const isGroupLimited = groupSearchParams.get('group_event') === '1' && !!groupId;
+  // Back-arrow target: in group-event mode, return to whichever context launched
+  // the flow (Group Events listing or the member group detail page) rather than
+  // the general Events page. Honors a `from` origin marker, defaulting to the
+  // member group detail page for this group_id.
+  const backUrl = useMemo(() => {
+    if (!isGroupLimited) return createPageUrl('Events');
+    const from = groupSearchParams.get('from');
+    if (from === 'GroupEvents') return createPageUrl('GroupEvents');
+    return `${createPageUrl('MemberGroupDetail')}?id=${groupId}`;
+  }, [isGroupLimited, groupSearchParams, groupId]);
   const [groupEventPublic, setGroupEventPublic] = useState(false);
 
   const [eventTiming, setEventTiming] = useState("published"); // published or tbc - affects date requirements
@@ -921,7 +931,7 @@ export default function CreateEvent() {
           <Button 
             variant="ghost" 
             size="icon"
-            onClick={() => window.location.href = createPageUrl('Events')}
+            onClick={() => window.location.href = backUrl}
             data-testid="button-back"
           >
             <ArrowLeft className="h-5 w-5" />

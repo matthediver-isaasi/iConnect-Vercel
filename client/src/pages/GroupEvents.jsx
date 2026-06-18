@@ -48,7 +48,7 @@ export default function GroupEventsPage() {
   }
 
   const newSimple = (groupId) =>
-    navigate(`/CreateEvent?group_event=1&group_id=${groupId}`);
+    navigate(`/CreateEvent?group_event=1&group_id=${groupId}&from=GroupEvents`);
   const newComplex = (groupId) =>
     navigate(`/CreateComplexEvent?group_event=1&group_id=${groupId}`);
   const editEvent = (groupId, ev) => {
