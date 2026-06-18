@@ -30,3 +30,11 @@ token resolves its session automatically. The live counter still needs the
 
 Org switching post-login in v1 = sign out and back in (the cookie-based
 tenant-switch flow is not used by mobile).
+
+**Upgrading the Expo SDK from this workspace** — `npx expo install --fix` can't
+run here (no install path for the subdir). Get the exact aligned dependency
+versions from `expo@<sdk>/bundledNativeModules.json` (e.g. via
+`unpkg.com/expo@54.0.35/bundledNativeModules.json`) and hand-write them into
+`mobile/package.json`; that file is the authoritative source of what each SDK
+pins (react, react-native, all expo-* and RN community packages). `npm install`
+and `tsc` typecheck must be verified by the user on a dev machine / EAS.
