@@ -67,6 +67,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'countries', label: 'Countries (Multi-Select)' },
   { value: 'percentage', label: 'Percentage' },
   { value: 'contact', label: 'Contact (Composite)' },
+  { value: 'grouped_question', label: 'Grouped Question' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
   { value: 'image', label: 'Image (Display Only)' },
   { value: 'image_buttons', label: 'Image Buttons' },
@@ -4510,8 +4511,155 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Grouped Question Field - Sub-Question Configuration */}
+              {field.type === 'grouped_question' && (() => {
+                const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
+                const rawMin = Number(field.min_completed);
+                const minRequired = Number.isFinite(rawMin)
+                  ? Math.max(0, Math.min(rawMin, subQuestions.length))
+                  : subQuestions.length;
+
+                const updateSubQuestions = (nextSubs) => {
+                  const boundedMin = Math.max(0, Math.min(minRequired, nextSubs.length));
+                  updateField(originalIndex, {
+                    sub_questions: nextSubs,
+                    min_completed: boundedMin,
+                  });
+                };
+
+                const addSubQuestion = () => {
+                  const newSub = {
+                    id: `sq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    label: '',
+                  };
+                  updateSubQuestions([...subQuestions, newSub]);
+                };
+
+                const removeSubQuestion = (index) => {
+                  updateSubQuestions(subQuestions.filter((_, i) => i !== index));
+                };
+
+                const updateSubQuestionLabel = (index, label) => {
+                  const next = subQuestions.map((sq, i) => i === index ? { ...sq, label } : sq);
+                  updateField(originalIndex, { sub_questions: next });
+                };
+
+                const moveSubQuestion = (index, direction) => {
+                  const target = index + direction;
+                  if (target < 0 || target >= subQuestions.length) return;
+                  const next = [...subQuestions];
+                  [next[index], next[target]] = [next[target], next[index]];
+                  updateField(originalIndex, { sub_questions: next });
+                };
+
+                return (
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <Label className="text-xs font-medium">Sub-Questions</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Each sub-question renders as a multi-line text input. Set how many must be answered for this field to be complete.
+                    </p>
+                    <div className="space-y-2">
+                      {subQuestions.length === 0 && (
+                        <p className="text-xs text-slate-400 italic">No sub-questions yet. Add one to get started.</p>
+                      )}
+                      {subQuestions.map((sq, index) => (
+                        <div
+                          key={sq.id}
+                          className="flex items-center gap-2 py-1.5 px-2 bg-white border border-slate-100 rounded-md"
+                          data-testid={`grouped-subquestion-config-${field.id}-${index}`}
+                        >
+                          <div className="flex flex-col">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-slate-400"
+                              disabled={index === 0}
+                              onClick={() => moveSubQuestion(index, -1)}
+                              data-testid={`button-move-up-subquestion-${field.id}-${index}`}
+                            >
+                              <ChevronUp className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-slate-400"
+                              disabled={index === subQuestions.length - 1}
+                              onClick={() => moveSubQuestion(index, 1)}
+                              data-testid={`button-move-down-subquestion-${field.id}-${index}`}
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <Input
+                            value={sq.label || ''}
+                            onChange={(e) => updateSubQuestionLabel(index, e.target.value)}
+                            placeholder={`Sub-question ${index + 1} label`}
+                            className="h-8 text-xs flex-1"
+                            data-testid={`input-subquestion-label-${field.id}-${index}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => removeSubQuestion(index)}
+                            data-testid={`button-delete-subquestion-${field.id}-${index}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addSubQuestion}
+                      className="text-xs"
+                      data-testid={`button-add-subquestion-${field.id}`}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Sub-Question
+                    </Button>
+                    <div className="pt-3 border-t border-slate-200 space-y-1.5">
+                      <Label className="text-xs font-medium">Minimum answers required</Label>
+                      <p className="text-xs text-slate-500">
+                        How many sub-questions must be answered for this field to count as complete.
+                      </p>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={subQuestions.length}
+                        value={minRequired}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          const safe = Number.isFinite(parsed) ? parsed : 0;
+                          const bounded = Math.max(0, Math.min(safe, subQuestions.length));
+                          updateField(originalIndex, { min_completed: bounded });
+                        }}
+                        className="h-8 text-xs w-24"
+                        disabled={subQuestions.length === 0}
+                        data-testid={`input-min-completed-${field.id}`}
+                      />
+                      {subQuestions.length > 0 && (
+                        <p className="text-xs text-slate-400">
+                          {minRequired === 0
+                            ? 'No answers required (optional).'
+                            : `Respondents must answer at least ${minRequired} of ${subQuestions.length}.`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'signature'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>

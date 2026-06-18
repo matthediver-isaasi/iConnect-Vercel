@@ -1665,6 +1665,60 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           </div>
         );
 
+      case 'grouped_question': {
+        const groupedValue = (value && typeof value === 'object') ? value : {};
+        const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
+        const rawMin = Number(field.min_completed);
+        const minRequired = Number.isFinite(rawMin)
+          ? Math.max(0, Math.min(rawMin, subQuestions.length))
+          : subQuestions.length;
+
+        const handleSubQuestionChange = (subId, subValue) => {
+          onChange({ ...groupedValue, [subId]: subValue });
+        };
+
+        if (subQuestions.length === 0) {
+          return (
+            <div
+              className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-500"
+              data-testid={`grouped-question-${field.id}`}
+            >
+              No sub-questions configured.
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className="space-y-4 p-4 bg-slate-50 border border-slate-200 rounded-lg"
+            data-testid={`grouped-question-${field.id}`}
+          >
+            {minRequired > 0 && (
+              <p className="text-sm text-slate-500" data-testid={`grouped-question-helper-${field.id}`}>
+                Answer at least {minRequired} of {subQuestions.length}
+              </p>
+            )}
+            {subQuestions.map((sq) => (
+              <div key={sq.id} className="space-y-1.5">
+                <Label htmlFor={`${field.id}-${sq.id}`} className="text-sm">
+                  {sq.label || 'Untitled question'}
+                </Label>
+                <Textarea
+                  id={`${field.id}-${sq.id}`}
+                  value={groupedValue[sq.id] || ''}
+                  onChange={(e) => handleSubQuestionChange(sq.id, e.target.value)}
+                  placeholder={sq.placeholder || ''}
+                  disabled={isFieldDisabled}
+                  rows={3}
+                  className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : 'bg-white'}
+                  data-testid={`textarea-grouped-${field.id}-${sq.id}`}
+                />
+              </div>
+            ))}
+          </div>
+        );
+      }
+
       case 'instructions':
         return null;
 

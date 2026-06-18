@@ -3,6 +3,21 @@
 // fixes to either helper apply everywhere at once.
 
 export const isFieldValueFilled = (field, value) => {
+  if (field.type === 'grouped_question') {
+    const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
+    const rawMin = Number(field.min_completed);
+    const minRequired = Number.isFinite(rawMin)
+      ? Math.max(0, Math.min(rawMin, subQuestions.length))
+      : subQuestions.length;
+    if (minRequired === 0) return true;
+    const answers = (value && typeof value === 'object') ? value : {};
+    const answeredCount = subQuestions.reduce((count, sq) => {
+      const answer = answers[sq.id];
+      return count + (typeof answer === 'string' && answer.trim() ? 1 : 0);
+    }, 0);
+    return answeredCount >= minRequired;
+  }
+
   if (!value) return false;
 
   if (field.type === 'countries') {
