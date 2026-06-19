@@ -1289,7 +1289,13 @@ export default function ComplexEventDetail() {
                   }
                   const data = await resp.json();
                   toast.success('Event duplicated as draft');
-                  window.location.href = `/CreateComplexEvent?id=${data.id}`;
+                  // Carry group context so the duplicate opens directly in the
+                  // gated group-event UI and returns to the member group page.
+                  let dupUrl = `/CreateComplexEvent?id=${data.id}`;
+                  if (event?.member_group_id) {
+                    dupUrl += `&group_event=1&group_id=${event.member_group_id}`;
+                  }
+                  window.location.href = dupUrl;
                 } catch (err) {
                   toast.error('Duplicate failed: ' + err.message);
                 }

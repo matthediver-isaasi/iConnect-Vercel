@@ -2104,7 +2104,19 @@ export default function CreateComplexEvent() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => (window.location.href = createPageUrl("Events"))}
+              onClick={() => {
+                // Group events return to where they came from: the group events
+                // list (when opened from there) or the member group detail page.
+                // Non-group events keep returning to the general Events list.
+                const backGroupId = groupIdParam || existingEvent?.member_group_id || null;
+                if (backGroupId) {
+                  window.location.href = fromParam === 'GroupEvents'
+                    ? createPageUrl('GroupEvents')
+                    : createPageUrl('MemberGroupDetail') + '?id=' + backGroupId;
+                } else {
+                  window.location.href = createPageUrl('Events');
+                }
+              }}
               data-testid="button-back"
             >
               <ArrowLeft className="w-5 h-5" />

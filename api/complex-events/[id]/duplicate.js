@@ -11,7 +11,8 @@ const EVENT_FIELDS = [
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'timezone',
   'organization_id', 'program_id', 'pricing_config',
-  'attached_documents', 'documents_section_title'
+  'attached_documents', 'documents_section_title',
+  'member_group_id', 'group_event_public'
 ];
 
 async function findUniqueSlug(tenantId, base) {

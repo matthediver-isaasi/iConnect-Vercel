@@ -1680,7 +1680,19 @@ export default function EditEvent() {
           <Button 
             variant="ghost" 
             size="icon"
-            onClick={() => window.location.href = createPageUrl('Events')}
+            onClick={() => {
+              // Group events return to where they came from: the group events
+              // list (when opened from there) or the member group detail page.
+              // Non-group events keep returning to the general Events list.
+              const backGroupId = groupIdParam || event?.member_group_id || null;
+              if (backGroupId) {
+                window.location.href = fromParam === 'GroupEvents'
+                  ? createPageUrl('GroupEvents')
+                  : createPageUrl('MemberGroupDetail') + '?id=' + backGroupId;
+              } else {
+                window.location.href = createPageUrl('Events');
+              }
+            }}
             data-testid="button-back"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -1714,7 +1726,15 @@ export default function EditEvent() {
                   }
                   const data = await resp.json();
                   toast.success('Event duplicated as draft');
-                  window.location.href = createPageUrl('EditEvent') + '?id=' + data.id;
+                  // Carry group context so the duplicate opens directly in the
+                  // gated group-event UI and returns to the group surfaces.
+                  const dupGroupId = groupIdParam || event?.member_group_id || null;
+                  let dupUrl = createPageUrl('EditEvent') + '?id=' + data.id;
+                  if (dupGroupId) {
+                    dupUrl += '&group_event=1&group_id=' + dupGroupId;
+                    if (fromParam) dupUrl += '&from=' + fromParam;
+                  }
+                  window.location.href = dupUrl;
                 } catch (err) {
                   toast.error('Duplicate failed: ' + err.message);
                 }

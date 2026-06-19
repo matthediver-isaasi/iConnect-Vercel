@@ -943,7 +943,13 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                         const data = await resp.json();
                         toast.success('Event duplicated as draft');
                         queryClient.invalidateQueries({ queryKey: ['events'] });
-                        window.location.href = createPageUrl('EditEvent') + '?id=' + data.id;
+                        // Carry group context so the duplicate opens directly in
+                        // the gated group-event UI and returns to the group page.
+                        let dupUrl = createPageUrl('EditEvent') + '?id=' + data.id;
+                        if (event.member_group_id) {
+                          dupUrl += '&group_event=1&group_id=' + event.member_group_id;
+                        }
+                        window.location.href = dupUrl;
                       } catch (err) {
                         toast.error('Duplicate failed: ' + err.message);
                       }
