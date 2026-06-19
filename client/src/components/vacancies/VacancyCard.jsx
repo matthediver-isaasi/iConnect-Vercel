@@ -1,5 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import DOMPurify from "dompurify";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -122,12 +123,13 @@ export default function VacancyCard({
         )}
       </div>
 
-      <p
-        className="text-sm text-slate-700 whitespace-pre-wrap mt-2"
+      <div
+        className="prose prose-sm max-w-none text-sm text-slate-700 mt-2"
         data-testid={`text-vacancy-description-${vacancy.id}`}
-      >
-        {vacancy.role_description}
-      </p>
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(vacancy.role_description || ""),
+        }}
+      />
 
       <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm text-slate-600">
         {commitment && (

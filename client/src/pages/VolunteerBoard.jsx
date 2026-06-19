@@ -23,6 +23,9 @@ import {
 
 const VACANCIES_PER_PAGE = 12;
 
+const stripHtml = (html) =>
+  (html || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ");
+
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -145,7 +148,7 @@ export default function VolunteerBoardPage() {
       const group = groupById.get(v.member_group_id);
       return (
         (v.role_title || "").toLowerCase().includes(q) ||
-        (v.role_description || "").toLowerCase().includes(q) ||
+        stripHtml(v.role_description).toLowerCase().includes(q) ||
         (group?.name || "").toLowerCase().includes(q)
       );
     });

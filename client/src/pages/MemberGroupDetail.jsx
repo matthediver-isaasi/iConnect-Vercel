@@ -86,6 +86,7 @@ import ResourceCard from "@/components/resources/ResourceCard";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import DOMPurify from "dompurify";
 import VacancyCard, {
   formatCommitment,
@@ -129,6 +130,15 @@ const EMPTY_VACANCY_FORM = {
   application_form_id: "none",
   positions_available: "1",
 };
+
+function isHtmlEmpty(html) {
+  if (!html) return true;
+  const text = html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .trim();
+  return text.length === 0;
+}
 
 function countNewSubmissions(subs, viewedAt) {
   if (!viewedAt) return subs.length;
@@ -582,9 +592,9 @@ export default function MemberGroupDetailPage() {
   const saveVacancyMutation = useMutation({
     mutationFn: async () => {
       const title = vacancyForm.role_title.trim();
-      const description = vacancyForm.role_description.trim();
+      const description = (vacancyForm.role_description || "").trim();
       if (!title) throw new Error("Role title is required");
-      if (!description) throw new Error("Role description is required");
+      if (isHtmlEmpty(description)) throw new Error("Role description is required");
       const toNum = (v) =>
         v === "" || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
       const positions = toNum(vacancyForm.positions_available);
@@ -2487,7 +2497,10 @@ export default function MemberGroupDetailPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg" data-testid="dialog-post-vacancy">
+        <DialogContent
+          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          data-testid="dialog-post-vacancy"
+        >
           <DialogHeader>
             <DialogTitle>{editingVacancyId ? "Edit vacancy" : "Post a vacancy"}</DialogTitle>
             <DialogDescription>
@@ -2532,15 +2545,12 @@ export default function MemberGroupDetailPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="vacancy-description">Role description</Label>
-              <Textarea
-                id="vacancy-description"
-                value={vacancyForm.role_description}
-                onChange={(e) =>
-                  setVacancyForm((f) => ({ ...f, role_description: e.target.value }))
+              <SimpleRichTextEditor
+                content={vacancyForm.role_description}
+                onChange={(html) =>
+                  setVacancyForm((f) => ({ ...f, role_description: html }))
                 }
-                rows={4}
                 placeholder="Describe the responsibilities and what you're looking for."
-                data-testid="input-vacancy-description"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -2689,7 +2699,7 @@ export default function MemberGroupDetailPage() {
               disabled={
                 saveVacancyMutation.isPending ||
                 !vacancyForm.role_title.trim() ||
-                !vacancyForm.role_description.trim()
+                isHtmlEmpty(vacancyForm.role_description)
               }
               data-testid="button-submit-vacancy"
             >
