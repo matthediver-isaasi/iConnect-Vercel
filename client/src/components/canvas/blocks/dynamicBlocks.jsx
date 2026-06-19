@@ -10,7 +10,7 @@ import {
   Calendar, MapPin, FileText, Newspaper, Heart, Users, Layers,
   CalendarDays, Folder, ArrowRight, Loader2, FormInput, Building2,
   ChevronLeft, ChevronRight, Images, User, Mic, ExternalLink, LayoutGrid,
-  Award, ChevronUp, ChevronDown,
+  Award, ChevronUp, ChevronDown, Lock,
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,7 @@ import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
+import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
   useTenantTypographyStyles,
@@ -4687,6 +4688,221 @@ function WallOfFameInspector({ block, update }) {
 }
 
 // ============================================================================
+// PHOTO GALLERY
+// ============================================================================
+// Renders a tenant photo gallery onto a canvas page. Pagination state is kept
+// block-local (useState) — deliberately NOT mirrored to the page URL's ?page=
+// so multiple galleries on one page paginate independently and don't fight the
+// page-level query string. Photos are fetched per-page from the public gallery
+// API; private galleries come back locked (no photos) and we show a message.
+function galleryPageNumbers(current, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages = new Set([1, totalPages, current, current - 1, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+function GalleryRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const cols = columnsForBreakpoint(c, breakpoint);
+  const pageSize = Math.max(1, Math.min(48, c.pageSize || 12));
+  const [page, setPage] = useState(1);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+
+  const { data, isLoading, isError, isFetching } = useQuery({
+    queryKey: ['canvas', 'public-gallery', c.gallerySlug, page, pageSize],
+    queryFn: () => publicClient.getGallery(c.gallerySlug, page, pageSize),
+    enabled: !!c.gallerySlug,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  });
+
+  if (!c.gallerySlug) {
+    return <EmptyState icon={Images} text={c.emptyText || 'Select a photo gallery in the inspector.'} />;
+  }
+  if (isLoading) {
+    return (
+      <div className="w-full h-full flex flex-col gap-3">
+        {c.heading ? <Heading level={c.headingLevel || 2}>{c.heading}</Heading> : null}
+        <ListSkeleton count={pageSize > 6 ? 6 : pageSize} columns={cols} gap={c.gap ?? 16} />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return <ErrorState message="This gallery could not be loaded." />;
+  }
+
+  if (data.is_locked) {
+    return (
+      <div className="w-full h-full flex flex-col gap-3">
+        {(c.heading || data.title) ? <Heading level={c.headingLevel || 2}>{c.heading || data.title}</Heading> : null}
+        <div
+          className="w-full flex-1 min-h-[120px] flex flex-col items-center justify-center text-center px-6 py-8 text-slate-500"
+          data-testid="gallery-locked"
+        >
+          <Lock className="w-8 h-8 mb-2 text-slate-400" aria-hidden="true" />
+          <p className="text-sm">This gallery is for members only.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const photos = Array.isArray(data.photos) ? data.photos : [];
+  const total = data.total_photos ?? photos.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  if (total === 0) {
+    return (
+      <div className="w-full h-full flex flex-col gap-3">
+        {(c.heading || data.title) ? <Heading level={c.headingLevel || 2}>{c.heading || data.title}</Heading> : null}
+        <EmptyState icon={Images} text="This gallery has no photos yet." />
+      </div>
+    );
+  }
+
+  const go = (p) => {
+    const next = Math.max(1, Math.min(totalPages, p));
+    if (next !== page) {
+      setPage(next);
+      setLightboxIndex(null);
+    }
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col gap-4 overflow-auto" aria-label={block.a11y?.ariaLabel || c.heading || data.title || 'Photo gallery'}>
+      {(c.heading || data.title) ? <Heading level={c.headingLevel || 2}>{c.heading || data.title}</Heading> : null}
+      <div style={gridStyle(cols, c.gap ?? 16)} aria-busy={isFetching ? 'true' : undefined}>
+        {photos.map((photo, i) => {
+          const { alt, role } = resolveAlt(photo, data.title, false);
+          return (
+            <button
+              key={photo.id}
+              type="button"
+              className="relative block w-full aspect-[4/3] bg-slate-100 rounded-md overflow-hidden hover-elevate active-elevate-2"
+              onClick={() => { if (asEditor) return; setLightboxIndex(i); }}
+              aria-label={`Open photo ${i + 1}${alt ? `: ${alt}` : ''}`}
+              data-testid={`button-gallery-photo-${photo.id}`}
+            >
+              <GalleryImage photo={photo} className="w-full h-full object-cover" alt={alt} role={role} />
+            </button>
+          );
+        })}
+      </div>
+
+      {totalPages > 1 ? (
+        <nav className="flex flex-wrap items-center justify-center gap-1.5" aria-label="Gallery pages">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => go(page - 1)}
+            data-testid="button-gallery-prev"
+          >
+            <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+            Prev
+          </Button>
+          {galleryPageNumbers(page, totalPages).map((p, i) =>
+            p === '…' ? (
+              <span key={`ellipsis-${i}`} className="px-2 text-sm text-slate-400" aria-hidden="true">…</span>
+            ) : (
+              <Button
+                key={p}
+                size="sm"
+                variant={p === page ? 'default' : 'outline'}
+                onClick={() => go(p)}
+                aria-current={p === page ? 'page' : undefined}
+                aria-label={`Page ${p}`}
+                data-testid={`button-gallery-page-${p}`}
+              >
+                {p}
+              </Button>
+            )
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => go(page + 1)}
+            data-testid="button-gallery-next"
+          >
+            Next
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        </nav>
+      ) : null}
+
+      {!asEditor && lightboxIndex !== null ? (
+        <Lightbox
+          gallery={{ title: c.heading || data.title, photos }}
+          activeIndex={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          srOptimised={false}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// Picker uses the authenticated entity API (the inspector is admin-side), so
+// admins can pick any gallery — including member-only ones, which the public
+// renderer then surfaces with a locked message to anonymous visitors.
+function GalleryPickerField({ value, onChange, testId }) {
+  const { data: galleries, isLoading } = useQuery({
+    queryKey: ['canvas', 'admin-galleries'],
+    queryFn: () => base44.entities.Gallery.list('display_order'),
+    staleTime: 60_000,
+  });
+  const options = (galleries || [])
+    .filter((g) => g.slug)
+    .map((g) => ({ value: g.slug, label: g.is_public ? g.title : `${g.title} (members only)` }));
+  return (
+    <Field label="Gallery" hint={isLoading ? 'Loading galleries…' : null}>
+      <Select value={value || ''} onValueChange={onChange}>
+        <SelectTrigger className="h-8" data-testid={testId}><SelectValue placeholder="Select a gallery" /></SelectTrigger>
+        <SelectContent>
+          {options.length === 0 ? (
+            <SelectItem value="__none__" disabled>No galleries found</SelectItem>
+          ) : options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+function GalleryInspector({ block, update, breakpoint }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <GalleryPickerField value={c.gallerySlug} onChange={(v) => set({ gallerySlug: v })} testId="select-gallery-slug" />
+      <TextField label="Heading" value={c.heading} onChange={(v) => set({ heading: v })} testId="input-gallery-heading" />
+      <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
+      <NumberField
+        label="Photos per page"
+        value={c.pageSize ?? 12}
+        min={1}
+        max={48}
+        step={1}
+        onChange={(v) => set({ pageSize: Math.max(1, Math.min(48, Number(v) || 12)) })}
+        testId="input-gallery-page-size"
+      />
+      <NumberField label="Grid gap (px)" value={c.gap ?? 16} min={0} max={64} step={2} onChange={(v) => set({ gap: Number(v) || 0 })} testId="input-gallery-gap" />
+      <TextField label="Empty state text" value={c.emptyText} onChange={(v) => set({ emptyText: v })} testId="input-gallery-empty" />
+    </>
+  );
+}
+
+// ============================================================================
 // Registry export
 // ============================================================================
 export const DYNAMIC_BLOCK_DEFINITIONS = {
@@ -4817,5 +5033,14 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <WallOfFameRender {...props} asEditor />,
     Renderer: WallOfFameRender,
     Inspector: WallOfFameInspector,
+  },
+  [BLOCK_TYPES.GALLERY]: {
+    label: 'Photo Gallery',
+    icon: Images,
+    category: 'data',
+    Editor: (props) => <GalleryRender {...props} asEditor />,
+    Renderer: GalleryRender,
+    Inspector: GalleryInspector,
+    allowOverflow: true,
   },
 };

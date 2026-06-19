@@ -172,6 +172,7 @@ export const BLOCK_TYPES = {
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
   CARD_DECK: 'card-deck',
   WALL_OF_FAME: 'wall-of-fame',
+  GALLERY: 'gallery',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -963,6 +964,20 @@ export const BLOCK_DEFAULTS = {
       emptyText: 'Select a Wall of Fame section in the inspector.',
     },
   },
+  [BLOCK_TYPES.GALLERY]: {
+    name: 'Photo Gallery',
+    geom: { w: 800, h: 560 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      gallerySlug: '',
+      heading: '',
+      headingLevel: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      pageSize: 12,
+      emptyText: 'Select a photo gallery in the inspector.',
+    },
+  },
 };
 
 BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
@@ -1601,6 +1616,11 @@ export function validateBlock(block) {
     case BLOCK_TYPES.WALL_OF_FAME:
       if (!c.sectionId) {
         errors.push('Wall of Fame has no section selected.');
+      }
+      break;
+    case BLOCK_TYPES.GALLERY:
+      if (!c.gallerySlug) {
+        errors.push('Photo Gallery has no gallery selected.');
       }
       break;
     case BLOCK_TYPES.PRICING_TABLE: {
