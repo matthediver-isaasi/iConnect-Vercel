@@ -1058,7 +1058,7 @@ export default function MemberGroupDetailPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="mb-4">
           <Link to={createPageUrl("MemberGroups")}>
             <Button variant="ghost" size="sm" data-testid="link-back-groups">
@@ -1579,7 +1579,7 @@ export default function MemberGroupDetailPage() {
             </div>
 
             {loadingEvents ? (
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {Array(3)
                   .fill(0)
                   .map((_, i) => (
@@ -1673,7 +1673,7 @@ export default function MemberGroupDetailPage() {
                 ) : (
                   <>
                     <div
-                      className="grid sm:grid-cols-2 gap-6"
+                      className="grid md:grid-cols-2 xl:grid-cols-3 gap-6"
                       data-testid="grid-group-events"
                     >
                       {pagedEvents.map((event) => (
@@ -1758,7 +1758,7 @@ export default function MemberGroupDetailPage() {
             </div>
 
             {loadingResources ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {Array(3)
                   .fill(0)
                   .map((_, i) => (
@@ -1807,7 +1807,7 @@ export default function MemberGroupDetailPage() {
                 ) : (
                   <>
                     <div
-                      className="grid sm:grid-cols-2 gap-6"
+                      className="grid md:grid-cols-2 xl:grid-cols-3 gap-6"
                       data-testid="grid-group-resources"
                     >
                       {pagedResources.map((resource) => (
