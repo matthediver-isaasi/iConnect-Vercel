@@ -51,12 +51,13 @@ import {
   BREAKPOINT_WIDTHS,
   BLOCK_TYPES,
   stageHeightForBreakpoint,
+  symbolContentExtent,
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
-import { CanvasSymbolsProvider } from './CanvasSymbolsContext';
+import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
 import {
@@ -312,6 +313,43 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Task #1425: layer groups registry for the current design.
   const groups = useMemo(() => getGroups(design), [design]);
 
+  // Task #1609 — fit symbol instance boxes to their rendered content. The
+  // editor draws a symbol's real children inside the instance box, but the
+  // box itself keeps its placeholder/default size, so selection + resize/move
+  // handles don't line up with what is drawn. We derive a display-only set of
+  // children where each symbol block's width/height is replaced by the
+  // measured content extent per breakpoint. This never touches `design` /
+  // history — only what the stage renders. Symbols are authored with their
+  // content top-left at the origin, so the box stays at the host x/y and just
+  // grows/shrinks to wrap the content.
+  const { symbolsById } = useCanvasSymbolsData();
+  const displayChildren = useMemo(() => {
+    if (!symbolsById || symbolsById.size === 0) return children;
+    let changed = false;
+    const out = children.map((b) => {
+      if (b.type !== BLOCK_TYPES.SYMBOL) return b;
+      const sym = symbolsById.get(b?.content?.symbolId);
+      if (!sym || !sym.design) return b;
+      const nextBp = { ...(b.bp || {}) };
+      let blockChanged = false;
+      for (const key of ['desktop', 'tablet', 'mobile']) {
+        // Fit every breakpoint, even ones with no explicit override: symbol
+        // content can resolve to a different extent at tablet/mobile. We only
+        // ever set display-only w/h here (never x/y), so resolveBlockAtBreak-
+        // point still cascades x/y from desktop for breakpoints that had no
+        // explicit frame, and per-breakpoint x/y overrides are preserved.
+        const ext = symbolContentExtent(sym.design, key);
+        if (!ext) continue;
+        nextBp[key] = { ...(nextBp[key] || {}), w: ext.w, h: ext.h };
+        blockChanged = true;
+      }
+      if (!blockChanged) return b;
+      changed = true;
+      return { ...b, bp: nextBp };
+    });
+    return changed ? out : children;
+  }, [children, symbolsById]);
+
   // Expand a set of selected ids so that whenever any member of a group is
   // present, all of that group's members are included. Groups therefore
   // select and move as one unit.
@@ -334,10 +372,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // 0 when no interaction is active.
   const [livePreviewBottom, setLivePreviewBottom] = useState(0);
   const stageHeight = useMemo(() => {
-    const committed = stageHeightForBreakpoint(children, breakpoint);
+    // Use the content-fitted children so the stage grows to fit a symbol's
+    // rendered content rather than its (smaller/larger) placeholder box.
+    const committed = stageHeightForBreakpoint(displayChildren, breakpoint);
     const live = livePreviewBottom > 0 ? livePreviewBottom + 80 : 0;
     return Math.max(STAGE_MIN_HEIGHT, committed, live);
-  }, [children, breakpoint, livePreviewBottom]);
+  }, [displayChildren, breakpoint, livePreviewBottom]);
 
   // Live accessibility audit (recomputes on every design change).
   const heuristicA11yIssues = useMemo(() => auditCanvasDesign(design), [design]);
@@ -445,6 +485,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     replaceChildren((arr) => arr.map((b) => {
       const u = updates[b.id];
       if (!u) return b;
+      // Symbol boxes derive their width/height from content at read time
+      // (Task #1609), so a move/resize only ever stores the host position —
+      // never a distinct size, keeping the saved design free of fitted
+      // geometry.
+      if (b.type === BLOCK_TYPES.SYMBOL) {
+        return setBlockBp(b, breakpoint, { x: Math.round(u.x), y: Math.round(u.y) });
+      }
       // Round to integers for clean serialization. Full-width blocks
       // ignore horizontal geometry (x/w are derived from the canvas).
       const patch = b.fullWidth
@@ -1337,7 +1384,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 >
                   <CanvasSymbolsProvider>
                   <CanvasStage
-                    blocks={children}
+                    blocks={displayChildren}
                     selectedIds={selectedIds}
                     anchorId={anchorId}
                     expandSelection={expandSelectionToGroups}

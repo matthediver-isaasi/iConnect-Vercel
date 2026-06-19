@@ -991,6 +991,30 @@ export function getBlockDefaults(type) {
   return BLOCK_DEFAULTS[type] || BLOCK_DEFAULTS[BLOCK_TYPES.BOX];
 }
 
+// Task #1609 — measure the rendered extent of a symbol's content at a given
+// breakpoint, in the symbol's OWN local coordinate space. Symbols are
+// authored with their selection's top-left translated to the origin (see the
+// Symbols dialog), so the extent measured from (0,0) tightly wraps the
+// content. Used to fit a symbol instance's bounding box to what is actually
+// drawn instead of leaving it at the placeholder/default size. Returns null
+// when the symbol has no visible children at this breakpoint.
+export function symbolContentExtent(symbolDesign, breakpoint = 'desktop') {
+  if (!symbolDesign) return null;
+  const kids = getRootChildren(symbolDesign);
+  let maxRight = 0;
+  let maxBottom = 0;
+  let any = false;
+  for (const c of kids) {
+    const g = resolveBlockAtBreakpoint(c, breakpoint);
+    if (g.hidden) continue;
+    any = true;
+    maxRight = Math.max(maxRight, (g.x || 0) + (g.w || 0));
+    maxBottom = Math.max(maxBottom, (g.y || 0) + (g.h || 0));
+  }
+  if (!any) return null;
+  return { w: Math.max(10, Math.round(maxRight)), h: Math.max(10, Math.round(maxBottom)) };
+}
+
 // Phase 7 — Resolve symbol references inside a canvas design. Each `symbol`
 // block keeps its own geometry (x/y/w/h on the host page) but its visual
 // content comes from the referenced canvas_symbol design document. The
@@ -1038,12 +1062,32 @@ export function resolveSymbolsInDesign(design, symbolsById) {
           bp: nextBp,
         };
       });
+      // Fit the host symbol block's box to the symbol's rendered content per
+      // breakpoint (Task #1609). The host position (x/y) is preserved; only
+      // width/height are derived from the content extent so any consumer that
+      // reads the host geometry sees a box that wraps what is drawn. This is
+      // a read-time transform — the persisted page design is untouched. The
+      // public renderer splices __symbolChildren as siblings and ignores the
+      // host box, so its output is unchanged.
+      //
+      // Fit ALL breakpoints, even ones the instance never overrode: symbol
+      // content can resolve to a different extent at tablet/mobile, so we
+      // write a display-only {w,h} for each. We only ever set w/h on the
+      // breakpoint frame, never x/y, so resolveBlockAtBreakpoint still
+      // cascades x/y from desktop for breakpoints that had no explicit frame.
+      const fittedBp = { ...hostBp };
+      for (const key of ['desktop', 'tablet', 'mobile']) {
+        const ext = symbolContentExtent(symDesign, key);
+        if (!ext) continue;
+        fittedBp[key] = { ...(hostBp[key] || {}), w: ext.w, h: ext.h };
+      }
       // Wrap symbol children in a single transparent "container" block so
       // the host geometry (x/y/w/h) still controls placement. We do this
       // by emitting a synthetic section-style block that contains the
       // symbol's children translated into its local coordinate space.
       return {
         ...b,
+        bp: Object.keys(fittedBp).length > 0 ? fittedBp : b.bp,
         // Keep host block geometry & a11y. Replace content children for the
         // renderer to pick up.
         __symbolChildren: symChildren,

@@ -20,7 +20,12 @@ import { useQuery } from '@tanstack/react-query';
 // the live preview.
 const CanvasSymbolsContext = createContext(null);
 
-export function CanvasSymbolsProvider({ children }) {
+// Shared symbol-data fetch. Returns { symbolsById, loaded }. Lives in a hook
+// so both the provider (which feeds the symbol block renderer via context)
+// and the editor shell (which fits symbol instance boxes to content —
+// Task #1609) can read the same data. React Query dedupes by key, so calling
+// this in more than one place issues a single network request.
+export function useCanvasSymbolsData() {
   const { data, status } = useQuery({
     queryKey: ['canvas-symbols', 'full'],
     queryFn: async () => {
@@ -31,7 +36,7 @@ export function CanvasSymbolsProvider({ children }) {
     staleTime: 30_000,
   });
 
-  const value = useMemo(() => {
+  return useMemo(() => {
     const map = new Map();
     for (const s of data?.symbols || []) map.set(s.id, s);
     return {
@@ -41,6 +46,10 @@ export function CanvasSymbolsProvider({ children }) {
       loaded: status === 'success' || status === 'error',
     };
   }, [data, status]);
+}
+
+export function CanvasSymbolsProvider({ children }) {
+  const value = useCanvasSymbolsData();
 
   return (
     <CanvasSymbolsContext.Provider value={value}>
