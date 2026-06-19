@@ -5,7 +5,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
-import { isMemberGroupAssignmentEntity, authorizeMemberGroupAssignmentLeave } from '../../_lib/groupAdminAssignmentLeave.js';
+import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -608,6 +608,29 @@ export default async function handler(req, res) {
         }
       }
 
+      // Task #1595: Never leave a member group without an active admin. Reject a
+      // PATCH that demotes the group's only active admin — either toggling
+      // is_group_admin off or setting an expires_at that puts it in the past.
+      if (isMemberGroupAssignmentEntity(entity)
+        && ('is_group_admin' in sanitizedBody || 'expires_at' in sanitizedBody)) {
+        const { data: existingAssignment } = await supabase
+          .from(tableName)
+          .select('id, member_id, group_id, is_group_admin, expires_at')
+          .eq('id', id)
+          .maybeSingle();
+        const demoteAuthz = await authorizeMemberGroupAdminAssignmentChange({
+          op: 'update',
+          existingRow: existingAssignment || null,
+          patch: sanitizedBody,
+          tenantCtx,
+        });
+        if (!demoteAuthz.ok) {
+          return res
+            .status(demoteAuthz.status || 409)
+            .json({ error: demoteAuthz.error, ...(demoteAuthz.code && { code: demoteAuthz.code }) });
+        }
+      }
+
       // Build PATCH query with tenant isolation
       let patchQuery = supabase
         .from(tableName)
@@ -1085,18 +1108,18 @@ export default async function handler(req, res) {
         }
       }
 
-      // Task #1592: Block the last group admin from leaving a member group.
-      // When a caller removes their OWN active admin assignment and no other
-      // active admin remains for the group, reject the delete so the group is
-      // never left without an admin. Removing another member's assignment is
-      // unaffected.
+      // Tasks #1592 / #1595: Never leave a member group without an active admin.
+      // Reject deleting the group's only active admin assignment — whether the
+      // caller is removing their OWN assignment (self-leave) or a tenant admin
+      // is removing someone else's via the group management screens.
       if (isMemberGroupAssignmentEntity(entity)) {
         const { data: existingAssignment } = await supabase
           .from(tableName)
           .select('id, member_id, group_id, is_group_admin, expires_at')
           .eq('id', id)
           .maybeSingle();
-        const leaveAuthz = await authorizeMemberGroupAssignmentLeave({
+        const leaveAuthz = await authorizeMemberGroupAdminAssignmentChange({
+          op: 'delete',
           existingRow: existingAssignment || null,
           tenantCtx,
         });
@@ -1725,6 +1748,25 @@ export default async function handler(req, res) {
         } catch (pruneErr) {
           console.error(`[Speaker Delete] Error pruning references for ${id}:`, pruneErr);
         }
+      }
+
+      // Task #1595: Deleting a whole MemberGroup must remove its assignments
+      // first. member_group_assignment.group_id is the only NO ACTION FK to
+      // member_group (all other references cascade/set null at the DB level),
+      // so the group delete would otherwise fail. Doing this server-side keeps
+      // group deletion atomic and means the client no longer loop-deletes
+      // assignments — which would trip the last-group-admin guard on the
+      // group's only admin.
+      if (entity === 'MemberGroup') {
+        const { error: childError } = await supabase
+          .from('member_group_assignment')
+          .delete()
+          .eq('group_id', id);
+        if (childError) {
+          console.error(`[MemberGroup Delete] Error deleting assignments for group ${id}:`, childError.message);
+          return res.status(500).json({ error: `Failed to delete group assignments: ${childError.message}` });
+        }
+        console.log(`[MemberGroup Delete] Removed assignments for group ${id}`);
       }
 
       console.log(`[Entity DELETE] About to delete from ${tableName} where id=${id}`);

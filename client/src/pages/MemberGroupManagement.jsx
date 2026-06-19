@@ -211,10 +211,9 @@ export default function MemberGroupManagementPage() {
 
   const deleteGroupMutation = useMutation({
     mutationFn: async (groupId) => {
-      const groupAssignments = assignments.filter(a => a.group_id === groupId);
-      for (const assignment of groupAssignments) {
-        await base44.entities.MemberGroupAssignment.delete(assignment.id);
-      }
+      // The server cascades the group's assignments (member_group_assignment)
+      // before deleting the group, so we no longer loop-delete them here — doing
+      // so would trip the last-group-admin guard on the group's only admin.
       await base44.entities.MemberGroup.delete(groupId);
     },
     onSuccess: () => {
