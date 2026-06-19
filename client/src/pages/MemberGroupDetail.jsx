@@ -67,6 +67,7 @@ import {
   Layers,
   Repeat,
   Eye,
+  EyeOff,
   Send,
   Mail,
   Trash2,
@@ -1525,6 +1526,22 @@ export default function MemberGroupDetailPage() {
                             {m.__role}
                           </div>
                         </div>
+                        {anonymised && (
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <EyeOff
+                                  className="h-4 w-4 text-slate-400 flex-shrink-0"
+                                  aria-label="Hidden from member directory"
+                                  data-testid={`icon-hidden-leader-${m.id}`}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Hidden from member directory</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </CardContent>
                     </Card>
                   );
@@ -1607,12 +1624,28 @@ export default function MemberGroupDetailPage() {
                                 </AvatarFallback>
                               </Avatar>
                               <div
-                                className="font-medium text-sm text-slate-900 truncate"
+                                className="font-medium text-sm text-slate-900 truncate flex-1 min-w-0"
                                 data-testid={`text-member-name-${m.id}`}
                                 title={displayName}
                               >
                                 {displayName}
                               </div>
+                              {anonymised && (
+                                <TooltipProvider delayDuration={100}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <EyeOff
+                                        className="h-4 w-4 text-slate-400 flex-shrink-0"
+                                        aria-label="Hidden from member directory"
+                                        data-testid={`icon-hidden-${m.id}`}
+                                      />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Hidden from member directory</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
                             </CardContent>
                           </Card>
                         );
