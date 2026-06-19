@@ -38,6 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Tooltip,
   TooltipContent,
@@ -296,6 +297,9 @@ export default function MemberGroupDetailPage() {
     mutationFn: async () => {
       const assignment = myAssignments.find((a) => a.group_id === group?.id);
       if (!assignment) throw new Error("You are not a member of this group");
+      if (isSoleActiveAdmin) {
+        throw new Error(soleAdminLeaveMessage);
+      }
       return base44.entities.MemberGroupAssignment.delete(assignment.id);
     },
     onSuccess: () => {
@@ -328,6 +332,24 @@ export default function MemberGroupDetailPage() {
       return new Date(a.expires_at).toISOString() > nowIso;
     });
   }, [myAssignments, groupId]);
+
+  // Task #1592: a group admin who is the only active (non-expired) admin of the
+  // group must promote another member before they can leave — otherwise the
+  // group would be left with no admin. Mirrors the server-side guard.
+  const isSoleActiveAdmin = useMemo(() => {
+    if (!isGroupAdmin) return false;
+    const nowIso = new Date().toISOString();
+    const activeAdmins = groupAssignments.filter((a) => {
+      if (a.group_id !== groupId) return false;
+      if (a.is_group_admin !== true) return false;
+      if (!a.expires_at) return true;
+      return new Date(a.expires_at).toISOString() > nowIso;
+    });
+    return activeAdmins.length <= 1;
+  }, [isGroupAdmin, groupAssignments, groupId]);
+
+  const soleAdminLeaveMessage =
+    "You can't leave this group while you're its only admin. Promote another member to admin first.";
 
   const hasTermsOfReference = useMemo(() => {
     const raw = group?.terms_of_reference;
@@ -2223,32 +2245,40 @@ export default function MemberGroupDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Leave Group</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to leave "{group.name}"? You can rejoin at any
-              time while this group remains open for self-join.
+              {isSoleActiveAdmin
+                ? soleAdminLeaveMessage
+                : `Are you sure you want to leave "${group.name}"? You can rejoin at any time while this group remains open for self-join.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isSoleActiveAdmin && (
+            <Alert variant="warning" data-testid="alert-sole-admin-leave">
+              <AlertDescription>{soleAdminLeaveMessage}</AlertDescription>
+            </Alert>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={leaveMutation.isPending}
               data-testid="button-cancel-leave"
             >
-              Stay in Group
+              {isSoleActiveAdmin ? "Close" : "Stay in Group"}
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                leaveMutation.mutate();
-              }}
-              disabled={leaveMutation.isPending}
-              data-testid="button-confirm-leave"
-            >
-              {leaveMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <LogOut className="w-4 h-4 mr-2" />
-              )}
-              Leave Group
-            </AlertDialogAction>
+            {!isSoleActiveAdmin && (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  leaveMutation.mutate();
+                }}
+                disabled={leaveMutation.isPending}
+                data-testid="button-confirm-leave"
+              >
+                {leaveMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <LogOut className="w-4 h-4 mr-2" />
+                )}
+                Leave Group
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -5,6 +5,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
+import { isMemberGroupAssignmentEntity, authorizeMemberGroupAssignmentLeave } from '../../_lib/groupAdminAssignmentLeave.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -1081,6 +1082,28 @@ export default async function handler(req, res) {
         });
         if (!authz.ok) {
           return res.status(authz.status || 403).json({ error: authz.error });
+        }
+      }
+
+      // Task #1592: Block the last group admin from leaving a member group.
+      // When a caller removes their OWN active admin assignment and no other
+      // active admin remains for the group, reject the delete so the group is
+      // never left without an admin. Removing another member's assignment is
+      // unaffected.
+      if (isMemberGroupAssignmentEntity(entity)) {
+        const { data: existingAssignment } = await supabase
+          .from(tableName)
+          .select('id, member_id, group_id, is_group_admin, expires_at')
+          .eq('id', id)
+          .maybeSingle();
+        const leaveAuthz = await authorizeMemberGroupAssignmentLeave({
+          existingRow: existingAssignment || null,
+          tenantCtx,
+        });
+        if (!leaveAuthz.ok) {
+          return res
+            .status(leaveAuthz.status || 409)
+            .json({ error: leaveAuthz.error, ...(leaveAuthz.code && { code: leaveAuthz.code }) });
         }
       }
 
