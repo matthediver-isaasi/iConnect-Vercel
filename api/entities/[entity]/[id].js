@@ -4,6 +4,7 @@ import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
+import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -586,6 +587,26 @@ export default async function handler(req, res) {
         Object.assign(sanitizedBody, authz.body);
       }
 
+      // Task #1588: Group-Admin resource-write authorization on update. Non-admin
+      // callers may only edit a Resource that belongs to a group they administer;
+      // tenant admins pass through unchanged.
+      if (isResourceEntity(entity)) {
+        const { data: existingRow } = await supabase
+          .from(tableName)
+          .select('id, member_group_id, tenant_id')
+          .eq('id', id)
+          .maybeSingle();
+        const authz = await authorizeGroupAdminResourceWrite({
+          op: 'update',
+          existingRow: existingRow || null,
+          body: sanitizedBody,
+          tenantCtx,
+        });
+        if (!authz.ok) {
+          return res.status(authz.status || 403).json({ error: authz.error });
+        }
+      }
+
       // Build PATCH query with tenant isolation
       let patchQuery = supabase
         .from(tableName)
@@ -1042,6 +1063,25 @@ export default async function handler(req, res) {
           code: 'use_delete_with_cancellations',
           endpoint: safeEndpoint,
         });
+      }
+
+      // Task #1588: Group-Admin resource-delete authorization. Non-admin callers
+      // may only delete a Resource that belongs to a group they administer;
+      // tenant admins pass through unchanged.
+      if (isResourceEntity(entity)) {
+        const { data: existingRow } = await supabase
+          .from(tableName)
+          .select('id, member_group_id, tenant_id')
+          .eq('id', id)
+          .maybeSingle();
+        const authz = await authorizeGroupAdminResourceWrite({
+          op: 'delete',
+          existingRow: existingRow || null,
+          tenantCtx,
+        });
+        if (!authz.ok) {
+          return res.status(authz.status || 403).json({ error: authz.error });
+        }
       }
 
       // First, verify tenant access to this entity before deleting (always applied for non-global entities)

@@ -855,6 +855,8 @@ export default function MemberGroupDetailPage() {
   const [resourceFile, setResourceFile] = useState(null);
   const [resourceImageFile, setResourceImageFile] = useState(null);
   const [resourceUploadProgress, setResourceUploadProgress] = useState(0);
+  const [editingResource, setEditingResource] = useState(null);
+  const [resourceToDelete, setResourceToDelete] = useState(null);
 
   // Non-admins never see member-only resources of another group; the public
   // ResourceCard handles the login gate, but here everyone viewing is already
@@ -991,6 +993,100 @@ export default function MemberGroupDetailPage() {
       );
     },
   });
+
+  const updateResourceMutation = useMutation({
+    mutationFn: async ({ id, form }) => {
+      const isDownload = form.resource_type === "download";
+
+      let targetUrl = (form.target_url || "").trim();
+
+      // A new file is only required when switching to / editing a download whose
+      // existing target_url is being replaced. If no new file is chosen, keep the
+      // existing target_url.
+      if (isDownload) {
+        if (resourceFile) {
+          setResourceUploadProgress(1);
+          const uploaded = await uploadFileWithProgress(resourceFile, {
+            type: UPLOAD_TYPES.UPLOAD,
+            entityId: groupId,
+            onProgress: (p) => setResourceUploadProgress(p),
+          });
+          targetUrl = uploaded.file_url;
+        } else if (!targetUrl) {
+          throw new Error("Please choose a file to upload.");
+        }
+      } else if (!targetUrl) {
+        throw new Error("Please enter a URL for this resource.");
+      }
+
+      let imageUrl = undefined;
+      if (resourceImageFile) {
+        const uploadedImage = await uploadFileWithProgress(resourceImageFile, {
+          type: UPLOAD_TYPES.UPLOAD,
+          entityId: groupId,
+        });
+        imageUrl = uploadedImage.file_url;
+      }
+
+      return base44.entities.Resource.update(id, {
+        title: form.title.trim(),
+        description: (form.description || "").trim(),
+        resource_type: form.resource_type,
+        target_url: targetUrl,
+        is_public: form.is_public === true,
+        ...(imageUrl ? { image_url: imageUrl } : {}),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-resources", groupId],
+      });
+      setShowResourceDialog(false);
+      setEditingResource(null);
+      setResourceForm(EMPTY_RESOURCE_FORM);
+      setResourceFile(null);
+      setResourceImageFile(null);
+      setResourceUploadProgress(0);
+      toast.success("Resource updated successfully");
+    },
+    onError: (error) => {
+      setResourceUploadProgress(0);
+      toast.error(
+        "Failed to update resource: " + (error?.message || "Unknown error")
+      );
+    },
+  });
+
+  const deleteResourceMutation = useMutation({
+    mutationFn: async (id) => base44.entities.Resource.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-resources", groupId],
+      });
+      setResourceToDelete(null);
+      toast.success("Resource deleted successfully");
+    },
+    onError: (error) => {
+      toast.error(
+        "Failed to delete resource: " + (error?.message || "Unknown error")
+      );
+    },
+  });
+
+  const openEditResourceDialog = (resource) => {
+    setEditingResource(resource);
+    setResourceForm({
+      title: resource.title || "",
+      description: resource.description || "",
+      resource_type: resource.resource_type || "external_link",
+      target_url: resource.target_url || "",
+      is_public: resource.is_public === true,
+    });
+    setResourceFile(null);
+    setResourceImageFile(null);
+    setResourceUploadProgress(0);
+    setShowResourceDialog(true);
+  };
 
   const isLoading =
     !accessChecked || loadingGroup || loadingAssignments || loadingMembers;
@@ -1815,6 +1911,12 @@ export default function MemberGroupDetailPage() {
                           key={resource.id}
                           resource={resource}
                           isAuthenticated={isAuthenticated}
+                          onEdit={isGroupAdmin ? openEditResourceDialog : undefined}
+                          onDelete={
+                            isGroupAdmin
+                              ? (r) => setResourceToDelete(r)
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -1867,7 +1969,9 @@ export default function MemberGroupDetailPage() {
       <Dialog
         open={showResourceDialog}
         onOpenChange={(open) => {
-          if (!createResourceMutation.isPending) setShowResourceDialog(open);
+          if (createResourceMutation.isPending || updateResourceMutation.isPending) return;
+          setShowResourceDialog(open);
+          if (!open) setEditingResource(null);
         }}
       >
         <DialogContent
@@ -1875,10 +1979,13 @@ export default function MemberGroupDetailPage() {
           data-testid="dialog-create-resource"
         >
           <DialogHeader>
-            <DialogTitle>Create resource</DialogTitle>
+            <DialogTitle>
+              {editingResource ? "Edit resource" : "Create resource"}
+            </DialogTitle>
             <DialogDescription>
-              Add a resource for this group. Members of this group will see it on
-              this page.
+              {editingResource
+                ? "Update this resource. Members of this group will see your changes on this page."
+                : "Add a resource for this group. Members of this group will see it on this page."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1933,7 +2040,12 @@ export default function MemberGroupDetailPage() {
 
             {resourceForm.resource_type === "download" ? (
               <div className="space-y-2">
-                <Label htmlFor="resource-file">File</Label>
+                <Label htmlFor="resource-file">
+                  File
+                  {editingResource && resourceForm.target_url
+                    ? " (leave empty to keep current file)"
+                    : ""}
+                </Label>
                 <Input
                   id="resource-file"
                   type="file"
@@ -1996,7 +2108,7 @@ export default function MemberGroupDetailPage() {
               </Label>
             </div>
 
-            {createResourceMutation.isPending &&
+            {(createResourceMutation.isPending || updateResourceMutation.isPending) &&
               resourceForm.resource_type === "download" &&
               resourceUploadProgress > 0 && (
                 <p
@@ -2011,25 +2123,44 @@ export default function MemberGroupDetailPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowResourceDialog(false)}
-              disabled={createResourceMutation.isPending}
+              onClick={() => {
+                setShowResourceDialog(false);
+                setEditingResource(null);
+              }}
+              disabled={
+                createResourceMutation.isPending ||
+                updateResourceMutation.isPending
+              }
               data-testid="button-cancel-resource"
             >
               Cancel
             </Button>
             <Button
-              onClick={() => createResourceMutation.mutate(resourceForm)}
+              onClick={() => {
+                if (editingResource) {
+                  updateResourceMutation.mutate({
+                    id: editingResource.id,
+                    form: resourceForm,
+                  });
+                } else {
+                  createResourceMutation.mutate(resourceForm);
+                }
+              }}
               disabled={
                 createResourceMutation.isPending ||
+                updateResourceMutation.isPending ||
                 !resourceForm.title.trim()
               }
               data-testid="button-save-resource"
             >
-              {createResourceMutation.isPending ? (
+              {createResourceMutation.isPending ||
+              updateResourceMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Saving…
                 </>
+              ) : editingResource ? (
+                "Save changes"
               ) : (
                 "Create resource"
               )}
@@ -2037,6 +2168,50 @@ export default function MemberGroupDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!resourceToDelete}
+        onOpenChange={(open) => {
+          if (!open && !deleteResourceMutation.isPending) setResourceToDelete(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-delete-resource">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete resource</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{resourceToDelete?.title}"? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={deleteResourceMutation.isPending}
+              data-testid="button-cancel-delete-resource"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (resourceToDelete) {
+                  deleteResourceMutation.mutate(resourceToDelete.id);
+                }
+              }}
+              disabled={deleteResourceMutation.isPending}
+              data-testid="button-confirm-delete-resource"
+            >
+              {deleteResourceMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={confirmLeave}

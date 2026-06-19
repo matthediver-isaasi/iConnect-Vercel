@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check, Bookmark } from "lucide-react";
+import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check, Bookmark, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -27,7 +27,7 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -351,6 +351,35 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
       {(isLocked || isEventLocked) && (
         <div className="absolute top-0 right-0 z-10 bg-slate-900 p-2 shadow-lg">
           <Lock className="w-5 h-5 text-white" />
+        </div>
+      )}
+
+      {(onEdit || onDelete) && (
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-1">
+          {onEdit && (
+            <Button
+              size="icon"
+              variant="secondary"
+              className="bg-white/90 backdrop-blur"
+              onClick={() => onEdit(resource)}
+              aria-label="Edit resource"
+              data-testid={`button-edit-resource-${resource.id}`}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              size="icon"
+              variant="secondary"
+              className="bg-white/90 backdrop-blur text-destructive"
+              onClick={() => onDelete(resource)}
+              aria-label="Delete resource"
+              data-testid={`button-delete-resource-${resource.id}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       )}
       
