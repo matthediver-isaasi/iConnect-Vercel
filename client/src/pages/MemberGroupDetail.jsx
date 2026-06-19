@@ -74,6 +74,7 @@ import {
   Pencil,
   FileText,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -350,6 +351,42 @@ export default function MemberGroupDetailPage() {
 
   const soleAdminLeaveMessage =
     "You can't leave this group while you're its only admin. Promote another member to admin first.";
+
+  // Task #1594: a group can be silently orphaned if its only active admin's
+  // assignment expires. When there is exactly one active admin and that
+  // assignment has an upcoming expiry, surface a warning so a replacement can
+  // be promoted before then. Mirrors the "active admin" definition above.
+  const soleAdminExpiry = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    const activeAdmins = groupAssignments.filter((a) => {
+      if (a.group_id !== groupId) return false;
+      if (a.is_group_admin !== true) return false;
+      if (!a.expires_at) return true;
+      return new Date(a.expires_at).toISOString() > nowIso;
+    });
+    if (activeAdmins.length !== 1) return null;
+    const sole = activeAdmins[0];
+    // No expiry means no passive-orphan risk.
+    if (!sole.expires_at) return null;
+    return sole.expires_at;
+  }, [groupAssignments, groupId]);
+
+  const soleAdminExpiryLabel = useMemo(() => {
+    if (!soleAdminExpiry) return null;
+    try {
+      const d =
+        typeof soleAdminExpiry === "string"
+          ? parseISO(soleAdminExpiry)
+          : new Date(soleAdminExpiry);
+      return d.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return null;
+    }
+  }, [soleAdminExpiry]);
 
   const hasTermsOfReference = useMemo(() => {
     const raw = group?.terms_of_reference;
@@ -1318,6 +1355,23 @@ export default function MemberGroupDetailPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isGroupAdmin && soleAdminExpiry && (
+          <Alert
+            variant="warning"
+            className="mb-6"
+            data-testid="alert-sole-admin-expiring"
+          >
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              This group will have no admin once the only active admin's
+              assignment expires
+              {soleAdminExpiryLabel ? ` on ${soleAdminExpiryLabel}` : ""}.
+              Promote another member to admin before then so the group isn't
+              left without anyone able to manage it.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {leadershipMembers.length > 0 && (
           <Card className="mb-6" data-testid="card-leadership-section">
