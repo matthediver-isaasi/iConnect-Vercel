@@ -4933,6 +4933,7 @@ export default function FormBuilderPage() {
     related_event_id: null,
     due_diligence_required: false,
     allow_submitter_email_copy: false,
+    allow_save_continue_later: true,
     prevent_duplicate_email_submission: false,
     owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
     is_application_form: false,
@@ -5415,6 +5416,7 @@ export default function FormBuilderPage() {
         related_event_id: existingForm.related_event_id || null,
         due_diligence_required: existingForm.due_diligence_required ?? false,
         allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
+        allow_save_continue_later: existingForm.allow_save_continue_later !== false,
         prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
         owners: Array.isArray(existingForm.owners) ? existingForm.owners : [],
         is_application_form: existingForm.is_application_form || false,
@@ -5971,9 +5973,9 @@ export default function FormBuilderPage() {
               </div>
             </div>
 
-            {/* Toggles Row */}
-            <div className="flex items-center gap-6 mt-4 pt-4 border-t border-slate-100 flex-wrap">
-              <div className="flex items-center gap-2">
+            {/* Toggles Column */}
+            <div className="flex flex-col gap-4 mt-4 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
                 <Switch
                   id="require_authentication"
                   checked={formData.require_authentication}
@@ -5982,7 +5984,7 @@ export default function FormBuilderPage() {
                 <Label htmlFor="require_authentication" className="text-sm">Require Login</Label>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <Switch
                   id="is_active"
                   checked={formData.is_active}
@@ -5991,7 +5993,81 @@ export default function FormBuilderPage() {
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
               </div>
 
-              <div className="flex flex-col gap-2 min-w-[260px]" title="Optionally schedule the form to stop accepting submissions at a specific date and time. Leave empty to keep the form active until you turn off the Active toggle.">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="due_diligence_required"
+                  checked={formData.due_diligence_required}
+                  onCheckedChange={(checked) => setFormData({ ...formData, due_diligence_required: checked })}
+                  data-testid="switch-due-diligence-required"
+                />
+                <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="is_contract"
+                  checked={formData.is_contract}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_contract: checked })}
+                  data-testid="switch-is-contract"
+                />
+                <Label htmlFor="is_contract" className="text-sm">Contract Mode</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="blank_layout"
+                  checked={formData.blank_layout}
+                  onCheckedChange={(checked) => setFormData({ ...formData, blank_layout: checked })}
+                  data-testid="switch-blank-layout"
+                />
+                <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, the public form shows an email input and a 'Email me a copy' checkbox at the bottom. Submitters who tick it receive a Word (DOCX) copy of their submission by email.">
+                <Switch
+                  id="allow_submitter_email_copy"
+                  checked={formData.allow_submitter_email_copy}
+                  onCheckedChange={(checked) => setFormData({ ...formData, allow_submitter_email_copy: checked })}
+                  data-testid="switch-allow-submitter-email-copy"
+                />
+                <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, the public form shows a 'Save & Continue Later' button so submitters can save their progress and return via a resume link. Turn off to hide that button; normal submission still works.">
+                <Switch
+                  id="allow_save_continue_later"
+                  checked={formData.allow_save_continue_later !== false}
+                  onCheckedChange={(checked) => setFormData({ ...formData, allow_save_continue_later: checked })}
+                  data-testid="switch-allow-save-continue-later"
+                />
+                <Label htmlFor="allow_save_continue_later" className="text-sm">Allow save &amp; continue later</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, this form appears in the member-group vacancy form picker so a vacancy can collect applications through it. For the applicant's details to pre-fill, set Prefill Source to 'member' on the Submission Settings tab.">
+                <Switch
+                  id="is_job_posting"
+                  checked={formData.is_job_posting}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_job_posting: checked })}
+                  data-testid="switch-is-job-posting"
+                />
+                <Label htmlFor="is_job_posting" className="text-sm">Job posting application form</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
+                <Switch
+                  id="is_event_related"
+                  checked={formData.is_event_related}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    is_event_related: checked,
+                    related_event_id: checked ? formData.related_event_id : null
+                  })}
+                  data-testid="switch-is-event-related"
+                />
+                <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
+              </div>
+
+              <div className="flex flex-col gap-2 min-w-[260px] pt-2 border-t border-slate-100" title="Optionally schedule the form to stop accepting submissions at a specific date and time. Leave empty to keep the form active until you turn off the Active toggle.">
                 <Label htmlFor="deactivate_at" className="text-sm">Deactivate at (optional)</Label>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <TimezoneAwareDateTimeInput
@@ -6024,71 +6100,7 @@ export default function FormBuilderPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="due_diligence_required"
-                  checked={formData.due_diligence_required}
-                  onCheckedChange={(checked) => setFormData({ ...formData, due_diligence_required: checked })}
-                  data-testid="switch-due-diligence-required"
-                />
-                <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="is_contract"
-                  checked={formData.is_contract}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_contract: checked })}
-                  data-testid="switch-is-contract"
-                />
-                <Label htmlFor="is_contract" className="text-sm">Contract Mode</Label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="blank_layout"
-                  checked={formData.blank_layout}
-                  onCheckedChange={(checked) => setFormData({ ...formData, blank_layout: checked })}
-                  data-testid="switch-blank-layout"
-                />
-                <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
-              </div>
-
-              <div className="flex items-center gap-2" title="When enabled, the public form shows an email input and a 'Email me a copy' checkbox at the bottom. Submitters who tick it receive a Word (DOCX) copy of their submission by email.">
-                <Switch
-                  id="allow_submitter_email_copy"
-                  checked={formData.allow_submitter_email_copy}
-                  onCheckedChange={(checked) => setFormData({ ...formData, allow_submitter_email_copy: checked })}
-                  data-testid="switch-allow-submitter-email-copy"
-                />
-                <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
-              </div>
-
-              <div className="flex items-center gap-2" title="When enabled, this form appears in the member-group vacancy form picker so a vacancy can collect applications through it. For the applicant's details to pre-fill, set Prefill Source to 'member' on the Submission Settings tab.">
-                <Switch
-                  id="is_job_posting"
-                  checked={formData.is_job_posting}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_job_posting: checked })}
-                  data-testid="switch-is-job-posting"
-                />
-                <Label htmlFor="is_job_posting" className="text-sm">Job posting application form</Label>
-              </div>
-
-              <div className="flex items-center gap-2" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
-                <Switch
-                  id="is_event_related"
-                  checked={formData.is_event_related}
-                  onCheckedChange={(checked) => setFormData({
-                    ...formData,
-                    is_event_related: checked,
-                    related_event_id: checked ? formData.related_event_id : null
-                  })}
-                  data-testid="switch-is-event-related"
-                />
-                <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
-              </div>
-
-              <div className="text-xs text-slate-500 ml-auto">
+              <div className="text-xs text-slate-500 pt-2 border-t border-slate-100">
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>

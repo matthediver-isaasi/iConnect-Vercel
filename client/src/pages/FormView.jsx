@@ -163,8 +163,8 @@ export default function FormViewPage() {
     }
   };
 
-  // Check if save draft is enabled for this form
-  // Save & Continue Later is always enabled for all forms
+  // Save & Continue Later is enabled per-form via form.allow_save_continue_later
+  // (defaults on; treated as on unless explicitly false). Gated at the button render sites.
 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
@@ -2314,8 +2314,8 @@ export default function FormViewPage() {
               </Button>
               
               <div className="flex gap-2">
-                {/* Save & Continue Later button */}
-                {(
+                {/* Save & Continue Later button - only show when allowed (default on) */}
+                {form?.allow_save_continue_later !== false && (
                   <Button
                     variant="outline"
                     onClick={() => saveDraftMutation.mutate()}
@@ -2725,9 +2725,8 @@ export default function FormViewPage() {
               )}
               
               <div className="flex gap-2 flex-wrap">
-                {/* Save & Continue Later button - only show if enabled */}
-                {/* Save & Continue Later button */}
-                {(
+                {/* Save & Continue Later button - only show when allowed (default on) */}
+                {form?.allow_save_continue_later !== false && (
                   <Button
                     variant="outline"
                     onClick={() => saveDraftMutation.mutate()}

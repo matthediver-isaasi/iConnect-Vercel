@@ -12,7 +12,8 @@ const PUBLIC_FORM_FIELDS = [
   'uniqueness_checks', 'application_level',
   'blank_layout',
   'require_authentication', 'updated_at',
-  'allow_submitter_email_copy'
+  'allow_submitter_email_copy',
+  'allow_save_continue_later'
 ];
 
 const AUTHENTICATED_EXTRA_FIELDS = [
