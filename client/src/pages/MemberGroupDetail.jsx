@@ -155,6 +155,45 @@ function renderAnswerValue(val) {
   return String(val);
 }
 
+// Render a grouped_question answer (an object keyed by sub-question id) as a
+// readable list of each answered sub-question's label + text. Sub-questions
+// left blank are omitted, consistent with how the modal filters empty answers.
+// Returns null when there is nothing to render (caller can fall back).
+function renderGroupedQuestionAnswer(field, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const subQuestions = Array.isArray(field?.sub_questions)
+    ? field.sub_questions
+    : [];
+  const labelBySubId = new Map();
+  for (const sq of subQuestions) {
+    if (sq && sq.id) labelBySubId.set(sq.id, sq.label || "Untitled question");
+  }
+  // Preserve the form's sub-question order when known; append any extra keys
+  // (e.g. removed sub-questions still present in older submissions) afterwards.
+  const orderedIds = [
+    ...subQuestions.map((sq) => sq && sq.id).filter(Boolean),
+    ...Object.keys(value).filter((id) => !labelBySubId.has(id)),
+  ];
+  const answered = orderedIds
+    .map((id) => [id, value[id]])
+    .filter(([, v]) => v != null && String(v).trim() !== "");
+  if (answered.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {answered.map(([subId, v]) => (
+        <div key={subId} className="flex flex-col">
+          <span className="text-xs font-medium text-slate-500">
+            {labelBySubId.get(subId) || subId}
+          </span>
+          <span className="text-sm text-slate-800 whitespace-pre-wrap">
+            {renderAnswerValue(v)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function isEventInPast(event) {
   const dateStr = event.end_date || event.start_date;
   if (!dateStr) return false;
@@ -516,6 +555,15 @@ export default function MemberGroupDetailPage() {
     const fields = submissionsForm?.fields || [];
     for (const f of fields) {
       if (f && f.id) map.set(f.id, f.label || f.id);
+    }
+    return map;
+  }, [submissionsForm]);
+
+  const fieldById = useMemo(() => {
+    const map = new Map();
+    const fields = submissionsForm?.fields || [];
+    for (const f of fields) {
+      if (f && f.id) map.set(f.id, f);
     }
     return map;
   }, [submissionsForm]);
@@ -2911,16 +2959,29 @@ export default function MemberGroupDetailPage() {
                                 No answers recorded.
                               </p>
                             ) : (
-                              entries.map(([fieldId, value]) => (
-                                <div key={fieldId} className="flex flex-col">
-                                  <span className="text-xs font-medium text-slate-500">
-                                    {fieldLabelById.get(fieldId) || fieldId}
-                                  </span>
-                                  <span className="text-sm text-slate-800 whitespace-pre-wrap">
-                                    {renderAnswerValue(value)}
-                                  </span>
-                                </div>
-                              ))
+                              entries.map(([fieldId, value]) => {
+                                const field = fieldById.get(fieldId);
+                                const groupedContent =
+                                  field?.type === "grouped_question"
+                                    ? renderGroupedQuestionAnswer(field, value)
+                                    : null;
+                                return (
+                                  <div key={fieldId} className="flex flex-col">
+                                    <span className="text-xs font-medium text-slate-500">
+                                      {fieldLabelById.get(fieldId) || fieldId}
+                                    </span>
+                                    {groupedContent ? (
+                                      <div className="mt-1 pl-3 border-l-2 border-slate-200">
+                                        {groupedContent}
+                                      </div>
+                                    ) : (
+                                      <span className="text-sm text-slate-800 whitespace-pre-wrap">
+                                        {renderAnswerValue(value)}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })
                             )}
                           </div>
                         )}

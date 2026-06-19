@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { executeStageActions } from '../due-diligence/_stageActions.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
+import { getSessionMember } from '../_lib/session.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -120,6 +121,37 @@ export default async function handler(req, res) {
       ? resolvedSubmitterEmail.trim().toLowerCase()
       : null;
 
+    // Resolve the authenticated submitter (if any) from the server-side
+    // session. Public form submissions are session-OPTIONAL: a logged-in
+    // member who applies (e.g. a vacancy "Express interest") should have their
+    // real name persisted, but a truly anonymous/public visitor with no
+    // session must still succeed. We never trust the client-sent name — it is
+    // derived from the session member here. Any session lookup failure is
+    // swallowed so it can never block a public submission.
+    let sessionMemberName = null;
+    let sessionMemberEmail = null;
+    try {
+      const sessionMember = await getSessionMember(req);
+      // Only honour a session that belongs to THIS tenant, so a member's
+      // session for another tenant can't attach their identity here. A member's
+      // tenant may be set directly or inherited from their organisation
+      // (mirrors api/_lib/tenantContext.js resolution).
+      const memberTenantId =
+        sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
+      if (sessionMember && memberTenantId === tenantData.id) {
+        const fullName = [sessionMember.first_name, sessionMember.last_name]
+          .filter((p) => typeof p === 'string' && p.trim())
+          .join(' ')
+          .trim();
+        sessionMemberName = fullName || null;
+        if (typeof sessionMember.email === 'string' && sessionMember.email.trim()) {
+          sessionMemberEmail = sessionMember.email.trim().toLowerCase();
+        }
+      }
+    } catch (sessionErr) {
+      console.warn('[Public Form Submission] Session member lookup failed (continuing as anonymous):', sessionErr?.message);
+    }
+
     // Enforce "one submission per email" if the form opts in. The check runs
     // BEFORE inserting the submission row and BEFORE any pipeline / DD /
     // contract / email side effects, so a duplicate produces no partial state.
@@ -158,8 +190,14 @@ export default async function handler(req, res) {
     const submissionRecord = {
       form_id,
       form_name,
-      submitted_by_email: canonicalSubmitterEmail,
-      submitted_by_name: null,
+      // Prefer the email the form itself collected; fall back to the
+      // authenticated member's email so logged-in applicants are attributable
+      // even when the form has no email field.
+      submitted_by_email: canonicalSubmitterEmail || sessionMemberEmail,
+      // Persist the authenticated member's real name (null for genuinely
+      // anonymous/public submissions, which keep falling back to the email /
+      // "Anonymous submission" label in admin views).
+      submitted_by_name: sessionMemberName,
       submission_data: submission_data || {},
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
