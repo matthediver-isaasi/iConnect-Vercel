@@ -74,6 +74,7 @@ export default function MemberGroupManagementPage() {
   const [editingClassification, setEditingClassification] = useState(null);
   const [classificationName, setClassificationName] = useState('');
   const [classificationToDelete, setClassificationToDelete] = useState(null);
+  const [membersModalGroupId, setMembersModalGroupId] = useState(null);
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
@@ -761,6 +762,19 @@ export default function MemberGroupManagementPage() {
     return assignments.filter(a => a.group_id === groupId);
   };
 
+  const getAssignmentJoinTime = (assignment) => {
+    const raw = assignment.created_date || assignment.created_at || null;
+    if (!raw) return 0;
+    const t = new Date(raw).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+
+  const getSortedGroupAssignments = (groupId) => {
+    return getGroupAssignments(groupId)
+      .slice()
+      .sort((a, b) => getAssignmentJoinTime(b) - getAssignmentJoinTime(a));
+  };
+
   const getMemberName = (memberId) => {
     const member = members.find(m => m.id === memberId);
     return member ? `${member.first_name} ${member.last_name}` : 'Unknown';
@@ -903,8 +917,58 @@ export default function MemberGroupManagementPage() {
     });
   };
 
+  const renderAssignmentRow = (assignment) => (
+    <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
+      <div>
+        <div className="font-medium text-slate-900 flex items-center gap-1">
+          {getAssigneeName(assignment)}
+          {isAssignmentGuest(assignment) && (
+            <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
+          )}
+          {assignment.is_group_admin === true && (
+            <Badge
+              className="bg-emerald-100 text-emerald-700 text-[10px] px-1"
+              data-testid={`badge-group-admin-${assignment.id}`}
+            >
+              Admin
+            </Badge>
+          )}
+        </div>
+        <div className="text-slate-500">{assignment.group_role}</div>
+        {assignment.expires_at && (
+          <div className="text-slate-400 flex items-center gap-1">
+            <Calendar className="w-3 h-3" />
+            Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1" title="Group Admin">
+          <span className="text-slate-500">Admin</span>
+          <Switch
+            data-testid={`switch-group-admin-${assignment.id}`}
+            checked={assignment.is_group_admin === true}
+            disabled={updateAssignmentAdminMutation.isPending}
+            onCheckedChange={(checked) =>
+              updateAssignmentAdminMutation.mutate({ id: assignment.id, is_group_admin: checked })
+            }
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => removeAssignmentMutation.mutate(assignment.id)}
+          className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+        >
+          <X className="w-3 h-3" />
+        </Button>
+      </div>
+    </div>
+  );
+
   const renderGroupCard = (group) => {
-    const groupAssignments = getGroupAssignments(group.id);
+    const groupAssignments = getSortedGroupAssignments(group.id);
+    const previewAssignments = groupAssignments.slice(0, 5);
     const isSelected = selectedGroups.includes(group.id);
     return (
       <Card
@@ -1022,56 +1086,20 @@ export default function MemberGroupManagementPage() {
 
           {groupAssignments.length > 0 && (
           <div className="pt-2 border-t border-slate-200">
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {groupAssignments.map((assignment) => (
-              <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
-                <div>
-                  <div className="font-medium text-slate-900 flex items-center gap-1">
-                    {getAssigneeName(assignment)}
-                    {isAssignmentGuest(assignment) && (
-                      <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
-                    )}
-                    {assignment.is_group_admin === true && (
-                      <Badge
-                        className="bg-emerald-100 text-emerald-700 text-[10px] px-1"
-                        data-testid={`badge-group-admin-${assignment.id}`}
-                      >
-                        Admin
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-slate-500">{assignment.group_role}</div>
-                  {assignment.expires_at && (
-                    <div className="text-slate-400 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1" title="Group Admin">
-                    <span className="text-slate-500">Admin</span>
-                    <Switch
-                      data-testid={`switch-group-admin-${assignment.id}`}
-                      checked={assignment.is_group_admin === true}
-                      disabled={updateAssignmentAdminMutation.isPending}
-                      onCheckedChange={(checked) =>
-                        updateAssignmentAdminMutation.mutate({ id: assignment.id, is_group_admin: checked })
-                      }
-                    />
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeAssignmentMutation.mutate(assignment.id)}
-                    className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+          <div className="space-y-1">
+            {previewAssignments.map((assignment) => renderAssignmentRow(assignment))}
           </div>
+          {groupAssignments.length > 5 && (
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => setMembersModalGroupId(group.id)}
+              className="px-0 mt-1 h-auto"
+              data-testid={`button-view-all-members-${group.id}`}
+            >
+              View all ({groupAssignments.length})
+            </Button>
+          )}
           </div>
           )}
         </CardContent>
@@ -2457,6 +2485,37 @@ export default function MemberGroupManagementPage() {
                 Delete Classification
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* All Members Dialog */}
+        <Dialog
+          open={!!membersModalGroupId}
+          onOpenChange={(open) => { if (!open) setMembersModalGroupId(null); }}
+        >
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+            {(() => {
+              const modalGroup = groups.find(g => g.id === membersModalGroupId);
+              const modalAssignments = membersModalGroupId
+                ? getSortedGroupAssignments(membersModalGroupId)
+                : [];
+              return (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>
+                      Members{modalGroup ? ` — ${modalGroup.name}` : ''} ({modalAssignments.length})
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-1 overflow-y-auto flex-1" data-testid="list-all-members">
+                    {modalAssignments.length > 0 ? (
+                      modalAssignments.map((assignment) => renderAssignmentRow(assignment))
+                    ) : (
+                      <p className="text-sm text-slate-500">No members in this group.</p>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </DialogContent>
         </Dialog>
       </div>
