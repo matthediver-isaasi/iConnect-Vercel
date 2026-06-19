@@ -1811,81 +1811,103 @@ export default function EventsPage({
                               )}
                               <div className="pt-3 border-t border-slate-100">
                                 {memberInfo && (!resolvedIsFeatureExcluded?.('events.browse-events.create') || !resolvedIsFeatureExcluded?.('events.browse-events.view-attendees')) && (
-                                  <div className="flex items-center gap-2 mb-3">
-                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          window.location.href = createPageUrl("CreateComplexEvent") + "?id=" + event.id;
-                                        }}
-                                        className="flex-1"
-                                        data-testid={`button-edit-event-${event.id}`}
-                                      >
-                                        <Pencil className="w-4 h-4 mr-1" />
-                                        Edit
-                                      </Button>
-                                    )}
-                                    {!resolvedIsFeatureExcluded?.('events.browse-events.view-attendees') && (
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={(e) => handleComplexAttendeesClick(e, event)}
-                                        className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
-                                        data-testid={`button-attendees-event-${event.id}`}
-                                      >
-                                        <UsersRound className="w-4 h-4 mr-1" />
-                                        Attendees
-                                      </Button>
-                                    )}
-                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          try {
-                                            const resp = await fetch(`/api/complex-events/${event.id}/duplicate`, {
-                                              method: 'POST',
-                                              credentials: 'include',
-                                              headers: { 'Content-Type': 'application/json' },
-                                            });
-                                            if (!resp.ok) {
-                                              const err = await resp.json().catch(() => ({}));
-                                              throw new Error(err.error || 'Duplicate failed');
-                                            }
-                                            const data = await resp.json();
-                                            toast.success('Complex event duplicated as draft');
-                                            queryClient.invalidateQueries({ queryKey: ['complex-events'] });
-                                            window.location.href = createPageUrl('CreateComplexEvent') + '?id=' + data.id;
-                                          } catch (err) {
-                                            toast.error('Duplicate failed: ' + err.message);
-                                          }
-                                        }}
-                                        className="flex-1"
-                                        data-testid={`button-duplicate-complex-event-${event.id}`}
-                                      >
-                                        <Copy className="w-4 h-4 mr-1" />
-                                        Duplicate
-                                      </Button>
-                                    )}
-                                    {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setComplexDeleteTarget(event);
-                                        }}
-                                        className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                        data-testid={`button-delete-event-${event.id}`}
-                                      >
-                                        <Trash2 className="w-4 h-4 mr-1" />
-                                        Delete
-                                      </Button>
-                                    )}
-                                  </div>
+                                  <TooltipProvider delayDuration={100}>
+                                    <div className="flex items-center gap-2 mb-3">
+                                      {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.location.href = createPageUrl("CreateComplexEvent") + "?id=" + event.id;
+                                              }}
+                                              className="flex-1"
+                                              aria-label="Edit"
+                                              data-testid={`button-edit-event-${event.id}`}
+                                            >
+                                              <Pencil className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Edit</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      {!resolvedIsFeatureExcluded?.('events.browse-events.view-attendees') && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm"
+                                              onClick={(e) => handleComplexAttendeesClick(e, event)}
+                                              className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
+                                              aria-label="Attendees"
+                                              data-testid={`button-attendees-event-${event.id}`}
+                                            >
+                                              <UsersRound className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Attendees</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                  const resp = await fetch(`/api/complex-events/${event.id}/duplicate`, {
+                                                    method: 'POST',
+                                                    credentials: 'include',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                  });
+                                                  if (!resp.ok) {
+                                                    const err = await resp.json().catch(() => ({}));
+                                                    throw new Error(err.error || 'Duplicate failed');
+                                                  }
+                                                  const data = await resp.json();
+                                                  toast.success('Complex event duplicated as draft');
+                                                  queryClient.invalidateQueries({ queryKey: ['complex-events'] });
+                                                  window.location.href = createPageUrl('CreateComplexEvent') + '?id=' + data.id;
+                                                } catch (err) {
+                                                  toast.error('Duplicate failed: ' + err.message);
+                                                }
+                                              }}
+                                              className="flex-1"
+                                              aria-label="Duplicate"
+                                              data-testid={`button-duplicate-complex-event-${event.id}`}
+                                            >
+                                              <Copy className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Duplicate</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setComplexDeleteTarget(event);
+                                              }}
+                                              className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                              aria-label="Delete"
+                                              data-testid={`button-delete-event-${event.id}`}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Delete</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                  </TooltipProvider>
                                 )}
                                 {!resolvedIsFeatureExcluded?.('events.event-details') && (
                                   <>
