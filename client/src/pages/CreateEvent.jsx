@@ -626,9 +626,16 @@ export default function CreateEvent() {
       }, 500);
     },
     onError: (error) => {
-      console.error('Create event error:', error);
+      console.error('Create event error:', error, {
+        method: error?.method,
+        path: error?.path,
+        status: error?.status,
+      });
       const errorMessage = error.message || error.error || 'Unknown error occurred';
-      toast.error('Failed to create event: ' + errorMessage);
+      const reqDetail = error?.method && error?.path
+        ? ` (${error.method} ${error.path}${error?.status ? ` → ${error.status}` : ''})`
+        : '';
+      toast.error('Failed to create event: ' + errorMessage + reqDetail);
     }
   });
 

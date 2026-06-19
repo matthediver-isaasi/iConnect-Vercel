@@ -581,11 +581,20 @@ export default async function handler(req, res) {
           req,
         });
         if (!authz.ok) {
+          console.warn(`[Entity PATCH] Group-admin event-write denied: entity="${entity}" id="${id}" status=${authz.status || 403} reason="${authz.error}" tenantId=${tenantCtx.tenantId} organizationId=${tenantCtx.organizationId} memberId=${tenantCtx.memberId} roleId=${tenantCtx.roleId}`);
           return res.status(authz.status || 403).json({ error: authz.error });
         }
-        // Replace the update payload with the guardrailed version.
-        for (const k of Object.keys(sanitizedBody)) delete sanitizedBody[k];
-        Object.assign(sanitizedBody, authz.body);
+        // Replace the update payload with the guardrailed version. For tenant
+        // admins authorizeGroupAdminEventWrite returns the SAME object reference
+        // it was given, so clearing sanitizedBody first would empty authz.body
+        // too and leave an empty `{}` update (matches zero rows -> PGRST116 ->
+        // 404, the bug this fixes). Only clear+reassign when authz.body is a
+        // distinct (guardrailed) object.
+        const guardedBody = authz.body || {};
+        if (guardedBody !== sanitizedBody) {
+          for (const k of Object.keys(sanitizedBody)) delete sanitizedBody[k];
+          Object.assign(sanitizedBody, guardedBody);
+        }
       }
 
       // Task #1588: Group-Admin resource-write authorization on update. Non-admin
@@ -665,6 +674,7 @@ export default async function handler(req, res) {
               .single();
             
             if (!entityRecord?.organization_id) {
+              console.warn(`[Entity PATCH] Org-scoped record has no organization_id (-> 404): entity="${entity}" id="${id}" method=${req.method} tenantId=${tenantCtx.tenantId} organizationId=${tenantCtx.organizationId} memberId=${tenantCtx.memberId} roleId=${tenantCtx.roleId}`);
               return res.status(404).json({ error: 'Entity not found' });
             }
             
@@ -694,6 +704,7 @@ export default async function handler(req, res) {
         } else if (entityNorm === 'formsubmissionsavedview') {
           // Task #1415: a member may only update (rename / overwrite) their own saved filter views.
           if (!tenantCtx.memberId) {
+            console.warn(`[Entity PATCH] FormSubmissionSavedView update without member context (-> 404): entity="${entity}" id="${id}" method=${req.method} tenantId=${tenantCtx.tenantId} organizationId=${tenantCtx.organizationId} memberId=${tenantCtx.memberId} roleId=${tenantCtx.roleId}`);
             return res.status(404).json({ error: 'Not found or access denied' });
           }
           if (tenantCtx.tenantId) patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -730,7 +741,14 @@ export default async function handler(req, res) {
       const { data, error } = await patchQuery.select().single();
 
       if (error) {
-        if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found or access denied' });
+        if (error.code === 'PGRST116') {
+          // Zero rows matched the tenant-scoped update filter. This is almost
+          // always a tenant-context mismatch (resolved tenantId != row tenant_id)
+          // or the record simply not existing. Log it so the otherwise-silent
+          // 404 is greppable in production.
+          console.warn(`[Entity PATCH] Update matched no rows (PGRST116 -> 404): entity="${entity}" id="${id}" method=${req.method} tenantScope=${tenantScope} tenantId=${tenantCtx.tenantId} organizationId=${tenantCtx.organizationId} memberId=${tenantCtx.memberId} roleId=${tenantCtx.roleId}`);
+          return res.status(404).json({ error: 'Not found or access denied' });
+        }
         return res.status(500).json({ error: error.message });
       }
 

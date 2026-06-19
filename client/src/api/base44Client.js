@@ -500,6 +500,7 @@ class Base44Client {
   }
 
   async _apiRequest(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
     try {
       const response = await fetch(url, {
         ...options,
@@ -528,12 +529,21 @@ class Base44Client {
           }
           const err = new Error(`API Error (${response.status}): ${errorMessage}`);
           err.status = response.status;
+          err.method = method;
+          err.path = url;
           err.code = 'PLAN_QUOTA_EXCEEDED';
           err.quota = errorJson.quota;
           err.body = errorJson;
           throw err;
         }
-        throw new Error(`API Error (${response.status}): ${errorMessage}`);
+        // Attach the HTTP status, method and path so callers can surface a
+        // reportable "<METHOD> <path> → <status>" message (otherwise a silent
+        // early-return 404 is impossible to trace from the client side).
+        const err = new Error(`API Error (${response.status}): ${errorMessage}`);
+        err.status = response.status;
+        err.method = method;
+        err.path = url;
+        throw err;
       }
 
       return response.json();
@@ -541,7 +551,10 @@ class Base44Client {
       if (error.message && error.message.startsWith('API Error')) {
         throw error;
       }
-      throw new Error(`Network Error: ${error.message || 'Failed to fetch'}`);
+      const err = new Error(`Network Error: ${error.message || 'Failed to fetch'}`);
+      err.method = method;
+      err.path = url;
+      throw err;
     }
   }
 }

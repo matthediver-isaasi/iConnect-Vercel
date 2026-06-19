@@ -966,9 +966,16 @@ export default function EditEvent() {
       return base44.entities.Event.update(eventId, eventData);
     },
     onError: (error) => {
-      console.error('Update event error:', error);
+      console.error('Update event error:', error, {
+        method: error?.method,
+        path: error?.path,
+        status: error?.status,
+      });
       const errorMessage = error.message || error.error || 'Unknown error occurred';
-      toast.error('Failed to update event: ' + errorMessage);
+      const reqDetail = error?.method && error?.path
+        ? ` (${error.method} ${error.path}${error?.status ? ` → ${error.status}` : ''})`
+        : '';
+      toast.error('Failed to update event: ' + errorMessage + reqDetail);
     }
   });
 
