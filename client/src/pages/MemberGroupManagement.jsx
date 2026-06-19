@@ -999,9 +999,6 @@ export default function MemberGroupManagementPage() {
               {getClassificationName(group.classification_id)}
             </Badge>
           )}
-          {group.description && (
-            <p className="text-sm text-slate-600">{group.description}</p>
-          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
