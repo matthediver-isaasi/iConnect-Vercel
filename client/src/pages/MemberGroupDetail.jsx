@@ -75,6 +75,7 @@ import {
   FileText,
   ChevronDown,
   AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -98,6 +99,18 @@ import {
   useVacancyInterest,
   VacancyInterestDialog,
 } from "@/components/vacancies/useVacancyInterest";
+
+const parseFocalPoint = (fp) => {
+  if (!fp) return null;
+  if (typeof fp === "string") {
+    try {
+      return JSON.parse(fp);
+    } catch {
+      return null;
+    }
+  }
+  return fp;
+};
 
 function getInitials(name) {
   if (!name) return "?";
@@ -964,6 +977,23 @@ export default function MemberGroupDetailPage() {
   });
 
   const isAuthenticated = !!memberInfo?.email;
+
+  // --- Group forum summary section ---
+  // The server filters group-linked forum categories to members who may access
+  // them, so a returned active category implies the viewer has access. If none
+  // is returned (no forum, inactive, or no access), nothing is rendered.
+  const { data: groupForumCategories = [] } = useQuery({
+    queryKey: ["member-group-forum-category", groupId],
+    queryFn: () => base44.entities.ForumCategory.filter({ group_id: groupId }),
+    enabled: accessChecked && !!groupId,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const groupForumCategory = useMemo(
+    () => groupForumCategories.find((c) => c.is_active) || null,
+    [groupForumCategories]
+  );
 
   const [resourceSearch, setResourceSearch] = useState("");
   const [resourcePage, setResourcePage] = useState(1);
@@ -2098,6 +2128,94 @@ export default function MemberGroupDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        {groupForumCategory && (
+          <Card className="mt-6" data-testid="card-group-forum-summary">
+            <CardContent className="p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-slate-600" />
+                  <h2
+                    className="text-lg font-semibold text-slate-900"
+                    data-testid="text-forum-heading"
+                  >
+                    Group forum
+                  </h2>
+                </div>
+                <Button
+                  onClick={() =>
+                    navigate(`/Forum?categoryId=${groupForumCategory.id}`)
+                  }
+                  data-testid="button-open-group-forum"
+                >
+                  Open forum
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+
+              {groupForumCategory.header_image_url ? (
+                <div
+                  className="relative w-full h-56 rounded-md overflow-hidden"
+                  data-testid="img-group-forum-banner"
+                >
+                  <img
+                    src={groupForumCategory.header_image_url}
+                    alt={groupForumCategory.name}
+                    className="w-full h-full object-cover"
+                    style={{
+                      objectPosition: (() => {
+                        const fp = parseFocalPoint(
+                          groupForumCategory.header_image_focal_point
+                        );
+                        return fp ? `${fp.x}% ${fp.y}%` : "50% 50%";
+                      })(),
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                  <div className="absolute bottom-3 left-4">
+                    <h3
+                      className="text-2xl font-semibold text-white drop-shadow-sm"
+                      data-testid="text-group-forum-name"
+                    >
+                      {groupForumCategory.icon && (
+                        <span className="mr-2">{groupForumCategory.icon}</span>
+                      )}
+                      {groupForumCategory.name}
+                    </h3>
+                    {groupForumCategory.description && (
+                      <p
+                        className="text-white/80 text-sm mt-0.5"
+                        data-testid="text-group-forum-description"
+                      >
+                        {groupForumCategory.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <h3
+                    className="text-2xl font-semibold text-slate-900"
+                    data-testid="text-group-forum-name"
+                  >
+                    {groupForumCategory.icon && (
+                      <span className="mr-2">{groupForumCategory.icon}</span>
+                    )}
+                    {groupForumCategory.name}
+                  </h3>
+                  {groupForumCategory.description && (
+                    <p
+                      className="text-slate-600"
+                      data-testid="text-group-forum-description"
+                    >
+                      {groupForumCategory.description}
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Dialog
