@@ -334,6 +334,7 @@ export default function EventsPage({
       if (manual > 0) msg += ` (${manual} need manual refund/credit-note follow-up)`;
       toast.success(msg);
       queryClient.invalidateQueries({ queryKey: ['complex-events-for-listing'] });
+      queryClient.invalidateQueries({ queryKey: ['member-group-events'] });
       setComplexDeleteTarget(null);
       setComplexDeleteConfirmText("");
       setComplexDeleteOrganiserMessage("");

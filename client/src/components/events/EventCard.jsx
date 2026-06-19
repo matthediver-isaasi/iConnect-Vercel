@@ -436,6 +436,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       if (manual > 0) msg += ` (${manual} need manual refund/credit-note follow-up)`;
       toast.success(msg);
       queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['member-group-events'] });
       setShowDeleteDialog(false);
       setDeleteConfirmText("");
       setDeleteOrganiserMessage("");
