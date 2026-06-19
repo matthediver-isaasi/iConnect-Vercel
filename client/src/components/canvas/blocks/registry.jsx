@@ -52,12 +52,16 @@ import {
   hasAnyResponsiveValue,
   writeResponsiveValue,
   BREAKPOINT_MAX_PX,
+  resolveBlockAtBreakpoint,
+  normalizeCanvasDesign,
+  getRootChildren,
 } from '@/lib/canvasDesign';
 import ImageSelector from '@/components/ImageSelector';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml } from './sanitize';
 import { DYNAMIC_BLOCK_DEFINITIONS } from './dynamicBlocks';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 import { useCanvasAnchors } from '../CanvasAnchorContext';
+import { useCanvasSymbols } from '../CanvasSymbolsContext';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 
@@ -4685,8 +4689,58 @@ function BoxInspector() {
 // children before rendering. We deliberately hide symbol from the palette —
 // authors insert them from the "Symbols" dialog so they pick which symbol
 // up-front.
-function SymbolRender({ block, asEditor }) {
+// Read-only render of a single symbol child inside the editor stage. Mirrors
+// the public renderer's per-block wrapper (geometry + box style) so the
+// editor preview matches the published output. Geometry uses the symbol's
+// OWN local coordinate space (top-left origin) — the host symbol block's
+// wrapper already positions the whole instance, so children stay relative to
+// it. Non-interactive: the parent symbol content overlay is pointer-events:
+// none, so clicks fall through to the symbol instance for selection.
+function SymbolChildPreview({ block, breakpoint }) {
+  const def = getBlockDefinition(block.type);
+  const Renderer = def?.Renderer;
+  const style = block.style || {};
+  const a11y = block.a11y || {};
+  const geom = resolveBlockAtBreakpoint(block, breakpoint || 'desktop');
+  if (geom.hidden) return null;
+  const isSection = block.type === BLOCK_TYPES.SECTION;
+  return (
+    <div
+      role={a11y.role || undefined}
+      aria-label={a11y.ariaLabel || undefined}
+      data-block-type={block.type}
+      style={{
+        position: 'absolute',
+        left: geom.x,
+        top: geom.y,
+        width: geom.w,
+        height: geom.h,
+        background: style.background,
+        borderColor: style.borderColor,
+        borderWidth: style.borderWidth,
+        borderStyle: style.borderStyle,
+        borderRadius: style.borderRadius,
+        opacity: style.opacity,
+        zIndex: style.zIndex,
+        paddingTop: style.paddingTop || 0,
+        paddingRight: style.paddingRight || 0,
+        paddingBottom: style.paddingBottom || 0,
+        paddingLeft: style.paddingLeft || 0,
+        boxSizing: 'border-box',
+        overflow: (isSection || def?.allowOverflow) ? 'visible' : 'hidden',
+      }}
+    >
+      {Renderer && <Renderer block={block} breakpoint={breakpoint || undefined} />}
+    </div>
+  );
+}
+
+function SymbolRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
+  // Editor publishes the tenant's symbol designs via context; the public
+  // renderer never mounts that provider so this is null there (and unused,
+  // since the public path returns null below).
+  const symbolsCtx = useCanvasSymbols();
   const symbolChildren = block.__symbolChildren;
   if (!asEditor && Array.isArray(symbolChildren) && symbolChildren.length > 0) {
     // In the public renderer, defer to the host page's renderer to draw the
@@ -4694,6 +4748,57 @@ function SymbolRender({ block, asEditor }) {
     // walks __symbolChildren itself; emitting markup again would duplicate.
     return null;
   }
+
+  // Editor: render the symbol's real resolved content read-only inside the
+  // instance box so authors can lay out around it, matching the published
+  // page. The instance stays a single selectable/movable unit — its inner
+  // elements are not individually selectable (the parent overlay is
+  // pointer-events: none).
+  if (asEditor && c.symbolId) {
+    const sym = symbolsCtx?.symbolsById?.get?.(c.symbolId);
+    if (sym && sym.design) {
+      const symDesign = normalizeCanvasDesign(sym.design);
+      const kids = getRootChildren(symDesign);
+      return (
+        <div
+          className="absolute inset-0"
+          data-symbol-id={c.symbolId}
+          data-symbol-preview="true"
+        >
+          {kids.map((child) => (
+            <SymbolChildPreview key={child.id} block={child} breakpoint={breakpoint} />
+          ))}
+          {/* Subtle, non-intrusive symbol affordance: a faint dashed outline
+              plus a small corner badge so authors can tell a symbol instance
+              apart from normal blocks. */}
+          <div className="pointer-events-none absolute inset-0 border border-dashed border-indigo-400/40 rounded-[1px]" />
+          <div className="pointer-events-none absolute top-0 left-0 flex items-center gap-1 bg-indigo-500/80 text-white text-[10px] font-medium leading-none px-1.5 py-0.5 rounded-br">
+            <ComponentIcon className="w-3 h-3" />
+            <span className="uppercase tracking-wide">Symbol</span>
+          </div>
+        </div>
+      );
+    }
+    // Symbol data settled but this id is gone -> deleted / unresolvable.
+    if (symbolsCtx?.loaded && !sym) {
+      return (
+        <div
+          className="w-full h-full flex items-center justify-center border border-dashed border-destructive/50 bg-destructive/5 text-destructive"
+          data-symbol-id={c.symbolId}
+          data-symbol-missing="true"
+        >
+          <div className="flex flex-col items-center gap-1 px-3 text-center">
+            <ComponentIcon className="w-5 h-5" />
+            <span className="text-xs font-semibold uppercase tracking-wide">Missing symbol</span>
+            <span className="text-sm">{c.symbolName || c.symbolId}</span>
+          </div>
+        </div>
+      );
+    }
+    // Otherwise still loading symbol designs — fall through to the neutral
+    // placeholder below until the fetch settles.
+  }
+
   return (
     <div
       className="w-full h-full flex items-center justify-center border border-dashed border-slate-300 bg-slate-50 text-slate-600"
@@ -4746,7 +4851,7 @@ const REGISTRY = {
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
-  [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true },
+  [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true, allowOverflow: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
 };
 

@@ -56,6 +56,7 @@ import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
+import { CanvasSymbolsProvider } from './CanvasSymbolsContext';
 import CanvasLayers from './CanvasLayers';
 import CanvasA11yPanel from './CanvasA11yPanel';
 import {
@@ -1334,6 +1335,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     height: stageHeight * zoom,
                   }}
                 >
+                  <CanvasSymbolsProvider>
                   <CanvasStage
                     blocks={children}
                     selectedIds={selectedIds}
@@ -1356,6 +1358,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     onMarqueeSelect={handleMarqueeSelect}
                     onPreviewBottomChange={setLivePreviewBottom}
                   />
+                  </CanvasSymbolsProvider>
                 </div>
               </CanvasRulers>
             </div>
