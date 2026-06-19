@@ -77,7 +77,7 @@ async function findHandler(urlPath: string): Promise<{ handler: any; params: Rec
         
         // Also check for dynamic file match [param].js
         if (isLastSegment && entry.startsWith("[") && entry.endsWith("].js")) {
-          const paramName = entry.slice(1, -5);
+          const paramName = entry.slice(1, -4);
           const filePath = path.join(currentDir, entry);
           possiblePaths.push({ filePath, params: { ...params, [paramName]: segment } });
         }

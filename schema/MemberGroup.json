@@ -48,6 +48,11 @@
         "type": "string",
         "description": "Optional multi-line terms of reference shown to members when self-joining; the member must agree before the join completes"
       },
+      "role_terms_of_reference": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role terms of reference, keyed by role name (HTML). Used by role invitations; falls back to the group-level terms_of_reference when a role has none."
+      },
       "events_enabled": {
         "type": "boolean",
         "default": false,

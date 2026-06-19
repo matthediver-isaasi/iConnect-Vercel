@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { apiRequest } from "@/lib/queryClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -45,12 +46,17 @@ export default function MemberGroupManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteGroup, setInviteGroup] = useState(null);
+  const [inviteForm, setInviteForm] = useState({ member_id: '', role: '' });
+  const [inviteMemberSearch, setInviteMemberSearch] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [groupToDelete, setGroupToDelete] = useState(null);
   const [newRole, setNewRole] = useState('');
+  const [selectedRoleForTerms, setSelectedRoleForTerms] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [showBulkRoles, setShowBulkRoles] = useState(false);
   const [bulkRolesText, setBulkRolesText] = useState('');
@@ -85,7 +91,8 @@ export default function MemberGroupManagementPage() {
     forum_enabled_roles: [],
     classification_id: '',
     linkedin_url: '',
-    terms_of_reference: ''
+    terms_of_reference: '',
+    role_terms_of_reference: {}
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -267,6 +274,56 @@ export default function MemberGroupManagementPage() {
     }
   });
 
+  const { data: inviteData, isLoading: loadingInvites } = useQuery({
+    queryKey: ['member-group-invites', inviteGroup?.id],
+    queryFn: () => apiRequest('GET', `/api/member-group-invites?groupId=${inviteGroup.id}`),
+    enabled: showInviteDialog && !!inviteGroup?.id
+  });
+  const invitations = inviteData?.invitations || [];
+
+  const createInviteMutation = useMutation({
+    mutationFn: (data) => apiRequest('POST', '/api/member-group-invites', { action: 'create', ...data }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      setInviteForm({ member_id: '', role: '' });
+      setInviteMemberSearch('');
+      if (result?.emailSent === false) {
+        toast.warning('Invitation created, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation sent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to send invitation: ' + error.message);
+    }
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: (invitationId) => apiRequest('POST', '/api/member-group-invites', { action: 'resend', invitationId }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      if (result?.emailSent === false) {
+        toast.warning('Invitation re-issued, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation resent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to resend invitation: ' + error.message);
+    }
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (invitationId) => apiRequest('POST', '/api/member-group-invites', { action: 'cancel', invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      toast.success('Invitation cancelled');
+    },
+    onError: (error) => {
+      toast.error('Failed to cancel invitation: ' + error.message);
+    }
+  });
+
   const createClassificationMutation = useMutation({
     mutationFn: (data) => base44.entities.MemberGroupClassification.create(data),
     onSuccess: () => {
@@ -366,7 +423,8 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: [],
       classification_id: '',
       linkedin_url: '',
-      terms_of_reference: ''
+      terms_of_reference: '',
+      role_terms_of_reference: {}
     });
     setEditingGroup(null);
   };
@@ -390,7 +448,8 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
-      terms_of_reference: group.terms_of_reference || ''
+      terms_of_reference: group.terms_of_reference || '',
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {}
     });
     setShowGroupDialog(true);
   };
@@ -414,7 +473,8 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
-      terms_of_reference: group.terms_of_reference || ''
+      terms_of_reference: group.terms_of_reference || '',
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {}
     });
     setShowGroupDialog(true);
   };
@@ -535,6 +595,22 @@ export default function MemberGroupManagementPage() {
     const prunedProjects = (groupForm.projects_enabled_roles || []).filter((r) => validRoles.has(r));
     const prunedForum = (groupForm.forum_enabled_roles || []).filter((r) => validRoles.has(r));
 
+    // Prune + normalise per-role terms of reference: keep only roles still on the
+    // group, and drop entries whose rich-text content is visually empty.
+    const rawRoleTerms = (groupForm.role_terms_of_reference && typeof groupForm.role_terms_of_reference === 'object')
+      ? groupForm.role_terms_of_reference
+      : {};
+    const prunedRoleTerms = {};
+    for (const [roleName, html] of Object.entries(rawRoleTerms)) {
+      if (!validRoles.has(roleName)) continue;
+      const raw = (html || '').trim();
+      const hasText = raw
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;|\u00A0/g, ' ')
+        .trim().length > 0;
+      if (hasText) prunedRoleTerms[roleName] = raw;
+    }
+
     const payload = {
       ...groupForm,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
@@ -547,7 +623,8 @@ export default function MemberGroupManagementPage() {
       forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
       classification_id: groupForm.classification_id || null,
       linkedin_url: trimmedLinkedin || null,
-      terms_of_reference: trimmedTerms || null
+      terms_of_reference: trimmedTerms || null,
+      role_terms_of_reference: prunedRoleTerms
     };
 
     if (editingGroup) {
@@ -592,13 +669,16 @@ export default function MemberGroupManagementPage() {
   };
 
   const handleRemoveRole = (role) => {
+    const nextRoleTerms = { ...(groupForm.role_terms_of_reference || {}) };
+    delete nextRoleTerms[role];
     setGroupForm({
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
       leadership_roles: (groupForm.leadership_roles || []).filter(r => r !== role),
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
-      default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role
+      default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role,
+      role_terms_of_reference: nextRoleTerms
     });
   };
 
@@ -656,6 +736,25 @@ export default function MemberGroupManagementPage() {
     }
 
     assignMemberMutation.mutate(data);
+  };
+
+  const openInviteDialog = (group) => {
+    setInviteGroup(group);
+    setInviteForm({ member_id: '', role: '' });
+    setInviteMemberSearch('');
+    setShowInviteDialog(true);
+  };
+
+  const handleSendInvite = () => {
+    if (!inviteForm.member_id || !inviteForm.role) {
+      toast.error('Please select a member and a role');
+      return;
+    }
+    createInviteMutation.mutate({
+      groupId: inviteGroup.id,
+      memberId: inviteForm.member_id,
+      role: inviteForm.role
+    });
   };
 
   const getGroupAssignments = (groupId) => {
@@ -882,6 +981,16 @@ export default function MemberGroupManagementPage() {
             >
               <UserPlus className="w-3 h-3 mr-1" />
               Assign
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openInviteDialog(group)}
+              className="flex-1"
+              data-testid={`button-invite-${group.id}`}
+            >
+              <Mail className="w-3 h-3 mr-1" />
+              Invite
             </Button>
             <Button
               variant="outline"
@@ -1377,6 +1486,53 @@ export default function MemberGroupManagementPage() {
                     <Crown className="w-3 h-3 fill-current text-amber-600" />
                     Leadership roles appear in the group's Leadership section.
                   </p>
+                )}
+
+                {(groupForm.roles || []).length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <Label htmlFor="role_terms_select">Per-role terms of reference</Label>
+                    <p className="text-xs text-slate-500">
+                      Optional. Set terms shown to a member when they're invited into a specific role. Roles without their own terms fall back to the group terms of reference above.
+                    </p>
+                    <Select
+                      value={selectedRoleForTerms || ''}
+                      onValueChange={(value) => setSelectedRoleForTerms(value)}
+                    >
+                      <SelectTrigger id="role_terms_select" data-testid="select-role-for-terms">
+                        <SelectValue placeholder="Select a role to edit its terms…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(groupForm.roles || []).map((role) => {
+                          const hasTerms = !!(groupForm.role_terms_of_reference || {})[role];
+                          return (
+                            <SelectItem key={role} value={role}>
+                              {role}{hasTerms ? ' • has terms' : ''}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                    {selectedRoleForTerms && (groupForm.roles || []).includes(selectedRoleForTerms) && (
+                      <div>
+                        <SimpleRichTextEditor
+                          content={(groupForm.role_terms_of_reference || {})[selectedRoleForTerms] || ''}
+                          onChange={(html) => setGroupForm((prev) => ({
+                            ...prev,
+                            role_terms_of_reference: {
+                              ...(prev.role_terms_of_reference || {}),
+                              [selectedRoleForTerms]: html
+                            }
+                          }))}
+                          placeholder={`Terms of reference for ${selectedRoleForTerms}…`}
+                          className="min-h-[200px] [&_.tiptap]:min-h-[160px]"
+                          data-testid="input-role-terms-of-reference"
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                          These terms are shown to the invitee for the <strong>{selectedRoleForTerms}</strong> role.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -1881,6 +2037,165 @@ export default function MemberGroupManagementPage() {
                 Assign Member
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Role Invitation Dialog */}
+        <Dialog open={showInviteDialog} onOpenChange={(open) => {
+          setShowInviteDialog(open);
+          if (!open) {
+            setInviteGroup(null);
+            setInviteForm({ member_id: '', role: '' });
+            setInviteMemberSearch('');
+          }
+        }}>
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Invite to a role{inviteGroup ? ` — ${inviteGroup.name}` : ''}</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {(!inviteGroup?.roles || inviteGroup.roles.length === 0) ? (
+                <p className="text-sm text-slate-500">
+                  This group has no roles yet. Add roles to the group before inviting members into them.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select
+                      value={inviteForm.role || ''}
+                      onValueChange={(value) => setInviteForm({ ...inviteForm, role: value })}
+                    >
+                      <SelectTrigger data-testid="select-invite-role">
+                        <SelectValue placeholder="Select a role…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(inviteGroup.roles || []).map((role) => (
+                          <SelectItem key={role} value={role}>{role}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Member</Label>
+                    <Input
+                      value={inviteMemberSearch}
+                      onChange={(e) => setInviteMemberSearch(e.target.value)}
+                      placeholder="Search members by name or email…"
+                      data-testid="input-invite-member-search"
+                    />
+                    <div className="border border-slate-200 rounded-md max-h-48 overflow-y-auto">
+                      {(() => {
+                        const q = inviteMemberSearch.trim().toLowerCase();
+                        const filtered = (members || [])
+                          .filter((m) => m.email)
+                          .filter((m) => {
+                            if (!q) return true;
+                            const hay = `${m.first_name || ''} ${m.last_name || ''} ${m.email || ''}`.toLowerCase();
+                            return hay.includes(q);
+                          })
+                          .slice(0, 50);
+                        if (filtered.length === 0) {
+                          return <div className="p-3 text-sm text-slate-500">No members found.</div>;
+                        }
+                        return filtered.map((m) => (
+                          <button
+                            type="button"
+                            key={m.id}
+                            onClick={() => setInviteForm({ ...inviteForm, member_id: m.id })}
+                            className={`w-full text-left px-3 py-2 text-sm hover-elevate ${inviteForm.member_id === m.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''}`}
+                            data-testid={`option-invite-member-${m.id}`}
+                          >
+                            <div className="font-medium text-slate-900">{`${m.first_name || ''} ${m.last_name || ''}`.trim() || 'Unnamed member'}</div>
+                            <div className="text-xs text-slate-500">{m.email}</div>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                    {inviteForm.member_id && (
+                      <p className="text-xs text-slate-500">
+                        Selected: {getMemberName(inviteForm.member_id)}
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={handleSendInvite}
+                    disabled={createInviteMutation.isPending || !inviteForm.member_id || !inviteForm.role}
+                    className="w-full"
+                    data-testid="button-send-invite"
+                  >
+                    {createInviteMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+                    Send invitation
+                  </Button>
+                </>
+              )}
+
+              <div className="pt-4 border-t border-slate-200">
+                <h4 className="text-sm font-medium text-slate-700 mb-2">Invitations</h4>
+                {loadingInvites ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                  </div>
+                ) : invitations.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-2">No invitations yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {invitations.map((inv) => (
+                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm bg-slate-50 p-2 rounded" data-testid={`row-invite-${inv.id}`}>
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-900 truncate">{inv.member_name || inv.member_email || 'Member'}</div>
+                          <div className="text-xs text-slate-500 truncate">{inv.group_role}</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge
+                            className={
+                              inv.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                              inv.status === 'declined' ? 'bg-red-100 text-red-700' :
+                              inv.status === 'pending' ? 'bg-blue-100 text-blue-700' :
+                              'bg-slate-200 text-slate-600'
+                            }
+                            data-testid={`badge-invite-status-${inv.id}`}
+                          >
+                            {inv.status === 'accepted' && <CheckCircle2 className="w-3 h-3 mr-1" />}
+                            {inv.status === 'declined' && <XCircle className="w-3 h-3 mr-1" />}
+                            {inv.status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
+                            {inv.status}
+                          </Badge>
+                          {inv.status === 'pending' && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => resendInviteMutation.mutate(inv.id)}
+                                disabled={resendInviteMutation.isPending}
+                                title="Resend"
+                                data-testid={`button-resend-invite-${inv.id}`}
+                              >
+                                <RotateCw className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => cancelInviteMutation.mutate(inv.id)}
+                                disabled={cancelInviteMutation.isPending}
+                                title="Cancel"
+                                className="text-red-600 hover:text-red-700"
+                                data-testid={`button-cancel-invite-${inv.id}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
