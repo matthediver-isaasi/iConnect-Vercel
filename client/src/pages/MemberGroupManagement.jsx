@@ -93,7 +93,8 @@ export default function MemberGroupManagementPage() {
     classification_id: '',
     linkedin_url: '',
     terms_of_reference: '',
-    role_terms_of_reference: {}
+    role_terms_of_reference: {},
+    role_term_definitions: {}
   });
   const [assignForm, setAssignForm] = useState({
     member_id: '',
@@ -450,7 +451,8 @@ export default function MemberGroupManagementPage() {
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || '',
-      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {}
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
     });
     setShowGroupDialog(true);
   };
@@ -475,7 +477,8 @@ export default function MemberGroupManagementPage() {
       classification_id: group.classification_id || '',
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || '',
-      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {}
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
     });
     setShowGroupDialog(true);
   };
@@ -612,6 +615,27 @@ export default function MemberGroupManagementPage() {
       if (hasText) prunedRoleTerms[roleName] = raw;
     }
 
+    // Prune + normalise per-role term definitions (Task #1626): keep only roles
+    // still on the group, coerce numeric fields, and drop entries that carry
+    // neither a term length nor a max-terms value.
+    const rawRoleTermDefs = (groupForm.role_term_definitions && typeof groupForm.role_term_definitions === 'object')
+      ? groupForm.role_term_definitions
+      : {};
+    const prunedRoleTermDefs = {};
+    for (const [roleName, def] of Object.entries(rawRoleTermDefs)) {
+      if (!validRoles.has(roleName) || !def || typeof def !== 'object') continue;
+      const value = Number(def.term_value);
+      const maxTerms = Number(def.max_terms);
+      const hasValue = Number.isFinite(value) && value > 0;
+      const hasMax = Number.isFinite(maxTerms) && maxTerms > 0;
+      if (!hasValue && !hasMax) continue;
+      prunedRoleTermDefs[roleName] = {
+        term_value: hasValue ? Math.floor(value) : null,
+        term_unit: hasValue ? (def.term_unit === 'months' ? 'months' : 'years') : null,
+        max_terms: hasMax ? Math.floor(maxTerms) : null,
+      };
+    }
+
     const payload = {
       ...groupForm,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
@@ -625,7 +649,8 @@ export default function MemberGroupManagementPage() {
       classification_id: groupForm.classification_id || null,
       linkedin_url: trimmedLinkedin || null,
       terms_of_reference: trimmedTerms || null,
-      role_terms_of_reference: prunedRoleTerms
+      role_terms_of_reference: prunedRoleTerms,
+      role_term_definitions: prunedRoleTermDefs
     };
 
     if (editingGroup) {
@@ -1538,7 +1563,81 @@ export default function MemberGroupManagementPage() {
                       </SelectContent>
                     </Select>
                     {selectedRoleForTerms && (groupForm.roles || []).includes(selectedRoleForTerms) && (
-                      <div>
+                      <div className="space-y-3">
+                        <div className="rounded-md border border-slate-200 p-3 space-y-3">
+                          <p className="text-xs text-slate-500">
+                            Term of office for the <strong>{selectedRoleForTerms}</strong> role. This is shown on any vacancy posted for the role and recorded against members when they're awarded or accept an invite.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                            <div className="flex flex-col gap-1.5">
+                              <Label htmlFor="role-term-value">Term length</Label>
+                              <div className="flex flex-wrap gap-2">
+                                <Input
+                                  id="role-term-value"
+                                  type="number"
+                                  min="0"
+                                  value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.term_value ?? ''}
+                                  onChange={(e) => setGroupForm((prev) => ({
+                                    ...prev,
+                                    role_term_definitions: {
+                                      ...(prev.role_term_definitions || {}),
+                                      [selectedRoleForTerms]: {
+                                        ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                        term_value: e.target.value,
+                                      },
+                                    },
+                                  }))}
+                                  placeholder="e.g. 3"
+                                  className="w-24"
+                                  data-testid="input-role-term-value"
+                                />
+                                <Select
+                                  value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.term_unit || 'years'}
+                                  onValueChange={(v) => setGroupForm((prev) => ({
+                                    ...prev,
+                                    role_term_definitions: {
+                                      ...(prev.role_term_definitions || {}),
+                                      [selectedRoleForTerms]: {
+                                        ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                        term_unit: v,
+                                      },
+                                    },
+                                  }))}
+                                >
+                                  <SelectTrigger className="w-[140px]" data-testid="select-role-term-unit">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="months">months</SelectItem>
+                                    <SelectItem value="years">years</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <Label htmlFor="role-max-terms">Maximum terms</Label>
+                              <Input
+                                id="role-max-terms"
+                                type="number"
+                                min="0"
+                                value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.max_terms ?? ''}
+                                onChange={(e) => setGroupForm((prev) => ({
+                                  ...prev,
+                                  role_term_definitions: {
+                                    ...(prev.role_term_definitions || {}),
+                                    [selectedRoleForTerms]: {
+                                      ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                      max_terms: e.target.value,
+                                    },
+                                  },
+                                }))}
+                                placeholder="e.g. 2"
+                                className="w-24"
+                                data-testid="input-role-max-terms"
+                              />
+                            </div>
+                          </div>
+                        </div>
                         <SimpleRichTextEditor
                           content={(groupForm.role_terms_of_reference || {})[selectedRoleForTerms] || ''}
                           onChange={(html) => setGroupForm((prev) => ({

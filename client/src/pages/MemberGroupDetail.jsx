@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { buildTermSnapshot, formatTermLength } from "@/lib/memberGroupTermSnapshot";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { parseISO } from "date-fns";
@@ -241,6 +242,52 @@ function getMemberDisplay(member) {
   }
   const displayName = [first, last].filter(Boolean).join(" ") || "Unknown member";
   return { displayName, showAvatarImage: true, anonymised: false };
+}
+
+function formatTermDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// Admin-only term details for a member's group assignment (Task #1626).
+// Renders nothing when the assignment carries no snapshotted term.
+function TermDetails({ assignment, testIdSuffix }) {
+  if (!assignment) return null;
+  const length = formatTermLength(assignment);
+  const termNumber = Number(assignment.term_number);
+  const maxTerms = Number(assignment.max_terms);
+  const hasTermNumber = Number.isFinite(termNumber) && termNumber > 0;
+  const hasMaxTerms = Number.isFinite(maxTerms) && maxTerms > 0;
+  const start = formatTermDate(assignment.term_start_date);
+  const end = formatTermDate(assignment.term_end_date);
+  if (!length && !hasTermNumber && !start && !end) return null;
+
+  let termLabel = null;
+  if (hasTermNumber && hasMaxTerms) termLabel = `Term ${termNumber} of ${maxTerms}`;
+  else if (hasTermNumber) termLabel = `Term ${termNumber}`;
+
+  return (
+    <div
+      className="mt-1 text-xs text-slate-500 space-y-0.5"
+      data-testid={`text-member-term-${testIdSuffix}`}
+    >
+      {termLabel && <div>{termLabel}{length ? ` · ${length}` : ""}</div>}
+      {!termLabel && length && <div>{length}</div>}
+      {(start || end) && (
+        <div>
+          {start || "—"}
+          {" – "}
+          {end || "—"}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function MemberGroupDetailPage() {
@@ -748,17 +795,23 @@ export default function MemberGroupDetailPage() {
       const existing = groupAssignments.find(
         (a) => a.member_id === resolvedMemberId && a.group_id === groupId
       );
+      // Snapshot the role's current term onto the assignment so later role edits
+      // don't retroactively change this member's recorded term (Task #1626).
+      const termSnapshot = buildTermSnapshot(roleTermDefByRole[role], {
+        existingAssignment: existing || null,
+        role,
+      });
       if (existing) {
-        if (role && existing.group_role !== role) {
-          await base44.entities.MemberGroupAssignment.update(existing.id, {
-            group_role: role,
-          });
-        }
+        await base44.entities.MemberGroupAssignment.update(existing.id, {
+          group_role: role || existing.group_role,
+          ...termSnapshot,
+        });
       } else {
         await base44.entities.MemberGroupAssignment.create({
           group_id: groupId,
-          member_id: memberId,
+          member_id: resolvedMemberId,
           group_role: role || "Member",
+          ...termSnapshot,
         });
       }
     },
@@ -812,11 +865,30 @@ export default function MemberGroupDetailPage() {
     return map;
   }, [groupAssignments]);
 
+  const assignmentByMemberId = useMemo(() => {
+    const map = new Map();
+    for (const a of groupAssignments) {
+      if (a.member_id) map.set(a.member_id, a);
+    }
+    return map;
+  }, [groupAssignments]);
+
+  // Per-role term definitions live on the group (Task #1626). They drive the
+  // read-only term shown on vacancy postings and the snapshot taken at award.
+  const roleTermDefByRole = useMemo(() => {
+    const defs = group?.role_term_definitions;
+    return defs && typeof defs === "object" ? defs : {};
+  }, [group]);
+
   const sortedMembers = useMemo(() => {
     return members
-      .map((m) => ({ ...m, __display: getMemberDisplay(m) }))
+      .map((m) => ({
+        ...m,
+        __display: getMemberDisplay(m),
+        __assignment: assignmentByMemberId.get(m.id) || null,
+      }))
       .sort((a, b) => a.__display.displayName.localeCompare(b.__display.displayName));
-  }, [members]);
+  }, [members, assignmentByMemberId]);
 
   const groupRoles = useMemo(
     () => (Array.isArray(group?.roles) ? group.roles.filter(Boolean) : []),
@@ -1525,6 +1597,9 @@ export default function MemberGroupDetailPage() {
                             <Crown className="w-3 h-3 fill-current flex-shrink-0" />
                             {m.__role}
                           </div>
+                          {isGroupAdmin && (
+                            <TermDetails assignment={m.__assignment} testIdSuffix={m.id} />
+                          )}
                         </div>
                         {anonymised && (
                           <TooltipProvider delayDuration={100}>
@@ -1623,12 +1698,17 @@ export default function MemberGroupDetailPage() {
                                   {getInitials(displayName)}
                                 </AvatarFallback>
                               </Avatar>
-                              <div
-                                className="font-medium text-sm text-slate-900 truncate flex-1 min-w-0"
-                                data-testid={`text-member-name-${m.id}`}
-                                title={displayName}
-                              >
-                                {displayName}
+                              <div className="min-w-0 flex-1">
+                                <div
+                                  className="font-medium text-sm text-slate-900 truncate"
+                                  data-testid={`text-member-name-${m.id}`}
+                                  title={displayName}
+                                >
+                                  {displayName}
+                                </div>
+                                {isGroupAdmin && (
+                                  <TermDetails assignment={m.__assignment} testIdSuffix={m.id} />
+                                )}
                               </div>
                               {anonymised && (
                                 <TooltipProvider delayDuration={100}>
@@ -2674,9 +2754,16 @@ export default function MemberGroupDetailPage() {
               ) : (
                 <Select
                   value={vacancyForm.role_title || undefined}
-                  onValueChange={(v) =>
-                    setVacancyForm((f) => ({ ...f, role_title: v }))
-                  }
+                  onValueChange={(v) => {
+                    const def = roleTermDefByRole[v] || null;
+                    setVacancyForm((f) => ({
+                      ...f,
+                      role_title: v,
+                      term_value: def?.term_value ?? "",
+                      term_unit: def?.term_unit || "years",
+                      max_terms: def?.max_terms ?? "",
+                    }));
+                  }}
                 >
                   <SelectTrigger
                     id="vacancy-title"
@@ -2739,51 +2826,25 @@ export default function MemberGroupDetailPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Term of office</Label>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  value={vacancyForm.term_value}
-                  onChange={(e) =>
-                    setVacancyForm((f) => ({ ...f, term_value: e.target.value }))
-                  }
-                  placeholder="e.g. 3"
-                  className="w-28"
-                  data-testid="input-vacancy-term-value"
-                />
-                <Select
-                  value={vacancyForm.term_unit}
-                  onValueChange={(v) =>
-                    setVacancyForm((f) => ({ ...f, term_unit: v }))
-                  }
-                >
-                  <SelectTrigger
-                    className="w-[180px]"
-                    data-testid="select-vacancy-term-unit"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="months">months</SelectItem>
-                    <SelectItem value="years">years</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div
+                className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+                data-testid="text-vacancy-term"
+              >
+                {formatTermLength({
+                  term_value: vacancyForm.term_value,
+                  term_unit: vacancyForm.term_unit,
+                }) || "No term of office set for this role"}
+                {Number(vacancyForm.max_terms) > 0 && (
+                  <span data-testid="text-vacancy-max-terms">
+                    {" "}
+                    · max {Math.floor(Number(vacancyForm.max_terms))}{" "}
+                    {Math.floor(Number(vacancyForm.max_terms)) === 1 ? "term" : "terms"}
+                  </span>
+                )}
               </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="vacancy-max-terms">Maximum terms</Label>
-              <Input
-                id="vacancy-max-terms"
-                type="number"
-                min="0"
-                value={vacancyForm.max_terms}
-                onChange={(e) =>
-                  setVacancyForm((f) => ({ ...f, max_terms: e.target.value }))
-                }
-                placeholder="e.g. 2"
-                className="w-28"
-                data-testid="input-vacancy-max-terms"
-              />
+              <p className="text-xs text-muted-foreground">
+                Set from the role's configuration in group settings.
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="vacancy-positions">Number of positions</Label>

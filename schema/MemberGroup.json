@@ -53,6 +53,11 @@
         "default": {},
         "description": "Optional per-role terms of reference, keyed by role name (HTML). Used by role invitations; falls back to the group-level terms_of_reference when a role has none."
       },
+      "role_term_definitions": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role term definition, keyed by role name: { term_value: number, term_unit: 'months'|'years', max_terms: number }. Surfaced (read-only) on vacancy postings and snapshotted onto assignments at award/invite-accept time."
+      },
       "events_enabled": {
         "type": "boolean",
         "default": false,

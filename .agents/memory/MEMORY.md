@@ -30,3 +30,4 @@
 - [Group-scoped entity list surfaces](group-scoped-entity-list-surfaces.md) — adding member_group_id to a tenant entity leaks group rows into every tenant-wide list (public + admin) unless each surface excludes them, mirroring group-event visibility.
 - [Canvas symbol resolution (read-time)](canvas-symbol-resolution.md) — symbol instances resolve to real content via a read-time transform; public splices __symbolChildren as siblings, editor renders inline from authenticated full designs; never persist resolved children.
 - [Group-event authz body aliasing](group-event-authz-body-aliasing.md) — entity PATCH clear+reassign of sanitizedBody empties the update for tenant admins because authz.body is the SAME object ref; empty update -> PGRST116 -> silent 404.
+- [Role term snapshotting](role-term-snapshotting.md) — term length/max-terms live on the role def; snapshot onto member_group_assignment at award/invite-accept; helper duplicated client+server, keep in sync.

@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { buildTermSnapshot, resolveRoleTermDefinition } from '../../_lib/memberGroupTermSnapshot.js';
 
 // Public, tokenised member-group role invitation endpoint (Task #1608).
 //
@@ -73,7 +74,7 @@ export default async function handler(req, res) {
 
   const [{ data: member }, { data: group }, { data: tenant }] = await Promise.all([
     supabase.from('member').select('id, first_name, last_name, email').eq('id', row.member_id).maybeSingle(),
-    supabase.from('member_group').select('id, name, terms_of_reference, role_terms_of_reference, is_active').eq('id', row.group_id).maybeSingle(),
+    supabase.from('member_group').select('id, name, terms_of_reference, role_terms_of_reference, role_term_definitions, is_active').eq('id', row.group_id).maybeSingle(),
     supabase.from('tenant').select('name, logo_url, primary_color').eq('id', row.tenant_id).maybeSingle(),
   ]);
 
@@ -128,11 +129,18 @@ export default async function handler(req, res) {
       // Create or update the member_group_assignment with the invited role.
       const { data: existingAssignment } = await supabase
         .from('member_group_assignment')
-        .select('id')
+        .select('id, group_role, term_number')
         .eq('tenant_id', row.tenant_id)
         .eq('group_id', row.group_id)
         .eq('member_id', row.member_id)
         .maybeSingle();
+
+      // Snapshot the role's current term onto the assignment so later role edits
+      // don't retroactively change this member's recorded term (Task #1626).
+      const termSnapshot = buildTermSnapshot(
+        resolveRoleTermDefinition(group, row.group_role),
+        { existingAssignment: existingAssignment || null, role: row.group_role }
+      );
 
       let assignmentId = existingAssignment?.id || null;
       let assignmentError = null;
@@ -140,7 +148,7 @@ export default async function handler(req, res) {
       if (existingAssignment) {
         const { error: updErr } = await supabase
           .from('member_group_assignment')
-          .update({ group_role: row.group_role })
+          .update({ group_role: row.group_role, ...termSnapshot })
           .eq('id', existingAssignment.id);
         assignmentError = updErr;
       } else {
@@ -151,6 +159,7 @@ export default async function handler(req, res) {
             group_id: row.group_id,
             member_id: row.member_id,
             group_role: row.group_role,
+            ...termSnapshot,
           })
           .select('id')
           .maybeSingle();
