@@ -762,13 +762,13 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
           <SidebarMenuButton 
             tooltip={item.title}
             isActive={isActive}
-            className={`${colors.hover} transition-colors rounded-lg mb-1 ${
+            className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center ${colors.hover} transition-colors rounded-lg mb-1 ${
               isActive ? `${colors.active} font-medium` : ''
             }`}
           >
-            <Icon className="w-4 h-4 shrink-0" />
+            <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
             <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-            <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
+            <ChevronRight className="ml-auto w-4 h-4 mt-0.5 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
           </SidebarMenuButton>
         </CollapsibleTrigger>
       </SidebarMenuItem>
@@ -782,7 +782,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
               <SidebarMenuSubItem key={subItem.title}>
                 <Link
                   to={subItem.url}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                  className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                     isSubItemActive ? `${colors.active} font-medium` : colors.hover
                   }`}
                 >
@@ -2186,12 +2186,12 @@ useEffect(() => {
                               asChild
                               tooltip={item.title}
                               isActive={isActive}
-                              className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
+                              className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
                               <SidebarNavLink to={item.url}>
-                                <Icon className="w-4 h-4 shrink-0" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
                                   <Bell className="w-4 h-4 text-warning animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
@@ -2236,12 +2236,12 @@ useEffect(() => {
                                   asChild
                                   tooltip={item.title}
                                   isActive={isActive}
-                                  className={`hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
+                                  className={`items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
                                     isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
                                   <SidebarNavLink to={item.url}>
-                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" />
                                     <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                   </SidebarNavLink>
                               </SidebarMenuButton>
@@ -2383,12 +2383,12 @@ useEffect(() => {
                         if (item.subItems) {
                           return (
                             <Collapsible key={item.title} defaultOpen={isActive}>
-                              <CollapsibleTrigger className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                              <CollapsibleTrigger className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}>
-                                <Icon className="w-4 h-4" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" />
                                 <span className="flex-1 text-left">{item.title}</span>
-                                <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
+                                <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
                               </CollapsibleTrigger>
                               <CollapsibleContent>
                                 <div className="pl-7 space-y-1 mt-1">
@@ -2417,11 +2417,11 @@ useEffect(() => {
                               key={item.title}
                               to={item.url}
                               onClick={() => setMobileMenuOpen(false)}
-                              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                              className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
                               }`}
                             >
-                              <Icon className="w-4 h-4" />
+                              <Icon className="w-4 h-4 shrink-0 mt-0.5" />
                               <span className="flex-1">{item.title}</span>
                               {showPendingPOWarning && (
                                 <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-mobile" />
@@ -2448,12 +2448,12 @@ useEffect(() => {
                           if (item.subItems) {
                             return (
                               <Collapsible key={item.title} defaultOpen={isActive}>
-                                <CollapsibleTrigger className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                <CollapsibleTrigger className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}>
-                                  <Icon className="w-4 h-4" />
+                                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
                                   <span className="flex-1 text-left">{item.title}</span>
-                                  <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
+                                  <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
                                 </CollapsibleTrigger>
                                 <CollapsibleContent>
                                   <div className="pl-7 space-y-1 mt-1">
@@ -2482,11 +2482,11 @@ useEffect(() => {
                                 key={item.title}
                                 to={item.url}
                                 onClick={() => setMobileMenuOpen(false)}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                                   isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
                                 }`}
                               >
-                                <Icon className="w-4 h-4" />
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" />
                                 <span>{item.title}</span>
                               </Link>
                             );
