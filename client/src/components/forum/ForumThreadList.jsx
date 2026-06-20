@@ -67,10 +67,11 @@ export function formatForumDate(dateStr) {
 /**
  * Renders the thread list for a single forum category: search, sort, New Thread
  * button, the threads table (pinned/locked badges, replies/views/last-activity),
- * empty/loading states, and pagination. Self-sufficient for data — it fetches the
- * threads and member name map using the same query keys as the Forum page so the
- * cache is shared. Used both on the standalone Forum page and embedded inside the
- * group forum card on MemberGroupDetail.
+ * empty/loading states, and pagination. Self-sufficient for data — it fetches
+ * only the threads for the given category (server-side `category_id` filter) and
+ * resolves only the author names those threads reference, so large tenants don't
+ * over-fetch every thread/member or hit PostgREST's 1000-row cap. Used both on the
+ * standalone Forum page and embedded inside the group forum card on MemberGroupDetail.
  */
 export default function ForumThreadList({ category }) {
   const navigate = useNavigate();
@@ -87,25 +88,35 @@ export default function ForumThreadList({ category }) {
   }, [categoryId]);
 
   const { data: threads = [], isLoading: threadsLoading } = useQuery({
-    queryKey: ["forum-threads-browse"],
-    queryFn: () => base44.entities.ForumThread.list(),
+    queryKey: ["forum-threads-by-category", categoryId],
+    queryFn: () => base44.entities.ForumThread.listAll({ filter: { category_id: categoryId } }),
     staleTime: 30000,
     enabled: !!categoryId,
   });
 
   useRealtimeSubscription(
     'forum_thread',
-    [["forum-threads-browse"]],
+    [["forum-threads-by-category", categoryId]],
     {
       enabled: !!categoryId,
     }
   );
 
+  // Only the author ids actually referenced by this category's threads need
+  // resolving — sorted so the query key is stable regardless of thread order.
+  const authorIds = useMemo(() => {
+    const ids = new Set();
+    threads.forEach((t) => {
+      if (t.created_by) ids.add(t.created_by);
+    });
+    return Array.from(ids).sort();
+  }, [threads]);
+
   const { data: members = [] } = useQuery({
-    queryKey: ["forum-members-browse"],
-    queryFn: () => base44.entities.Member.list(),
+    queryKey: ["forum-thread-authors", authorIds],
+    queryFn: () => base44.entities.Member.list({ filter: { id: authorIds } }),
     staleTime: 60000,
-    enabled: !!categoryId,
+    enabled: authorIds.length > 0,
   });
 
   const memberMap = useMemo(() => {
@@ -118,7 +129,7 @@ export default function ForumThreadList({ category }) {
 
   const categoryThreads = useMemo(() => {
     if (!categoryId) return [];
-    let filtered = threads.filter((t) => t.category_id === categoryId);
+    let filtered = threads;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
