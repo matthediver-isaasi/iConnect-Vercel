@@ -30,6 +30,9 @@ already-awarded member's recorded term — hence the snapshot.
   `buildTermSnapshot` deliberately — it writes raw fields and never reads the
   role def. The entity-API orphan guard only fires on `is_group_admin`/
   `expires_at` changes, so term-field patches pass through.
-- There is a separate direct admin-assign path
-  (`MemberGroupManagement.jsx` assignForm → `MemberGroupAssignment.create`)
-  that does NOT snapshot terms — out of original scope.
+- The direct admin-assign path (`MemberGroupManagement.jsx` assignForm →
+  `MemberGroupAssignment.create`) DOES snapshot terms: it calls
+  `buildTermSnapshot` for term-length/unit/max-terms, and the assign dialog
+  also lets the admin override start/end date + term_number (pre-filled from
+  the role def on role select). Overrides validated like EditTermDialog
+  (end >= start, term_number integer >= 1).

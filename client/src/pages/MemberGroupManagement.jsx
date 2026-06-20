@@ -115,7 +115,10 @@ export default function MemberGroupManagementPage() {
     guest_id: '',
     group_role: '',
     expires_at: null,
-    is_group_admin: false
+    is_group_admin: false,
+    term_start_date: '',
+    term_end_date: '',
+    term_number: ''
   });
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [assignMode, setAssignMode] = useState(''); // 'guest' or 'organization'
@@ -256,7 +259,7 @@ export default function MemberGroupManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
       setShowAssignDialog(false);
-      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false });
+      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false, term_start_date: '', term_end_date: '', term_number: '' });
       setAssignMode('');
       setSelectedOrganizationId('');
       setMemberSearchQuery('');
@@ -764,17 +767,39 @@ export default function MemberGroupManagementPage() {
     // don't retroactively change this member's recorded term, matching the
     // award/invite-accept flows (Task #1626/#1628). No prior assignment here
     // (already-assigned people are rejected above), so term_number resets to 1.
+    // The role's term-length/unit/max-terms come from the role definition; the
+    // admin can override the per-member start/end dates and term number below.
     const roleTermDefs =
       selectedGroup.role_term_definitions && typeof selectedGroup.role_term_definitions === 'object'
         ? selectedGroup.role_term_definitions
         : {};
     const termSnapshot = buildTermSnapshot(roleTermDefs[role], { role });
 
+    // Apply the admin's explicit term overrides, validating like EditTermDialog.
+    const startDate = assignForm.term_start_date || '';
+    const endDate = assignForm.term_end_date || '';
+    if (startDate && endDate && endDate < startDate) {
+      toast.error("The term end date can't be before the start date.");
+      return;
+    }
+    let nextTermNumber = null;
+    if (assignForm.term_number !== '' && assignForm.term_number != null) {
+      const n = Math.floor(Number(assignForm.term_number));
+      if (!Number.isFinite(n) || n < 1) {
+        toast.error('Term number must be a whole number of 1 or more.');
+        return;
+      }
+      nextTermNumber = n;
+    }
+
     const data = {
       group_role: role,
       group_id: selectedGroup.id,
       is_group_admin: assignForm.is_group_admin === true,
-      ...termSnapshot
+      ...termSnapshot,
+      term_start_date: startDate || null,
+      term_end_date: endDate || null,
+      term_number: nextTermNumber
     };
 
     if (assignForm.member_id) {
@@ -1944,7 +1969,7 @@ export default function MemberGroupManagementPage() {
             setMemberSearchQuery('');
             setAssignMode('');
             setSelectedOrganizationId('');
-            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false });
+            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false, term_start_date: '', term_end_date: '', term_number: '' });
           }
         }}>
           <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -2129,7 +2154,20 @@ export default function MemberGroupManagementPage() {
                   <Label>{assignMode === 'guest' ? 'Step 3' : 'Step 4'}: Select Role *</Label>
                   <Select
                     value={assignForm.group_role}
-                    onValueChange={(value) => setAssignForm({ ...assignForm, group_role: value })}
+                    onValueChange={(value) => {
+                      const roleTermDefs =
+                        selectedGroup?.role_term_definitions && typeof selectedGroup.role_term_definitions === 'object'
+                          ? selectedGroup.role_term_definitions
+                          : {};
+                      const snap = buildTermSnapshot(roleTermDefs[value], { role: value });
+                      setAssignForm({
+                        ...assignForm,
+                        group_role: value,
+                        term_start_date: snap.term_start_date || '',
+                        term_end_date: snap.term_end_date || '',
+                        term_number: snap.term_number != null ? String(snap.term_number) : ''
+                      });
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Choose a role..." />
@@ -2180,6 +2218,54 @@ export default function MemberGroupManagementPage() {
                       )}
                     </PopoverContent>
                   </Popover>
+                </div>
+              )}
+
+              {/* Term */}
+              {(assignForm.member_id || assignForm.guest_id) && assignForm.group_role && (
+                <div className="space-y-3 rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label>Term (Optional)</Label>
+                    <p className="text-xs text-slate-500">
+                      Pre-filled from the role's configured term. Adjust if this member's term differs.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="assign-term-start">Term start date</Label>
+                      <Input
+                        id="assign-term-start"
+                        type="date"
+                        value={assignForm.term_start_date || ''}
+                        onChange={(e) => setAssignForm({ ...assignForm, term_start_date: e.target.value })}
+                        data-testid="input-assign-term-start-date"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="assign-term-end">Term end date</Label>
+                      <Input
+                        id="assign-term-end"
+                        type="date"
+                        value={assignForm.term_end_date || ''}
+                        onChange={(e) => setAssignForm({ ...assignForm, term_end_date: e.target.value })}
+                        data-testid="input-assign-term-end-date"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="assign-term-number">Term number</Label>
+                    <Input
+                      id="assign-term-number"
+                      type="number"
+                      min="1"
+                      step="1"
+                      className="w-28"
+                      value={assignForm.term_number || ''}
+                      onChange={(e) => setAssignForm({ ...assignForm, term_number: e.target.value })}
+                      placeholder="e.g. 1"
+                      data-testid="input-assign-term-number"
+                    />
+                  </div>
                 </div>
               )}
 
