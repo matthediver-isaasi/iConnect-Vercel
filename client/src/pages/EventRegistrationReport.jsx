@@ -97,7 +97,7 @@ function formatLinkedAnswer(val) {
   return String(val);
 }
 
-function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem, "data-testid": testId, icon: Icon }) {
+function TypeAheadInput({ value, onChange, onSelect, suggestions, placeholder, renderItem, "data-testid": testId, icon: Icon }) {
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const wrapperRef = useRef(null);
@@ -135,12 +135,14 @@ function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem,
       setHighlightIdx(prev => Math.max(prev - 1, 0));
     } else if (e.key === "Enter" && highlightIdx >= 0) {
       e.preventDefault();
-      onChange(filtered[highlightIdx].value);
+      const item = filtered[highlightIdx];
+      if (onSelect) onSelect(item);
+      else onChange(item.value);
       setOpen(false);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
-  }, [open, filtered, highlightIdx, onChange]);
+  }, [open, filtered, highlightIdx, onChange, onSelect]);
 
   useEffect(() => {
     if (highlightIdx >= 0 && listRef.current) {
@@ -173,7 +175,7 @@ function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem,
               className={`w-full text-left px-3 py-2 text-sm cursor-pointer ${
                 idx === highlightIdx ? "bg-accent text-accent-foreground" : "hover-elevate"
               }`}
-              onMouseDown={(e) => { e.preventDefault(); onChange(item.value); setOpen(false); }}
+              onMouseDown={(e) => { e.preventDefault(); if (onSelect) onSelect(item); else onChange(item.value); setOpen(false); }}
               onMouseEnter={() => setHighlightIdx(idx)}
               data-testid={`${testId}-option-${idx}`}
             >
@@ -222,6 +224,7 @@ export default function EventRegistrationReport() {
   const [accessChecked, setAccessChecked] = useState(false);
 
   const [filterEventName, setFilterEventName] = useState("");
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [filterInternalRef, setFilterInternalRef] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
@@ -307,8 +310,12 @@ export default function EventRegistrationReport() {
     if (!appliedFilters) return null;
     const params = new URLSearchParams();
     params.set('generate', 'true');
-    if (appliedFilters.eventName) params.set('eventName', appliedFilters.eventName);
-    if (appliedFilters.internalReference) params.set('internalReference', appliedFilters.internalReference);
+    if (appliedFilters.eventId) {
+      params.set('eventId', appliedFilters.eventId);
+    } else if (appliedFilters.eventName) {
+      params.set('eventName', appliedFilters.eventName);
+    }
+    if (!appliedFilters.eventId && appliedFilters.internalReference) params.set('internalReference', appliedFilters.internalReference);
     if (appliedFilters.dateFrom) params.set('dateFrom', appliedFilters.dateFrom);
     if (appliedFilters.dateTo) params.set('dateTo', appliedFilters.dateTo);
     return `/api/reports/event-registration-report?${params.toString()}`;
@@ -656,8 +663,23 @@ export default function EventRegistrationReport() {
     );
   };
 
+  const handleEventNameChange = (val) => {
+    setFilterEventName(val);
+    // Manual typing breaks the exact-event link; fall back to name search.
+    if (selectedEvent && val !== selectedEvent.title) {
+      setSelectedEvent(null);
+    }
+  };
+
+  const handleEventNameSelect = (item) => {
+    setFilterEventName(item.value);
+    setSelectedEvent({ id: item.key, title: item.value, isComplex: !!item.isComplex });
+  };
+
   const handleGenerateReport = () => {
+    const exactEvent = selectedEvent && selectedEvent.title === filterEventName.trim() ? selectedEvent : null;
     setAppliedFilters({
+      eventId: exactEvent ? exactEvent.id : null,
       eventName: filterEventName.trim(),
       internalReference: filterInternalRef.trim(),
       dateFrom: filterDateFrom,
@@ -669,6 +691,7 @@ export default function EventRegistrationReport() {
 
   const handleClearFilters = () => {
     setFilterEventName("");
+    setSelectedEvent(null);
     setFilterInternalRef("");
     setFilterDateFrom("");
     setFilterDateTo("");
@@ -1295,7 +1318,8 @@ export default function EventRegistrationReport() {
               <TypeAheadInput
                 placeholder="Search by event name..."
                 value={filterEventName}
-                onChange={setFilterEventName}
+                onChange={handleEventNameChange}
+                onSelect={handleEventNameSelect}
                 suggestions={eventNameSuggestions}
                 data-testid="input-filter-event-name"
                 renderItem={(item) => (
