@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { ArrowLeft, Loader2, Save, RotateCcw, Globe } from "lucide-react";
+import { ArrowLeft, Loader2, Save, RotateCcw, Globe, ExternalLink } from "lucide-react";
 import { COUNTRIES } from "@/data/countries";
+import { WORLD_BANK_LMIC_SOURCE } from "@shared/lmicCountries.js";
 
 /**
  * Admin LMIC country list (task #607).
@@ -178,6 +179,25 @@ export default function AdminLmicCountries() {
             dashboard widget builder's "LMIC only" filter. The default is
             the World Bank low/lower-middle/upper-middle income classification.
           </CardDescription>
+          <div
+            className="mt-3 rounded-md border bg-muted/50 p-3 text-xs text-muted-foreground"
+            data-testid="text-lmic-source"
+          >
+            <span className="font-medium text-foreground">Default data source:</span>{" "}
+            {WORLD_BANK_LMIC_SOURCE.label} — {WORLD_BANK_LMIC_SOURCE.classification}{" "}
+            (effective {WORLD_BANK_LMIC_SOURCE.effectiveDate}, based on{" "}
+            {WORLD_BANK_LMIC_SOURCE.basedOn}).{" "}
+            <a
+              href={WORLD_BANK_LMIC_SOURCE.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
+              data-testid="link-lmic-source"
+            >
+              View on World Bank
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">

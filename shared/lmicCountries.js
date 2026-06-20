@@ -40,6 +40,20 @@ export const WORLD_BANK_LMIC_ISO2 = [
 ];
 
 /**
+ * Provenance for the seed list above, surfaced in the admin UI so admins
+ * can see exactly which World Bank dataset/version the default is based on.
+ * Keep this in lockstep with WORLD_BANK_LMIC_ISO2 whenever the list is
+ * refreshed for a new World Bank classification.
+ */
+export const WORLD_BANK_LMIC_SOURCE = {
+  classification: 'FY2026',
+  effectiveDate: '1 July 2025',
+  basedOn: '2024 GNI per capita (Atlas method)',
+  label: 'World Bank country and lending groups',
+  url: 'https://datahelpdesk.worldbank.org/knowledgebase/articles/906519',
+};
+
+/**
  * Returns a sanitised, de-duplicated, upper-cased list of ISO-2 codes.
  * Filters out anything that isn't a 2-letter alpha string so we never
  * persist or query with garbage values.
