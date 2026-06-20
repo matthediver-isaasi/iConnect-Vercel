@@ -87,6 +87,7 @@ import { parseEventTypes } from "@/lib/utils";
 import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
 import ForumThreadList from "@/components/forum/ForumThreadList";
+import GroupEmailManager from "@/components/group-email/GroupEmailManager";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
@@ -1271,6 +1272,32 @@ export default function MemberGroupDetailPage() {
   const groupForumCategory = useMemo(
     () => groupForumCategories.find((c) => c.is_active) || null,
     [groupForumCategories]
+  );
+
+  // Group Email section gating: reuse the standalone /GroupEmail discovery
+  // endpoint, which returns only the groups this caller may send emails for
+  // (200 with an empty list when they qualify nowhere). The section is shown
+  // only when THIS group is in that set, so visibility matches the standalone
+  // page's qualifying-groups rule exactly. No backend changes.
+  const { data: emailQualifyingGroups = [] } = useQuery({
+    queryKey: ["member-campaigns", "qualifying-groups"],
+    queryFn: async () => {
+      const res = await fetch("/api/member-campaigns/qualifying-groups", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        if (res.status === 403) return [];
+        throw new Error("Failed to load group email access");
+      }
+      const data = await res.json();
+      return data.groups || [];
+    },
+    enabled: accessChecked && !!groupId && !isFeatureExcluded("membership.member-group-email"),
+  });
+
+  const emailGroup = useMemo(
+    () => emailQualifyingGroups.find((g) => g.id === groupId) || null,
+    [emailQualifyingGroups, groupId]
   );
 
   const [resourceSearch, setResourceSearch] = useState("");
@@ -2543,6 +2570,14 @@ export default function MemberGroupDetailPage() {
               <div className="mt-6">
                 <ForumThreadList category={groupForumCategory} />
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {emailGroup && (
+          <Card className="mt-6" data-testid="card-group-email">
+            <CardContent className="p-6">
+              <GroupEmailManager group={emailGroup} heading="Email campaigns" />
             </CardContent>
           </Card>
         )}
