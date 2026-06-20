@@ -8,7 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Form, FormSubmission } from "@/api/entities";
 import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -33,6 +36,65 @@ function formatAllergySelections(value) {
 function formatAccessibilitySelections(value) {
   if (!Array.isArray(value)) return '';
   return value.filter(Boolean).join(', ');
+}
+
+const normEmail = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+
+function isEmailValue(v) {
+  return typeof v === 'string' && /\S+@\S+\.\S+/.test(v.trim());
+}
+
+// Mirrors the email soft-join used by the Form Submissions page: prefer the
+// authenticated submitter email, then any email-looking field, then any
+// email-looking value anywhere in the submission data.
+function extractSubmissionEmail(submission, fields) {
+  if (isEmailValue(submission?.submitted_by_email)) {
+    return submission.submitted_by_email.trim();
+  }
+  const data = submission?.submission_data || {};
+  for (const field of (fields || [])) {
+    if (!field || !field.id) continue;
+    const idLower = (field.id || '').toLowerCase();
+    const labelLower = (field.label || '').toLowerCase();
+    const looksLikeEmail =
+      field.type === 'email' ||
+      idLower.includes('email') || idLower.includes('e-mail') ||
+      labelLower.includes('email') || labelLower.includes('e-mail');
+    if (!looksLikeEmail) continue;
+    const val = data[field.id];
+    if (isEmailValue(val)) return val.trim();
+  }
+  for (const value of Object.values(data)) {
+    if (isEmailValue(value)) return value.trim();
+  }
+  return null;
+}
+
+// Format a linked-form answer for CSV output, mirroring how the Form
+// Submissions UI renders values (arrays joined with ', ', booleans as Yes/No).
+function formatLinkedAnswer(val) {
+  if (val == null) return '';
+  if (Array.isArray(val)) {
+    return val
+      .map((v) => {
+        if (v == null) return '';
+        if (typeof v === 'object') {
+          if (v.name) return v.severity ? `${v.name} (${v.severity})` : v.name;
+          if (v.label) return v.label;
+          if (v.file_url) return String(v.file_url);
+          return JSON.stringify(v);
+        }
+        return String(v);
+      })
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'object') {
+    if (val.file_url) return String(val.file_url);
+    return JSON.stringify(val);
+  }
+  return String(val);
 }
 
 function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem, "data-testid": testId, icon: Icon }) {
@@ -227,6 +289,9 @@ export default function EventRegistrationReport() {
   const [transferIsPublic, setTransferIsPublic] = useState(false);
   const [statusFilter, setStatusFilter] = useState("active");
   const [consentFilter, setConsentFilter] = useState("all");
+  const [showColumnChooser, setShowColumnChooser] = useState(false);
+  const [selectedColumnKeys, setSelectedColumnKeys] = useState(() => new Set());
+  const knownColumnKeysRef = useRef(new Set());
 
   useEffect(() => {
     if (isAccessReady) {
@@ -721,6 +786,162 @@ export default function EventRegistrationReport() {
     return start;
   };
 
+  // --- Column chooser: standard columns + linked-form field columns ---
+
+  const scopeEventIds = useMemo(() => {
+    const s = new Set();
+    for (const g of filteredGroups) if (g.eventId) s.add(String(g.eventId));
+    return s;
+  }, [filteredGroups]);
+
+  const { data: allForms = [] } = useQuery({
+    queryKey: ['event-report-forms'],
+    queryFn: () => Form.list(),
+    enabled: reportGenerated,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const linkedForms = useMemo(() => {
+    return (allForms || []).filter(
+      (f) => f && f.is_event_related && f.related_event_id && scopeEventIds.has(String(f.related_event_id))
+    );
+  }, [allForms, scopeEventIds]);
+
+  const linkedFormIds = useMemo(() => linkedForms.map((f) => f.id).sort(), [linkedForms]);
+
+  const { data: linkedSubmissions = [] } = useQuery({
+    queryKey: ['event-report-linked-submissions', linkedFormIds],
+    queryFn: async () => {
+      if (linkedFormIds.length === 0) return [];
+      const batches = await Promise.all(
+        linkedFormIds.map((id) => FormSubmission.listAll({ filter: { form_id: id } }))
+      );
+      return batches.flat();
+    },
+    enabled: reportGenerated && linkedFormIds.length > 0,
+    staleTime: 60 * 1000,
+  });
+
+  // email -> { [formId]: { [fieldId]: formattedAnswer } }; newest submission wins per form.
+  const linkedAnswerLookup = useMemo(() => {
+    const formsById = {};
+    for (const f of linkedForms) formsById[f.id] = f;
+    const sorted = [...linkedSubmissions].sort(
+      (a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0)
+    );
+    const map = new Map();
+    for (const sub of sorted) {
+      const form = formsById[sub.form_id];
+      if (!form) continue;
+      const email = normEmail(extractSubmissionEmail(sub, form.fields));
+      if (!email) continue;
+      if (!map.has(email)) map.set(email, {});
+      const byForm = map.get(email);
+      if (byForm[sub.form_id]) continue; // keep newest
+      const data = sub.submission_data || {};
+      const answers = {};
+      for (const field of (form.fields || [])) {
+        if (!field || !field.id) continue;
+        answers[field.id] = formatLinkedAnswer(data[field.id]);
+      }
+      byForm[sub.form_id] = answers;
+    }
+    return map;
+  }, [linkedForms, linkedSubmissions]);
+
+  const standardColumns = useMemo(() => ([
+    { key: 'std:event', label: 'Event', get: ({ group }) => group.eventTitle || '' },
+    { key: 'std:complex', label: 'Complex Event', get: ({ group }) => (group.isComplexEvent ? 'Yes' : 'No') },
+    { key: 'std:eventDate', label: 'Event Date', get: ({ group }) => formatEventDateRange({ startDate: group.eventStartDate, endDate: group.eventEndDate, isComplex: group.isComplexEvent }) },
+    { key: 'std:internalRef', label: 'Internal Reference', get: ({ group }) => group.internalReference || '' },
+    { key: 'std:bookingGroup', label: 'Booking Group', get: ({ group }) => (group.isGroup ? (group.groupRef || 'Group') : '') },
+    { key: 'std:name', label: 'Name', get: ({ a }) => `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim() },
+    { key: 'std:email', label: 'Email', get: ({ a }) => a.attendee_email || '' },
+    { key: 'std:designation', label: 'Designation', get: ({ a }) => a.designation || '' },
+    { key: 'std:buddy', label: 'Buddy', get: ({ a }) => (a.buddy ? 'Yes' : 'No') },
+    { key: 'std:badge', label: 'Badge', get: ({ a }) => (a.badge !== false ? 'Yes' : 'No') },
+    { key: 'std:dietary', label: 'Dietary Requirements', get: ({ a }) => formatDietarySelections(a.dietary_selections) },
+    { key: 'std:allergies', label: 'Allergies', get: ({ a }) => formatAllergySelections(a.allergy_selections) },
+    { key: 'std:accessibility', label: 'Accessibility Needs', get: ({ a }) => formatAccessibilitySelections(a.accessibility_selections) },
+    { key: 'std:org', label: 'Organisation', get: ({ a }) => organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member') },
+    { key: 'std:ticketType', label: 'Ticket Type', get: ({ a }) => a.ticket_class_name || '' },
+    { key: 'std:trackAccess', label: 'Track Access', get: ({ a }) => a.track_access || '' },
+    { key: 'std:ticketPrice', label: 'Ticket Price', get: ({ a }) => Number(a.ticket_price || 0).toFixed(2) },
+    { key: 'std:groupDiscount', label: 'Group Discount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.discount || 0).toFixed(2) : '') },
+    { key: 'std:groupTotal', label: 'Group Total', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '') },
+    { key: 'std:voucher', label: 'Voucher Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '') },
+    { key: 'std:trainingFund', label: 'Training Fund', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '') },
+    { key: 'std:accountAmount', label: 'Account Amount', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '') },
+    { key: 'std:paymentMethod', label: 'Payment Method', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.paymentMethod || '') : '') },
+    { key: 'std:poNumber', label: 'PO Number', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.purchaseOrderNumber || '') : '') },
+    { key: 'std:poToFollow', label: 'PO To Follow', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.poToFollow ? 'Yes' : 'No') : '') },
+    { key: 'std:stripe', label: 'Stripe Payment', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.stripePaymentIntentId ? 'Yes' : 'No') : '') },
+    { key: 'std:xero', label: 'Xero Invoice', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.xeroInvoiceNumber || '') : '') },
+    { key: 'std:bookingRef', label: 'Booking Reference', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.bookingReference || '') : '') },
+    { key: 'std:status', label: 'Status', get: ({ a }) => a.status || '' },
+    { key: 'std:date', label: 'Date', get: ({ a }) => (a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '') },
+    { key: 'std:guest', label: 'Guest Booking', get: ({ a }) => (a.is_guest_booking ? 'Yes' : 'No') },
+    { key: 'std:consent', label: 'Third-party Consent', get: ({ a }) => (a.third_party_consent === true ? 'Yes' : a.third_party_consent === false ? 'No' : '') },
+    { key: 'std:attended', label: 'Attended', get: ({ a, group }) => (a.attended === true ? 'Yes' : a.attended === false ? 'Partial' : (a.attended === null && group.hasZoom ? 'No' : '')) },
+    { key: 'std:zoomJoin', label: 'Zoom Join Time', get: ({ a }) => (a.zoom_join_time ? format(parseISO(a.zoom_join_time), 'yyyy-MM-dd HH:mm:ss') : '') },
+    { key: 'std:zoomLeave', label: 'Zoom Leave Time', get: ({ a }) => (a.zoom_leave_time ? format(parseISO(a.zoom_leave_time), 'yyyy-MM-dd HH:mm:ss') : '') },
+    { key: 'std:zoomDuration', label: 'Zoom Duration (mins)', get: ({ a }) => (a.zoom_duration_minutes != null ? a.zoom_duration_minutes : '') },
+    { key: 'std:sessions', label: 'Sessions Attended', get: ({ a }) => (a.attendance_by_session ? a.attendance_by_session.filter((s) => s.attended).length + '/' + a.attendance_by_session.length : '') },
+  ]), [organizations]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const linkedColumnsByForm = useMemo(() => {
+    return linkedForms.map((form) => {
+      const fields = (Array.isArray(form.fields) ? form.fields : []).filter((f) => f && f.id);
+      return {
+        formId: form.id,
+        formName: form.name || 'Form',
+        columns: fields.map((field) => ({
+          key: `form:${form.id}:${field.id}`,
+          label: field.label || field.id,
+          get: ({ a }) => {
+            const email = normEmail(a.attendee_email);
+            if (!email) return '';
+            const byForm = linkedAnswerLookup.get(email);
+            const answers = byForm && byForm[form.id];
+            return (answers && answers[field.id]) || '';
+          },
+        })),
+      };
+    });
+  }, [linkedForms, linkedAnswerLookup]);
+
+  const allColumnKeys = useMemo(() => {
+    const keys = standardColumns.map((c) => c.key);
+    for (const grp of linkedColumnsByForm) for (const c of grp.columns) keys.push(c.key);
+    return keys;
+  }, [standardColumns, linkedColumnsByForm]);
+
+  // Default new columns to selected (preserving any user deselections) and drop
+  // columns that no longer exist after the report scope changes.
+  useEffect(() => {
+    const current = new Set(allColumnKeys);
+    setSelectedColumnKeys((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const k of current) {
+        if (!knownColumnKeysRef.current.has(k)) { next.add(k); changed = true; }
+      }
+      for (const k of Array.from(next)) {
+        if (!current.has(k)) { next.delete(k); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+    knownColumnKeysRef.current = current;
+  }, [allColumnKeys]);
+
+  const toggleColumn = (key) => {
+    setSelectedColumnKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   const filteredSummary = useMemo(() => {
     let totalRevenue = 0;
     let totalVoucher = 0;
@@ -764,95 +985,34 @@ export default function EventRegistrationReport() {
 
   const handleExportCSV = () => {
     if (filteredGroups.length === 0) return;
+    setShowColumnChooser(true);
+  };
 
-    const headers = [
-      'Event',
-      'Complex Event',
-      'Event Date',
-      'Internal Reference',
-      'Booking Group',
-      'Name',
-      'Email',
-      'Designation',
-      'Buddy',
-      'Badge',
-      'Dietary Requirements',
-      'Allergies',
-      'Accessibility Needs',
-      'Organisation',
-      'Ticket Type',
-      'Track Access',
-      'Ticket Price',
-      'Group Discount',
-      'Group Total',
-      'Voucher Amount',
-      'Training Fund',
-      'Account Amount',
-      'Payment Method',
-      'PO Number',
-      'PO To Follow',
-      'Stripe Payment',
-      'Xero Invoice',
-      'Booking Reference',
-      'Status',
-      'Date',
-      'Guest Booking',
-      'Third-party Consent',
-      'Attended',
-      'Zoom Join Time',
-      'Zoom Leave Time',
-      'Zoom Duration (mins)',
-      'Sessions Attended'
-    ];
+  const runExport = () => {
+    if (filteredGroups.length === 0) return;
+
+    const orderedColumns = [];
+    for (const c of standardColumns) {
+      if (selectedColumnKeys.has(c.key)) orderedColumns.push(c);
+    }
+    for (const grp of linkedColumnsByForm) {
+      for (const c of grp.columns) {
+        if (selectedColumnKeys.has(c.key)) orderedColumns.push(c);
+      }
+    }
+    if (orderedColumns.length === 0) return;
+
+    const headers = orderedColumns.map(c => c.label);
 
     const rows = [];
     for (const group of filteredGroups) {
-      const gp = group.groupPayment;
+      const gp = group.groupPayment || {};
       group.attendees.forEach((a, idx) => {
-        const isFirstInGroup = idx === 0;
-        rows.push([
-          group.eventTitle || '',
-          group.isComplexEvent ? 'Yes' : 'No',
-          formatEventDateRange({
-            startDate: group.eventStartDate,
-            endDate: group.eventEndDate,
-            isComplex: group.isComplexEvent,
-          }),
-          group.internalReference || '',
-          group.isGroup ? (group.groupRef || 'Group') : '',
-          `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
-          a.attendee_email || '',
-          a.designation || '',
-          a.buddy ? 'Yes' : 'No',
-          a.badge !== false ? 'Yes' : 'No',
-          formatDietarySelections(a.dietary_selections),
-          formatAllergySelections(a.allergy_selections),
-          formatAccessibilitySelections(a.accessibility_selections),
-          organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member'),
-          a.ticket_class_name || '',
-          a.track_access || '',
-          Number(a.ticket_price || 0).toFixed(2),
-          isFirstInGroup ? (gp.discount || 0).toFixed(2) : '',
-          isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '',
-          isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '',
-          isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '',
-          isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '',
-          isFirstInGroup ? (gp.paymentMethod || '') : '',
-          isFirstInGroup ? (gp.purchaseOrderNumber || '') : '',
-          isFirstInGroup ? (gp.poToFollow ? 'Yes' : 'No') : '',
-          isFirstInGroup ? (gp.stripePaymentIntentId ? 'Yes' : 'No') : '',
-          isFirstInGroup ? (gp.xeroInvoiceNumber || '') : '',
-          isFirstInGroup ? (gp.bookingReference || '') : '',
-          a.status || '',
-          a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '',
-          a.is_guest_booking ? 'Yes' : 'No',
-          a.third_party_consent === true ? 'Yes' : a.third_party_consent === false ? 'No' : '',
-          a.attended === true ? 'Yes' : a.attended === false ? 'Partial' : (a.attended === null && group.hasZoom ? 'No' : ''),
-          a.zoom_join_time ? format(parseISO(a.zoom_join_time), 'yyyy-MM-dd HH:mm:ss') : '',
-          a.zoom_leave_time ? format(parseISO(a.zoom_leave_time), 'yyyy-MM-dd HH:mm:ss') : '',
-          a.zoom_duration_minutes != null ? a.zoom_duration_minutes : '',
-          a.attendance_by_session ? a.attendance_by_session.filter(s => s.attended).length + '/' + a.attendance_by_session.length : ''
-        ]);
+        const ctx = { group, a, gp, isFirstInGroup: idx === 0 };
+        rows.push(orderedColumns.map(c => {
+          const v = c.get(ctx);
+          return v == null ? '' : v;
+        }));
       });
     }
 
@@ -868,6 +1028,7 @@ export default function EventRegistrationReport() {
     link.download = `registration_report_${datePart}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    setShowColumnChooser(false);
   };
 
   const handleCancelClick = (attendee) => {
@@ -1824,6 +1985,99 @@ export default function EventRegistrationReport() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={showColumnChooser} onOpenChange={setShowColumnChooser}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose Export Columns</DialogTitle>
+            <DialogDescription>
+              Select the columns to include in the CSV export. All columns are selected by default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedColumnKeys(new Set(allColumnKeys))}
+              data-testid="button-select-all-columns"
+            >
+              Select all
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedColumnKeys(new Set())}
+              data-testid="button-clear-all-columns"
+            >
+              Clear all
+            </Button>
+          </div>
+          <ScrollArea className="max-h-[55vh] pr-4">
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium mb-2">Standard Columns</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {standardColumns.map(col => (
+                    <label
+                      key={col.key}
+                      className="flex items-center gap-2 rounded-md p-2 hover-elevate cursor-pointer"
+                      data-testid={`label-column-${col.key}`}
+                    >
+                      <Checkbox
+                        checked={selectedColumnKeys.has(col.key)}
+                        onCheckedChange={() => toggleColumn(col.key)}
+                        data-testid={`checkbox-column-${col.key}`}
+                      />
+                      <span className="text-sm">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {linkedColumnsByForm.filter(grp => grp.columns.length > 0).map(grp => (
+                <div key={grp.formId}>
+                  <h4 className="text-sm font-medium mb-2">
+                    {grp.formName} <span className="text-muted-foreground font-normal">(linked form)</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {grp.columns.map(col => (
+                      <label
+                        key={col.key}
+                        className="flex items-center gap-2 rounded-md p-2 hover-elevate cursor-pointer"
+                        data-testid={`label-column-${col.key}`}
+                      >
+                        <Checkbox
+                          checked={selectedColumnKeys.has(col.key)}
+                          onCheckedChange={() => toggleColumn(col.key)}
+                          data-testid={`checkbox-column-${col.key}`}
+                        />
+                        <span className="text-sm">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowColumnChooser(false)}
+              data-testid="button-cancel-export"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="gap-2"
+              onClick={runExport}
+              disabled={selectedColumnKeys.size === 0}
+              data-testid="button-confirm-export"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); } }}>
         <DialogContent className="max-w-md">
