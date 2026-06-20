@@ -88,6 +88,18 @@ import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
+import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
+
+function formatGroupTermDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export default function MemberDetailView({ 
   member, 
@@ -510,6 +522,49 @@ export default function MemberDetailView({
       return data || [];
     },
   });
+
+  const { data: groupAssignments = [], isLoading: groupAssignmentsLoading } = useQuery({
+    queryKey: ["member-detail-group-assignments", member?.id],
+    enabled: !!member?.id && activeTab === 'roles',
+    queryFn: async () => {
+      if (!member?.id) return [];
+      try {
+        return await base44.entities.MemberGroupAssignment.filter({ member_id: member.id }) || [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  const assignmentGroupIds = useMemo(() => {
+    const ids = new Set();
+    for (const a of groupAssignments) {
+      if (a?.group_id) ids.add(a.group_id);
+    }
+    return Array.from(ids);
+  }, [groupAssignments]);
+
+  const { data: assignmentGroups = [] } = useQuery({
+    queryKey: ["member-detail-assignment-groups", assignmentGroupIds],
+    enabled: assignmentGroupIds.length > 0,
+    queryFn: async () => {
+      try {
+        return await base44.entities.MemberGroup.list({
+          filter: { id: { in: assignmentGroupIds } }
+        }) || [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  const groupNameById = useMemo(() => {
+    const map = new Map();
+    for (const g of assignmentGroups) {
+      if (g?.id) map.set(g.id, g.name || g.title || 'Group');
+    }
+    return map;
+  }, [assignmentGroups]);
 
   const memberRoleIds = useMemo(() => {
     const roleId = formData.role_id || member?.role_id;
@@ -1891,6 +1946,80 @@ export default function MemberDetailView({
                         </Badge>
                       </div>
                     )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  Group Roles
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {groupAssignmentsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500" data-testid="status-group-roles-loading">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading group roles…
+                  </div>
+                ) : groupAssignments.length === 0 ? (
+                  <p className="text-sm text-slate-500" data-testid="text-group-roles-empty">
+                    This member holds no group role assignments.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {groupAssignments.map(assignment => {
+                      const groupName = groupNameById.get(assignment.group_id) || 'Group';
+                      const length = formatTermLength(assignment);
+                      const termNumber = Number(assignment.term_number);
+                      const maxTerms = Number(assignment.max_terms);
+                      const hasTermNumber = Number.isFinite(termNumber) && termNumber > 0;
+                      const hasMaxTerms = Number.isFinite(maxTerms) && maxTerms > 0;
+                      const start = formatGroupTermDate(assignment.term_start_date);
+                      const end = formatGroupTermDate(assignment.term_end_date);
+                      let termLabel = null;
+                      if (hasTermNumber && hasMaxTerms) termLabel = `Term ${termNumber} of ${maxTerms}`;
+                      else if (hasTermNumber) termLabel = `Term ${termNumber}`;
+                      const hasAnyTerm = Boolean(length || hasTermNumber || start || end);
+                      return (
+                        <div
+                          key={assignment.id}
+                          className="p-3 bg-slate-50 rounded-lg"
+                          data-testid={`card-group-role-${assignment.id}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-sm" data-testid={`text-group-role-name-${assignment.id}`}>
+                              {groupName}
+                            </p>
+                            {assignment.group_role && (
+                              <Badge variant="secondary" className="text-xs">
+                                {assignment.group_role}
+                              </Badge>
+                            )}
+                            {assignment.is_group_admin === true && (
+                              <Badge variant="outline" className="text-xs" data-testid={`badge-group-admin-${assignment.id}`}>
+                                Group admin
+                              </Badge>
+                            )}
+                          </div>
+                          {hasAnyTerm && (
+                            <div className="mt-1 text-xs text-slate-500 space-y-0.5" data-testid={`text-group-role-term-${assignment.id}`}>
+                              {termLabel && <div>{termLabel}{length ? ` · ${length}` : ''}</div>}
+                              {!termLabel && length && <div>{length}</div>}
+                              {(start || end) && (
+                                <div>
+                                  {start || '—'}
+                                  {' – '}
+                                  {end || '—'}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
