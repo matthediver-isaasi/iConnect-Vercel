@@ -28,6 +28,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
@@ -758,10 +759,22 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
+    const role = assignForm.group_role;
+    // Snapshot the role's current term onto the assignment so later role edits
+    // don't retroactively change this member's recorded term, matching the
+    // award/invite-accept flows (Task #1626/#1628). No prior assignment here
+    // (already-assigned people are rejected above), so term_number resets to 1.
+    const roleTermDefs =
+      selectedGroup.role_term_definitions && typeof selectedGroup.role_term_definitions === 'object'
+        ? selectedGroup.role_term_definitions
+        : {};
+    const termSnapshot = buildTermSnapshot(roleTermDefs[role], { role });
+
     const data = {
-      group_role: assignForm.group_role,
+      group_role: role,
       group_id: selectedGroup.id,
-      is_group_admin: assignForm.is_group_admin === true
+      is_group_admin: assignForm.is_group_admin === true,
+      ...termSnapshot
     };
 
     if (assignForm.member_id) {
