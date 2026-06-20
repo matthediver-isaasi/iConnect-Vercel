@@ -99,6 +99,7 @@ export const COUNTRIES = [
   { code: "KI", name: "Kiribati" },
   { code: "KP", name: "Korea (North)" },
   { code: "KR", name: "Korea (South)" },
+  { code: "XK", name: "Kosovo" },
   { code: "KW", name: "Kuwait" },
   { code: "KG", name: "Kyrgyzstan" },
   { code: "LA", name: "Laos" },
