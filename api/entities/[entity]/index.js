@@ -1025,6 +1025,16 @@ export default async function handler(req, res) {
           memberId: tenantCtx.memberId,
           isPrivileged,
         });
+        if (wantsCount) {
+          // The DB-level `count` ignores both the row limit AND the group-private
+          // filtering applied above. filterForumReadRows is all-or-nothing per
+          // owning category, so a result set that survives filtering is fully
+          // accessible and its count is safe to expose; a set that was entirely
+          // filtered out (or genuinely empty) must report 0 so we never leak the
+          // size of a group-private category to a non-member.
+          const safeCount = filtered && filtered.length > 0 ? (count ?? 0) : 0;
+          return res.json({ data: filtered || [], count: safeCount });
+        }
         return res.json(filtered || []);
       }
 

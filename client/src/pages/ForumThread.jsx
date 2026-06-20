@@ -270,7 +270,7 @@ export default function ForumThreadPage() {
       return newThread;
     },
     onSuccess: (newThread) => {
-      queryClient.invalidateQueries({ queryKey: ["forum-threads-browse"] });
+      queryClient.invalidateQueries({ queryKey: ["forum-category-stats"] });
       newThreadImages.forEach(img => URL.revokeObjectURL(img.preview));
       setNewThreadImages([]);
       toast.success("Thread created");
@@ -446,7 +446,7 @@ export default function ForumThreadPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["forum-thread", threadId] });
-      queryClient.invalidateQueries({ queryKey: ["forum-threads-browse"] });
+      queryClient.invalidateQueries({ queryKey: ["forum-category-stats"] });
       setShowMoveDialog(false);
       setMoveCategoryId("");
       toast.success("Thread moved");

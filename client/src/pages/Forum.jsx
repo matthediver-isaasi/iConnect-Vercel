@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,12 +38,6 @@ export default function ForumPage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ["forum-categories-browse"],
     queryFn: () => base44.entities.ForumCategory.list({ sort: { display_order: "asc" } }),
-    staleTime: 30000,
-  });
-
-  const { data: threads = [] } = useQuery({
-    queryKey: ["forum-threads-browse"],
-    queryFn: () => base44.entities.ForumThread.list(),
     staleTime: 30000,
   });
 
@@ -97,29 +91,6 @@ export default function ForumPage() {
     return map;
   }, [memberGroups]);
 
-  const threadCountByCategory = useMemo(() => {
-    const counts = {};
-    threads.forEach((t) => {
-      if (t.category_id) {
-        counts[t.category_id] = (counts[t.category_id] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [threads]);
-
-  const latestActivityByCategory = useMemo(() => {
-    const latest = {};
-    threads.forEach((t) => {
-      if (t.category_id) {
-        const activity = t.last_post_at || t.created_at;
-        if (activity && (!latest[t.category_id] || activity > latest[t.category_id])) {
-          latest[t.category_id] = activity;
-        }
-      }
-    });
-    return latest;
-  }, [threads]);
-
   const accessibleCategories = useMemo(() => {
     return categories.filter((cat) => {
       if (!cat.is_active) return false;
@@ -136,6 +107,45 @@ export default function ForumPage() {
       return true;
     });
   }, [categories, myGroupIds, myGroupRoles, groupForumRoles]);
+
+  // Per-category thread count + latest-activity timestamp, resolved with one
+  // tiny query per accessible category instead of downloading every thread to
+  // the browser. `count=exact` returns the total count, while sorting by
+  // last_post_at desc + limit 1 surfaces the most recent activity in the same
+  // round-trip. Only categories the member can access are queried, so the
+  // server-side group-private filtering never trims anything here.
+  const categoryStatsQueries = useQueries({
+    queries: accessibleCategories.map((cat) => ({
+      queryKey: ["forum-category-stats", cat.id],
+      queryFn: () =>
+        base44.entities.ForumThread.list({
+          filter: { category_id: cat.id },
+          sort: { last_post_at: "desc" },
+          limit: 1,
+          queryParams: { count: "exact" },
+        }),
+      staleTime: 30000,
+    })),
+  });
+
+  const threadCountByCategory = useMemo(() => {
+    const counts = {};
+    accessibleCategories.forEach((cat, i) => {
+      counts[cat.id] = categoryStatsQueries[i]?.data?.count ?? 0;
+    });
+    return counts;
+  }, [accessibleCategories, categoryStatsQueries]);
+
+  const latestActivityByCategory = useMemo(() => {
+    const latest = {};
+    accessibleCategories.forEach((cat, i) => {
+      const latestThread = categoryStatsQueries[i]?.data?.data?.[0];
+      if (latestThread) {
+        latest[cat.id] = latestThread.last_post_at || latestThread.created_at || null;
+      }
+    });
+    return latest;
+  }, [accessibleCategories, categoryStatsQueries]);
 
   // Resolve the selected category from the ACCESS-FILTERED list so that a manually
   // supplied ?categoryId= for a group category the member cannot access never
