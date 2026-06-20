@@ -86,6 +86,7 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import { parseEventTypes } from "@/lib/utils";
 import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
+import ForumThreadList from "@/components/forum/ForumThreadList";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
@@ -2538,6 +2539,10 @@ export default function MemberGroupDetailPage() {
                   )}
                 </div>
               )}
+
+              <div className="mt-6">
+                <ForumThreadList category={groupForumCategory} />
+              </div>
             </CardContent>
           </Card>
         )}
