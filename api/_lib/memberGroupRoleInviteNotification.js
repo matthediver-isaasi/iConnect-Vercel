@@ -12,21 +12,6 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-/** Best-effort plain-text preview of terms HTML for the email body. */
-function termsPreview(html) {
-  if (!html) return '';
-  const text = String(html)
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;|\u00A0/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!text) return '';
-  return text.length > 280 ? `${text.slice(0, 277)}…` : text;
-}
-
 function buildInviteUrl(tenantSlug, token) {
   const baseUrl = tenantSlug
     ? `https://${tenantSlug}.${APP_DOMAIN}`
@@ -34,7 +19,7 @@ function buildInviteUrl(tenantSlug, token) {
   return `${baseUrl}/group-role-invite/${token}`;
 }
 
-function buildEmailHtml({ tenantName, primaryColor, memberName, groupName, role, termsText, inviteUrl }) {
+function buildEmailHtml({ tenantName, primaryColor, memberName, groupName, role, termsUrl, inviteUrl }) {
   const color = primaryColor || '#5C0085';
   return `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
@@ -46,12 +31,14 @@ function buildEmailHtml({ tenantName, primaryColor, memberName, groupName, role,
       ${tenantName ? `${escapeHtml(tenantName)} has` : 'You have been'} invited you to take on the role of
       <strong>${escapeHtml(role)}</strong> in <strong>${escapeHtml(groupName)}</strong>.
     </p>
-    ${termsText ? `
+    ${termsUrl ? `
     <div style="background: #f7f7f9; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; margin: 16px 0;">
       <p style="margin: 0 0 4px; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">Terms of reference</p>
-      <p style="margin: 0; color: #444;">${escapeHtml(termsText)}</p>
+      <p style="margin: 0; color: #444;">This role has terms of reference. You can read them here:
+        <a href="${escapeHtml(termsUrl)}" style="color: ${escapeHtml(color)};">${escapeHtml(termsUrl)}</a>
+      </p>
     </div>` : ''}
-    <p style="color: #555;">Review the full terms of reference and respond using the button below.</p>
+    <p style="color: #555;">Respond to this invitation using the button below.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 16px 0;">
       <tr>
         <td>
@@ -83,20 +70,19 @@ export async function sendRoleInviteEmail({
   memberName,
   groupName,
   role,
-  termsHtml,
+  termsUrl,
   token,
 }) {
   if (!toEmail) return { success: false, error: 'No recipient email' };
 
   const inviteUrl = buildInviteUrl(tenantSlug, token);
-  const termsText = termsPreview(termsHtml);
   const html = buildEmailHtml({
     tenantName,
     primaryColor,
     memberName,
     groupName,
     role,
-    termsText,
+    termsUrl: termsUrl && String(termsUrl).trim() ? String(termsUrl).trim() : '',
     inviteUrl,
   });
   const subject = `Invitation: ${role} in ${groupName}`;

@@ -51,7 +51,12 @@
       "role_terms_of_reference": {
         "type": "object",
         "default": {},
-        "description": "Optional per-role terms of reference, keyed by role name (HTML). Used by role invitations; falls back to the group-level terms_of_reference when a role has none."
+        "description": "Deprecated. Previously held per-role terms-of-reference HTML, keyed by role name. Superseded by role_terms_url; retained for legacy data only."
+      },
+      "role_terms_url": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role terms-of-reference URL, keyed by role name. Used by role invitations: the invite email and public invite page link to this URL. Roles without a URL show no terms link."
       },
       "role_term_definitions": {
         "type": "object",

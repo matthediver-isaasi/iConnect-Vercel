@@ -48,7 +48,7 @@ function inviteResponse(row, member) {
 async function loadGroup(tenantId, groupId) {
   const { data } = await supabase
     .from('member_group')
-    .select('id, name, roles, tenant_id, terms_of_reference, role_terms_of_reference')
+    .select('id, name, roles, tenant_id, terms_of_reference, role_terms_url')
     .eq('id', groupId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -64,11 +64,10 @@ async function loadTenant(tenantId) {
   return data || null;
 }
 
-function resolveRoleTerms(group, role) {
-  const map = group?.role_terms_of_reference;
-  const roleTerms = map && typeof map === 'object' ? map[role] : null;
-  if (roleTerms && String(roleTerms).trim()) return roleTerms;
-  return group?.terms_of_reference || null;
+function resolveRoleTermsUrl(group, role) {
+  const map = group?.role_terms_url;
+  const url = map && typeof map === 'object' ? map[role] : null;
+  return url && String(url).trim() ? String(url).trim() : null;
 }
 
 async function dispatchInvite({ tenant, group, member, role, token }) {
@@ -81,7 +80,7 @@ async function dispatchInvite({ tenant, group, member, role, token }) {
     memberName: memberName(member),
     groupName: group.name,
     role,
-    termsHtml: resolveRoleTerms(group, role),
+    termsUrl: resolveRoleTermsUrl(group, role),
     token,
   });
 }

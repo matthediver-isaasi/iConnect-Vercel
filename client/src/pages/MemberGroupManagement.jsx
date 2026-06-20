@@ -108,6 +108,7 @@ export default function MemberGroupManagementPage() {
     linkedin_url: '',
     terms_of_reference: '',
     role_terms_of_reference: {},
+    role_terms_url: {},
     role_term_definitions: {}
   });
   const [assignForm, setAssignForm] = useState({
@@ -443,7 +444,8 @@ export default function MemberGroupManagementPage() {
       classification_id: '',
       linkedin_url: '',
       terms_of_reference: '',
-      role_terms_of_reference: {}
+      role_terms_of_reference: {},
+      role_terms_url: {}
     });
     setEditingGroup(null);
   };
@@ -469,6 +471,7 @@ export default function MemberGroupManagementPage() {
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || '',
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
     });
     setShowGroupDialog(true);
@@ -495,6 +498,7 @@ export default function MemberGroupManagementPage() {
       linkedin_url: group.linkedin_url || '',
       terms_of_reference: group.terms_of_reference || '',
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
     });
     setShowGroupDialog(true);
@@ -632,6 +636,18 @@ export default function MemberGroupManagementPage() {
       if (hasText) prunedRoleTerms[roleName] = raw;
     }
 
+    // Prune per-role terms-of-reference URLs (Task #1655): keep only roles still
+    // on the group, and drop blank entries.
+    const rawRoleTermsUrl = (groupForm.role_terms_url && typeof groupForm.role_terms_url === 'object')
+      ? groupForm.role_terms_url
+      : {};
+    const prunedRoleTermsUrl = {};
+    for (const [roleName, url] of Object.entries(rawRoleTermsUrl)) {
+      if (!validRoles.has(roleName)) continue;
+      const trimmed = (url || '').toString().trim();
+      if (trimmed) prunedRoleTermsUrl[roleName] = trimmed;
+    }
+
     // Prune + normalise per-role term definitions (Task #1626): keep only roles
     // still on the group, coerce numeric fields, and drop entries that carry
     // neither a term length nor a max-terms value.
@@ -667,6 +683,7 @@ export default function MemberGroupManagementPage() {
       linkedin_url: trimmedLinkedin || null,
       terms_of_reference: trimmedTerms || null,
       role_terms_of_reference: prunedRoleTerms,
+      role_terms_url: prunedRoleTermsUrl,
       role_term_definitions: prunedRoleTermDefs
     };
 
@@ -714,6 +731,8 @@ export default function MemberGroupManagementPage() {
   const handleRemoveRole = (role) => {
     const nextRoleTerms = { ...(groupForm.role_terms_of_reference || {}) };
     delete nextRoleTerms[role];
+    const nextRoleTermsUrl = { ...(groupForm.role_terms_url || {}) };
+    delete nextRoleTermsUrl[role];
     setGroupForm({
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
@@ -721,7 +740,8 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
       forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role,
-      role_terms_of_reference: nextRoleTerms
+      role_terms_of_reference: nextRoleTerms,
+      role_terms_url: nextRoleTermsUrl
     });
   };
 
@@ -1619,7 +1639,7 @@ export default function MemberGroupManagementPage() {
                   <div className="mt-4 space-y-2">
                     <Label htmlFor="role_terms_select">Per-role terms of reference</Label>
                     <p className="text-xs text-slate-500">
-                      Optional. Set terms shown to a member when they're invited into a specific role. Roles without their own terms fall back to the group terms of reference above.
+                      Optional. Provide a link to where the terms of reference for a specific role can be found. The role invite email and invite page link to this URL. Roles without a link simply show no terms of reference.
                     </p>
                     <Select
                       value={selectedRoleForTerms || ''}
@@ -1630,10 +1650,10 @@ export default function MemberGroupManagementPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {(groupForm.roles || []).map((role) => {
-                          const hasTerms = !!(groupForm.role_terms_of_reference || {})[role];
+                          const hasTerms = !!((groupForm.role_terms_url || {})[role] || '').toString().trim();
                           return (
                             <SelectItem key={role} value={role}>
-                              {role}{hasTerms ? ' • has terms' : ''}
+                              {role}{hasTerms ? ' • has terms link' : ''}
                             </SelectItem>
                           );
                         })}
@@ -1715,22 +1735,27 @@ export default function MemberGroupManagementPage() {
                             </div>
                           </div>
                         </div>
-                        <SimpleRichTextEditor
-                          content={(groupForm.role_terms_of_reference || {})[selectedRoleForTerms] || ''}
-                          onChange={(html) => setGroupForm((prev) => ({
-                            ...prev,
-                            role_terms_of_reference: {
-                              ...(prev.role_terms_of_reference || {}),
-                              [selectedRoleForTerms]: html
-                            }
-                          }))}
-                          placeholder={`Terms of reference for ${selectedRoleForTerms}…`}
-                          className="min-h-[200px] [&_.tiptap]:min-h-[160px]"
-                          data-testid="input-role-terms-of-reference"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          These terms are shown to the invitee for the <strong>{selectedRoleForTerms}</strong> role.
-                        </p>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="role-terms-url">Terms of reference link</Label>
+                          <Input
+                            id="role-terms-url"
+                            type="url"
+                            inputMode="url"
+                            value={(groupForm.role_terms_url || {})[selectedRoleForTerms] || ''}
+                            onChange={(e) => setGroupForm((prev) => ({
+                              ...prev,
+                              role_terms_url: {
+                                ...(prev.role_terms_url || {}),
+                                [selectedRoleForTerms]: e.target.value
+                              }
+                            }))}
+                            placeholder="https://example.org/terms-of-reference"
+                            data-testid="input-role-terms-url"
+                          />
+                          <p className="text-xs text-slate-500">
+                            The invitee for the <strong>{selectedRoleForTerms}</strong> role is shown a link to this page. Leave blank for no terms of reference.
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>

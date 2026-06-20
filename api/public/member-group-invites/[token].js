@@ -11,11 +11,10 @@ import { buildTermSnapshot, resolveRoleTermDefinition } from '../../_lib/memberG
 //         member_group_assignment with the invited role; decline just records
 //         the decision. Re-clicked / expired links return a friendly state.
 
-function resolveRoleTerms(group, role) {
-  const map = group?.role_terms_of_reference;
-  const roleTerms = map && typeof map === 'object' ? map[role] : null;
-  if (roleTerms && String(roleTerms).trim()) return roleTerms;
-  return group?.terms_of_reference || null;
+function resolveRoleTermsUrl(group, role) {
+  const map = group?.role_terms_url;
+  const url = map && typeof map === 'object' ? map[role] : null;
+  return url && String(url).trim() ? String(url).trim() : null;
 }
 
 function isExpired(row) {
@@ -38,7 +37,7 @@ function buildResponse({ row, member, group, tenant, extra }) {
       name: group?.name || null,
     },
     role: row.group_role,
-    terms_of_reference: group ? resolveRoleTerms(group, row.group_role) : null,
+    terms_url: group ? resolveRoleTermsUrl(group, row.group_role) : null,
     expires_at: row.expires_at || null,
     decided_at: row.decided_at || null,
     tenant: tenant
@@ -74,7 +73,7 @@ export default async function handler(req, res) {
 
   const [{ data: member }, { data: group }, { data: tenant }] = await Promise.all([
     supabase.from('member').select('id, first_name, last_name, email').eq('id', row.member_id).maybeSingle(),
-    supabase.from('member_group').select('id, name, terms_of_reference, role_terms_of_reference, role_term_definitions, is_active').eq('id', row.group_id).maybeSingle(),
+    supabase.from('member_group').select('id, name, terms_of_reference, role_terms_url, role_term_definitions, is_active').eq('id', row.group_id).maybeSingle(),
     supabase.from('tenant').select('name, logo_url, primary_color').eq('id', row.tenant_id).maybeSingle(),
   ]);
 

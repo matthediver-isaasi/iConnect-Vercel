@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import DOMPurify from "dompurify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,8 +71,8 @@ export default function MemberGroupRoleInvitePage() {
   }, [loadDetails]);
 
   const primaryColor = data?.tenant?.primary_color || undefined;
-  const sanitizedTerms = data?.terms_of_reference
-    ? DOMPurify.sanitize(data.terms_of_reference)
+  const termsUrl = data?.terms_url && String(data.terms_url).trim()
+    ? String(data.terms_url).trim()
     : '';
 
   return (
@@ -147,21 +146,29 @@ export default function MemberGroupRoleInvitePage() {
                 </div>
               </div>
 
-              {sanitizedTerms && (
+              {termsUrl && (
                 <div className="space-y-2" data-testid="section-terms">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Terms of reference</p>
-                  <div
-                    className="rounded-md border border-border p-4 text-sm text-foreground prose prose-sm max-w-none dark:prose-invert"
-                    data-testid="text-terms"
-                    dangerouslySetInnerHTML={{ __html: sanitizedTerms }}
-                  />
+                  <div className="rounded-md border border-border p-4 text-sm text-foreground space-y-1">
+                    <p>By accepting this invite you are agreeing to the terms of reference which can be found here:</p>
+                    <a
+                      href={termsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all underline"
+                      style={{ color: primaryColor || 'hsl(var(--primary))' }}
+                      data-testid="link-terms"
+                    >
+                      {termsUrl}
+                    </a>
+                  </div>
                 </div>
               )}
 
               {data.status === 'pending' && (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground text-center">
-                    Accept to take on this role{sanitizedTerms ? ', agreeing to the terms of reference above' : ''}, or decline.
+                    Accept to take on this role{termsUrl ? ', agreeing to the terms of reference above' : ''}, or decline.
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <Button
