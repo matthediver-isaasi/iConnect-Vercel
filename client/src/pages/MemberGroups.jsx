@@ -164,7 +164,7 @@ export default function MemberGroupsPage() {
                   }}
                   data-testid={`card-group-${group.id}`}
                 >
-                  <div className="relative w-full h-40 bg-slate-100">
+                  <div className="relative w-full aspect-[5/2] bg-slate-100">
                     {openVacancyCountByGroup[group.id] > 0 && (
                       <div className="absolute top-2 right-2 z-10">
                         <Badge

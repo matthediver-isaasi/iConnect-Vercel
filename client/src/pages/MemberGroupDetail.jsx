@@ -1588,7 +1588,7 @@ export default function MemberGroupDetailPage() {
         </div>
 
         <Card className="overflow-hidden mb-6" data-testid={`card-group-detail-${group.id}`}>
-          <div className="relative w-full h-56 md:h-64 bg-slate-100">
+          <div className="relative w-full aspect-[5/2] bg-slate-100">
             {group.header_image_url ? (
               <img
                 src={group.header_image_url}
