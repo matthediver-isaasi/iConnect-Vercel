@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MessageSquare, Pin, Lock, Plus, Search, Eye, MessageCircle } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useNavigate } from "react-router-dom";
 
 export const THREADS_PER_PAGE = 15;
@@ -91,6 +92,14 @@ export default function ForumThreadList({ category }) {
     staleTime: 30000,
     enabled: !!categoryId,
   });
+
+  useRealtimeSubscription(
+    'forum_thread',
+    [["forum-threads-browse"]],
+    {
+      enabled: !!categoryId,
+    }
+  );
 
   const { data: members = [] } = useQuery({
     queryKey: ["forum-members-browse"],
