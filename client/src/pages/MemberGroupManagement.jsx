@@ -32,6 +32,7 @@ import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 
 function isDuplicateClassificationError(error) {
   const msg = (error?.message || error?.error || '').toLowerCase();
@@ -614,6 +615,16 @@ export default function MemberGroupManagementPage() {
       .trim().length > 0;
     const trimmedTerms = termsHasText ? rawTerms : '';
 
+    // Normalise the description (rich text / HTML): trim, treat visually-empty
+    // content as empty, and sanitise the markup before it is saved. Legacy
+    // plain-text values pass through sanitisation unchanged.
+    const rawDescription = (groupForm.description || '').trim();
+    const descriptionHasText = rawDescription
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedDescription = descriptionHasText ? sanitizeRichText(rawDescription) : '';
+
     // Prune leadership_roles / projects_enabled_roles to only roles still on the group.
     const validRoles = new Set(groupForm.roles || []);
     const prunedLeadership = (groupForm.leadership_roles || []).filter((r) => validRoles.has(r));
@@ -671,6 +682,7 @@ export default function MemberGroupManagementPage() {
 
     const payload = {
       ...groupForm,
+      description: sanitizedDescription,
       default_self_join_role: groupForm.allow_self_join ? groupForm.default_self_join_role : null,
       leadership_roles: prunedLeadership,
       projects_enabled: !!groupForm.projects_enabled,
@@ -925,7 +937,7 @@ export default function MemberGroupManagementPage() {
     let filtered = groups.filter(group => {
       const matchesSearch = searchQuery === '' || 
         group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (group.description && group.description.toLowerCase().includes(searchQuery.toLowerCase()));
+        (group.description && group.description.replace(/<[^>]*>/g, ' ').toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesClassification =
         classificationFilter === 'all' ||
         (classificationFilter === '__none__'
@@ -1495,12 +1507,11 @@ export default function MemberGroupManagementPage() {
 
               <div>
                 <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={groupForm.description}
-                  onChange={(e) => setGroupForm({ ...groupForm, description: e.target.value })}
+                <SimpleRichTextEditor
+                  content={groupForm.description}
+                  onChange={(html) => setGroupForm({ ...groupForm, description: html })}
                   placeholder="Description of this group..."
-                  rows={3}
+                  data-testid="input-group-description"
                 />
               </div>
 

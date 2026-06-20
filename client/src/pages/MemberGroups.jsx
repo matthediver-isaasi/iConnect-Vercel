@@ -9,6 +9,7 @@ import { Users, Loader2, ImageIcon, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 
 export default function MemberGroupsPage() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -81,7 +82,7 @@ export default function MemberGroupsPage() {
         const q = searchQuery.toLowerCase();
         return (
           g.name?.toLowerCase().includes(q) ||
-          (g.description || '').toLowerCase().includes(q)
+          (g.description || '').replace(/<[^>]*>/g, ' ').toLowerCase().includes(q)
         );
       })
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -202,9 +203,10 @@ export default function MemberGroupsPage() {
                       {group.name}
                     </h3>
                     {group.description && (
-                      <p className="text-sm text-slate-600 mb-3 line-clamp-3">
-                        {group.description}
-                      </p>
+                      <div
+                        className="text-sm text-slate-600 mb-3 line-clamp-3 prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: sanitizeRichText(group.description) }}
+                      />
                     )}
                     {isGroupAdmin && (
                       <div className="mb-3">

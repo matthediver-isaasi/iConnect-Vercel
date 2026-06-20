@@ -1642,12 +1642,13 @@ export default function MemberGroupDetailPage() {
               {group.name}
             </h1>
             {group.description && (
-              <p
-                className="text-slate-700 whitespace-pre-wrap mb-4"
+              <div
+                className="text-slate-700 mb-4 prose prose-sm max-w-none"
                 data-testid="text-group-description"
-              >
-                {group.description}
-              </p>
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(group.description || ""),
+                }}
+              />
             )}
             {group.linkedin_url && (
               <a
