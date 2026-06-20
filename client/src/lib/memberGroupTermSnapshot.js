@@ -76,6 +76,19 @@ export function buildTermSnapshot(termDef, { existingAssignment = null, role = '
   };
 }
 
+// Advisory check used at award / invite time: would assigning a member into
+// `role` push their next term_number beyond the role's max_terms? Returns
+// { nextTermNumber, maxTerms } when it would exceed, otherwise null. Purely
+// informational — callers decide whether to warn or block (Task #1630).
+export function evaluateTermLimit(termDef, { existingAssignment = null, role = '' } = {}) {
+  const snapshot = buildTermSnapshot(termDef, { existingAssignment, role });
+  const nextTermNumber = snapshot.term_number;
+  const maxTerms = snapshot.max_terms;
+  if (maxTerms == null || nextTermNumber == null) return null;
+  if (nextTermNumber > maxTerms) return { nextTermNumber, maxTerms };
+  return null;
+}
+
 const TERM_UNIT_LABELS = { months: 'months', years: 'years' };
 
 // Human label for a term length, e.g. "3 years". Accepts an assignment-style

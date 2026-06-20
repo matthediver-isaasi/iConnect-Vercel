@@ -76,3 +76,15 @@ export function buildTermSnapshot(termDef, { existingAssignment = null, role = '
     term_number: termNumber,
   };
 }
+
+// Advisory check: would assigning a member into `role` push their next
+// term_number beyond the role's max_terms? Returns { nextTermNumber, maxTerms }
+// when it would exceed, otherwise null. Mirror of the client copy (Task #1630).
+export function evaluateTermLimit(termDef, { existingAssignment = null, role = '' } = {}) {
+  const snapshot = buildTermSnapshot(termDef, { existingAssignment, role });
+  const nextTermNumber = snapshot.term_number;
+  const maxTerms = snapshot.max_terms;
+  if (maxTerms == null || nextTermNumber == null) return null;
+  if (nextTermNumber > maxTerms) return { nextTermNumber, maxTerms };
+  return null;
+}

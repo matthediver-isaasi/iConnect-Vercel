@@ -9,9 +9,20 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -50,6 +61,8 @@ export default function MemberGroupManagementPage() {
   const [inviteGroup, setInviteGroup] = useState(null);
   const [inviteForm, setInviteForm] = useState({ member_id: '', role: '' });
   const [inviteMemberSearch, setInviteMemberSearch] = useState('');
+  // Advisory max-terms warning before sending a role invite (Task #1630).
+  const [inviteTermWarning, setInviteTermWarning] = useState(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -771,16 +784,42 @@ export default function MemberGroupManagementPage() {
     setShowInviteDialog(true);
   };
 
-  const handleSendInvite = () => {
-    if (!inviteForm.member_id || !inviteForm.role) {
-      toast.error('Please select a member and a role');
-      return;
-    }
+  // Would inviting this member into the selected role push their next term past
+  // the role's max_terms? Renewals into the SAME role can exceed; a different /
+  // new role resets to term 1 and never warns. Returns the warning or null.
+  const evaluateInviteTermLimit = () => {
+    if (!inviteGroup || !inviteForm.member_id || !inviteForm.role) return null;
+    const role = inviteForm.role;
+    const defs = inviteGroup.role_term_definitions;
+    const termDef = defs && typeof defs === 'object' ? defs[role] : null;
+    const existing = assignments.find(
+      (a) => a.group_id === inviteGroup.id && a.member_id === inviteForm.member_id
+    ) || null;
+    const warning = evaluateTermLimit(termDef, { existingAssignment: existing, role });
+    if (!warning) return null;
+    return { ...warning, memberName: getMemberName(inviteForm.member_id), role };
+  };
+
+  const submitInvite = () => {
+    setInviteTermWarning(null);
     createInviteMutation.mutate({
       groupId: inviteGroup.id,
       memberId: inviteForm.member_id,
       role: inviteForm.role
     });
+  };
+
+  const handleSendInvite = () => {
+    if (!inviteForm.member_id || !inviteForm.role) {
+      toast.error('Please select a member and a role');
+      return;
+    }
+    const warning = evaluateInviteTermLimit();
+    if (warning) {
+      setInviteTermWarning(warning);
+      return;
+    }
+    submitInvite();
   };
 
   const getGroupAssignments = (groupId) => {
@@ -2322,6 +2361,47 @@ export default function MemberGroupManagementPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={!!inviteTermWarning}
+          onOpenChange={(open) => {
+            if (!open && !createInviteMutation.isPending) setInviteTermWarning(null);
+          }}
+        >
+          <AlertDialogContent data-testid="dialog-invite-term-limit-warning">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-warning" />
+                Maximum terms exceeded
+              </AlertDialogTitle>
+              <AlertDialogDescription data-testid="text-invite-term-limit-warning">
+                Inviting {inviteTermWarning?.memberName} would be their term{' '}
+                {inviteTermWarning?.nextTermNumber} as {inviteTermWarning?.role}, which
+                exceeds the maximum of {inviteTermWarning?.maxTerms}{' '}
+                {inviteTermWarning?.maxTerms === 1 ? 'term' : 'terms'} set for this role.
+                You can still proceed, but please confirm this is intended.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={createInviteMutation.isPending}
+                data-testid="button-cancel-invite-term-limit"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  submitInvite();
+                }}
+                disabled={createInviteMutation.isPending}
+                data-testid="button-confirm-invite-term-limit"
+              >
+                Send anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Bulk Create Dialog */}
         <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>

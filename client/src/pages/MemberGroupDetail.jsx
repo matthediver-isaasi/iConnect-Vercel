@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
-import { buildTermSnapshot, formatTermLength } from "@/lib/memberGroupTermSnapshot";
+import { buildTermSnapshot, formatTermLength, evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { parseISO } from "date-fns";
@@ -304,6 +304,8 @@ export default function MemberGroupDetailPage() {
   const [editingVacancyId, setEditingVacancyId] = useState(null);
   const [submissionsVacancy, setSubmissionsVacancy] = useState(null);
   const [expandedSubmissionId, setExpandedSubmissionId] = useState(null);
+  // Advisory max-terms warning before awarding a vacancy (Task #1630).
+  const [termWarning, setTermWarning] = useState(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -879,6 +881,52 @@ export default function MemberGroupDetailPage() {
     const defs = group?.role_term_definitions;
     return defs && typeof defs === "object" ? defs : {};
   }, [group]);
+
+  // Advisory guardrail: does awarding this person their next term in `role`
+  // exceed the role's max_terms? Resolves the member by id (applications) or by
+  // email against the group's members (form submissions). Renewals into the
+  // SAME role are the case that can exceed; a brand-new assignee resets to term
+  // 1 and never warns. Returns { nextTermNumber, maxTerms, memberName, role } or
+  // null. (Task #1630)
+  const evaluateAwardTermLimit = ({ memberId, email, role }) => {
+    if (!role) return null;
+    let resolvedId = memberId || null;
+    if (!resolvedId && email) {
+      const wanted = email.trim().toLowerCase();
+      resolvedId = members.find((m) => (m.email || "").toLowerCase() === wanted)?.id || null;
+    }
+    if (!resolvedId) return null;
+    const existing = groupAssignments.find(
+      (a) => a.member_id === resolvedId && a.group_id === groupId
+    );
+    const warning = evaluateTermLimit(roleTermDefByRole[role], {
+      existingAssignment: existing || null,
+      role,
+    });
+    if (!warning) return null;
+    const member = members.find((m) => m.id === resolvedId);
+    const memberName =
+      member && `${member.first_name || ""} ${member.last_name || ""}`.trim()
+        ? `${member.first_name || ""} ${member.last_name || ""}`.trim()
+        : "This member";
+    return { ...warning, memberName, role };
+  };
+
+  // Gate the award behind a confirmation dialog when it would exceed max_terms;
+  // otherwise award straight away.
+  const requestAward = (args) => {
+    const role = (args?.vacancy?.role_title || "").trim();
+    const warning = evaluateAwardTermLimit({
+      memberId: args.memberId,
+      email: args.email,
+      role,
+    });
+    if (warning) {
+      setTermWarning({ ...warning, awardArgs: args });
+      return;
+    }
+    awardPositionMutation.mutate(args);
+  };
 
   const sortedMembers = useMemo(() => {
     return members
@@ -2535,6 +2583,49 @@ export default function MemberGroupDetailPage() {
       </Dialog>
 
       <AlertDialog
+        open={!!termWarning}
+        onOpenChange={(open) => {
+          if (!open && !awardPositionMutation.isPending) setTermWarning(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-term-limit-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-warning" />
+              Maximum terms exceeded
+            </AlertDialogTitle>
+            <AlertDialogDescription data-testid="text-term-limit-warning">
+              Awarding this position would be {termWarning?.memberName}'s term{" "}
+              {termWarning?.nextTermNumber} as {termWarning?.role}, which exceeds
+              the maximum of {termWarning?.maxTerms}{" "}
+              {termWarning?.maxTerms === 1 ? "term" : "terms"} set for this role.
+              You can still proceed, but please confirm this is intended.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={awardPositionMutation.isPending}
+              data-testid="button-cancel-term-limit"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                const args = termWarning?.awardArgs;
+                setTermWarning(null);
+                if (args) awardPositionMutation.mutate(args);
+              }}
+              disabled={awardPositionMutation.isPending}
+              data-testid="button-confirm-term-limit"
+            >
+              Award anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={!!resourceToDelete}
         onOpenChange={(open) => {
           if (!open && !deleteResourceMutation.isPending) setResourceToDelete(null);
@@ -3014,7 +3105,7 @@ export default function MemberGroupDetailPage() {
                                 awardPositionMutation.isPending
                               }
                               onClick={() =>
-                                awardPositionMutation.mutate({
+                                requestAward({
                                   vacancy: applicantsVacancy,
                                   memberId: app.member_id,
                                   sourceType: "application",
@@ -3157,7 +3248,7 @@ export default function MemberGroupDetailPage() {
                                 awardPositionMutation.isPending
                               }
                               onClick={() =>
-                                awardPositionMutation.mutate({
+                                requestAward({
                                   vacancy: submissionsVacancy,
                                   email: sub.submitted_by_email,
                                   sourceType: "submission",
