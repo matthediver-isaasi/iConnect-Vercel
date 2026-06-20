@@ -24,6 +24,12 @@ already-awarded member's recorded term — hence the snapshot.
   per-group model).
 - A role with no term definition yields an all-null snapshot (no term shown).
 - Term details on the member card are admin-only (gated by `isGroupAdmin`).
+- Group admins can correct a snapshot directly (start/end date + term_number)
+  via an edit affordance on the member card (`TermDetails` onEdit →
+  `EditTermDialog` → `MemberGroupAssignment.update`). This bypasses
+  `buildTermSnapshot` deliberately — it writes raw fields and never reads the
+  role def. The entity-API orphan guard only fires on `is_group_admin`/
+  `expires_at` changes, so term-field patches pass through.
 - There is a separate direct admin-assign path
   (`MemberGroupManagement.jsx` assignForm → `MemberGroupAssignment.create`)
   that does NOT snapshot terms — out of original scope.

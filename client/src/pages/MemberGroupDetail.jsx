@@ -256,8 +256,10 @@ function formatTermDate(value) {
 }
 
 // Admin-only term details for a member's group assignment (Task #1626).
-// Renders nothing when the assignment carries no snapshotted term.
-function TermDetails({ assignment, testIdSuffix }) {
+// Renders nothing when the assignment carries no snapshotted term, unless the
+// caller passes onEdit (group admin) — then an editor affordance is always
+// shown so a missing/incorrect term can be set or corrected (Task #1629).
+function TermDetails({ assignment, testIdSuffix, onEdit }) {
   if (!assignment) return null;
   const length = formatTermLength(assignment);
   const termNumber = Number(assignment.term_number);
@@ -266,11 +268,18 @@ function TermDetails({ assignment, testIdSuffix }) {
   const hasMaxTerms = Number.isFinite(maxTerms) && maxTerms > 0;
   const start = formatTermDate(assignment.term_start_date);
   const end = formatTermDate(assignment.term_end_date);
-  if (!length && !hasTermNumber && !start && !end) return null;
+  const hasAnyTerm = Boolean(length || hasTermNumber || start || end);
+  if (!hasAnyTerm && !onEdit) return null;
 
   let termLabel = null;
   if (hasTermNumber && hasMaxTerms) termLabel = `Term ${termNumber} of ${maxTerms}`;
   else if (hasTermNumber) termLabel = `Term ${termNumber}`;
+
+  const handleEdit = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onEdit?.();
+  };
 
   return (
     <div
@@ -286,7 +295,129 @@ function TermDetails({ assignment, testIdSuffix }) {
           {end || "—"}
         </div>
       )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={handleEdit}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -ml-1.5 text-slate-500 hover-elevate active-elevate-2"
+          data-testid={`button-edit-term-${testIdSuffix}`}
+        >
+          <Pencil className="w-3 h-3" />
+          {hasAnyTerm ? "Edit term" : "Set term"}
+        </button>
+      )}
     </div>
+  );
+}
+
+// Admin-only dialog to correct a member's snapshotted term (Task #1629).
+// Writes term_start_date / term_end_date / term_number straight to the
+// member_group_assignment; never touches the role definition.
+function EditTermDialog({ target, open, onOpenChange, onSave, isSaving }) {
+  const assignment = target?.__assignment || null;
+  const displayName = target?.__display?.displayName || "this member";
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [termNumber, setTermNumber] = useState("");
+
+  useEffect(() => {
+    if (!open || !assignment) return;
+    setStartDate(
+      assignment.term_start_date ? String(assignment.term_start_date).slice(0, 10) : ""
+    );
+    setEndDate(
+      assignment.term_end_date ? String(assignment.term_end_date).slice(0, 10) : ""
+    );
+    setTermNumber(
+      assignment.term_number != null && assignment.term_number !== ""
+        ? String(Math.floor(Number(assignment.term_number)))
+        : ""
+    );
+  }, [open, assignment]);
+
+  const handleSave = () => {
+    if (startDate && endDate && endDate < startDate) {
+      toast.error("The end date can't be before the start date.");
+      return;
+    }
+    let nextTermNumber = null;
+    if (termNumber !== "") {
+      const n = Math.floor(Number(termNumber));
+      if (!Number.isFinite(n) || n < 1) {
+        toast.error("Term number must be a whole number of 1 or more.");
+        return;
+      }
+      nextTermNumber = n;
+    }
+    onSave({
+      term_start_date: startDate || null,
+      term_end_date: endDate || null,
+      term_number: nextTermNumber,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="dialog-edit-term">
+        <DialogHeader>
+          <DialogTitle>Edit term</DialogTitle>
+          <DialogDescription>
+            Adjust the recorded term for {displayName}. This updates only this
+            member's record and won't change the role's settings.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-term-start">Term start date</Label>
+            <Input
+              id="edit-term-start"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              data-testid="input-term-start-date"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-term-end">Term end date</Label>
+            <Input
+              id="edit-term-end"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              data-testid="input-term-end-date"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-term-number">Term number</Label>
+            <Input
+              id="edit-term-number"
+              type="number"
+              min="1"
+              step="1"
+              value={termNumber}
+              onChange={(e) => setTermNumber(e.target.value)}
+              placeholder="e.g. 1"
+              className="w-28"
+              data-testid="input-term-number"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSaving}
+            data-testid="button-cancel-edit-term"
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-edit-term">
+            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -830,6 +961,30 @@ export default function MemberGroupDetailPage() {
     },
   });
 
+  // Task #1629: let group admins correct a member's snapshotted term directly.
+  // Writes only the snapshot fields on the assignment; the role definition is
+  // never touched.
+  const editTermMutation = useMutation({
+    mutationFn: async ({ assignmentId, values }) => {
+      if (!assignmentId) throw new Error("No assignment selected");
+      return base44.entities.MemberGroupAssignment.update(assignmentId, values);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-assignments-group", groupId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["member-group-assignments-self", memberInfo?.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["member-group-assignments"] });
+      setEditTermTarget(null);
+      toast.success("Term updated");
+    },
+    onError: (error) => {
+      toast.error("Failed to update term: " + (error?.message || "Unknown error"));
+    },
+  });
+
   const { data: applicants = [], isLoading: loadingApplicants } = useQuery({
     queryKey: ["vacancy-applicants", applicantsVacancy?.id],
     queryFn: async () => {
@@ -858,6 +1013,7 @@ export default function MemberGroupDetailPage() {
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPage, setMemberPage] = useState(1);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
+  const [editTermTarget, setEditTermTarget] = useState(null);
 
   const memberRoleByMemberId = useMemo(() => {
     const map = new Map();
@@ -1646,7 +1802,11 @@ export default function MemberGroupDetailPage() {
                             {m.__role}
                           </div>
                           {isGroupAdmin && (
-                            <TermDetails assignment={m.__assignment} testIdSuffix={m.id} />
+                            <TermDetails
+                              assignment={m.__assignment}
+                              testIdSuffix={m.id}
+                              onEdit={() => setEditTermTarget(m)}
+                            />
                           )}
                         </div>
                         {anonymised && (
@@ -1755,7 +1915,11 @@ export default function MemberGroupDetailPage() {
                                   {displayName}
                                 </div>
                                 {isGroupAdmin && (
-                                  <TermDetails assignment={m.__assignment} testIdSuffix={m.id} />
+                                  <TermDetails
+                                    assignment={m.__assignment}
+                                    testIdSuffix={m.id}
+                                    onEdit={() => setEditTermTarget(m)}
+                                  />
                                 )}
                               </div>
                               {anonymised && (
@@ -3366,6 +3530,23 @@ export default function MemberGroupDetailPage() {
         open={!!selectedMemberId}
         onOpenChange={(open) => {
           if (!open) setSelectedMemberId(null);
+        }}
+      />
+
+      <EditTermDialog
+        target={editTermTarget}
+        open={!!editTermTarget}
+        onOpenChange={(open) => {
+          if (!open && !editTermMutation.isPending) setEditTermTarget(null);
+        }}
+        isSaving={editTermMutation.isPending}
+        onSave={(values) => {
+          const assignmentId = editTermTarget?.__assignment?.id;
+          if (!assignmentId) {
+            toast.error("This member has no group assignment to edit.");
+            return;
+          }
+          editTermMutation.mutate({ assignmentId, values });
         }}
       />
     </div>
