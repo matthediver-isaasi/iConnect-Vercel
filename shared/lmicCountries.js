@@ -2,7 +2,8 @@
  * World Bank Low- and Middle-Income Countries (LMIC) — ISO-2 codes.
  *
  * Source: World Bank country and lending groups (low + lower-middle +
- * upper-middle income), as published for fiscal year 2024–2025.
+ * upper-middle income), FY2026 classification (effective 1 July 2025,
+ * based on 2024 GNI per capita).
  *   https://datahelpdesk.worldbank.org/knowledgebase/articles/906519
  *
  * This is the seed list used the first time a tenant opens the LMIC
@@ -11,27 +12,31 @@
  * dashboard responsive and avoids a third-party dependency for what is
  * essentially a slow-moving reference list.
  *
+ * Note: the World Bank currently leaves Ethiopia (ET) and Venezuela (VE)
+ * "unclassified" pending data, so neither appears in the official low /
+ * lower-middle / upper-middle groups below. They are intentionally
+ * excluded here to match the published classification exactly.
+ *
  * Codes are ISO-3166-1 alpha-2, matching `client/src/data/countries.js`.
  */
 export const WORLD_BANK_LMIC_ISO2 = [
-  // Low income
-  'AF', 'BF', 'BI', 'CF', 'TD', 'CD', 'ER', 'ET', 'GM', 'GN',
-  'GW', 'KP', 'LR', 'MG', 'MW', 'ML', 'MZ', 'NE', 'RW', 'SL',
-  'SO', 'SS', 'SD', 'SY', 'TG', 'UG', 'YE',
-  // Lower middle income
-  'AO', 'BD', 'BJ', 'BO', 'BT', 'CV', 'CI', 'CM', 'CG', 'DJ',
-  'EG', 'GH', 'HN', 'HT', 'IN', 'IR', 'JO', 'KE', 'KG', 'KH',
-  'KM', 'LA', 'LB', 'LK', 'LS', 'MA', 'MD', 'MM', 'MN', 'MR',
+  // Low income (25)
+  'AF', 'BF', 'BI', 'CD', 'CF', 'ER', 'GM', 'GW', 'KP', 'LR',
+  'MG', 'ML', 'MW', 'MZ', 'NE', 'RW', 'SD', 'SL', 'SO', 'SS',
+  'SY', 'TD', 'TG', 'UG', 'YE',
+  // Lower-middle income (50)
+  'AO', 'BD', 'BJ', 'BO', 'BT', 'CG', 'CI', 'CM', 'DJ', 'EG',
+  'FM', 'GH', 'GN', 'HN', 'HT', 'IN', 'JO', 'KE', 'KG', 'KH',
+  'KI', 'KM', 'LA', 'LB', 'LK', 'LS', 'MA', 'MM', 'MR', 'NA',
   'NG', 'NI', 'NP', 'PG', 'PH', 'PK', 'PS', 'SB', 'SN', 'ST',
-  'SV', 'SZ', 'TJ', 'TL', 'TN', 'TZ', 'UA', 'UZ', 'VN', 'VU',
-  'WS', 'ZM', 'ZW',
-  // Upper middle income
-  'AL', 'AM', 'AR', 'AZ', 'BA', 'BG', 'BR', 'BW', 'BY', 'BZ',
-  'CN', 'CO', 'CR', 'CU', 'DM', 'DO', 'EC', 'FJ', 'FM', 'GA',
-  'GD', 'GE', 'GQ', 'GT', 'GY', 'IQ', 'JM', 'KZ', 'LC', 'LY',
-  'MH', 'MK', 'MU', 'MV', 'MX', 'MY', 'NA', 'PE', 'PY',
-  'RS', 'RU', 'SR', 'TH', 'TM', 'TO', 'TR', 'TV', 'VC', 'VE',
-  'XK', 'ZA',
+  'SZ', 'TJ', 'TL', 'TN', 'TZ', 'UZ', 'VN', 'VU', 'ZM', 'ZW',
+  // Upper-middle income (54)
+  'AL', 'AM', 'AR', 'AZ', 'BA', 'BR', 'BW', 'BY', 'BZ', 'CN',
+  'CO', 'CU', 'CV', 'DM', 'DO', 'DZ', 'EC', 'FJ', 'GA', 'GD',
+  'GE', 'GQ', 'GT', 'ID', 'IQ', 'IR', 'JM', 'KZ', 'LC', 'LY',
+  'MD', 'ME', 'MH', 'MK', 'MN', 'MU', 'MV', 'MX', 'MY', 'PE',
+  'PY', 'RS', 'SR', 'SV', 'TH', 'TM', 'TO', 'TR', 'TV', 'UA',
+  'VC', 'WS', 'XK', 'ZA',
 ];
 
 /**
