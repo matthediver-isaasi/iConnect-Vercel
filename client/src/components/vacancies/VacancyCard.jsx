@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Clock,
   CalendarClock,
+  CalendarX,
   Repeat,
   Users,
   Send,
@@ -45,6 +46,56 @@ export function getPositionsAvailable(vacancy) {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+/** Parse a vacancy.closing_date (YYYY-MM-DD or ISO) to a Date, or null. */
+export function getClosingDate(vacancy) {
+  const raw = vacancy?.closing_date;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** True when the closing date has passed (compared on a whole-day basis). */
+export function isClosingDatePast(vacancy) {
+  const d = getClosingDate(vacancy);
+  if (!d) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const closing = new Date(d);
+  closing.setHours(0, 0, 0, 0);
+  return closing < today;
+}
+
+/**
+ * Single source of truth for whether a vacancy is closed: explicit
+ * status='closed' OR its closing date is in the past.
+ */
+export function isVacancyClosed(vacancy) {
+  return vacancy?.status === "closed" || isClosingDatePast(vacancy);
+}
+
+/** True when the closing date is today or within the next 7 days. */
+export function isClosingSoon(vacancy) {
+  const d = getClosingDate(vacancy);
+  if (!d) return false;
+  if (isClosingDatePast(vacancy)) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const closing = new Date(d);
+  closing.setHours(0, 0, 0, 0);
+  const days = Math.round((closing - today) / 86400000);
+  return days >= 0 && days <= 7;
+}
+
+export function formatClosingDate(vacancy) {
+  const d = getClosingDate(vacancy);
+  if (!d) return null;
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /**
  * Shared presentation for a single vacancy: title, status badges, description,
  * the metadata-icon row (commitment / term / max-terms / positions) and the
@@ -65,7 +116,9 @@ export default function VacancyCard({
   const commitment = formatCommitment(vacancy);
   const term = formatTerm(vacancy);
   const maxTerms = formatMaxTerms(vacancy);
-  const isClosed = vacancy.status === "closed";
+  const isClosed = isVacancyClosed(vacancy);
+  const closingDateLabel = formatClosingDate(vacancy);
+  const closingSoon = isClosingSoon(vacancy);
   const total =
     positionsTotal != null ? positionsTotal : getPositionsAvailable(vacancy);
   const remaining =
@@ -94,6 +147,11 @@ export default function VacancyCard({
             {!isClosed && isFilled && (
               <Badge variant="secondary" data-testid={`badge-vacancy-filled-${vacancy.id}`}>
                 Filled
+              </Badge>
+            )}
+            {!isClosed && closingSoon && (
+              <Badge variant="warning" data-testid={`badge-vacancy-closing-soon-${vacancy.id}`}>
+                Closing soon
               </Badge>
             )}
           </div>
@@ -159,6 +217,15 @@ export default function VacancyCard({
             ? `All ${total} position${total === 1 ? "" : "s"} filled`
             : `${remaining} of ${total} position${total === 1 ? "" : "s"} remaining`}
         </span>
+        {closingDateLabel && (
+          <span
+            className="inline-flex items-center gap-1.5"
+            data-testid={`text-vacancy-closing-date-${vacancy.id}`}
+          >
+            <CalendarX className="w-4 h-4 text-slate-400" />
+            {isClosed ? `Closed ${closingDateLabel}` : `Closes ${closingDateLabel}`}
+          </span>
+        )}
       </div>
 
       {!isClosed && (

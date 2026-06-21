@@ -67,6 +67,11 @@
       "type": "number",
       "default": 1,
       "description": "How many people this vacancy needs. Defaults to 1; existing vacancies without a value behave as a single position."
+    },
+    "closing_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Optional date (YYYY-MM-DD) after which the vacancy is treated as closed. Closure is derived at read time from this date; the stored 'status' field is left untouched."
     }
   },
   "required": [

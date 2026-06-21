@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
+import { isVacancyClosed } from "@/components/vacancies/VacancyCard";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,6 +32,10 @@ export function useVacancyInterest({ memberInfo, formSlugById }) {
   const [interestMessage, setInterestMessage] = useState("");
 
   const handleExpressInterest = (vacancy) => {
+    if (isVacancyClosed(vacancy)) {
+      toast.error("This vacancy is closed and no longer accepting interest.");
+      return;
+    }
     if (vacancy.application_form_id) {
       const slug = formSlugById?.get(vacancy.application_form_id);
       if (slug && memberInfo?.id) {

@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -15,7 +17,10 @@ import {
 import { Briefcase, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
-import VacancyCard, { getPositionsAvailable } from "@/components/vacancies/VacancyCard";
+import VacancyCard, {
+  getPositionsAvailable,
+  isVacancyClosed,
+} from "@/components/vacancies/VacancyCard";
 import {
   useVacancyInterest,
   VacancyInterestDialog,
@@ -41,6 +46,7 @@ export default function VolunteerBoardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
+  const [hideClosed, setHideClosed] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -58,11 +64,11 @@ export default function VolunteerBoardPage() {
   // Reset to first page whenever the filters/sort change.
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, groupFilter, sortBy]);
+  }, [debouncedSearch, groupFilter, sortBy, hideClosed]);
 
   const { data: vacancies = [], isLoading: loadingVacancies } = useQuery({
-    queryKey: ["volunteer-board-open-vacancies"],
-    queryFn: () => base44.entities.Vacancy.filter({ status: "open" }),
+    queryKey: ["volunteer-board-vacancies"],
+    queryFn: () => base44.entities.Vacancy.list(),
     enabled: accessChecked,
     staleTime: 0,
     refetchOnMount: true,
@@ -115,34 +121,39 @@ export default function VolunteerBoardPage() {
     return map;
   }, [groups]);
 
-  // Only surface open vacancies that belong to a group still visible to members.
-  const openVacancies = useMemo(
+  // Surface vacancies (open and closed) that belong to a group still visible to
+  // members. Closure is derived at read time (status or past closing date).
+  const boardVacancies = useMemo(
     () =>
       vacancies.filter(
-        (v) =>
-          v.status !== "closed" &&
-          v.member_group_id &&
-          groupById.has(v.member_group_id)
+        (v) => v.member_group_id && groupById.has(v.member_group_id)
       ),
     [vacancies, groupById]
   );
 
-  // Groups that actually have at least one open vacancy power the filter.
+  const closedVacancyCount = useMemo(
+    () => boardVacancies.filter((v) => isVacancyClosed(v)).length,
+    [boardVacancies]
+  );
+
+  // Groups that have at least one (visible) vacancy power the filter.
   const groupOptions = useMemo(() => {
     const seen = new Set();
     const options = [];
-    for (const v of openVacancies) {
+    for (const v of boardVacancies) {
+      if (hideClosed && isVacancyClosed(v)) continue;
       if (seen.has(v.member_group_id)) continue;
       seen.add(v.member_group_id);
       const g = groupById.get(v.member_group_id);
       if (g) options.push({ id: g.id, name: g.name || "Untitled group" });
     }
     return options.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [openVacancies, groupById]);
+  }, [boardVacancies, groupById, hideClosed]);
 
   const filteredVacancies = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
-    const filtered = openVacancies.filter((v) => {
+    const filtered = boardVacancies.filter((v) => {
+      if (hideClosed && isVacancyClosed(v)) return false;
       if (groupFilter !== "all" && v.member_group_id !== groupFilter) return false;
       if (!q) return true;
       const group = groupById.get(v.member_group_id);
@@ -180,7 +191,7 @@ export default function VolunteerBoardPage() {
       return sortBy === "oldest" ? at - bt : bt - at;
     });
     return sorted;
-  }, [openVacancies, debouncedSearch, groupFilter, sortBy, groupById]);
+  }, [boardVacancies, debouncedSearch, groupFilter, sortBy, groupById, hideClosed]);
 
   const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / VACANCIES_PER_PAGE));
   const pageVacancies = useMemo(() => {
@@ -258,6 +269,22 @@ export default function VolunteerBoardPage() {
                 </SelectContent>
               </Select>
             </div>
+            {closedVacancyCount > 0 && (
+              <div className="flex items-center gap-2 mt-3">
+                <Switch
+                  id="toggle-hide-closed"
+                  checked={hideClosed}
+                  onCheckedChange={setHideClosed}
+                  data-testid="switch-hide-closed"
+                />
+                <Label
+                  htmlFor="toggle-hide-closed"
+                  className="text-sm text-slate-600"
+                >
+                  Hide closed positions
+                </Label>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -270,8 +297,10 @@ export default function VolunteerBoardPage() {
               </h3>
               <p className="text-slate-600" data-testid="text-no-vacancies">
                 {debouncedSearch || groupFilter !== "all"
-                  ? "No open vacancies match your filters."
-                  : "There are no open volunteer vacancies right now."}
+                  ? "No vacancies match your filters."
+                  : hideClosed
+                    ? "There are no open volunteer vacancies right now."
+                    : "There are no volunteer vacancies right now."}
               </p>
             </CardContent>
           </Card>

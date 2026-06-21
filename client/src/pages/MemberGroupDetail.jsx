@@ -98,6 +98,7 @@ import VacancyCard, {
   formatTerm,
   formatMaxTerms,
   getPositionsAvailable,
+  isVacancyClosed,
 } from "@/components/vacancies/VacancyCard";
 import {
   useVacancyInterest,
@@ -146,6 +147,7 @@ const EMPTY_VACANCY_FORM = {
   max_terms: "",
   application_form_id: "none",
   positions_available: "1",
+  closing_date: "",
 };
 
 function isHtmlEmpty(html) {
@@ -431,6 +433,7 @@ export default function MemberGroupDetailPage() {
   const [showTermsView, setShowTermsView] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showPostVacancy, setShowPostVacancy] = useState(false);
+  const [hideClosedVacancies, setHideClosedVacancies] = useState(true);
   const [vacancyForm, setVacancyForm] = useState(EMPTY_VACANCY_FORM);
   const [removeVacancyTarget, setRemoveVacancyTarget] = useState(null);
   const [applicantsVacancy, setApplicantsVacancy] = useState(null);
@@ -774,16 +777,24 @@ export default function MemberGroupDetailPage() {
     return map;
   }, [submissionsForm]);
 
-  const visibleVacancies = useMemo(() => {
-    const list = isGroupAdmin
-      ? vacancies
-      : vacancies.filter((v) => v.status !== "closed");
-    return [...list].sort((a, b) => {
+  const sortedVacancies = useMemo(() => {
+    return [...vacancies].sort((a, b) => {
       const at = a.created_at ? new Date(a.created_at).getTime() : 0;
       const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
       return bt - at;
     });
-  }, [vacancies, isGroupAdmin]);
+  }, [vacancies]);
+
+  const closedVacancyCount = useMemo(
+    () => sortedVacancies.filter((v) => isVacancyClosed(v)).length,
+    [sortedVacancies]
+  );
+
+  const visibleVacancies = useMemo(() => {
+    if (isGroupAdmin) return sortedVacancies;
+    if (!hideClosedVacancies) return sortedVacancies;
+    return sortedVacancies.filter((v) => !isVacancyClosed(v));
+  }, [sortedVacancies, isGroupAdmin, hideClosedVacancies]);
 
   const saveVacancyMutation = useMutation({
     mutationFn: async () => {
@@ -803,6 +814,7 @@ export default function MemberGroupDetailPage() {
         term_unit: vacancyForm.term_unit,
         max_terms: toNum(vacancyForm.max_terms),
         positions_available: positions && positions > 0 ? Math.floor(positions) : 1,
+        closing_date: vacancyForm.closing_date ? vacancyForm.closing_date : null,
         application_form_id:
           vacancyForm.application_form_id &&
           vacancyForm.application_form_id !== "none"
@@ -854,6 +866,9 @@ export default function MemberGroupDetailPage() {
       max_terms: vacancy.max_terms ?? "",
       application_form_id: vacancy.application_form_id || "none",
       positions_available: String(getPositionsAvailable(vacancy)),
+      closing_date: vacancy.closing_date
+        ? String(vacancy.closing_date).slice(0, 10)
+        : "",
     });
     setShowPostVacancy(true);
   };
@@ -2023,18 +2038,36 @@ export default function MemberGroupDetailPage() {
                   Vacancies ({visibleVacancies.length})
                 </h2>
               </div>
-              {isGroupAdmin && (
-                <Button
-                  onClick={() => {
-                    setVacancyForm(EMPTY_VACANCY_FORM);
-                    setShowPostVacancy(true);
-                  }}
-                  data-testid="button-post-vacancy"
-                >
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  Post vacancy
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {!isGroupAdmin && closedVacancyCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="toggle-hide-closed-vacancies"
+                      checked={hideClosedVacancies}
+                      onCheckedChange={setHideClosedVacancies}
+                      data-testid="switch-hide-closed-vacancies"
+                    />
+                    <Label
+                      htmlFor="toggle-hide-closed-vacancies"
+                      className="text-sm text-slate-600"
+                    >
+                      Hide closed
+                    </Label>
+                  </div>
+                )}
+                {isGroupAdmin && (
+                  <Button
+                    onClick={() => {
+                      setVacancyForm(EMPTY_VACANCY_FORM);
+                      setShowPostVacancy(true);
+                    }}
+                    data-testid="button-post-vacancy"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Post vacancy
+                  </Button>
+                )}
+              </div>
             </div>
 
             {loadingVacancies ? (
@@ -2052,7 +2085,7 @@ export default function MemberGroupDetailPage() {
             ) : (
               <div className="flex flex-col gap-4" data-testid="list-vacancies">
                 {visibleVacancies.map((vacancy) => {
-                  const isClosed = vacancy.status === "closed";
+                  const isClosed = isVacancyClosed(vacancy);
                   const alreadyApplied = appliedVacancyIds.has(vacancy.id);
                   const positionsTotal = getPositionsAvailable(vacancy);
                   const positionsRemaining = getRemainingPositions(vacancy);
@@ -3159,6 +3192,23 @@ export default function MemberGroupDetailPage() {
               />
               <p className="text-xs text-muted-foreground">
                 How many people you need for this role. Defaults to 1.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="vacancy-closing-date">Closing date</Label>
+              <Input
+                id="vacancy-closing-date"
+                type="date"
+                value={vacancyForm.closing_date}
+                onChange={(e) =>
+                  setVacancyForm((f) => ({ ...f, closing_date: e.target.value }))
+                }
+                className="w-48"
+                data-testid="input-vacancy-closing-date"
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional. After this date the vacancy is marked closed and
+                stops accepting interest.
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
