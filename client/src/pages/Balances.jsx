@@ -7,11 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Wallet, Ticket, Calendar, AlertCircle, Wifi, WifiOff, Shield, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Wallet, Ticket, Calendar, AlertCircle, Wifi, WifiOff, Shield, ChevronDown, ChevronUp, Loader2, Plus, Clock } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { toast } from "sonner";
+import BuyFundsModal from "@/components/balances/BuyFundsModal";
 
 export default function BalancesPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
@@ -33,15 +35,17 @@ export default function BalancesPage({ hasBanner }) {
     });
   }, []);
 
-  const handleTrainingFundUpdated = useCallback(({ oldBalance, newBalance }) => {
+  const handleTrainingFundUpdated = useCallback(({ oldBalance, newBalance, balanceChanged }) => {
     console.log('[BalancesPage] Training fund updated via realtime:', oldBalance, '->', newBalance);
     if (refreshOrganizationInfo) {
       refreshOrganizationInfo();
     }
-    toast.info('Training fund updated', {
-      description: `Balance changed from £${(oldBalance || 0).toFixed(2)} to £${(newBalance || 0).toFixed(2)}`,
-      duration: 3000
-    });
+    if (balanceChanged) {
+      toast.info('Training fund updated', {
+        description: `Balance changed from £${(oldBalance || 0).toFixed(2)} to £${(newBalance || 0).toFixed(2)}`,
+        duration: 3000
+      });
+    }
   }, [refreshOrganizationInfo]);
 
   // Subscribe to realtime updates for vouchers and training fund
@@ -54,6 +58,9 @@ export default function BalancesPage({ hasBanner }) {
   const [trainingFundRolesOpen, setTrainingFundRolesOpen] = useState(false);
   const [voucherRolesOpen, setVoucherRolesOpen] = useState(false);
   const [savingRestrictions, setSavingRestrictions] = useState(false);
+  const [buyFundsOpen, setBuyFundsOpen] = useState(false);
+
+  const canBuyFunds = !isFeatureExcluded('commerce.balances.buy-funds');
 
   const { data: rolesData = [], isLoading: rolesLoading } = useQuery({
     queryKey: ['membership-roles', organizationInfo?.id],
@@ -258,13 +265,30 @@ export default function BalancesPage({ hasBanner }) {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-4xl font-bold text-green-700">
+                    <span className="text-4xl font-bold text-green-700" data-testid="text-training-fund-balance">
                       £{(organizationInfo.training_fund_balance || 0).toFixed(2)}
                     </span>
                   </div>
+                  {(organizationInfo.training_fund_pending_balance || 0) > 0 && (
+                    <div className="flex items-center gap-1.5 mt-2 text-sm text-amber-700" data-testid="text-training-fund-pending">
+                      <Clock className="w-4 h-4" />
+                      <span>£{(organizationInfo.training_fund_pending_balance || 0).toFixed(2)} pending (awaiting invoice payment)</span>
+                    </div>
+                  )}
                   <p className="text-sm text-slate-600 mt-3">
                     Use your training fund balance when purchasing event tickets and training
                   </p>
+                  {canBuyFunds && (
+                    <Button
+                      type="button"
+                      className="mt-4"
+                      onClick={() => setBuyFundsOpen(true)}
+                      data-testid="button-buy-funds"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Buy Funds
+                    </Button>
+                  )}
                   {!isFeatureExcluded('commerce.balances.availability') && rolesData.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-green-200">
                       <button
@@ -613,6 +637,12 @@ export default function BalancesPage({ hasBanner }) {
           </Card>
         )}
       </div>
+
+      <BuyFundsModal
+        open={buyFundsOpen}
+        onOpenChange={setBuyFundsOpen}
+        onCompleted={refreshOrganizationInfo}
+      />
     </div>
   );
 }

@@ -41,6 +41,10 @@
       "schedule": "0 */3 * * *"
     },
     {
+      "path": "/api/cron/reconcile-training-fund-purchases",
+      "schedule": "0 */3 * * *"
+    },
+    {
       "path": "/api/cron/run-form-submission-export-jobs",
       "schedule": "* * * * *"
     },

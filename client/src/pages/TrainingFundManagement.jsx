@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon, ArrowUp, ArrowDown, Trash2, Clock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -293,6 +293,10 @@ export default function TrainingFundManagementPage() {
 
   const orgsWithFunds = useMemo(() => {
     return filteredOrgs.filter(org => (org.training_fund_balance || 0) > 0).length;
+  }, [filteredOrgs]);
+
+  const totalPending = useMemo(() => {
+    return filteredOrgs.reduce((sum, org) => sum + (org.training_fund_pending_balance || 0), 0);
   }, [filteredOrgs]);
 
   const createTransactionMutation = useMutation({
@@ -981,7 +985,7 @@ export default function TrainingFundManagementPage() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-4 mb-6">
+        <div className="grid md:grid-cols-4 gap-4 mb-6">
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -995,7 +999,21 @@ export default function TrainingFundManagementPage() {
               </div>
             </CardContent>
           </Card>
-          
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">Pending Funds</p>
+                  <p className="text-2xl font-bold text-slate-900" data-testid="text-total-pending">£{totalPending.toFixed(2)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -1081,6 +1099,7 @@ export default function TrainingFundManagementPage() {
           <div className="space-y-3">
             {paginatedOrgs.map((org) => {
               const balance = org.training_fund_balance || 0;
+              const pending = org.training_fund_pending_balance || 0;
               const orgTransactionCount = driftSummaryData?.summary?.[org.id]?.transaction_count || 0;
               
               return (
@@ -1135,6 +1154,12 @@ export default function TrainingFundManagementPage() {
                           <p className={`text-xl font-bold ${balance > 0 ? 'text-green-600' : 'text-slate-400'}`}>
                             £{balance.toFixed(2)}
                           </p>
+                          {pending > 0 && (
+                            <div className="flex items-center justify-end gap-1 text-xs text-amber-700 mt-0.5" data-testid={`text-pending-${org.id}`}>
+                              <Clock className="w-3 h-3" />
+                              <span>£{pending.toFixed(2)} pending</span>
+                            </div>
+                          )}
                         </div>
                         
                         <Button

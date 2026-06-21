@@ -116,10 +116,15 @@ export function useBalancesRealtime(organizationId, options = {}) {
             newTrainingFund: newData?.training_fund_balance
           });
 
-          if (oldData?.training_fund_balance !== newData?.training_fund_balance) {
+          const balanceChanged = oldData?.training_fund_balance !== newData?.training_fund_balance;
+          const pendingChanged = oldData?.training_fund_pending_balance !== newData?.training_fund_pending_balance;
+
+          if (balanceChanged || pendingChanged) {
             setLastTrainingFundUpdate({
               oldBalance: oldData?.training_fund_balance,
               newBalance: newData?.training_fund_balance,
+              oldPendingBalance: oldData?.training_fund_pending_balance,
+              newPendingBalance: newData?.training_fund_pending_balance,
               timestamp: Date.now()
             });
 
@@ -128,7 +133,11 @@ export function useBalancesRealtime(organizationId, options = {}) {
             if (onTrainingFundUpdatedRef.current) {
               onTrainingFundUpdatedRef.current({
                 oldBalance: oldData?.training_fund_balance,
-                newBalance: newData?.training_fund_balance
+                newBalance: newData?.training_fund_balance,
+                oldPendingBalance: oldData?.training_fund_pending_balance,
+                newPendingBalance: newData?.training_fund_pending_balance,
+                balanceChanged,
+                pendingChanged
               });
             }
           }

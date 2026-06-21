@@ -8,8 +8,8 @@
     },
     "type": {
       "type": "string",
-      "enum": ["add", "deduct", "booking_usage"],
-      "description": "Type of transaction: add (credit), deduct (admin deduction), or booking_usage (used for event booking)"
+      "enum": ["add", "deduct", "booking_usage", "purchase"],
+      "description": "Type of transaction: add (credit), deduct (admin deduction), booking_usage (used for event booking), or purchase (self-serve top-up credited)"
     },
     "amount": {
       "type": "number",

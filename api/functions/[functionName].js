@@ -7,7 +7,8 @@ import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
-import { getAccountingProvider } from '../_lib/accountingProvider.js';
+import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
+import { creditTrainingFundForPurchase } from '../_lib/trainingFundPurchase.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 import { sanitizeOptionSelections } from '../_lib/eventOptionSelections.js';
@@ -837,6 +838,304 @@ const functionHandlers = {
     });
 
     return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
+  },
+
+  // Task #1660 — Create a Training Fund top-up purchase.
+  // Creates an accounting invoice (Xero/QBO) and either:
+  //  - card:    a Stripe PaymentIntent (funds released on confirm), or
+  //  - invoice: tracks the amount as PENDING balance until the
+  //             reconciliation cron confirms the invoice paid.
+  async createTrainingFundPurchase(params, req) {
+    if (!supabase) throw new Error('Supabase not configured');
+
+    const ctx = await getTenantContext(req);
+    const tenantId = ctx?.tenantId;
+    if (!tenantId) throw new Error('Unable to determine tenant context');
+    if (!ctx?.memberId) throw new Error('You must be signed in as an organisation member to buy funds');
+
+    const {
+      amount,
+      paymentMethod,
+      purchaseOrderNumber = null,
+      poToFollow = false,
+    } = params || {};
+
+    const amt = Number(amount);
+    if (!amt || amt <= 0) throw new Error('Amount must be greater than zero');
+    if (paymentMethod !== 'card' && paymentMethod !== 'invoice') {
+      throw new Error('paymentMethod must be "card" or "invoice"');
+    }
+
+    // Resolve the buying member + their organisation + role.
+    const { data: member, error: memberErr } = await supabase
+      .from('member')
+      .select('id, organization_id, role_id, email, first_name, last_name, tenant_id')
+      .eq('id', ctx.memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (memberErr || !member) throw new Error('Member record not found');
+    if (!member.organization_id) throw new Error('You must belong to an organisation to buy training funds');
+
+    // RBAC gate — commerce.balances.buy-funds.
+    if (member.role_id) {
+      const { data: role } = await supabase
+        .from('role')
+        .select('excluded_features')
+        .eq('id', member.role_id)
+        .maybeSingle();
+      const excluded = Array.isArray(role?.excluded_features) ? role.excluded_features : [];
+      if (isResourceExcluded(excluded, 'commerce.balances.buy-funds')) {
+        const err = new Error('You do not have permission to buy training funds');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+
+    // Load org for invoice contact details.
+    const { data: org, error: orgErr } = await supabase
+      .from('organization')
+      .select('id, name, invoicing_email, training_fund_pending_balance, tenant_id')
+      .eq('id', member.organization_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (orgErr || !org) throw new Error('Organisation not found');
+
+    // Resolve accounting provider (Xero/QBO). Hard-fail if none connected.
+    const provider = await getAccountingProvider(tenantId);
+    if (!provider || provider.name === 'none') {
+      throw new Error('No accounting package is connected. Connect Xero or QuickBooks before buying funds.');
+    }
+
+    // Create the purchase row first (pending) so we have an id to reference.
+    const nowIso = new Date().toISOString();
+    const { data: purchase, error: insertErr } = await supabase
+      .from('training_fund_purchase')
+      .insert({
+        tenant_id: tenantId,
+        organization_id: org.id,
+        amount: amt,
+        payment_method: paymentMethod,
+        purchase_order_number: purchaseOrderNumber || null,
+        po_to_follow: !!poToFollow,
+        status: 'pending',
+        created_by: member.id,
+        created_date: nowIso,
+      })
+      .select('*')
+      .single();
+    if (insertErr || !purchase) {
+      throw new Error(`Failed to create purchase: ${insertErr?.message || 'unknown error'}`);
+    }
+
+    // Create the accounting invoice.
+    const poSuffix = purchaseOrderNumber ? ` (PO: ${purchaseOrderNumber})` : (poToFollow ? ' (PO to follow)' : '');
+    let invoice;
+    try {
+      invoice = await provider.createMembershipInvoice({
+        appTenantId: tenantId,
+        organizationName: org.name,
+        invoicingEmail: org.invoicing_email || null,
+        invoicingAddress: null,
+        membershipYear: '',
+        tierLabel: 'Training Fund',
+        finalCost: amt,
+        currency: 'GBP',
+        reference: purchaseOrderNumber || 'Training Fund top-up',
+        vatRate: null,
+        markAsPaid: false,
+        stripePaymentIntentId: null,
+        invoiceDescription: `Training Fund top-up${poSuffix}`,
+      });
+    } catch (err) {
+      // Roll back the purchase row so the org isn't left with an orphan.
+      await supabase.from('training_fund_purchase').delete().eq('id', purchase.id);
+      throw new Error(`Failed to create invoice: ${err.message}`);
+    }
+
+    const invoiceColumns = buildInvoiceColumnUpdate(invoice);
+    const purchaseUpdate = {
+      ...invoiceColumns,
+      online_invoice_url: invoice?.onlineInvoiceUrl || invoice?.online_invoice_url || null,
+    };
+
+    if (paymentMethod === 'card') {
+      // Create a Stripe PaymentIntent. Funds released on confirm.
+      const stripe = await getStripeClient(tenantId, 'events');
+      if (!stripe) {
+        await supabase.from('training_fund_purchase').delete().eq('id', purchase.id);
+        throw new Error('Stripe is not configured for this tenant');
+      }
+
+      const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined;
+      let stripeCustomer = null;
+      if (member.email) {
+        stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+          email: member.email,
+          name: memberName,
+          metadata: { tenant_id: tenantId },
+        });
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amt * 100),
+        currency: 'gbp',
+        customer: stripeCustomer?.id || undefined,
+        receipt_email: member.email || undefined,
+        metadata: {
+          payment_type: 'training_fund_purchase',
+          purchase_id: purchase.id,
+          tenant_id: tenantId,
+          organization_id: org.id,
+        },
+      });
+
+      purchaseUpdate.stripe_payment_intent_id = paymentIntent.id;
+      await supabase
+        .from('training_fund_purchase')
+        .update(purchaseUpdate)
+        .eq('id', purchase.id);
+
+      const publishableKey = await getStripePublishableKeyForTenant(tenantId, 'events');
+
+      return {
+        success: true,
+        purchaseId: purchase.id,
+        paymentMethod: 'card',
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        publishableKey,
+      };
+    }
+
+    // Invoice method — track the amount as pending balance.
+    await supabase
+      .from('training_fund_purchase')
+      .update(purchaseUpdate)
+      .eq('id', purchase.id);
+
+    const { error: pendingErr } = await supabase.rpc('increment_org_training_fund_pending', {
+      p_org_id: org.id,
+      p_delta: amt,
+    });
+    if (pendingErr) {
+      throw new Error(`Failed to update pending balance: ${pendingErr.message}`);
+    }
+
+    return {
+      success: true,
+      purchaseId: purchase.id,
+      paymentMethod: 'invoice',
+      invoiceNumber: invoice?.invoiceNumber || invoice?.invoice_number || null,
+      onlineInvoiceUrl: purchaseUpdate.online_invoice_url,
+    };
+  },
+
+  // Task #1660 — Confirm a card Training Fund purchase after Stripe payment.
+  // Verifies the PaymentIntent, applies the payment to the accounting
+  // invoice, then credits the org's available balance (idempotent).
+  async confirmTrainingFundPurchasePayment(params, req) {
+    if (!supabase) throw new Error('Supabase not configured');
+
+    const { purchaseId, paymentIntentId } = params || {};
+    if (!purchaseId || !paymentIntentId) {
+      return { success: false, error: 'Missing purchaseId or paymentIntentId' };
+    }
+
+    // Require an authenticated member in a usable tenant context — this is a
+    // financial state-transition endpoint and must not be callable anonymously.
+    const ctx = await getTenantContext(req);
+    const tenantId = ctx?.tenantId;
+    if (!tenantId) throw new Error('Unable to determine tenant context');
+    if (!ctx?.memberId) throw new Error('You must be signed in to confirm this payment');
+
+    const { data: purchase } = await supabase
+      .from('training_fund_purchase')
+      .select('*')
+      .eq('id', purchaseId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!purchase) return { success: false, error: 'Purchase not found' };
+
+    // The confirming member must belong to the org that owns the purchase and
+    // hold the buy-funds permission.
+    const { data: member, error: memberErr } = await supabase
+      .from('member')
+      .select('id, organization_id, role_id')
+      .eq('id', ctx.memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (memberErr || !member) throw new Error('Member record not found');
+    if (member.organization_id !== purchase.organization_id) {
+      const err = new Error('You do not have permission to confirm this payment');
+      err.statusCode = 403;
+      throw err;
+    }
+    if (member.role_id) {
+      const { data: role } = await supabase
+        .from('role')
+        .select('excluded_features')
+        .eq('id', member.role_id)
+        .maybeSingle();
+      const excluded = Array.isArray(role?.excluded_features) ? role.excluded_features : [];
+      if (isResourceExcluded(excluded, 'commerce.balances.buy-funds')) {
+        const err = new Error('You do not have permission to confirm this payment');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+
+    const stripe = await getStripeClient(purchase.tenant_id, 'events');
+    if (!stripe) throw new Error('Stripe not configured for this tenant');
+
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    if (paymentIntent.status !== 'succeeded') {
+      return { success: false, error: `Payment not confirmed. Status: ${paymentIntent.status}` };
+    }
+
+    const metadataMatch = String(paymentIntent.metadata?.purchase_id) === String(purchaseId);
+    const storedMatch = purchase.stripe_payment_intent_id === paymentIntentId;
+    if (!metadataMatch && !storedMatch) {
+      return { success: false, error: 'Payment verification failed - purchase mismatch' };
+    }
+
+    if (purchase.status !== 'pending') {
+      return { success: true, message: 'Purchase already processed', purchaseId };
+    }
+
+    const paidAt = new Date().toISOString();
+
+    // Best-effort: mark the accounting invoice paid. The card payment has
+    // already succeeded, so a failure here must NOT block crediting funds.
+    const invoiceId = purchase.accounting_invoice_id || purchase.xero_invoice_id;
+    if (invoiceId) {
+      try {
+        const provider = purchase.accounting_provider
+          ? getAccountingProviderByName(purchase.accounting_provider)
+          : await getAccountingProvider(purchase.tenant_id);
+        await provider.applyStripePaymentToInvoice({
+          appTenantId: purchase.tenant_id,
+          xeroInvoiceId: invoiceId,
+          invoiceId,
+          stripePaymentIntentId: paymentIntentId,
+        });
+      } catch (err) {
+        console.error(`[confirmTrainingFundPurchasePayment] Failed to apply payment to invoice for purchase ${purchaseId}: ${err.message}`);
+      }
+    }
+
+    // Credit the fund (compare-and-set; idempotent).
+    const result = await creditTrainingFundForPurchase({
+      purchaseId,
+      paidAt,
+      source: 'stripe_confirm',
+    });
+
+    return {
+      success: true,
+      purchaseId,
+      credited: result.credited,
+      balanceAfter: result.balanceAfter ?? null,
+    };
   },
 
   async refreshMemberBalance(params) {

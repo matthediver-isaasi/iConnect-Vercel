@@ -150,6 +150,7 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "commerce.balances.training-vouchers-card", label: "Training Vouchers Card" },
           { id: "commerce.balances.program-tickets-card", label: "Program Tickets Card" },
           { id: "commerce.balances.vouchers-list", label: "Vouchers List" },
+          { id: "commerce.balances.buy-funds", label: "Buy Training Funds" },
           { id: "commerce.balances.availability", label: "Manage Fund & Voucher Role Restrictions" }
         ]
       },

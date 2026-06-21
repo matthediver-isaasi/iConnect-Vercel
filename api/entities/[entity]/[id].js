@@ -98,6 +98,7 @@ const entityToTable = {
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
   'TrainingFundTransaction': 'training_fund_transaction',
+  'TrainingFundPurchase': 'training_fund_purchase',
   'VoucherTransaction': 'voucher_transaction',
   'Workflow': 'workflow',
   'WorkflowLog': 'workflow_log',

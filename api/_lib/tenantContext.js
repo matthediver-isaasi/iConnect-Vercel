@@ -95,6 +95,7 @@ export const entityTenantScope = {
   'Program': TENANT_SCOPE.TENANT,
   'ProgramTicketTransaction': TENANT_SCOPE.TENANT,
   'TrainingFundTransaction': TENANT_SCOPE.TENANT,
+  'TrainingFundPurchase': TENANT_SCOPE.TENANT,
   'Voucher': TENANT_SCOPE.TENANT,
   'VoucherTransaction': TENANT_SCOPE.TENANT,
   'DiscountCode': TENANT_SCOPE.TENANT,

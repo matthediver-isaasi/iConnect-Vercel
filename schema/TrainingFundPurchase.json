@@ -1,0 +1,81 @@
+{
+  "name": "TrainingFundPurchase",
+  "type": "object",
+  "properties": {
+    "organization_id": {
+      "type": "string",
+      "description": "Organization this purchase belongs to"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Fund amount being purchased (always positive)"
+    },
+    "payment_method": {
+      "type": "string",
+      "enum": ["card", "invoice"],
+      "description": "How the purchase is paid: card (Stripe) or invoice"
+    },
+    "purchase_order_number": {
+      "type": "string",
+      "description": "Purchase order number (optional)"
+    },
+    "po_to_follow": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the purchase order number will be supplied later"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "paid", "cancelled"],
+      "default": "pending",
+      "description": "Purchase status: pending (not yet spendable), paid (credited to available), or cancelled"
+    },
+    "stripe_payment_intent_id": {
+      "type": "string",
+      "description": "Stripe PaymentIntent id for card purchases"
+    },
+    "accounting_provider": {
+      "type": "string",
+      "description": "Accounting provider that created the invoice (xero/quickbooks)"
+    },
+    "accounting_invoice_id": {
+      "type": "string",
+      "description": "Generic accounting invoice id"
+    },
+    "accounting_invoice_number": {
+      "type": "string",
+      "description": "Generic accounting invoice number"
+    },
+    "xero_invoice_id": {
+      "type": "string",
+      "description": "Legacy Xero invoice id (dual-written with accounting_invoice_id)"
+    },
+    "xero_invoice_number": {
+      "type": "string",
+      "description": "Legacy Xero invoice number"
+    },
+    "online_invoice_url": {
+      "type": "string",
+      "description": "Online invoice URL if available"
+    },
+    "transaction_id": {
+      "type": "string",
+      "description": "Linked training_fund_transaction ledger row id once credited"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Member id of the admin who created the purchase"
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the purchase was created"
+    },
+    "paid_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the purchase was confirmed paid and credited"
+    }
+  },
+  "required": ["organization_id", "amount", "payment_method", "status", "created_date"]
+}
