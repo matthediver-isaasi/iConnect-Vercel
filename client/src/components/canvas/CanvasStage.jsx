@@ -533,10 +533,15 @@ export default function CanvasStage({
     };
 
     const handleMove = (e) => {
-      // Edge auto-scroll only while dragging blocks. The loop re-runs
-      // processPointer with the same client coords after each scroll step so
-      // the dragged block keeps tracking the pointer as the view moves.
-      if (interactionState.kind === 'drag') {
+      // Edge auto-scroll while dragging blocks, drawing a marquee selection, or
+      // resizing a block. The loop re-runs processPointer with the same client
+      // coords after each scroll step so the dragged block / resize preview /
+      // marquee rect keeps tracking the pointer as the view moves.
+      if (
+        interactionState.kind === 'drag' ||
+        interactionState.kind === 'resize' ||
+        interactionState.kind === 'marquee'
+      ) {
         autoScroll.update(e.clientX, e.clientY, () => processPointer(e.clientX, e.clientY));
       }
       processPointer(e.clientX, e.clientY);
