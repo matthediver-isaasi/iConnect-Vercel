@@ -1756,6 +1756,14 @@ function ButtonInspector({ block, update, breakpoint }) {
         testId="select-button-typography"
       />
       <LinkField label="Link target" value={c.href} onChange={(v) => set({ href: v })} testId="input-button-href" />
+      <MediaLibraryPickButton
+        testId="button-button-media-library"
+        onPick={(asset) => {
+          if (!asset?.url) return;
+          // Linking to a file (PDF etc.) should open/download in a new tab.
+          set({ href: asset.url, newTab: true });
+        }}
+      />
       <SelectField
         label="Variant"
         value={c.variant || 'default'}
@@ -2203,10 +2211,11 @@ function suggestAccordionLinkIcon(asset) {
 }
 
 // Button that opens the shared MediaLibraryDialog so an author can attach a
-// document/video/image to an accordion link, mirroring how ImageField wires
-// up the 'canvas:open-media-library' window event. No `kind` filter is passed
-// so every asset type (documents included) is selectable.
-function AccordionLinkMediaButton({ onPick, testId }) {
+// document/video/image to a link (accordion links, CTA buttons, etc.),
+// mirroring how ImageField wires up the 'canvas:open-media-library' window
+// event. No `kind` filter is passed so every asset type (documents included)
+// is selectable.
+function MediaLibraryPickButton({ onPick, testId }) {
   const openLibrary = () => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
@@ -2368,7 +2377,7 @@ function AccordionInspector({ block, update }) {
                     <>
                       <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
                       <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
-                      <AccordionLinkMediaButton
+                      <MediaLibraryPickButton
                         testId={`accordion-${idx}-link-${linkIdx}-media`}
                         onPick={(asset) => {
                           if (!asset?.url) return;
