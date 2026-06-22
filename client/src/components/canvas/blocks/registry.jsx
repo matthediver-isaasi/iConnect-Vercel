@@ -961,6 +961,13 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   const align = c.alignment || 'center';
   const justify = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
   const textAlign = align;
+  // When full-bleed, the background spans 100vw but the text content should
+  // re-align to the page's centered content column. `--cb-content-width` is
+  // published by the stage stylesheet per breakpoint (1200/768/375); falls
+  // back to 1200. No-op when full-bleed is off or the variable is absent.
+  const railStyle = c.fullBleed
+    ? { maxWidth: 'var(--cb-content-width, 1200px)', marginInline: 'auto' }
+    : undefined;
   const isImageBg = c.bgType === 'image' && c.bgImageUrl;
   const bg = isImageBg
     ? null
@@ -1006,7 +1013,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
       />
       <div
         className="relative h-full w-full flex flex-col p-6"
-        style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff' }}
+        style={{ alignItems: justify, justifyContent: 'center', textAlign, color: c.textColor || '#ffffff', ...(railStyle || {}) }}
       >
         <Heading style={headlineInline} data-tg-r="headline">
           {c.headline || ''}
