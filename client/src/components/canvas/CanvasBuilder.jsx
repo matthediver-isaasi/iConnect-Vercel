@@ -60,6 +60,7 @@ import {
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
+import useEdgeAutoScroll from './useEdgeAutoScroll';
 import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
@@ -541,9 +542,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // far down the page. We instead read the real pointer from native events
   // and use that as the source of truth for the drop point.
   const lastPointerRef = useRef(null);
+  // Edge auto-scroll for palette drags. We drive it ourselves (and disable
+  // dnd-kit's built-in autoScroll on the DndContext) so the palette path uses
+  // the exact same threshold/ramp/speed as the on-canvas block drag.
+  const paletteAutoScroll = useEdgeAutoScroll(stageWrapperRef);
   const trackPointer = useCallback((e) => {
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-  }, []);
+    paletteAutoScroll.update(e.clientX, e.clientY);
+  }, [paletteAutoScroll]);
 
   const handleDragStart = (event) => {
     setActiveDragId(event.active.id);
@@ -559,6 +565,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const handleDragCancel = () => {
     window.removeEventListener('pointermove', trackPointer, true);
+    paletteAutoScroll.stop();
     setActiveDragId(null);
     setActiveDragType(null);
     lastPointerRef.current = null;
@@ -566,6 +573,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const handleDragEnd = (event) => {
     window.removeEventListener('pointermove', trackPointer, true);
+    paletteAutoScroll.stop();
     setActiveDragId(null);
     setActiveDragType(null);
     const { active, over } = event;
@@ -1322,7 +1330,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const alignTitle = (label) => `${label} (to ${alignTarget})`;
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+    <DndContext sensors={sensors} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
       <div className="flex flex-col h-full" data-testid="canvas-builder">
         {/* Sub-toolbar with alignment + undo/redo + grid */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
@@ -1622,6 +1630,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onApplyGeometry={applyGeometry}
                       onMarqueeSelect={handleMarqueeSelect}
                       onPreviewBottomChange={setLivePreviewBottom}
+                      scrollContainerRef={stageWrapperRef}
                     />
                     </CanvasSymbolsProvider>
                   </div>

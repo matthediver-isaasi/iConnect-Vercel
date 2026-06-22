@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import useEdgeAutoScroll from './useEdgeAutoScroll';
 import { Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
 import { resolveBlockAtBreakpoint, blockIsFullWidthLike } from '@/lib/canvasDesign';
 import {
@@ -279,6 +280,7 @@ export default function CanvasStage({
   onUngroup, // () => void  ungroup current selection
   canGroup = false,
   canUngroup = false,
+  scrollContainerRef, // ref to the scrollable canvas viewport (the builder's <main>)
 }) {
   // Default to identity when no group-expansion is supplied.
   const expand = useCallback(
@@ -286,6 +288,7 @@ export default function CanvasStage({
     [expandSelection],
   );
   const stageRef = useRef(null);
+  const autoScroll = useEdgeAutoScroll(scrollContainerRef);
   const [interactionState, setInteractionState] = useState(null);
   // interactionState: { kind: 'drag' | 'resize' | 'marquee', ... }
   const [previewGeoms, setPreviewGeoms] = useState({}); // live preview overrides while dragging
@@ -423,8 +426,12 @@ export default function CanvasStage({
   // ----- Global pointer move/up handlers -----
   useEffect(() => {
     if (!interactionState) return;
-    const handleMove = (e) => {
-      const cur = getStageCoords(e.clientX, e.clientY);
+    // Process a pointer position into the live preview. Extracted so the
+    // auto-scroll loop can re-run it against the same client point while the
+    // view scrolls (the stage's bounding rect moves, so getStageCoords yields
+    // new stage coords from the unchanged client coords).
+    const processPointer = (clientX, clientY) => {
+      const cur = getStageCoords(clientX, clientY);
       if (interactionState.kind === 'drag') {
         const dxRaw = cur.x - interactionState.start.x;
         const dy = cur.y - interactionState.start.y;
@@ -525,7 +532,18 @@ export default function CanvasStage({
       }
     };
 
+    const handleMove = (e) => {
+      // Edge auto-scroll only while dragging blocks. The loop re-runs
+      // processPointer with the same client coords after each scroll step so
+      // the dragged block keeps tracking the pointer as the view moves.
+      if (interactionState.kind === 'drag') {
+        autoScroll.update(e.clientX, e.clientY, () => processPointer(e.clientX, e.clientY));
+      }
+      processPointer(e.clientX, e.clientY);
+    };
+
     const handleUp = () => {
+      autoScroll.stop();
       if (interactionState.kind === 'drag') {
         if (interactionState.hasMoved) {
           onApplyGeometry(previewGeoms);
@@ -559,8 +577,15 @@ export default function CanvasStage({
     return () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
+      // NOTE: do NOT stop the auto-scroll loop here. This effect re-runs on
+      // every preview update during a drag (previewGeoms is a dependency), so
+      // stopping here would tear the RAF loop down each frame and break
+      // continuous scrolling while the pointer is held still at an edge. The
+      // loop lives in refs inside useEdgeAutoScroll (independent of renders)
+      // and is stopped only on real interaction end (handleUp) or on unmount
+      // (the hook's own cleanup).
     };
-  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, blocks, canvasWidth, canvasHeight, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect, userGuides]);
+  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, blocks, canvasWidth, canvasHeight, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect, userGuides, autoScroll]);
 
   const gridStyle = showGrid ? {
     backgroundImage: `linear-gradient(to right, rgba(148,163,184,0.18) 1px, transparent 1px),
