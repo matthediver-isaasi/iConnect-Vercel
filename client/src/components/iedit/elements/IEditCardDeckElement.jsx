@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import ReactQuill from "react-quill";
 import DOMPurify from "dompurify";
 import "react-quill/dist/quill.snow.css";
+import { cardDescriptionToHtml } from "@/lib/cardDescriptionHtml";
 
 const cardDeckQuillModules = {
   toolbar: [
@@ -253,8 +254,8 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
                     </h4>
                   )}
                   {showCardDescription && card.description && (
-                    <p 
-                      className="m-0 mb-4"
+                    <div 
+                      className="m-0 mb-4 [&_p]:m-0"
                       style={{
                         fontSize: `${cardDescriptionFontSize}px`,
                         color: cardDescriptionColor,
@@ -263,9 +264,8 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
                         WebkitBoxOrient: 'vertical',
                         overflow: 'hidden'
                       }}
-                    >
-                      {card.description}
-                    </p>
+                      dangerouslySetInnerHTML={{ __html: cardDescriptionToHtml(card.description) }}
+                    />
                   )}
                   {Array.isArray(card.links) && card.links.length > 0 && (
                     <ul className="list-none p-0 m-0 mb-4 space-y-1 flex-1">

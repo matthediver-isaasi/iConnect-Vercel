@@ -5,16 +5,28 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Search, X, Image as ImageIcon, GripVertical, ExternalLink, FileText, ArrowUp, ArrowDown, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { cardDescriptionToHtml } from "@/lib/cardDescriptionHtml";
 
 const MAX_CARD_LINKS = 10;
+
+const cardDeckQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    [{ 'color': [] }],
+    ['link'],
+    ['clean']
+  ]
+};
 
 export default function CardDeckManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -332,7 +344,10 @@ export default function CardDeckManagementPage() {
                       )}
                     </div>
                     {card.description && (
-                      <p className="text-slate-600 text-sm line-clamp-3 mb-3">{card.description}</p>
+                      <div
+                        className="text-slate-600 text-sm line-clamp-3 mb-3 [&_p]:m-0"
+                        dangerouslySetInnerHTML={{ __html: cardDescriptionToHtml(card.description) }}
+                      />
                     )}
                     {card.target_url && (
                       <div className="flex items-center gap-1 text-xs text-blue-600 mb-3">
@@ -425,14 +440,16 @@ export default function CardDeckManagementPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={editingCard.description || ''}
-                    onChange={(e) => setEditingCard({ ...editingCard, description: e.target.value })}
-                    placeholder="Brief description..."
-                    rows={3}
-                    data-testid="input-card-description"
-                  />
+                  <div className="card-deck-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white" data-testid="input-card-description">
+                    <ReactQuill
+                      theme="snow"
+                      value={editingCard.description || ''}
+                      onChange={(value) => setEditingCard({ ...editingCard, description: value })}
+                      modules={cardDeckQuillModules}
+                      placeholder="Brief description..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-3">
