@@ -475,12 +475,12 @@ export default function WallOfFameManagementPage() {
 
         {/* Section Dialog */}
         <Dialog open={showSectionDialog} onOpenChange={setShowSectionDialog}>
-          <DialogContent aria-describedby={undefined}>
-            <DialogHeader>
+          <DialogContent className="flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingSection?.id ? 'Edit Section' : 'Create Section'}</DialogTitle>
             </DialogHeader>
             {editingSection && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Name *</Label>
                   <Input value={editingSection.name} onChange={(e) => setEditingSection({ ...editingSection, name: e.target.value })} placeholder="e.g., Our Team" />
@@ -495,7 +495,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowSectionDialog(false)}>Cancel</Button>
               <Button onClick={() => sectionMutation.mutate({ id: editingSection?.id, data: editingSection })} disabled={sectionMutation.isPending}>Save</Button>
             </DialogFooter>
@@ -504,12 +504,12 @@ export default function WallOfFameManagementPage() {
 
         {/* Category Dialog */}
         <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
-          <DialogContent aria-describedby={undefined}>
-            <DialogHeader>
+          <DialogContent className="flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingCategory?.id ? 'Edit Category' : 'Create Category'}</DialogTitle>
             </DialogHeader>
             {editingCategory && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Section *</Label>
                   <Select value={editingCategory.section_id} onValueChange={(value) => setEditingCategory({ ...editingCategory, section_id: value })}>
@@ -535,7 +535,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>Cancel</Button>
               <Button onClick={() => categoryMutation.mutate({ id: editingCategory?.id, data: editingCategory })} disabled={categoryMutation.isPending}>Save</Button>
             </DialogFooter>
@@ -550,12 +550,12 @@ export default function WallOfFameManagementPage() {
             setMemberSearchQuery(''); 
           } 
         }}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
-            <DialogHeader>
+          <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingPerson?.id ? 'Edit Person' : 'Add Person'}</DialogTitle>
             </DialogHeader>
             {editingPerson && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Category *</Label>
                   <Select value={editingPerson.category_id} onValueChange={(value) => setEditingPerson({ ...editingPerson, category_id: value })}>
@@ -729,7 +729,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowPersonDialog(false)}>Cancel</Button>
               <Button onClick={() => personMutation.mutate({ id: editingPerson?.id, data: editingPerson })} disabled={personMutation.isPending}>Save</Button>
             </DialogFooter>
