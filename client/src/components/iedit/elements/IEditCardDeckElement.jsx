@@ -81,7 +81,7 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
     showCardImage = true,
     imageHeightPercent = 50,
     showCardDescription = true,
-    descriptionLineClamp = 3,
+    descriptionLineClamp = 0,
     showCardButton = true,
     cardButtonText = 'Learn More',
     cardButtonBgColor = '#2563eb',
@@ -259,10 +259,12 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
                       style={{
                         fontSize: `${cardDescriptionFontSize}px`,
                         color: cardDescriptionColor,
-                        display: '-webkit-box',
-                        WebkitLineClamp: descriptionLineClamp,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden'
+                        ...(descriptionLineClamp > 0 ? {
+                          display: '-webkit-box',
+                          WebkitLineClamp: descriptionLineClamp,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden'
+                        } : {})
                       }}
                       dangerouslySetInnerHTML={{ __html: cardDescriptionToHtml(card.description) }}
                     />
@@ -1078,12 +1080,12 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
 
             {content.showCardDescription !== false && (
               <div>
-                <Label className="text-xs">Description Max Lines: {content.descriptionLineClamp || 3}</Label>
+                <Label className="text-xs">Description Max Lines: {(content.descriptionLineClamp ?? 0) === 0 ? 'No limit' : content.descriptionLineClamp}</Label>
                 <input
                   type="range"
-                  min="1"
+                  min="0"
                   max="10"
-                  value={content.descriptionLineClamp || 3}
+                  value={content.descriptionLineClamp ?? 0}
                   onChange={(e) => updateContent('descriptionLineClamp', parseInt(e.target.value))}
                   className="w-full"
                 />

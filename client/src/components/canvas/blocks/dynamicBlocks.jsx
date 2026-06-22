@@ -4501,7 +4501,7 @@ function CardDeckRender({ block, breakpoint, asEditor }) {
                   <h3 className="text-base font-semibold text-slate-900 m-0">{card.title}</h3>
                 ) : null}
                 {showDescription && card.description ? (
-                  <div className="text-sm text-slate-600 line-clamp-3 m-0 [&_p]:m-0" dangerouslySetInnerHTML={{ __html: cardDescriptionToHtml(card.description) }} />
+                  <div className="text-sm text-slate-600 m-0 [&_p]:m-0" dangerouslySetInnerHTML={{ __html: cardDescriptionToHtml(card.description) }} />
                 ) : null}
                 {Array.isArray(card.links) && card.links.some((l) => l?.url && l?.text) ? (
                   <ul className="list-none p-0 m-0 space-y-1">
