@@ -44,7 +44,9 @@ export default async function handler(req, res) {
   const ids = new Set();
   for (const p of pages || []) collectSymbolIds(p.canvas_design, ids);
   if (ids.size === 0) {
-    res.setHeader('Cache-Control', 'public, max-age=60');
+    // Never cache an empty result — a symbol that becomes referenced after a
+    // publish must not be masked by a stale empty `{symbols:[]}` payload.
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
     return res.status(200).json({ symbols: [] });
   }
 
@@ -54,6 +56,9 @@ export default async function handler(req, res) {
     .eq('tenant_id', tenant.id)
     .in('id', Array.from(ids));
   if (error) return res.status(500).json({ error: 'Failed to load symbols' });
-  res.setHeader('Cache-Control', 'public, max-age=60');
+  // Always revalidate so a symbol edit is reflected on the front end without
+  // waiting for a cache window to expire. This endpoint is now only a fallback
+  // (the page payload carries page-scoped symbols), so freshness over caching.
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
   return res.status(200).json({ symbols: data || [] });
 }

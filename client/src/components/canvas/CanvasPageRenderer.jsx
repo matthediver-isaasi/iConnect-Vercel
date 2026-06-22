@@ -30,7 +30,7 @@ function useTenantCanvasTheme() {
   return theme;
 }
 
-function useSymbolsForDesign(design) {
+function useSymbolsForDesign(design, providedSymbols) {
   const symbolIds = useMemo(() => {
     const ids = new Set();
     try {
@@ -42,9 +42,27 @@ function useSymbolsForDesign(design) {
     } catch {}
     return Array.from(ids);
   }, [design]);
-  const [byId, setById] = useState(() => new Map());
+  // Symbols delivered with the page payload are authoritative and always fresh
+  // (scoped to this exact published page, never edge-cached). Build the map
+  // from them first so the renderer has everything it needs without a second
+  // request — this is what prevents the grey placeholder on published pages.
+  const providedById = useMemo(() => {
+    const m = new Map();
+    if (Array.isArray(providedSymbols)) {
+      for (const s of providedSymbols) { if (s?.id) m.set(s.id, s); }
+    }
+    return m;
+  }, [providedSymbols]);
+  // Only fall back to the standalone endpoint for symbol ids the page payload
+  // did not cover (e.g. the authenticated/base44 fetch path that has no
+  // embedded symbols).
+  const missingIds = useMemo(
+    () => symbolIds.filter((id) => !providedById.has(id)),
+    [symbolIds, providedById],
+  );
+  const [fetchedById, setFetchedById] = useState(() => new Map());
   useEffect(() => {
-    if (symbolIds.length === 0) { setById(new Map()); return; }
+    if (missingIds.length === 0) { setFetchedById(new Map()); return; }
     let cancelled = false;
     // Public read endpoint resolves tenant by host, so anonymous
     // visitors can still see resolved symbol content.
@@ -54,12 +72,18 @@ function useSymbolsForDesign(design) {
         if (cancelled || !body) return;
         const m = new Map();
         for (const s of body.symbols || []) m.set(s.id, s);
-        setById(m);
+        setFetchedById(m);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [symbolIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
-  return byId;
+  }, [missingIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  return useMemo(() => {
+    if (fetchedById.size === 0) return providedById;
+    const m = new Map(fetchedById);
+    // Provided (page-scoped) symbols win over the cached fallback.
+    for (const [id, s] of providedById) m.set(id, s);
+    return m;
+  }, [providedById, fetchedById]);
 }
 
 // Public renderer for Canvas Builder pages.
@@ -336,9 +360,9 @@ function useAnchorSmoothScroll(containerRef, enabled) {
   }, [enabled, scrollToId]);
 }
 
-export default function CanvasPageRenderer({ page }) {
+export default function CanvasPageRenderer({ page, symbols }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
-  const symbolsById = useSymbolsForDesign(baseDesign);
+  const symbolsById = useSymbolsForDesign(baseDesign, symbols);
   const theme = useTenantCanvasTheme();
   const design = useMemo(
     () => resolveSymbolsInDesign(baseDesign, symbolsById) || baseDesign,

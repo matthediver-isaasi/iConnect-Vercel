@@ -125,7 +125,7 @@ export default function DynamicPage() {
         try {
           const data = await publicClient.getPage(slug);
           if (data) {
-            return { page: data.page, elements: data.elements };
+            return { page: data.page, elements: data.elements, symbols: data.symbols };
           }
         } catch (e) {
           // Fall through to authenticated endpoint
@@ -143,7 +143,23 @@ export default function DynamicPage() {
       // layout lives in canvas_design on the page row itself. Skip the
       // element fetch to save a round trip.
       if (page.builder_type === 'canvas') {
-        return { page, elements: [] };
+        // This path is authenticated (preview iframe or a logged-in viewer of
+        // a hybrid/member page). The public page endpoint did not run, so pull
+        // symbol designs from the authenticated endpoint and embed them so the
+        // renderer resolves symbols without depending on the published-only
+        // public fallback — this is what makes preview show symbol children
+        // even before the page/symbol is published.
+        let symbols;
+        try {
+          const r = await fetch('/api/canvas-symbols?full=1', { credentials: 'include' });
+          if (r.ok) {
+            const body = await r.json();
+            symbols = body?.symbols;
+          }
+        } catch (e) {
+          // Best-effort: fall back to the public fetch inside the renderer.
+        }
+        return { page, elements: [], symbols };
       }
 
       const elements = await base44.entities.IEditPageElement.list({ 
@@ -489,7 +505,7 @@ export default function DynamicPage() {
   if (page.builder_type === 'canvas') {
     return (
       <div className="w-full" data-testid={`dynamic-page-${slug}`}>
-        <CanvasPageRenderer page={page} />
+        <CanvasPageRenderer page={page} symbols={pageData?.symbols} />
       </div>
     );
   }
