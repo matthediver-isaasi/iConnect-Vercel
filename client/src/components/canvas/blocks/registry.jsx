@@ -2237,6 +2237,7 @@ function AccordionRender({ block, asEditor }) {
   const questionStyle = Number.isFinite(c.questionFontSize)
     ? { fontSize: `${c.questionFontSize}px` }
     : undefined;
+  const itemGap = Number.isFinite(c.itemGap) ? Math.max(0, c.itemGap) : 8;
   const toggle = (idx) => {
     setOpenIds((prev) => {
       const isOpen = prev.includes(idx);
@@ -2246,7 +2247,8 @@ function AccordionRender({ block, asEditor }) {
   };
   return (
     <div
-      className="w-full h-full overflow-auto space-y-2"
+      className="w-full h-full overflow-auto flex flex-col"
+      style={{ gap: `${itemGap}px` }}
       role="region"
       aria-label={block.a11y?.ariaLabel || 'Frequently asked questions'}
     >
@@ -2278,7 +2280,7 @@ function AccordionRender({ block, asEditor }) {
               role="region"
               aria-labelledby={headingId}
               hidden={!isOpen}
-              className="px-3 pb-3 pt-1"
+              className="px-3 pb-3 pt-2 bg-slate-50 rounded-b-md"
             >
               <div
                 className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
@@ -2335,6 +2337,14 @@ function AccordionInspector({ block, update }) {
         value={c.questionFontSize}
         onChange={(v) => set({ questionFontSize: v == null ? null : Math.max(8, Math.min(72, Number(v))) })}
         testId="input-accordion-question-font-size"
+      />
+      <NumberField
+        label="Gap between items (px)"
+        min={0}
+        max={64}
+        value={Number.isFinite(c.itemGap) ? c.itemGap : 8}
+        onChange={(v) => set({ itemGap: v == null ? 8 : Math.max(0, Math.min(64, Number(v))) })}
+        testId="input-accordion-item-gap"
       />
       <Field label="Items">
         <ArrayList

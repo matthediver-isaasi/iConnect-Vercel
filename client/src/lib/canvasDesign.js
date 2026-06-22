@@ -388,6 +388,7 @@ export const BLOCK_DEFAULTS = {
       ],
       expandOne: true,
       questionFontSize: 14,
+      itemGap: 8,
     },
   },
   [BLOCK_TYPES.TESTIMONIALS]: {
