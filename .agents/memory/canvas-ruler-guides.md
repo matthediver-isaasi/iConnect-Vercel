@@ -5,7 +5,9 @@ description: How draggable alignment guides are stored, rendered, and kept out o
 
 # Canvas ruler guides
 
-Editors drag alignment guides out of the horizontal/vertical rulers in CanvasBuilder (Figma-style). Stored at `design.root.guides = { vertical:[x...], horizontal:[y...] }` — a single set shared across all breakpoints (no per-breakpoint guides in v1).
+Editors drag alignment guides out of the horizontal/vertical rulers in CanvasBuilder (Figma-style). Stored at `design.root.guides = { vertical:[{pos,locked}...], horizontal:[{pos,locked}...] }` — each guide is a `{pos, locked}` object (was plain `number[]` in v1; `normalizeGuides` still coerces bare numbers for back-compat). A single set shared across all breakpoints (no per-breakpoint guides).
+
+**Locked guides + typed positions.** Locked guides ignore drag/Delete (gated in `startGuideMove` and the overlay grab-strip handler) but still snap. Snapping consumes plain positions via `getCanvasGuidePositions(design)` — locked state is irrelevant to the stage. The overlay (`CanvasGuides.jsx`) renders a per-guide chip near the ruler origin with a lock toggle + a double-click-to-type numeric position input; the chip is `pointer-events-auto` and `stopPropagation`s pointerdown so it never starts a drag.
 
 **Editor-only metadata.** Guides live at `root.guides` and the public renderer (`CanvasPageRenderer.jsx`) only reads `root.sections`/children, so guides can never leak to live/preview pages. Any future read path that serializes the whole design for public output must keep ignoring `root.guides`.
 

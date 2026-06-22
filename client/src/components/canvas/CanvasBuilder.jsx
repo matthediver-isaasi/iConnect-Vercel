@@ -50,6 +50,7 @@ import {
   setGroups,
   getCanvasGuides,
   setCanvasGuides,
+  getCanvasGuidePositions,
   createGroup,
   ungroup,
   BREAKPOINT_WIDTHS,
@@ -1085,6 +1086,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // ---- Ruler guides (Task #1665) ----
   const guides = useMemo(() => getCanvasGuides(design), [design]);
   const hasGuides = guides.vertical.length + guides.horizontal.length > 0;
+  // Plain positions (no lock state) for the stage's snap targets — locked
+  // guides still snap, so all guides are included.
+  const guidePositions = useMemo(() => getCanvasGuidePositions(design), [design]);
 
   // Convert a client (screen) point into stage coordinates using the guide
   // overlay wrapper, whose top-left == stage origin.
@@ -1116,10 +1120,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       const arr = orientation === 'vertical' ? vertical : horizontal;
       if (kind === 'create') {
         if (removing) return prev; // dropped back on the ruler — no-op
-        arr.push(value);
+        arr.push({ pos: value, locked: false });
       } else { // move
         if (removing) arr.splice(index, 1);
-        else arr[index] = value;
+        else if (arr[index]) arr[index] = { ...arr[index], pos: value };
       }
       return setCanvasGuides(prev, { vertical, horizontal });
     });
@@ -1140,6 +1144,38 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     setDesign((prev) => setCanvasGuides(prev, { vertical: [], horizontal: [] }));
   }, [setDesign]);
 
+  // Task #1667: toggle a guide's locked flag. Locked guides ignore drag/Delete
+  // (enforced in startGuideMove + the overlay) but still act as snap targets.
+  const toggleGuideLock = useCallback((orientation, index) => {
+    setDesign((prev) => {
+      const g = getCanvasGuides(prev);
+      const vertical = [...g.vertical];
+      const horizontal = [...g.horizontal];
+      const arr = orientation === 'vertical' ? vertical : horizontal;
+      if (!arr[index]) return prev;
+      arr[index] = { ...arr[index], locked: !arr[index].locked };
+      return setCanvasGuides(prev, { vertical, horizontal });
+    });
+  }, [setDesign]);
+
+  // Task #1667: set an exact numeric position for a guide (typed in the
+  // overlay). Clamped to the stage bounds; locked guides are left untouched.
+  const setGuidePosition = useCallback((orientation, index, pos) => {
+    setDesign((prev) => {
+      const g = getCanvasGuides(prev);
+      const vertical = [...g.vertical];
+      const horizontal = [...g.horizontal];
+      const arr = orientation === 'vertical' ? vertical : horizontal;
+      if (!arr[index] || arr[index].locked) return prev;
+      const max = orientation === 'vertical' ? canvasWidth : stageHeight;
+      const n = Math.round(Number(pos));
+      if (!Number.isFinite(n)) return prev;
+      const clamped = Math.max(0, Math.min(n, max || n));
+      arr[index] = { ...arr[index], pos: clamped };
+      return setCanvasGuides(prev, { vertical, horizontal });
+    });
+  }, [setDesign, canvasWidth, stageHeight]);
+
   const beginGuideDrag = useCallback((descriptor, clientX, clientY) => {
     setShowGuides(true);
     guideDragRef.current = descriptor;
@@ -1156,8 +1192,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const startGuideMove = useCallback((orientation, index, e) => {
     e.preventDefault();
     e.stopPropagation();
+    // Task #1667: locked guides can't be dragged.
+    const g = getCanvasGuides(design);
+    const arr = orientation === 'vertical' ? g.vertical : g.horizontal;
+    if (arr[index]?.locked) return;
     beginGuideDrag({ kind: 'move', orientation, index }, e.clientX, e.clientY);
-  }, [beginGuideDrag]);
+  }, [beginGuideDrag, design]);
 
   // Window listeners while a guide is being dragged. Bound only on the
   // immutable descriptor so per-move value updates don't re-subscribe.
@@ -1577,7 +1617,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       zoom={zoom}
                       showReadingOrder={showReadingOrder}
                       issuesByBlock={a11yIssuesByBlock}
-                      userGuides={showGuides ? guides : EMPTY_GUIDES}
+                      userGuides={showGuides ? guidePositions : EMPTY_GUIDES}
                       onSelect={handleSelect}
                       onApplyGeometry={applyGeometry}
                       onMarqueeSelect={handleMarqueeSelect}
@@ -1594,6 +1634,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                     canvasWidth={canvasWidth}
                     stageHeight={stageHeight}
                     onGuidePointerDown={startGuideMove}
+                    onToggleGuideLock={toggleGuideLock}
+                    onSetGuidePosition={setGuidePosition}
                   />
                 </div>
               </CanvasRulers>

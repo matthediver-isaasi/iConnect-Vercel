@@ -1234,23 +1234,36 @@ export function normalizeCanvasDesign(design) {
   };
 }
 
-// Task #1665: normalize the editor-only ruler guides. Coerce both axes to
-// arrays of finite, non-negative, rounded, de-duplicated, ascending values.
-// Legacy designs with no `guides` key load unchanged with empty arrays.
+// Task #1665 / #1667: normalize the editor-only ruler guides. Each guide is a
+// `{ pos, locked }` object: `pos` is a finite, non-negative, rounded stage
+// coordinate; `locked` is a boolean. Both axes are de-duplicated by `pos`
+// (locked wins on a collision) and sorted ascending by `pos`.
+//
+// Back-compat: legacy designs stored plain `number[]` arrays (Task #1665).
+// A bare number is coerced to `{ pos: n, locked: false }`, so old documents
+// load unchanged. Designs with no `guides` key load with empty arrays.
 function normalizeGuides(guides) {
   const clean = (arr) => {
     if (!Array.isArray(arr)) return [];
-    const seen = new Set();
-    const out = [];
-    for (const v of arr) {
-      const n = Math.round(Number(v));
-      if (!Number.isFinite(n) || n < 0) continue;
-      if (seen.has(n)) continue;
-      seen.add(n);
-      out.push(n);
+    const byPos = new Map();
+    for (const entry of arr) {
+      let pos;
+      let locked = false;
+      if (entry && typeof entry === 'object') {
+        pos = Math.round(Number(entry.pos));
+        locked = !!entry.locked;
+      } else {
+        pos = Math.round(Number(entry));
+      }
+      if (!Number.isFinite(pos) || pos < 0) continue;
+      const existing = byPos.get(pos);
+      if (existing) {
+        existing.locked = existing.locked || locked;
+      } else {
+        byPos.set(pos, { pos, locked });
+      }
     }
-    out.sort((a, b) => a - b);
-    return out;
+    return Array.from(byPos.values()).sort((a, b) => a.pos - b.pos);
   };
   const g = guides && typeof guides === 'object' ? guides : {};
   return { vertical: clean(g.vertical), horizontal: clean(g.horizontal) };
@@ -1540,12 +1553,13 @@ export function setGroups(design, groups) {
 }
 
 // ---------------------------------------------------------------------------
-// Task #1665: editor-only ruler guides
+// Task #1665 / #1667: editor-only ruler guides
 //
-// `root.guides` is `{ vertical: number[], horizontal: number[] }` of stage
-// coordinates. Helpers round-trip through normalizeCanvasDesign so the stored
-// arrays are always cleaned (finite, >= 0, de-duplicated, ascending). The
-// public renderer never reads these, so they cannot leak into a live page.
+// `root.guides` is `{ vertical: Guide[], horizontal: Guide[] }` where each
+// Guide is `{ pos, locked }` in stage coordinates. Helpers round-trip through
+// normalizeCanvasDesign so the stored arrays are always cleaned (finite pos
+// >= 0, de-duplicated by pos, sorted ascending). The public renderer never
+// reads these, so they cannot leak into a live page.
 // ---------------------------------------------------------------------------
 
 export function getCanvasGuides(design) {
@@ -1557,6 +1571,16 @@ export function setCanvasGuides(design, guides) {
   return {
     ...d,
     root: { ...d.root, guides: normalizeGuides(guides) },
+  };
+}
+
+// Plain `{ vertical: number[], horizontal: number[] }` of guide positions,
+// for snap targets in the stage which don't care about lock state.
+export function getCanvasGuidePositions(design) {
+  const g = getCanvasGuides(design);
+  return {
+    vertical: g.vertical.map((x) => x.pos),
+    horizontal: g.horizontal.map((x) => x.pos),
   };
 }
 
