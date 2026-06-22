@@ -3881,6 +3881,11 @@ function FormEmbedIframe({ href, title }) {
   // correctly. When the form reports its height, let the enclosing block
   // frame grow with its content (and extend the stage so the document
   // expands to contain it) instead of clipping.
+  //
+  // Because every block keeps its original fixed `top`, simply growing the
+  // form would make it overlap any block an author placed directly beneath
+  // it. So we also push down every sibling block positioned below the form
+  // by the same growth delta, keeping the document free of overlap/clipping.
   useEffect(() => {
     if (height == null) return;
     const iframe = iframeRef.current;
@@ -3888,23 +3893,55 @@ function FormEmbedIframe({ href, title }) {
     const blockEl = iframe.closest('[data-cb]');
     if (!blockEl) return;
 
+    const stageEl = blockEl.closest('.canvas-stage');
+
+    // Measure the block's allocated (pre-growth) geometry first so we can
+    // work out how far it grows and which siblings sit beneath it.
+    const originalHeight = blockEl.offsetHeight;
+    const originalBottom = blockEl.offsetTop + originalHeight;
+
     const prevHeight = blockEl.style.height;
     const prevOverflow = blockEl.style.overflow;
     blockEl.style.height = 'auto';
     blockEl.style.overflow = 'visible';
 
-    const stageEl = blockEl.closest('.canvas-stage');
+    const delta = blockEl.offsetHeight - originalHeight;
+
+    // Push down every sibling block whose top sits at or below the form's
+    // original bottom edge. Adjusting inline `top` (rather than a transform)
+    // keeps offset math natural for the stage-height calc below and is fully
+    // reverted on cleanup. Blocks placed beside the form (overlapping its
+    // vertical range) are intentionally left untouched.
+    const movedTops = [];
+    if (stageEl && delta > 0) {
+      stageEl.querySelectorAll('[data-cb]').forEach((el) => {
+        if (el === blockEl || blockEl.contains(el)) return;
+        if (el.offsetTop >= originalBottom - 1) {
+          movedTops.push([el, el.style.top]);
+          el.style.top = `${el.offsetTop + delta}px`;
+        }
+      });
+    }
+
     let prevStageMinHeight;
     if (stageEl) {
       prevStageMinHeight = stageEl.style.minHeight;
-      const blockBottom = blockEl.offsetTop + blockEl.offsetHeight;
-      stageEl.style.minHeight = `${Math.ceil(blockBottom + 80)}px`;
+      // Extend the stage to contain the lowest block edge after the form has
+      // grown and the blocks below it have been pushed down.
+      let maxBottom = blockEl.offsetTop + blockEl.offsetHeight;
+      stageEl.querySelectorAll('[data-cb]').forEach((el) => {
+        if (el === blockEl || blockEl.contains(el)) return;
+        const bottom = el.offsetTop + el.offsetHeight;
+        if (bottom > maxBottom) maxBottom = bottom;
+      });
+      stageEl.style.minHeight = `${Math.ceil(maxBottom + 80)}px`;
     }
 
     return () => {
       blockEl.style.height = prevHeight;
       blockEl.style.overflow = prevOverflow;
       if (stageEl) stageEl.style.minHeight = prevStageMinHeight;
+      movedTops.forEach(([el, prev]) => { el.style.top = prev; });
     };
   }, [height]);
 
