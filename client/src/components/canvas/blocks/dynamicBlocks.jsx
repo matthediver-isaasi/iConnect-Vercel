@@ -3850,15 +3850,46 @@ function FormEmbedRender({ block, asEditor }) {
           Form preview ({form.name}) — submissions only run on the published page.
         </div>
       ) : (
-        <iframe
-          src={href}
-          title={c.title || form.name || 'Form'}
-          loading="lazy"
-          style={{ width: '100%', flex: 1, minHeight: 320, border: 0 }}
-          data-testid="iframe-form-embed"
-        />
+        <FormEmbedIframe href={href} title={c.title || form.name || 'Form'} />
       )}
     </div>
+  );
+}
+
+function FormEmbedIframe({ href, title }) {
+  const iframeRef = useRef(null);
+  const [height, setHeight] = useState(null);
+
+  useEffect(() => {
+    const onMessage = (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'iconn-form-resize') return;
+      const iframe = iframeRef.current;
+      // Only react to messages coming from this iframe's own contentWindow.
+      if (!iframe || event.source !== iframe.contentWindow) return;
+      const reported = Number(data.height);
+      if (!Number.isFinite(reported) || reported <= 0) return;
+      setHeight(Math.ceil(reported));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      src={href}
+      title={title}
+      loading="lazy"
+      style={{
+        width: '100%',
+        flex: height == null ? 1 : '0 0 auto',
+        height: height == null ? undefined : height,
+        minHeight: 320,
+        border: 0,
+      }}
+      data-testid="iframe-form-embed"
+    />
   );
 }
 
