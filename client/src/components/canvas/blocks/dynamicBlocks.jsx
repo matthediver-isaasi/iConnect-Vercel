@@ -3815,7 +3815,7 @@ function FormEmbedRender({ block, asEditor }) {
   }
   if (isError || !form) return <ErrorState message="Form not found or not active." />;
 
-  const href = `/EmbedForm/${encodeURIComponent(form.slug)}`;
+  const href = `/embed/form/${encodeURIComponent(form.slug)}`;
 
   const mode = c.mode || 'inline';
 
