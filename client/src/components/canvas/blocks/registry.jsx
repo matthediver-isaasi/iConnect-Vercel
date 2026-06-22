@@ -2189,6 +2189,45 @@ function getAccordionLinkIcon(iconType) {
   return found ? found.icon : ExternalLink;
 }
 
+// Suggest an accordion link icon type from a media-library asset's mime type,
+// falling back to the URL extension when mime_type is missing (URL-only
+// assets). Returns one of the ACCORDION_LINK_ICON_TYPES values.
+function suggestAccordionLinkIcon(asset) {
+  const m = String(asset?.mime_type || '').toLowerCase();
+  const u = String(asset?.url || '').toLowerCase();
+  if (m.startsWith('video/') || /\.(mp4|webm|ogv|mov)(\?|$)/.test(u)) return 'video';
+  if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg)(\?|$)/.test(u)) return 'image';
+  if (m.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/.test(u)) return 'audio';
+  if (m === 'application/pdf' || /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt)(\?|$)/.test(u)) return 'document';
+  return 'download';
+}
+
+// Button that opens the shared MediaLibraryDialog so an author can attach a
+// document/video/image to an accordion link, mirroring how ImageField wires
+// up the 'canvas:open-media-library' window event. No `kind` filter is passed
+// so every asset type (documents included) is selectable.
+function AccordionLinkMediaButton({ onPick, testId }) {
+  const openLibrary = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('canvas:open-media-library', {
+      detail: { onPick },
+    }));
+  };
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={openLibrary}
+      className="w-full"
+      data-testid={testId}
+    >
+      <Images className="w-4 h-4 mr-2" />
+      Choose from media library
+    </Button>
+  );
+}
+
 function AccordionRender({ block, asEditor }) {
   const c = block.content || {};
   // Controlled open-state so we can enforce expandOne (only one item open at
@@ -2319,6 +2358,19 @@ function AccordionInspector({ block, update }) {
                     <>
                       <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
                       <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
+                      <AccordionLinkMediaButton
+                        testId={`accordion-${idx}-link-${linkIdx}-media`}
+                        onPick={(asset) => {
+                          if (!asset?.url) return;
+                          const patchData = { url: asset.url, iconType: suggestAccordionLinkIcon(asset) };
+                          // Only auto-fill the label when the author hasn't set
+                          // one yet (empty or still the default placeholder).
+                          if (!link.label || link.label === 'New link') {
+                            patchData.label = asset.name || asset.alt_text || asset.url;
+                          }
+                          patchLink(patchData);
+                        }}
+                      />
                       <SelectField
                         label="Icon"
                         value={link.iconType || 'external'}
