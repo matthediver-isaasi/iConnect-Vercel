@@ -1351,6 +1351,16 @@ function normalizeBlock(block) {
     }
   }
 
+  // Task #1675: preserve resolved symbol children across re-normalization.
+  // resolveSymbolsInDesign attaches a non-standard __symbolChildren array onto
+  // symbol blocks for the public renderer to splice in. normalizeBlock rebuilds
+  // each block from a fixed allow-list and would otherwise silently drop it, so
+  // any incidental re-normalization (e.g. getRootChildren) would strip the
+  // resolved content and the symbol would fall back to its placeholder.
+  if (Array.isArray(block.__symbolChildren)) {
+    normalized.__symbolChildren = block.__symbolChildren;
+  }
+
   return normalized;
 }
 

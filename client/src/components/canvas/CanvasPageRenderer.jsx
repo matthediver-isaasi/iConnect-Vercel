@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   normalizeCanvasDesign,
   resolveBlockAtBreakpoint,
-  getRootChildren,
   buildCanvasCss,
   findLcpBlockId,
   getSectionLandmarkTag,
@@ -372,7 +371,12 @@ export default function CanvasPageRenderer({ page, symbols }) {
   // generator picks them up. Symbols themselves render as transparent
   // wrappers; their children take over geometry.
   const children = useMemo(() => {
-    const root = getRootChildren(design);
+    // Read the already-resolved root children directly from the resolved
+    // design. Do NOT call getRootChildren(design) here: it re-runs the design
+    // through normalizeCanvasDesign, which strips the non-standard
+    // __symbolChildren field that resolveSymbolsInDesign attached, leaving the
+    // splice loop below with nothing to splice (Task #1675).
+    const root = design?.root?.sections?.[0]?.children || [];
     const out = [];
     for (const b of root) {
       if (b.type === BLOCK_TYPES.SYMBOL && Array.isArray(b.__symbolChildren)) {
