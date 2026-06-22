@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveTenantFromRequest, getHostFromRequest } from './tenantResolver.js';
 import { resolveEntityMeta } from './entityMeta.js';
+import { supabase } from './database.js';
 
 let cachedTemplate = null;
 
@@ -96,6 +97,73 @@ function proxyOgImage(absoluteUrl, req) {
   const host = getHostFromRequest(req) || 'iconn.app';
   const proto = req.headers['x-forwarded-proto'] || 'https';
   return `${proto}://${host}/api/og-image?url=${encodeURIComponent(absoluteUrl)}`;
+}
+
+// Fetch the tenant's active typography styles so the SSR layer can seed the
+// client query before first paint. Mirrors the column set / filters of
+// api/public/typography-styles.js so the injected list is identical to what
+// the client would otherwise fetch. Returns [] on any failure (the client
+// then falls back to its normal fetch).
+async function fetchTypographyStylesForTenant(tenantId) {
+  if (!supabase || !tenantId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('typography_style')
+      .select(`
+        id,
+        name,
+        style_type,
+        font_family,
+        font_size,
+        font_size_tablet,
+        font_size_mobile,
+        font_weight,
+        line_height,
+        line_height_tablet,
+        line_height_mobile,
+        letter_spacing,
+        letter_spacing_tablet,
+        letter_spacing_mobile,
+        text_transform,
+        color,
+        margin_bottom,
+        margin_bottom_tablet,
+        margin_bottom_mobile,
+        is_default,
+        is_active
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('[renderHtml] typography styles query error:', error.message);
+      return [];
+    }
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('[renderHtml] typography styles fetch failed:', err?.message);
+    return [];
+  }
+}
+
+// Serialize a value for safe embedding inside an inline <script>. Escaping
+// `<` (and the line/paragraph separators) prevents a `</script>` sequence in
+// the data from breaking out of the script element.
+function serializeForScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+// Inject the tenant's typography styles as a global the client reads
+// synchronously on first paint (window.__TENANT_TYPOGRAPHY_STYLES__). Only
+// emitted when the tenant resolved server-side, so localhost / *.replit.dev /
+// editor hosts (no tenant) keep the legacy client-fetch path with no flash.
+function injectTypographyStyles(html, styles) {
+  if (!Array.isArray(styles)) return html;
+  const tag = `<script>window.__TENANT_TYPOGRAPHY_STYLES__=${serializeForScript(styles)}</script>`;
+  return html.replace('</head>', `    ${tag}\n  </head>`);
 }
 
 function replaceOrInsert(html, regex, tag) {
@@ -207,12 +275,18 @@ export async function renderTenantHtml(req) {
   let ogUrl = buildOgUrl(req);
 
   let entity = null;
+  let typographyStyles = null;
   if (tenant) {
-    try {
-      entity = await resolveEntityMeta(req, tenant);
-    } catch (err) {
-      console.error('[renderHtml] entity meta resolution failed:', err?.message);
+    const [entityResult, stylesResult] = await Promise.allSettled([
+      resolveEntityMeta(req, tenant),
+      fetchTypographyStylesForTenant(tenant.id),
+    ]);
+    if (entityResult.status === 'fulfilled') {
+      entity = entityResult.value;
+    } else {
+      console.error('[renderHtml] entity meta resolution failed:', entityResult.reason?.message);
     }
+    typographyStyles = stylesResult.status === 'fulfilled' ? stylesResult.value : [];
   }
 
   const tenantSiteName = tenant?.name || DEFAULTS.siteName;
@@ -249,7 +323,14 @@ export async function renderTenantHtml(req) {
     favicon192: tenant?.favicon_url || DEFAULTS.favicon192,
   };
 
-  return injectMeta(template, values);
+  let out = injectMeta(template, values);
+  // Seed typography styles only when a tenant resolved server-side. On hosts
+  // the resolver can't map to a tenant the global is absent and the client
+  // keeps its legacy fetch-then-fallback path (no flash either way).
+  if (tenant && Array.isArray(typographyStyles)) {
+    out = injectTypographyStyles(out, typographyStyles);
+  }
+  return out;
 }
 
 export function clearTemplateCache() {

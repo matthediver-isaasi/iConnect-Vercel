@@ -485,14 +485,45 @@ async function fetchTenantTypographyStyles() {
   }
 }
 
-export function useTenantTypographyStyles() {
+// Typography styles injected into the initial HTML by the SSR layer
+// (api/_lib/renderHtml.js → window.__TENANT_TYPOGRAPHY_STYLES__). On real
+// tenant hosts this is present on the very first paint, so the query below
+// is seeded synchronously and text/headline blocks render with their custom
+// style immediately — no default-then-custom flash. It's absent in the
+// editor and on hosts the SSR couldn't map to a tenant (localhost,
+// *.replit.dev), where the query fetches normally.
+function readInjectedTypographyStyles() {
+  if (typeof window === 'undefined') return undefined;
+  const injected = window.__TENANT_TYPOGRAPHY_STYLES__;
+  return Array.isArray(injected) ? injected : undefined;
+}
+
+export function useTenantTypographyStylesState() {
   const { data } = useQuery({
     queryKey: ['/api/public/typography-styles'],
     queryFn: fetchTenantTypographyStyles,
+    // Seed from the SSR-injected list when present so the very first render
+    // already has the styles. Treated as stale (updatedAt 0) so a
+    // background refetch still reconciles with the authoritative source
+    // (e.g. the authenticated base44 list in the editor).
+    initialData: readInjectedTypographyStyles,
+    initialDataUpdatedAt: 0,
     staleTime: 60_000,
     retry: false,
   });
-  return Array.isArray(data) ? data : [];
+  return {
+    styles: Array.isArray(data) ? data : [],
+    // `resolved` is true once we have a definitive answer — either SSR
+    // seeded the list or the fetch returned (even an empty array). Blocks
+    // use this to distinguish "styles loaded, this id genuinely missing"
+    // (fall back to legacy heading render) from "styles not loaded yet"
+    // (must not paint a default style that will be immediately replaced).
+    resolved: data !== undefined,
+  };
+}
+
+export function useTenantTypographyStyles() {
+  return useTenantTypographyStylesState().styles;
 }
 
 // When the chosen tenant style maps to a real heading level, derive the
@@ -723,6 +754,17 @@ export function resolveTenantStyle(styleId, styles) {
   return (styles || []).find((s) => s.id === styleId) || null;
 }
 
+// Safety net for the typography-flash fix. A block that references a tenant
+// style id we can't resolve *yet* (the styles list hasn't loaded) must not
+// paint the legacy default it would immediately replace. Returns true only
+// during the brief not-loaded-yet window — once the list resolves (even to
+// an empty array) `stylesResolved` is true and an unresolved id correctly
+// falls through to the legacy render. On SSR-seeded public pages the list is
+// present on first paint, so this is effectively always false there.
+export function isAwaitingTypographyStyle(styleId, resolvedStyleObj, stylesResolved) {
+  return !!styleId && !resolvedStyleObj && !stylesResolved;
+}
+
 function buttonClasses(variant, size) {
   const v = {
     primary: 'bg-primary text-primary-foreground hover-elevate active-elevate-2',
@@ -881,9 +923,11 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   // optional sub-headline when set and resolvable. The tag is derived from
   // the style's `style_type` (h1–h6/paragraph) and inline styles carry
   // font-family/size/weight/etc so editor preview and public renderer match.
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const headlineStyleObj = resolveTenantStyle(c.headlineTypographyStyleId, tenantStyles);
   const subheadlineStyleObj = resolveTenantStyle(c.subheadlineTypographyStyleId, tenantStyles);
+  const awaitingHeadline = isAwaitingTypographyStyle(c.headlineTypographyStyleId, headlineStyleObj, stylesResolved);
+  const awaitingSubheadline = isAwaitingTypographyStyle(c.subheadlineTypographyStyleId, subheadlineStyleObj, stylesResolved);
   const Heading = headlineStyleObj
     ? tagForTypographyStyleType(headlineStyleObj.style_type)
     : `h${Math.max(1, Math.min(6, c.headingLevel || 1))}`;
@@ -895,9 +939,11 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
   const headlineInline = headlineStyleObj
     ? { color: 'inherit', margin: 0, ...buildTypographyInlineStyle(headlineStyleObj, { breakpoint: bpForInline }) }
     : { color: 'inherit', margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700 };
+  if (awaitingHeadline) headlineInline.visibility = 'hidden';
   const subheadlineInline = subheadlineStyleObj
     ? { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720, ...buildTypographyInlineStyle(subheadlineStyleObj, { breakpoint: bpForInline }) }
     : { color: 'inherit', marginTop: 8, opacity: 0.9, maxWidth: 720 };
+  if (awaitingSubheadline) subheadlineInline.visibility = 'hidden';
   // Public visitor: emit per-block @media CSS so tablet/mobile values
   // kick in below their breakpoints. Editor preview pins the matching
   // values inline above (the iframe viewport may not match @media).
@@ -975,6 +1021,10 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
             {c.ctas.map((cta, i) => {
               const ctaLabelStyleObj = resolveTenantStyle(cta.labelTypographyStyleId, tenantStyles);
               const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
+              const awaitingCtaLabel = isAwaitingTypographyStyle(cta.labelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
+              const ctaLabelStyle = awaitingCtaLabel
+                ? { ...(ctaLabelInline || {}), visibility: 'hidden' }
+                : (ctaLabelInline || undefined);
               return (
                 <a
                   key={i}
@@ -982,7 +1032,7 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
                   className={buttonClasses(cta.variant || 'primary', 'default')}
                   onClick={(e) => { if (asEditor) e.preventDefault(); }}
                 >
-                  <span style={ctaLabelInline || undefined}>{cta.label || 'CTA'}</span>
+                  <span style={ctaLabelStyle}>{cta.label || 'CTA'}</span>
                 </a>
               );
             })}
@@ -1121,10 +1171,11 @@ function TextRender({ block, breakpoint }) {
   // outer tag follows the style's `style_type` (h1–h6/paragraph) and an
   // inline style object carries font-family/size/weight/etc so the public
   // renderer matches what the author sees in the editor.
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const tenantStyle = c.typographyStyleId
     ? tenantStyles.find((s) => s.id === c.typographyStyleId) || null
     : null;
+  const awaitingStyle = isAwaitingTypographyStyle(c.typographyStyleId, tenantStyle, stylesResolved);
 
   // Responsive typography handling: when the chosen tenant style declares
   // any tablet/mobile-specific override, the editor preview pins the
@@ -1157,14 +1208,17 @@ function TextRender({ block, breakpoint }) {
     // existing block that has `headingAs` set but no `typographyStyleId`.
     const level = Number(c.headingAs);
     Tag = level >= 1 && level <= 6 ? `h${level}` : 'div';
-    headingSizeClass = {
+    // While the styles list is still loading and this block references a
+    // (not-yet-resolved) tenant style, suppress the legacy sizing so we
+    // don't paint a default we're about to replace.
+    headingSizeClass = awaitingStyle ? '' : ({
       1: 'text-3xl font-bold',
       2: 'text-2xl font-bold',
       3: 'text-xl font-semibold',
       4: 'text-lg font-semibold',
       5: 'text-base font-semibold',
       6: 'text-sm font-semibold uppercase tracking-wide',
-    }[level] || '';
+    }[level] || '');
   }
   const outerStyle = {
     // Tenant style colour wins; otherwise honour the block's colour role.
@@ -1179,6 +1233,11 @@ function TextRender({ block, breakpoint }) {
   // on the legacy heading path.
   if (Number.isFinite(c.lineHeight)) {
     outerStyle.lineHeight = c.lineHeight;
+  }
+  // Hide the text until the referenced style resolves so the legacy default
+  // is never visibly painted before snapping to the custom style.
+  if (awaitingStyle) {
+    outerStyle.visibility = 'hidden';
   }
   return (
     <>
@@ -1349,9 +1408,14 @@ function ButtonRender({ block, asEditor, breakpoint }) {
   // font-family/size/weight/etc so the button label honours brand type. The
   // outer anchor still uses the variant/size button classes (background,
   // radius, hover/active states) so this only changes typography.
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const labelStyleObj = resolveTenantStyle(c.typographyStyleId, tenantStyles);
-  const labelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj) : null;
+  const awaitingLabel = isAwaitingTypographyStyle(c.typographyStyleId, labelStyleObj, stylesResolved);
+  // While the referenced style is still loading, hide the label rather than
+  // flash the default text styling that will be replaced a moment later.
+  const labelInline = labelStyleObj
+    ? buildTypographyInlineStyle(labelStyleObj)
+    : (awaitingLabel ? { visibility: 'hidden' } : null);
   // Tenant button variants — when `variant` is `tenant-primary` or
   // `tenant-secondary` we render with inline styles derived from the
   // tenant's saved `branding.buttonStyles[primary|secondary]` instead of
@@ -2195,18 +2259,25 @@ function TestimonialsRender({ block, breakpoint }) {
   // author/role attribution, mirroring how Card/Hero consume them. When
   // unset (or the chosen style is later deleted) we fall back to the
   // original Tailwind sizes (text-sm / text-xs).
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const quoteStyleObj = resolveTenantStyle(c.quoteTypographyStyleId, tenantStyles);
   const attributionStyleObj = resolveTenantStyle(c.attributionTypographyStyleId, tenantStyles);
+  const awaitingQuote = isAwaitingTypographyStyle(c.quoteTypographyStyleId, quoteStyleObj, stylesResolved);
+  const awaitingAttribution = isAwaitingTypographyStyle(c.attributionTypographyStyleId, attributionStyleObj, stylesResolved);
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
   const bpForInline = isPreview ? breakpoint : 'desktop';
   if (items.length === 0) return null;
-  const quoteInline = quoteStyleObj
+  // When awaiting an unresolved style, carry a `visibility: hidden` inline
+  // style (truthy) so the legacy text-sm/text-xs class is also dropped and
+  // the default size never flashes before the custom style arrives.
+  let quoteInline = quoteStyleObj
     ? buildTypographyInlineStyle(quoteStyleObj, { breakpoint: bpForInline })
     : null;
-  const attributionInline = attributionStyleObj
+  if (awaitingQuote) quoteInline = { ...(quoteInline || {}), visibility: 'hidden' };
+  let attributionInline = attributionStyleObj
     ? buildTypographyInlineStyle(attributionStyleObj, { breakpoint: bpForInline })
     : null;
+  if (awaitingAttribution) attributionInline = { ...(attributionInline || {}), visibility: 'hidden' };
   // Internal card padding — defaults to the original 12px; an explicit 0
   // is honoured (matches the Card block's contentPadding behaviour).
   const cardPadding = c.cardPadding == null ? 12 : (Number(c.cardPadding) || 0);
@@ -2430,8 +2501,9 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   // outer tag follows the style's `style_type` and inline styles carry
   // font-family/size/weight/etc. Falls back to the legacy `headingLevel`
   // when no style is set or the chosen style id can't be resolved.
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const headingStyleObj = resolveTenantStyle(c.headingTypographyStyleId, tenantStyles);
+  const awaitingHeading = isAwaitingTypographyStyle(c.headingTypographyStyleId, headingStyleObj, stylesResolved);
   const Heading = headingStyleObj
     ? tagForTypographyStyleType(headingStyleObj.style_type)
     : `h${Math.max(1, Math.min(6, c.headingLevel || 3))}`;
@@ -2440,6 +2512,7 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
   const headingInline = headingStyleObj
     ? { margin: 0, ...buildTypographyInlineStyle(headingStyleObj, { breakpoint: bpForInline }) }
     : { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
+  if (awaitingHeading) headingInline.visibility = 'hidden';
   // Inner padding applied to the text/CTA area only — the image stays
   // full-bleed against the card edges. Defaults to 16; an explicit 0 is
   // honoured so authors can opt back into a flush layout.
@@ -2490,7 +2563,10 @@ function CardRender({ block, asEditor, priority, breakpoint }) {
         />
         {c.ctaLabel && (() => {
           const ctaLabelStyleObj = resolveTenantStyle(c.ctaLabelTypographyStyleId, tenantStyles);
-          const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
+          const awaitingCtaLabel = isAwaitingTypographyStyle(c.ctaLabelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
+          const ctaLabelInline = ctaLabelStyleObj
+            ? buildTypographyInlineStyle(ctaLabelStyleObj)
+            : (awaitingCtaLabel ? { visibility: 'hidden' } : null);
           return (
             <div className="mt-2 flex" style={{ justifyContent: ctaJustify }}>
               <a

@@ -45,6 +45,8 @@ import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/
 import {
   TypographyStyleField,
   useTenantTypographyStyles,
+  useTenantTypographyStylesState,
+  isAwaitingTypographyStyle,
   resolveTenantStyle,
   buildTypographyInlineStyle,
   buildTenantTypographyResponsiveCss,
@@ -3469,17 +3471,24 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
   // the chosen style's font (family/size/weight/line-height/etc.) overrides
   // the hardcoded text-sm / text-xs classes; when unset, cards render
   // exactly as before. Mirrors the Card/Text/Hero block pattern.
-  const tenantStyles = useTenantTypographyStyles();
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
   const summaryStyleObj = resolveTenantStyle(c.summaryTypographyStyleId, tenantStyles);
+  const awaitingTitle = isAwaitingTypographyStyle(c.titleTypographyStyleId, titleStyleObj, stylesResolved);
+  const awaitingSummary = isAwaitingTypographyStyle(c.summaryTypographyStyleId, summaryStyleObj, stylesResolved);
   const isPreview = breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
   const bpForInline = isPreview ? breakpoint : 'desktop';
-  const titleInline = titleStyleObj
+  // When awaiting an unresolved style, carry a `visibility: hidden` inline
+  // style (truthy) so the legacy text-sm/text-xs class is also dropped and
+  // the default size never flashes before the custom style arrives.
+  let titleInline = titleStyleObj
     ? buildTypographyInlineStyle(titleStyleObj, { breakpoint: bpForInline })
     : null;
-  const summaryInline = summaryStyleObj
+  if (awaitingTitle) titleInline = { ...(titleInline || {}), visibility: 'hidden' };
+  let summaryInline = summaryStyleObj
     ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint: bpForInline })
     : null;
+  if (awaitingSummary) summaryInline = { ...(summaryInline || {}), visibility: 'hidden' };
   const safeBlockId = String(block.id || '').replace(/["\\]/g, '');
   const responsiveCss = !isPreview
     ? [
