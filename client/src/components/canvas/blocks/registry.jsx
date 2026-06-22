@@ -22,6 +22,8 @@ import {
   Bell, Award, Check, Heart, Mail, Phone, Globe, Calendar, Clock,
   Users, Building2, Briefcase, BookOpen, GraduationCap, Lightbulb,
   Shield, Zap, ChevronDown,
+  ExternalLink, FileText, Video, Download, Music, MapPin,
+  Link as LinkIcon,
   Component as ComponentIcon,
   RotateCcw,
   Table as TableIcon,
@@ -2165,7 +2167,29 @@ function DividerInspector({ block, update }) {
 }
 
 // ACCORDION ------------------------------------------------------------------
-function AccordionRender({ block }) {
+// Structured link icon set — kept in lockstep with the iedit accordion
+// (IEditAccordionElement.jsx) so the two builders feel consistent.
+const ACCORDION_LINK_ICON_TYPES = [
+  { value: 'external', label: 'External Link', icon: ExternalLink },
+  { value: 'document', label: 'Document', icon: FileText },
+  { value: 'video', label: 'Video', icon: Video },
+  { value: 'download', label: 'Download', icon: Download },
+  { value: 'email', label: 'Email', icon: Mail },
+  { value: 'phone', label: 'Phone', icon: Phone },
+  { value: 'link', label: 'Generic Link', icon: LinkIcon },
+  { value: 'image', label: 'Image', icon: ImageIcon },
+  { value: 'audio', label: 'Audio', icon: Music },
+  { value: 'calendar', label: 'Calendar/Event', icon: Calendar },
+  { value: 'location', label: 'Location', icon: MapPin },
+  { value: 'resource', label: 'Resource', icon: BookOpen },
+];
+
+function getAccordionLinkIcon(iconType) {
+  const found = ACCORDION_LINK_ICON_TYPES.find((t) => t.value === iconType);
+  return found ? found.icon : ExternalLink;
+}
+
+function AccordionRender({ block, asEditor }) {
   const c = block.content || {};
   // Controlled open-state so we can enforce expandOne (only one item open at
   // a time). When expandOne is false the user can open as many as they like.
@@ -2215,9 +2239,43 @@ function AccordionRender({ block }) {
               role="region"
               aria-labelledby={headingId}
               hidden={!isOpen}
-              className="px-3 pb-3 pt-1 prose prose-sm max-w-none [&_p:last-child]:mb-0"
-              dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(item.a || '')) }}
-            />
+              className="px-3 pb-3 pt-1"
+            >
+              <div
+                className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(item.a || '')) }}
+              />
+              {Array.isArray(item.links) && item.links.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="flex flex-wrap gap-3">
+                    {item.links.map((link, linkIndex) => {
+                      const IconComponent = getAccordionLinkIcon(link.iconType);
+                      const newTab = link.openInNewTab !== false;
+                      const chipClass =
+                        'inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-slate-200 text-blue-600 hover-elevate text-sm font-medium';
+                      const inner = (
+                        <>
+                          <IconComponent className="w-4 h-4 flex-shrink-0" />
+                          <span>{link.label || 'Link'}</span>
+                        </>
+                      );
+                      return (
+                        <MegaLink
+                          key={linkIndex}
+                          href={link.url}
+                          openInNewTab={newTab}
+                          asEditor={asEditor}
+                          className={chipClass}
+                          testId={`accordion-link-${i}-${linkIndex}`}
+                        >
+                          {inner}
+                        </MegaLink>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
@@ -2250,6 +2308,34 @@ function AccordionInspector({ block, update }) {
             <>
               <TextField label="Question" value={item.q} onChange={(v) => patch({ q: v })} testId={`accordion-${idx}-q`} />
               <RichTextField label="Answer" value={item.a} onChange={(v) => patch({ a: v })} testId={`accordion-${idx}-a`} />
+              <Field label="Links">
+                <ArrayList
+                  items={item.links || []}
+                  onChange={(nextLinks) => patch({ links: nextLinks })}
+                  makeNew={() => ({ label: 'New link', url: '', iconType: 'external', openInNewTab: true })}
+                  addLabel="Add link"
+                  testIdPrefix={`accordion-${idx}-links`}
+                  renderItem={(link, linkIdx, patchLink) => (
+                    <>
+                      <TextField label="Label" value={link.label} onChange={(v) => patchLink({ label: v })} testId={`accordion-${idx}-link-${linkIdx}-label`} />
+                      <LinkField label="URL" value={link.url} onChange={(v) => patchLink({ url: v })} testId={`accordion-${idx}-link-${linkIdx}-url`} />
+                      <SelectField
+                        label="Icon"
+                        value={link.iconType || 'external'}
+                        onChange={(v) => patchLink({ iconType: v })}
+                        options={ACCORDION_LINK_ICON_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                        testId={`accordion-${idx}-link-${linkIdx}-icon`}
+                      />
+                      <ToggleField
+                        label="Open in new tab"
+                        value={link.openInNewTab !== false}
+                        onChange={(v) => patchLink({ openInNewTab: v })}
+                        testId={`accordion-${idx}-link-${linkIdx}-newtab`}
+                      />
+                    </>
+                  )}
+                />
+              </Field>
             </>
           )}
         />

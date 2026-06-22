@@ -1815,6 +1815,23 @@ export function validateBlock(block) {
       });
       break;
     }
+    case BLOCK_TYPES.ACCORDION: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((it, i) => {
+        const links = Array.isArray(it?.links) ? it.links : [];
+        links.forEach((l, j) => {
+          const hasLabel = !!(l?.label && String(l.label).trim());
+          const hasUrl = !!(l?.url && String(l.url).trim());
+          if (hasLabel && !hasUrl) {
+            errors.push(`Accordion item #${i + 1} link #${j + 1} needs a URL.`);
+          }
+          if (hasUrl && !hasLabel) {
+            errors.push(`Accordion item #${i + 1} link #${j + 1} needs a label.`);
+          }
+        });
+      });
+      break;
+    }
     default:
       break;
   }
