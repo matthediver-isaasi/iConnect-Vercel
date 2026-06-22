@@ -1131,6 +1131,12 @@ export function createEmptyCanvasDesign() {
       // `block.groupId`. Groups are purely organisational — z-order,
       // geometry and the public renderer are unaffected.
       groups: [],
+      // Task #1665: editor-only ruler guides. Two arrays of stage-coordinate
+      // positions — `vertical` are x-offsets, `horizontal` are y-offsets.
+      // Guides are an authoring aid (drag-out from the rulers, snap blocks to
+      // them); they are NEVER read by the public renderer, which only walks
+      // `root.sections`.
+      guides: { vertical: [], horizontal: [] },
       sections: [
         {
           id: 'root-section',
@@ -1215,14 +1221,39 @@ export function normalizeCanvasDesign(design) {
   }
   groups = groups.filter((g) => (memberCounts[g.id] || 0) > 0);
 
+  const guides = normalizeGuides(root.guides);
+
   return {
     version: typeof design.version === 'number' ? design.version : CANVAS_DESIGN_VERSION,
     root: {
       background: root.background ?? null,
       groups,
+      guides,
       sections,
     },
   };
+}
+
+// Task #1665: normalize the editor-only ruler guides. Coerce both axes to
+// arrays of finite, non-negative, rounded, de-duplicated, ascending values.
+// Legacy designs with no `guides` key load unchanged with empty arrays.
+function normalizeGuides(guides) {
+  const clean = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const v of arr) {
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < 0) continue;
+      if (seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
+    out.sort((a, b) => a - b);
+    return out;
+  };
+  const g = guides && typeof guides === 'object' ? guides : {};
+  return { vertical: clean(g.vertical), horizontal: clean(g.horizontal) };
 }
 
 function normalizeGroup(group) {
@@ -1505,6 +1536,27 @@ export function setGroups(design, groups) {
   return {
     ...d,
     root: { ...d.root, groups: Array.isArray(groups) ? groups : [] },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task #1665: editor-only ruler guides
+//
+// `root.guides` is `{ vertical: number[], horizontal: number[] }` of stage
+// coordinates. Helpers round-trip through normalizeCanvasDesign so the stored
+// arrays are always cleaned (finite, >= 0, de-duplicated, ascending). The
+// public renderer never reads these, so they cannot leak into a live page.
+// ---------------------------------------------------------------------------
+
+export function getCanvasGuides(design) {
+  return normalizeCanvasDesign(design).root.guides;
+}
+
+export function setCanvasGuides(design, guides) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: { ...d.root, guides: normalizeGuides(guides) },
   };
 }
 

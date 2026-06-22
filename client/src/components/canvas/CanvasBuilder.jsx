@@ -26,6 +26,8 @@ import {
   AlignVerticalDistributeCenter,
   AlignHorizontalDistributeCenter,
   Grid3x3,
+  Ruler,
+  Eraser,
   Square,
   ZoomIn,
   ZoomOut,
@@ -46,6 +48,8 @@ import {
   setRootChildren,
   getGroups,
   setGroups,
+  getCanvasGuides,
+  setCanvasGuides,
   createGroup,
   ungroup,
   BREAKPOINT_WIDTHS,
@@ -55,6 +59,7 @@ import {
 } from '@/lib/canvasDesign';
 import CanvasPalette from './CanvasPalette';
 import CanvasStage from './CanvasStage';
+import CanvasGuidesOverlay from './CanvasGuides';
 import CanvasInspector from './CanvasInspector';
 import { CanvasAnchorProvider } from './CanvasAnchorContext';
 import { CanvasSymbolsProvider, useCanvasSymbolsData } from './CanvasSymbolsContext';
@@ -77,7 +82,14 @@ const STAGE_MIN_HEIGHT = 800;
 
 const RULER_SIZE = 20;
 
-function CanvasRulers({ width, height, gridSize, zoom = 1, children }) {
+const EMPTY_GUIDES = { vertical: [], horizontal: [] };
+
+function snapGuideValue(v, gridSize) {
+  if (!gridSize || gridSize <= 1) return Math.round(v);
+  return Math.round(v / gridSize) * gridSize;
+}
+
+function CanvasRulers({ width, height, gridSize, zoom = 1, onCreateGuide, children }) {
   // Tick every gridSize*N where N is chosen to keep ticks readable at zoom.
   const baseStep = Math.max(gridSize, 8);
   const labelEvery = Math.max(1, Math.round(40 / (baseStep * zoom)));
@@ -101,11 +113,12 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, children }) {
         className="absolute top-0 left-0 bg-slate-200 border-r border-b border-slate-300"
         style={{ width: RULER_SIZE, height: RULER_SIZE, zIndex: 2 }}
       />
-      {/* Top ruler */}
+      {/* Top ruler — drag down to create a horizontal guide */}
       <div
-        className="absolute top-0 bg-white border-b border-slate-300 overflow-hidden"
-        style={{ left: RULER_SIZE, width: widthScaled, height: RULER_SIZE }}
+        className="absolute top-0 bg-white border-b border-slate-300 overflow-hidden touch-none"
+        style={{ left: RULER_SIZE, width: widthScaled, height: RULER_SIZE, cursor: onCreateGuide ? 'row-resize' : 'default' }}
         data-testid="ruler-horizontal"
+        onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('horizontal', e); }}
       >
         {hTicks.map((x) => {
           const isLabel = x % labelStep === 0;
@@ -132,11 +145,12 @@ function CanvasRulers({ width, height, gridSize, zoom = 1, children }) {
           );
         })}
       </div>
-      {/* Left ruler */}
+      {/* Left ruler — drag right to create a vertical guide */}
       <div
-        className="absolute left-0 bg-white border-r border-slate-300 overflow-hidden"
-        style={{ top: RULER_SIZE, width: RULER_SIZE, height: heightScaled }}
+        className="absolute left-0 bg-white border-r border-slate-300 overflow-hidden touch-none"
+        style={{ top: RULER_SIZE, width: RULER_SIZE, height: heightScaled, cursor: onCreateGuide ? 'col-resize' : 'default' }}
         data-testid="ruler-vertical"
+        onPointerDown={(e) => { if (e.button === 0) onCreateGuide?.('vertical', e); }}
       >
         {vTicks.map((y) => {
           const isLabel = y % labelStep === 0;
@@ -195,6 +209,15 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const [zoom, setZoom] = useState(1);
   const [showReadingOrder, setShowReadingOrder] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
+  // Task #1665: editor-only ruler guides.
+  const [showGuides, setShowGuides] = useState(true);
+  // guideDrag holds the immutable descriptor of an in-progress guide drag
+  // (kind/orientation/index); guidePreview holds its live value+removing flag.
+  // Splitting them keeps the window-listener effect from re-binding on move.
+  const [guideDrag, setGuideDrag] = useState(null);
+  const [guidePreview, setGuidePreview] = useState(null);
+  const guideDragRef = useRef(null);
+  const guideAreaRef = useRef(null);
   // Alignment reference frame for the align toolbar buttons:
   //  - 'anchor'    -> last-selected block (Figma/Sketch pattern). With a
   //                   single selection this falls back to canvas bounds
@@ -790,6 +813,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       // Ignore when typing in inputs
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      // A guide drag owns the keyboard (Delete removes/cancels the guide) —
+      // don't also fall through to block deletion/nudging.
+      if (guideDragRef.current) return;
 
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
@@ -1056,6 +1082,129 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   const canvasWidth = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
 
+  // ---- Ruler guides (Task #1665) ----
+  const guides = useMemo(() => getCanvasGuides(design), [design]);
+  const hasGuides = guides.vertical.length + guides.horizontal.length > 0;
+
+  // Convert a client (screen) point into stage coordinates using the guide
+  // overlay wrapper, whose top-left == stage origin.
+  const clientToStage = useCallback((clientX, clientY) => {
+    const el = guideAreaRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    const z = zoom || 1;
+    return { x: (clientX - rect.left) / z, y: (clientY - rect.top) / z };
+  }, [zoom]);
+
+  // Given a pointer position, compute the snapped guide value and whether the
+  // drag is currently in "remove" territory (pointer pulled back onto/past the
+  // originating ruler, i.e. negative coordinate).
+  const computeGuideValue = useCallback((orientation, clientX, clientY) => {
+    const { x, y } = clientToStage(clientX, clientY);
+    const raw = orientation === 'vertical' ? x : y;
+    const max = orientation === 'vertical' ? canvasWidth : stageHeight;
+    const clamped = Math.max(0, Math.min(raw, max));
+    return { value: snapGuideValue(clamped, gridSize), removing: raw < 0 };
+  }, [clientToStage, canvasWidth, stageHeight, gridSize]);
+
+  const commitGuide = useCallback((descriptor, value, removing) => {
+    const { kind, orientation, index } = descriptor;
+    setDesign((prev) => {
+      const g = getCanvasGuides(prev);
+      const vertical = [...g.vertical];
+      const horizontal = [...g.horizontal];
+      const arr = orientation === 'vertical' ? vertical : horizontal;
+      if (kind === 'create') {
+        if (removing) return prev; // dropped back on the ruler — no-op
+        arr.push(value);
+      } else { // move
+        if (removing) arr.splice(index, 1);
+        else arr[index] = value;
+      }
+      return setCanvasGuides(prev, { vertical, horizontal });
+    });
+  }, [setDesign]);
+
+  const removeGuideAt = useCallback((orientation, index) => {
+    setDesign((prev) => {
+      const g = getCanvasGuides(prev);
+      const vertical = [...g.vertical];
+      const horizontal = [...g.horizontal];
+      const arr = orientation === 'vertical' ? vertical : horizontal;
+      arr.splice(index, 1);
+      return setCanvasGuides(prev, { vertical, horizontal });
+    });
+  }, [setDesign]);
+
+  const clearGuides = useCallback(() => {
+    setDesign((prev) => setCanvasGuides(prev, { vertical: [], horizontal: [] }));
+  }, [setDesign]);
+
+  const beginGuideDrag = useCallback((descriptor, clientX, clientY) => {
+    setShowGuides(true);
+    guideDragRef.current = descriptor;
+    setGuideDrag(descriptor);
+    const { value, removing } = computeGuideValue(descriptor.orientation, clientX, clientY);
+    setGuidePreview({ value, removing });
+  }, [computeGuideValue]);
+
+  const startGuideFromRuler = useCallback((orientation, e) => {
+    e.preventDefault();
+    beginGuideDrag({ kind: 'create', orientation }, e.clientX, e.clientY);
+  }, [beginGuideDrag]);
+
+  const startGuideMove = useCallback((orientation, index, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    beginGuideDrag({ kind: 'move', orientation, index }, e.clientX, e.clientY);
+  }, [beginGuideDrag]);
+
+  // Window listeners while a guide is being dragged. Bound only on the
+  // immutable descriptor so per-move value updates don't re-subscribe.
+  useEffect(() => {
+    if (!guideDrag) return;
+    const descriptor = guideDrag;
+    const endDrag = () => {
+      guideDragRef.current = null;
+      setGuideDrag(null);
+      setGuidePreview(null);
+    };
+    const onMove = (e) => {
+      const { value, removing } = computeGuideValue(descriptor.orientation, e.clientX, e.clientY);
+      setGuidePreview({ value, removing });
+    };
+    const onUp = (e) => {
+      const { value, removing } = computeGuideValue(descriptor.orientation, e.clientX, e.clientY);
+      commitGuide(descriptor, value, removing);
+      endDrag();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        if (descriptor.kind === 'move') removeGuideAt(descriptor.orientation, descriptor.index);
+        endDrag();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        endDrag();
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [guideDrag, computeGuideValue, commitGuide, removeGuideAt]);
+
+  const guideMoving = guideDrag && guideDrag.kind === 'move'
+    ? { orientation: guideDrag.orientation, index: guideDrag.index }
+    : null;
+  const guidePending = guideDrag && guidePreview
+    ? { orientation: guideDrag.orientation, value: guidePreview.value, removing: guidePreview.removing }
+    : null;
+
   // ---- Pan (space+drag or middle-mouse drag) on stage wrapper ----
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panStateRef = useRef(null);
@@ -1279,6 +1428,25 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               <option key={g} value={g}>{g}px grid</option>
             ))}
           </select>
+          <Button
+            size="sm" variant="ghost"
+            onClick={() => setShowGuides((v) => !v)}
+            className={`toggle-elevate ${showGuides ? 'toggle-elevated' : ''}`}
+            aria-pressed={showGuides}
+            title="Show/hide ruler guides"
+            data-testid="button-toggle-guides"
+          >
+            <Ruler className="w-4 h-4 mr-1.5" /> Guides
+          </Button>
+          <Button
+            size="icon" variant="ghost"
+            onClick={clearGuides}
+            disabled={!hasGuides}
+            title="Clear all guides"
+            data-testid="button-clear-guides"
+          >
+            <Eraser className="w-4 h-4" />
+          </Button>
           <div className="w-px h-6 bg-slate-200 mx-1" />
           <Button size="icon" variant="ghost" onClick={zoomOut} title="Zoom out" data-testid="button-zoom-out">
             <ZoomOut className="w-4 h-4" />
@@ -1373,39 +1541,60 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                 height={stageHeight}
                 gridSize={gridSize}
                 zoom={zoom}
+                onCreateGuide={startGuideFromRuler}
               >
                 <div
+                  ref={guideAreaRef}
+                  className="relative"
                   style={{
-                    transform: `scale(${zoom})`,
-                    transformOrigin: 'top left',
                     width: canvasWidth * zoom,
                     height: stageHeight * zoom,
                   }}
                 >
-                  <CanvasSymbolsProvider>
-                  <CanvasStage
-                    blocks={displayChildren}
-                    selectedIds={selectedIds}
-                    anchorId={anchorId}
-                    expandSelection={expandSelectionToGroups}
-                    onGroup={groupSelected}
-                    onUngroup={ungroupSelected}
-                    canGroup={canGroupSelection}
-                    canUngroup={canUngroupSelection}
-                    breakpoint={breakpoint}
-                    canvasWidth={canvasWidth}
-                    canvasHeight={stageHeight}
-                    gridSize={gridSize}
-                    showGrid={showGrid}
+                  <div
+                    style={{
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top left',
+                      width: canvasWidth * zoom,
+                      height: stageHeight * zoom,
+                    }}
+                  >
+                    <CanvasSymbolsProvider>
+                    <CanvasStage
+                      blocks={displayChildren}
+                      selectedIds={selectedIds}
+                      anchorId={anchorId}
+                      expandSelection={expandSelectionToGroups}
+                      onGroup={groupSelected}
+                      onUngroup={ungroupSelected}
+                      canGroup={canGroupSelection}
+                      canUngroup={canUngroupSelection}
+                      breakpoint={breakpoint}
+                      canvasWidth={canvasWidth}
+                      canvasHeight={stageHeight}
+                      gridSize={gridSize}
+                      showGrid={showGrid}
+                      zoom={zoom}
+                      showReadingOrder={showReadingOrder}
+                      issuesByBlock={a11yIssuesByBlock}
+                      userGuides={showGuides ? guides : EMPTY_GUIDES}
+                      onSelect={handleSelect}
+                      onApplyGeometry={applyGeometry}
+                      onMarqueeSelect={handleMarqueeSelect}
+                      onPreviewBottomChange={setLivePreviewBottom}
+                    />
+                    </CanvasSymbolsProvider>
+                  </div>
+                  <CanvasGuidesOverlay
+                    guides={guides}
+                    pending={guidePending}
+                    moving={guideMoving}
+                    show={showGuides}
                     zoom={zoom}
-                    showReadingOrder={showReadingOrder}
-                    issuesByBlock={a11yIssuesByBlock}
-                    onSelect={handleSelect}
-                    onApplyGeometry={applyGeometry}
-                    onMarqueeSelect={handleMarqueeSelect}
-                    onPreviewBottomChange={setLivePreviewBottom}
+                    canvasWidth={canvasWidth}
+                    stageHeight={stageHeight}
+                    onGuidePointerDown={startGuideMove}
                   />
-                  </CanvasSymbolsProvider>
                 </div>
               </CanvasRulers>
             </div>

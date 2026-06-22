@@ -26,7 +26,7 @@ function clamp(v, min, max) {
 
 // Snap a candidate rect against sibling rects + canvas edges. Returns
 // { rect, guides } where guides are { vertical: [x...], horizontal: [y...] }.
-function snapToSiblings(rect, siblings, canvasWidth, canvasHeight, tolerance = 6) {
+function snapToSiblings(rect, siblings, canvasWidth, canvasHeight, tolerance = 6, userGuides = { vertical: [], horizontal: [] }) {
   const guides = { vertical: [], horizontal: [] };
   let { x, y, w, h } = rect;
 
@@ -34,6 +34,8 @@ function snapToSiblings(rect, siblings, canvasWidth, canvasHeight, tolerance = 6
     { value: 0, type: 'edge' },
     { value: canvasWidth, type: 'edge' },
     { value: canvasWidth / 2, type: 'edge' },
+    // Task #1665: user-placed ruler guides are first-class snap targets.
+    ...((userGuides?.vertical || []).map((v) => ({ value: v, type: 'guide' }))),
   ];
   const yCandidates = [
     { value: 0, type: 'edge' },
@@ -41,6 +43,7 @@ function snapToSiblings(rect, siblings, canvasWidth, canvasHeight, tolerance = 6
       { value: canvasHeight, type: 'edge' },
       { value: canvasHeight / 2, type: 'edge' },
     ] : []),
+    ...((userGuides?.horizontal || []).map((v) => ({ value: v, type: 'guide' }))),
   ];
 
   for (const s of siblings) {
@@ -97,6 +100,48 @@ function snapToSiblings(rect, siblings, canvasWidth, canvasHeight, tolerance = 6
   }
 
   return { rect: { x, y, w, h }, guides };
+}
+
+// Task #1665: snap a resize candidate's moving edges to user ruler guides.
+// Only the edges implied by `handle` move, so we snap the left/right edge to
+// vertical guides and the top/bottom edge to horizontal guides, then re-derive
+// the dependent dimension. Returns { rect, guides } where guides highlight the
+// lines that were snapped to.
+function snapResizeToGuides(handle, rect, userGuides = { vertical: [], horizontal: [] }, tolerance = 6) {
+  const out = { ...rect };
+  const hi = { vertical: [], horizontal: [] };
+  const vert = userGuides?.vertical || [];
+  const horz = userGuides?.horizontal || [];
+  const nearest = (lines, target) => {
+    let best = null;
+    for (const g of lines) {
+      const diff = g - target;
+      if (Math.abs(diff) <= tolerance && (!best || Math.abs(diff) < Math.abs(best.diff))) {
+        best = { diff, line: g };
+      }
+    }
+    return best;
+  };
+
+  if (handle.includes('w')) {
+    const right = out.x + out.w;
+    const b = nearest(vert, out.x);
+    if (b) { out.x = b.line; out.w = Math.max(10, right - out.x); hi.vertical.push(b.line); }
+  } else if (handle.includes('e')) {
+    const b = nearest(vert, out.x + out.w);
+    if (b) { out.w = Math.max(10, b.line - out.x); hi.vertical.push(b.line); }
+  }
+
+  if (handle.includes('n')) {
+    const bottom = out.y + out.h;
+    const b = nearest(horz, out.y);
+    if (b) { out.y = b.line; out.h = Math.max(10, bottom - out.y); hi.horizontal.push(b.line); }
+  } else if (handle.includes('s')) {
+    const b = nearest(horz, out.y + out.h);
+    if (b) { out.h = Math.max(10, b.line - out.y); hi.horizontal.push(b.line); }
+  }
+
+  return { rect: out, guides: hi };
 }
 
 function applyResize(handle, start, dx, dy) {
@@ -223,6 +268,7 @@ export default function CanvasStage({
   showGrid = true,
   zoom = 1,
   showReadingOrder = false,
+  userGuides = { vertical: [], horizontal: [] },
   issuesByBlock,
   onSelect,
   onApplyGeometry, // (updates: { [id]: { x, y, w, h } }) => void  (commits to history)
@@ -411,7 +457,7 @@ export default function CanvasStage({
           const siblings = resolvedBlocks
             .filter(({ block }) => !interactionState.ids.includes(block.id))
             .map(({ geom }) => geom);
-          const { rect: snappedRect, guides: g } = snapToSiblings(candidate, siblings, canvasWidth, canvasHeight);
+          const { rect: snappedRect, guides: g } = snapToSiblings(candidate, siblings, canvasWidth, canvasHeight, 6, userGuides);
           candidate.x = snappedRect.x;
           candidate.y = snappedRect.y;
           appliedGuides = g;
@@ -421,7 +467,7 @@ export default function CanvasStage({
             .map(({ geom }) => geom);
           // Only collect vertical (y) guides; x is fixed at 0.
           const { rect: snappedRect, guides: g } = snapToSiblings(
-            { ...candidate, x: firstInitial.x }, siblings, canvasWidth, canvasHeight,
+            { ...candidate, x: firstInitial.x }, siblings, canvasWidth, canvasHeight, 6, userGuides,
           );
           candidate.y = snappedRect.y;
           appliedGuides = { vertical: [], horizontal: g.horizontal };
@@ -460,8 +506,15 @@ export default function CanvasStage({
         }
         next.y = snap(next.y, gridSize);
         next.h = Math.max(10, snap(next.h, gridSize));
+        // Task #1665: snap the moving edges to user guides. Full-width blocks
+        // keep x/w pinned, so only the vertical (n/s) edges may snap.
+        const resizeHandle = interactionState.fullWidth
+          ? interactionState.handle.replace(/[ew]/g, '')
+          : interactionState.handle;
+        const { rect: gr, guides: gg } = snapResizeToGuides(resizeHandle, next, userGuides);
+        next = gr;
         setPreviewGeoms({ [interactionState.id]: next });
-        setGuides({ vertical: [], horizontal: [] });
+        setGuides(gg);
       } else if (interactionState.kind === 'marquee') {
         setInteractionState((s) => s ? { ...s, current: cur } : s);
         const x = Math.min(interactionState.start.x, cur.x);
@@ -507,7 +560,7 @@ export default function CanvasStage({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, blocks, canvasWidth, canvasHeight, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect]);
+  }, [interactionState, previewGeoms, marqueeRect, resolvedBlocks, blocks, canvasWidth, canvasHeight, gridSize, getStageCoords, onApplyGeometry, onMarqueeSelect, userGuides]);
 
   const gridStyle = showGrid ? {
     backgroundImage: `linear-gradient(to right, rgba(148,163,184,0.18) 1px, transparent 1px),

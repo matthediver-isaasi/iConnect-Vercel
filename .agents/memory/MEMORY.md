@@ -32,3 +32,4 @@
 - [Group-event authz body aliasing](group-event-authz-body-aliasing.md) — entity PATCH clear+reassign of sanitizedBody empties the update for tenant admins because authz.body is the SAME object ref; empty update -> PGRST116 -> silent 404.
 - [Role term snapshotting](role-term-snapshotting.md) — term length/max-terms live on the role def; snapshot onto member_group_assignment at award/invite-accept; helper duplicated client+server, keep in sync.
 - [Training fund pending-vs-available balance](training-fund-pending-balance.md) — top-ups split org balance into spendable + pending(invoice); credited from 2 paths (card confirm + cron) via one compare-and-set helper to stay idempotent.
+- [Canvas ruler guides (editor-only)](canvas-ruler-guides.md) — guides at root.guides (editor-only, never public); overlay renders OUTSIDE zoom-scaled div in screen px; guide-drag owns keyboard via ref guard.
