@@ -33,6 +33,7 @@ export default function WallOfFameManagementPage() {
   const [profilePhotoSize, setProfilePhotoSize] = useState("medium");
   const [selectedOrganizationForMember, setSelectedOrganizationForMember] = useState("");
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -61,24 +62,42 @@ export default function WallOfFameManagementPage() {
     enabled: showPersonDialog
   });
 
-  // Fetch members filtered by selected organization
+  // Debounce the member search input so we don't hit the server on every keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedMemberSearch(memberSearchQuery.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [memberSearchQuery]);
+
+  // Server-side member search scoped to the selected organisation (or "no org").
+  // This avoids fetching every tenant member into the browser, which is capped at
+  // ~1000 rows by the generic entity list API and silently hides members in large tenants.
+  const memberSearchEnabled =
+    showPersonDialog &&
+    !!selectedOrganizationForMember &&
+    selectedOrganizationForMember !== '__skip__' &&
+    debouncedMemberSearch.length >= 2;
+
   const { data: members = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['members-for-selection', selectedOrganizationForMember],
+    queryKey: ['wall-of-fame-member-search', selectedOrganizationForMember, debouncedMemberSearch],
     queryFn: async () => {
-      if (selectedOrganizationForMember === '__no_org__') {
-        // Fetch members without an organization
-        const allMembers = await base44.entities.Member.list({ limit: 5000 });
-        return allMembers.filter(m => !m.organization_id);
-      } else if (selectedOrganizationForMember) {
-        // Fetch members for the selected organization
-        return await base44.entities.Member.list({ 
-          filter: { organization_id: selectedOrganizationForMember },
-          limit: 1000
-        });
+      const orgParam =
+        selectedOrganizationForMember === '__no_org__'
+          ? '__no_org__'
+          : selectedOrganizationForMember;
+      const params = new URLSearchParams({
+        q: debouncedMemberSearch,
+        limit: '25',
+        organization_id: orgParam,
+      });
+      const resp = await fetch(`/api/members/search?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        throw new Error('Failed to search members');
       }
-      return [];
+      return resp.json();
     },
-    enabled: showPersonDialog && !!selectedOrganizationForMember
+    enabled: memberSearchEnabled,
   });
 
   const { data: photoSizeSetting } = useQuery({
@@ -605,28 +624,22 @@ export default function WallOfFameManagementPage() {
                       data-testid="input-member-search"
                     />
                     <div className="border border-slate-200 rounded-lg max-h-[200px] overflow-y-auto">
-                      {membersLoading ? (
+                      {debouncedMemberSearch.length < 2 ? (
+                        <div className="p-4 text-center text-slate-500">
+                          Type at least 2 characters to search
+                        </div>
+                      ) : membersLoading ? (
                         <div className="p-4 text-center text-slate-500">
                           <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                          Loading members...
+                          Searching members...
                         </div>
                       ) : members.length === 0 ? (
                         <div className="p-4 text-center text-slate-500">
-                          No members found in this organisation
+                          No members found
                         </div>
                       ) : (
                         <div className="divide-y divide-slate-200">
-                          {members
-                            .filter(m => {
-                              if (!memberSearchQuery) return true;
-                              const search = memberSearchQuery.toLowerCase();
-                              return (
-                                m.first_name?.toLowerCase().includes(search) ||
-                                m.last_name?.toLowerCase().includes(search) ||
-                                m.email?.toLowerCase().includes(search)
-                              );
-                            })
-                            .map(member => (
+                          {members.map(member => (
                               <button
                                 key={member.id}
                                 type="button"
@@ -649,7 +662,7 @@ export default function WallOfFameManagementPage() {
                       <div className="flex items-center gap-2 p-2 bg-green-50 rounded border border-green-200">
                         <User className="w-4 h-4 text-green-600" />
                         <span className="text-sm text-green-700">
-                          Member linked: {members.find(m => m.id === editingPerson.member_id)?.first_name} {members.find(m => m.id === editingPerson.member_id)?.last_name}
+                          Member linked: {editingPerson.first_name} {editingPerson.last_name}
                         </span>
                         <Button 
                           type="button" 

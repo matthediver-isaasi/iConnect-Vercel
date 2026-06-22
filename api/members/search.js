@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
-  const { q: query, limit = 10 } = req.query;
+  const { q: query, limit = 10, organization_id: organizationId } = req.query;
 
   const normalized = (query || '').trim();
   if (normalized.length < 2) {
@@ -34,9 +34,21 @@ export default async function handler(req, res) {
 
     let memberQuery = supabase
       .from('member')
-      .select('id, first_name, last_name, email')
+      .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, linkedin_url, organization_id')
       .eq('tenant_id', tenantId)
       .not('email', 'ilike', 'deleted_%@deleted.local');
+
+    // Optional organisation filter:
+    // - 'none' / '__no_org__' / 'null' => members with no organisation
+    // - any other value (org UUID)    => members in that organisation
+    if (organizationId) {
+      const noOrgValues = ['none', '__no_org__', 'null'];
+      if (noOrgValues.includes(organizationId)) {
+        memberQuery = memberQuery.is('organization_id', null);
+      } else {
+        memberQuery = memberQuery.eq('organization_id', organizationId);
+      }
+    }
 
     for (const token of tokens) {
       const pattern = `%${token}%`;
