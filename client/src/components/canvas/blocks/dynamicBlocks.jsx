@@ -3875,6 +3875,39 @@ function FormEmbedIframe({ href, title }) {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  // Canvas block boxes are absolutely positioned with a geometry-driven
+  // fixed height and `overflow:hidden`, so a form taller than the block's
+  // allocated height gets clipped even though the iframe itself is sized
+  // correctly. When the form reports its height, let the enclosing block
+  // frame grow with its content (and extend the stage so the document
+  // expands to contain it) instead of clipping.
+  useEffect(() => {
+    if (height == null) return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const blockEl = iframe.closest('[data-cb]');
+    if (!blockEl) return;
+
+    const prevHeight = blockEl.style.height;
+    const prevOverflow = blockEl.style.overflow;
+    blockEl.style.height = 'auto';
+    blockEl.style.overflow = 'visible';
+
+    const stageEl = blockEl.closest('.canvas-stage');
+    let prevStageMinHeight;
+    if (stageEl) {
+      prevStageMinHeight = stageEl.style.minHeight;
+      const blockBottom = blockEl.offsetTop + blockEl.offsetHeight;
+      stageEl.style.minHeight = `${Math.ceil(blockBottom + 80)}px`;
+    }
+
+    return () => {
+      blockEl.style.height = prevHeight;
+      blockEl.style.overflow = prevOverflow;
+      if (stageEl) stageEl.style.minHeight = prevStageMinHeight;
+    };
+  }, [height]);
+
   return (
     <iframe
       ref={iframeRef}
