@@ -1249,28 +1249,7 @@ function HeroInspector({ block, update }) {
       )}
       {c.overlayStyle === 'gradient' && (
         <>
-          <ColorField
-            label="Gradient colour 1"
-            value={c.overlayFromColor || '#000000'}
-            onChange={(v) => set({ overlayFromColor: v })}
-            testId="input-hero-overlay-from-color"
-          />
-          <NumberField
-            label="Colour 1 opacity (0–1)" value={c.overlayFromOpacity ?? 0.6} min={0} max={1} step={0.05}
-            onChange={(v) => set({ overlayFromOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-            testId="input-hero-overlay-from-opacity"
-          />
-          <ColorField
-            label="Gradient colour 2"
-            value={c.overlayToColor || '#000000'}
-            onChange={(v) => set({ overlayToColor: v })}
-            testId="input-hero-overlay-to-color"
-          />
-          <NumberField
-            label="Colour 2 opacity (0–1)" value={c.overlayToOpacity ?? 0} min={0} max={1} step={0.05}
-            onChange={(v) => set({ overlayToOpacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-            testId="input-hero-overlay-to-opacity"
-          />
+          <HeroOverlayStops c={c} set={set} />
           <SelectField
             label="Gradient direction"
             value={c.overlayDirection || 'to-top'}
@@ -5075,10 +5054,16 @@ function heroOverlayAngle(c) {
 
 // Builds the Hero image/video overlay CSS background. Solid (default, and the
 // fallback for legacy data that has no overlayStyle) reproduces the original
-// flat black wash driven by darkWash. Gradient emits a two-stop linear
-// gradient from the configured colours/opacities along the chosen direction.
+// flat black wash driven by darkWash. Gradient emits a linear gradient along
+// the chosen direction: a full multipoint gradient when a usable `overlayStops`
+// array (2+ stops) is present, otherwise the legacy two-stop from→to output so
+// blocks saved before per-stop support are byte-identical.
 function buildHeroOverlayBackground(c) {
   if ((c.overlayStyle || 'solid') === 'gradient') {
+    const stops = getUsableStops(c.overlayStops);
+    if (stops) {
+      return `linear-gradient(${heroOverlayAngle(c)}deg, ${buildGradientStopList(stops)})`;
+    }
     const from = hexToRgba(c.overlayFromColor || '#000000', c.overlayFromOpacity ?? 0.6);
     const to = hexToRgba(c.overlayToColor || '#000000', c.overlayToOpacity ?? 0);
     return `linear-gradient(${heroOverlayAngle(c)}deg, ${from}, ${to})`;
@@ -5105,13 +5090,18 @@ function buildSectionOverlayBackground(c) {
   return null;
 }
 
-// A section gradient stops array is "usable" only when it carries at least
-// two valid stops. Anything less falls back to the legacy two-stop fields so
-// older sections (and sections mid-edit) keep rendering exactly as before.
-function getUsableGradientStops(c) {
-  if (!Array.isArray(c.gradientStops)) return null;
-  const stops = c.gradientStops.filter((s) => s && typeof s === 'object');
+// A gradient stops array is "usable" only when it carries at least two valid
+// stops. Anything less falls back to the legacy two-stop fields so older
+// blocks (and blocks mid-edit) keep rendering exactly as before. Shared by the
+// Section gradient (`gradientStops`) and the Hero overlay (`overlayStops`).
+function getUsableStops(arr) {
+  if (!Array.isArray(arr)) return null;
+  const stops = arr.filter((s) => s && typeof s === 'object');
   return stops.length >= 2 ? stops : null;
+}
+
+function getUsableGradientStops(c) {
+  return getUsableStops(c.gradientStops);
 }
 
 // Emits the CSS colour-stop list ("rgba(...) 25%, rgba(...) 80%") for a
@@ -5188,15 +5178,14 @@ function deriveSectionGradientStops(c, type) {
   ];
 }
 
-// Editable, ordered list of gradient colour stops for the Section inspector.
-// Each stop carries a colour, opacity (0–1), and position (0–100%). Authors can
-// add, remove, and reorder stops; a minimum of two stops is always enforced so
-// the gradient never degenerates. Writing any change persists `gradientStops`
-// as the source of truth (the legacy from/to fields are left untouched for
-// back-compat but are no longer consulted once stops exist).
-function SectionGradientStops({ c, gradientType, set }) {
-  const stops = deriveSectionGradientStops(c, gradientType);
-  const commit = (next) => set({ gradientStops: next });
+// Shared, editable, ordered list of gradient colour stops. Each stop carries a
+// colour, opacity (0–1), and position (0–100%). Authors can add, remove, and
+// reorder stops; a minimum of two stops is always enforced so the gradient
+// never degenerates. The parent owns where the resulting array is persisted
+// (Section → `gradientStops`, Hero overlay → `overlayStops`) via `onChange`.
+// `testIdPrefix` keeps each consumer's data-testids stable and unique.
+function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
+  const commit = (next) => onChange(next);
   const updateStop = (i, patch) => {
     commit(stops.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   };
@@ -5223,7 +5212,7 @@ function SectionGradientStops({ c, gradientType, set }) {
     commit(next);
   };
   return (
-    <div className="space-y-3" data-testid="section-gradient-stops">
+    <div className="space-y-3" data-testid={`${testIdPrefix}s`}>
       <div className="flex items-center justify-between gap-2">
         <Label className="text-xs text-slate-600">Colour stops</Label>
         <Button
@@ -5231,7 +5220,7 @@ function SectionGradientStops({ c, gradientType, set }) {
           size="sm"
           variant="outline"
           onClick={addStop}
-          data-testid="button-section-gradient-stop-add"
+          data-testid={`button-${testIdPrefix}-add`}
         >
           <Plus className="w-3 h-3" />
           Add stop
@@ -5241,7 +5230,7 @@ function SectionGradientStops({ c, gradientType, set }) {
         <div
           key={i}
           className="space-y-2 rounded-md border border-slate-200 p-2"
-          data-testid={`section-gradient-stop-${i}`}
+          data-testid={`${testIdPrefix}-${i}`}
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-slate-500">Stop {i + 1}</span>
@@ -5252,7 +5241,7 @@ function SectionGradientStops({ c, gradientType, set }) {
                 variant="ghost"
                 disabled={i === 0}
                 onClick={() => moveStop(i, -1)}
-                data-testid={`button-section-gradient-stop-up-${i}`}
+                data-testid={`button-${testIdPrefix}-up-${i}`}
               >
                 <ArrowUp className="w-3 h-3" />
               </Button>
@@ -5262,7 +5251,7 @@ function SectionGradientStops({ c, gradientType, set }) {
                 variant="ghost"
                 disabled={i === stops.length - 1}
                 onClick={() => moveStop(i, 1)}
-                data-testid={`button-section-gradient-stop-down-${i}`}
+                data-testid={`button-${testIdPrefix}-down-${i}`}
               >
                 <ArrowDown className="w-3 h-3" />
               </Button>
@@ -5272,7 +5261,7 @@ function SectionGradientStops({ c, gradientType, set }) {
                 variant="ghost"
                 disabled={stops.length <= 2}
                 onClick={() => removeStop(i)}
-                data-testid={`button-section-gradient-stop-remove-${i}`}
+                data-testid={`button-${testIdPrefix}-remove-${i}`}
               >
                 <Trash2 className="w-3 h-3" />
               </Button>
@@ -5282,25 +5271,74 @@ function SectionGradientStops({ c, gradientType, set }) {
             label="Colour"
             value={stop.color || '#000000'}
             onChange={(v) => updateStop(i, { color: v })}
-            testId={`input-section-gradient-stop-color-${i}`}
+            testId={`input-${testIdPrefix}-color-${i}`}
           />
           <NumberField
             label="Opacity (0–1)"
             min={0} max={1} step={0.05}
             value={stop.opacity ?? 1}
             onChange={(v) => updateStop(i, { opacity: Math.max(0, Math.min(1, Number(v) || 0)) })}
-            testId={`input-section-gradient-stop-opacity-${i}`}
+            testId={`input-${testIdPrefix}-opacity-${i}`}
           />
           <NumberField
             label="Position (0–100%)"
             min={0} max={100} step={1}
             value={Number.isFinite(Number(stop.position)) ? Number(stop.position) : ''}
             onChange={(v) => updateStop(i, { position: Math.max(0, Math.min(100, Number(v) || 0)) })}
-            testId={`input-section-gradient-stop-position-${i}`}
+            testId={`input-${testIdPrefix}-position-${i}`}
           />
         </div>
       ))}
     </div>
+  );
+}
+
+// Section gradient stops editor. Persists the edited list to `gradientStops`,
+// the source of truth once stops exist (the legacy from/to fields are left
+// untouched for back-compat but are no longer consulted).
+function SectionGradientStops({ c, gradientType, set }) {
+  const stops = deriveSectionGradientStops(c, gradientType);
+  return (
+    <GradientStopsEditor
+      stops={stops}
+      onChange={(next) => set({ gradientStops: next })}
+      testIdPrefix="section-gradient-stop"
+    />
+  );
+}
+
+// Derives the Hero overlay stops array the inspector edits. When a usable
+// `overlayStops` array is already stored we normalise it; otherwise we seed a
+// two-stop list from the legacy overlayFrom*/overlayTo* fields so the very
+// first edit picks up exactly what the overlay renders today.
+function deriveHeroOverlayStops(c) {
+  const stored = getUsableStops(c.overlayStops);
+  if (stored) {
+    return stored.map((s, i) => ({
+      color: typeof s.color === 'string' && s.color ? s.color : '#000000',
+      opacity: Math.max(0, Math.min(1, Number(s.opacity ?? 1) || 0)),
+      position: Number.isFinite(Number(s.position))
+        ? Math.max(0, Math.min(100, Number(s.position)))
+        : (i === 0 ? 0 : 100),
+    }));
+  }
+  return [
+    { color: c.overlayFromColor || '#000000', opacity: c.overlayFromOpacity ?? 0.6, position: 0 },
+    { color: c.overlayToColor || '#000000', opacity: c.overlayToOpacity ?? 0, position: 100 },
+  ];
+}
+
+// Hero overlay gradient stops editor. Persists the edited list to
+// `overlayStops`, the source of truth once stops exist; the legacy
+// overlayFrom*/overlayTo* fields are left untouched for back-compat.
+function HeroOverlayStops({ c, set }) {
+  const stops = deriveHeroOverlayStops(c);
+  return (
+    <GradientStopsEditor
+      stops={stops}
+      onChange={(next) => set({ overlayStops: next })}
+      testIdPrefix="hero-overlay-stop"
+    />
   );
 }
 

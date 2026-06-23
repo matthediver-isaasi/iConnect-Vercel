@@ -299,9 +299,18 @@ export const BLOCK_DEFAULTS = {
       bgVideoUrl: '',
       darkWash: 0.4,
       // Overlay style: 'solid' keeps the legacy flat black wash driven by
-      // darkWash; 'gradient' renders a two-stop linear gradient built from the
-      // overlay* fields below. Absent/old data is treated as solid so saved
-      // pages render byte-identically until the user opts into a gradient.
+      // darkWash; 'gradient' renders a linear gradient along overlayDirection.
+      // Absent/old data is treated as solid so saved pages render
+      // byte-identically until the user opts into a gradient.
+      //
+      // Multipoint gradients: `overlayStops` (an array of { color, opacity,
+      // position } stops) is the source of truth for the gradient overlay when
+      // present with 2+ stops. It is deliberately NOT seeded here — adding it to
+      // the defaults would make normalizeBlock backfill it onto every legacy
+      // hero and override their customised from/to colours. The overlay builder
+      // falls back to the legacy two-stop overlayFrom*/overlayTo* fields when
+      // the stops array is absent, and the inspector seeds a sensible two-stop
+      // list from those legacy fields on the author's first edit.
       overlayStyle: 'solid',
       overlayFromColor: '#000000',
       overlayFromOpacity: 0.6,
