@@ -939,12 +939,27 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
   const [hovered, setHovered] = useState(false);
 
   const labelStyleObj = resolveTenantStyle(cta.labelTypographyStyleId, tenantStyles);
-  const ctaLabelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj) : null;
+  // Omit the typography style's bottom margin: in a flex `items-center` row a
+  // margin-bottom on the label shifts its margin-box, pushing the text visually
+  // higher than the icon (the reported vertical-alignment issue).
+  const ctaLabelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj, { omitMarginBottom: true }) : null;
   const awaitingLabel = isAwaitingTypographyStyle(cta.labelTypographyStyleId, labelStyleObj, stylesResolved);
   const labelStyle = awaitingLabel
     ? { ...(ctaLabelInline || {}), visibility: 'hidden' }
     : (ctaLabelInline || undefined);
   const labelSpan = <span style={labelStyle}>{cta.label || 'CTA'}</span>;
+
+  // Per-CTA icon overrides. `cta.icon` is a sentinel-based choice:
+  //   undefined / '__default__' → inherit the tenant button style's icon
+  //   '__none__'                → no icon (overrides the style default)
+  //   <LucideName>              → use that named icon
+  // `cta.iconSize` (px) and `cta.iconPosition` ('before'|'after') override the
+  // tenant style's icon size / position when set.
+  const perCtaIconName = cta.icon && cta.icon !== '__default__' && cta.icon !== '__none__' ? cta.icon : null;
+  const iconForcedNone = cta.icon === '__none__';
+  const ctaIconSizeNum = Number(cta.iconSize);
+  const hasCtaIconSize = Number.isFinite(ctaIconSizeNum) && ctaIconSizeNum > 0;
+  const ctaIconPositionSet = cta.iconPosition === 'before' || cta.iconPosition === 'after';
 
   // Optional explicit dimensions. Blank/0 → auto (omit so the button sizes to
   // its content, preserving the prior look for existing heroes).
@@ -960,12 +975,23 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
     const bg = bgCssFromConfig(hovered ? tenantStyle.hover : tenantStyle.background) || {};
     const border = tenantStyle.border || {};
     const styleIconCfg = tenantStyle.icon || null;
-    const StyleIcon = styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
-    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
-    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
-    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
-    const styleIconEl = StyleIcon ? (
-      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
+    // Effective icon: per-CTA name wins; an explicit "none" suppresses the
+    // style default; otherwise inherit the tenant style's icon.
+    let iconName = null;
+    let iconColor;
+    if (perCtaIconName) {
+      iconName = perCtaIconName;
+    } else if (!iconForcedNone && styleIconCfg?.name) {
+      iconName = styleIconCfg.name;
+      iconColor = styleIconCfg.color || undefined;
+    }
+    const IconCmp = iconName ? getLucideIcon(iconName) : null;
+    const iconSizePx = hasCtaIconSize
+      ? ctaIconSizeNum
+      : (!perCtaIconName && Number.isFinite(styleIconCfg?.size) ? styleIconCfg.size : (tenantBaseline.iconSize || 18));
+    const iconAfter = ctaIconPositionSet ? cta.iconPosition === 'after' : styleIconCfg?.position === 'after';
+    const iconEl = IconCmp ? (
+      <IconCmp style={{ width: iconSizePx, height: iconSizePx, color: iconColor, flexShrink: 0 }} />
     ) : null;
     const inlineStyle = {
       ...bg,
@@ -982,19 +1008,20 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
       paddingLeft: tenantBaseline.paddingX,
       paddingRight: tenantBaseline.paddingX,
       fontSize: tenantBaseline.fontSize,
+      lineHeight: 1,
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
       ...sizeStyle,
     };
     return (
       <a
         href={asEditor ? undefined : (cta.href || '#')}
-        className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+        className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap leading-none"
         style={inlineStyle}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
-        {styleIconAfter ? (<>{labelSpan}{styleIconEl}</>) : (<>{styleIconEl}{labelSpan}</>)}
+        {iconAfter ? (<>{labelSpan}{iconEl}</>) : (<>{iconEl}{labelSpan}</>)}
       </a>
     );
   }
@@ -1003,9 +1030,16 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
   // branding hasn't loaded). Colours/radius come from buttonClasses; an
   // explicit width/height overrides the class height via inline style. When a
   // tenant variant falls back here we use the `lg` size (matching the
-  // standalone Button) so the CTA keeps sensible proportions.
+  // standalone Button) so the CTA keeps sensible proportions. Legacy variants
+  // have no style default icon, so only an explicitly chosen per-CTA icon shows.
   const fallbackVariant = isTenant ? 'primary' : variant;
   const fallbackSize = isTenant ? 'lg' : 'default';
+  const LegacyIcon = perCtaIconName ? getLucideIcon(perCtaIconName) : null;
+  const legacyIconSize = hasCtaIconSize ? ctaIconSizeNum : 18;
+  const legacyIconAfter = ctaIconPositionSet ? cta.iconPosition === 'after' : false;
+  const legacyIconEl = LegacyIcon ? (
+    <LegacyIcon style={{ width: legacyIconSize, height: legacyIconSize, flexShrink: 0 }} />
+  ) : null;
   return (
     <a
       href={asEditor ? undefined : (cta.href || '#')}
@@ -1013,7 +1047,7 @@ function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
       style={hasSize ? sizeStyle : undefined}
       onClick={(e) => { if (asEditor) e.preventDefault(); }}
     >
-      {labelSpan}
+      {legacyIconAfter ? (<>{labelSpan}{legacyIconEl}</>) : (<>{legacyIconEl}{labelSpan}</>)}
     </a>
   );
 }
@@ -1360,6 +1394,35 @@ function HeroInspector({ block, update }) {
                 value={item.height}
                 onChange={(v) => patch({ height: clampDim(v) })}
                 testId={`input-hero-cta-${idx}-height`}
+              />
+              <SelectField
+                label="Icon"
+                value={item.icon || '__default__'}
+                onChange={(v) => patch({ icon: v === '__default__' ? undefined : v })}
+                options={[
+                  { value: '__default__', label: 'Default (button style)' },
+                  { value: '__none__', label: 'None' },
+                  ...Object.keys(LUCIDE_ICONS).map((n) => ({ value: n, label: n })),
+                ]}
+                testId={`select-hero-cta-${idx}-icon`}
+              />
+              <NumberField
+                label="Icon size (px — blank = default)"
+                min={0}
+                value={item.iconSize}
+                onChange={(v) => patch({ iconSize: clampDim(v) })}
+                testId={`input-hero-cta-${idx}-icon-size`}
+              />
+              <SelectField
+                label="Icon position"
+                value={item.iconPosition || '__default__'}
+                onChange={(v) => patch({ iconPosition: v === '__default__' ? undefined : v })}
+                options={[
+                  { value: '__default__', label: 'Default (button style)' },
+                  { value: 'before', label: 'Before text' },
+                  { value: 'after', label: 'After text' },
+                ]}
+                testId={`select-hero-cta-${idx}-icon-position`}
               />
             </>
           )}
