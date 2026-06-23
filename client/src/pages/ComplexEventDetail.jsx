@@ -36,6 +36,7 @@ import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 
@@ -510,6 +511,22 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   const isGuest = !memberInfo;
   const userRoleId = memberInfo?.role_id;
 
+  const { getTicketClassAvailability } = useComplexEventTicketAvailabilityRealtime(
+    event?.id,
+    { initialTicketClasses: ticketClasses, showSoldOutToast: false }
+  );
+
+  const isTicketSoldOut = useCallback((tc) => {
+    const live = getTicketClassAvailability(tc.id);
+    if (live) return live.isSoldOut;
+    const isUnlimited = tc.is_unlimited_tickets === true
+      || tc.available_count === null
+      || tc.available_count === undefined
+      || tc.available_count === '';
+    if (isUnlimited) return false;
+    return Number(tc.available_count) <= 0;
+  }, [getTicketClassAvailability]);
+
   const getTicketVisibility = (tc) => {
     if (tc.visibility_mode) return tc.visibility_mode;
     if (tc.is_public === true) return 'members_and_public';
@@ -779,6 +796,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       {availableTicketClasses.map(tc => {
         const tcPrice = getEffectiveTicketPrice(tc);
         const restricted = isTicketRestricted(tc);
+        const soldOut = isTicketSoldOut(tc);
         const cartEntry = cart[tc.id];
         const count = cartEntry?.attendees?.length || 0;
 
@@ -809,6 +827,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                       Early Bird
                     </Badge>
                   )}
+                  {soldOut && (
+                    <Badge variant="destructive" className="text-xs" data-testid={`badge-sold-out-${tc.id}`}>
+                      Sold Out
+                    </Badge>
+                  )}
                 </span>
                 {tc.description && (
                   <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
@@ -832,7 +855,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenAttendeeModal(tc.id)}
-                disabled={restricted || (isGroupEvent && totalAttendeeCount >= 1)}
+                disabled={restricted || soldOut || (isGroupEvent && totalAttendeeCount >= 1)}
                 data-testid={`button-add-attendee-${tc.id}`}
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
@@ -913,6 +936,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
               )}
               {availableTicketClasses.map(tc => {
                 const tcPrice = getEffectiveTicketPrice(tc);
+                const soldOut = isTicketSoldOut(tc);
                 return (
                   <div
                     key={tc.id}
@@ -932,6 +956,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                           {tcPrice.isEarlyBird && (
                             <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30">
                               Early Bird
+                            </Badge>
+                          )}
+                          {soldOut && (
+                            <Badge variant="destructive" className="text-xs" data-testid={`badge-sold-out-${tc.id}`}>
+                              Sold Out
                             </Badge>
                           )}
                         </span>
