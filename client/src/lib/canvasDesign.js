@@ -2073,12 +2073,18 @@ function varsRuleBody(vars) {
   return entries.map(([k, v]) => `${k}:${v};`).join('');
 }
 
-export function stageHeightForBreakpoint(blocks, breakpoint) {
-  let h = 240;
+export function stageHeightForBreakpoint(blocks, breakpoint, options) {
+  // `buffer` is empty space added below the lowest block. The editor keeps a
+  // default buffer so there is room to drag/drop new blocks below existing
+  // content, but the published render passes buffer:0 so the last element sits
+  // tight against the footer (no spurious gap).
+  const buffer = options && Number.isFinite(options.buffer) ? options.buffer : 80;
+  const minHeight = options && Number.isFinite(options.minHeight) ? options.minHeight : 240;
+  let h = minHeight;
   for (const b of blocks) {
     const g = resolveBlockAtBreakpoint(b, breakpoint);
     if (g.hidden) continue;
-    h = Math.max(h, (g.y || 0) + (g.h || 0) + 80);
+    h = Math.max(h, (g.y || 0) + (g.h || 0) + buffer);
   }
   return h;
 }
@@ -2092,10 +2098,12 @@ export function buildCanvasCss(blocks, scope) {
   const lines = [];
   const sc = scope || '.canvas-page';
 
-  // Stage heights per breakpoint.
-  const hD = stageHeightForBreakpoint(blocks, 'desktop');
-  const hT = stageHeightForBreakpoint(blocks, 'tablet');
-  const hM = stageHeightForBreakpoint(blocks, 'mobile');
+  // Stage heights per breakpoint. The published render uses buffer:0 so the
+  // last element sits tight to whatever follows (e.g. the footer); the editor
+  // computes its own stage height separately with the default buffer.
+  const hD = stageHeightForBreakpoint(blocks, 'desktop', { buffer: 0 });
+  const hT = stageHeightForBreakpoint(blocks, 'tablet', { buffer: 0 });
+  const hM = stageHeightForBreakpoint(blocks, 'mobile', { buffer: 0 });
   const stageSel = `${sc} .canvas-stage`;
   lines.push(`${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;height:${fmtPx(hD)};--cb-content-width:${BREAKPOINT_WIDTHS.desktop}px;}`);
 
