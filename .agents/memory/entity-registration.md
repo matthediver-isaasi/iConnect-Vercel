@@ -19,13 +19,16 @@ errors.
    `get <Name>() { return this._getEntity('<Name>'); }`.
 4. `schema/<Name>.json` — entity definition (properties + required).
 
-**Gotcha — TENANT-scoped tables with no `organization_id` column:** the POST
-handler in `api/entities/[entity]/index.js` force-sets `organization_id =
-tenantCtx.organizationId` for any TENANT entity that is NOT in its
-`entitiesWithoutOrgId` allowlist. If your new table only has `tenant_id` (no
-`organization_id`), you MUST add the entity to that list or every insert fails
-("column organization_id does not exist"). `tenant_id` itself is auto-set from
-the session, so never send it from the client.
+**Gotcha — TENANT-scoped tables with no `organization_id` column:** the generic
+entity API force-sets `organization_id = tenantCtx.organizationId` for any TENANT
+entity NOT in an `entitiesWithoutOrgId` allowlist. If your table only has
+`tenant_id` (no `organization_id` column), you MUST add the entity to EVERY copy
+of that allowlist or create/update/list/delete fails with PGRST204 "Could not
+find the 'organization_id' column". The list is duplicated across SIX sites:
+2 in `api/entities/[entity]/index.js` (GET org-id fallback + POST inject) and
+4 in `api/entities/[entity]/[id].js` (by-id GET, before-update, update,
+delete/verify). They drift independently — grep all of them. `tenant_id` is
+auto-set from the session, so never send it from the client.
 
 **Forcing a per-member owner on write:** TENANT scope does NOT force `member_id`
 (only MEMBER scope does, but MEMBER scope also restricts reads to the owner). For
