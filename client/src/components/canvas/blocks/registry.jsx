@@ -5178,6 +5178,112 @@ function deriveSectionGradientStops(c, type) {
   ];
 }
 
+// Horizontal colour-bar preview of the current stops, with draggable +
+// keyboard-accessible handles (one per stop). The bar always renders the
+// gradient left→right (90deg) regardless of the block's actual direction so
+// authors get a consistent, design-tool-style read of the colour transitions
+// and stop spacing. Dragging a handle (or arrow keys when focused) rewrites
+// that stop's position via `onChangePosition(index, pct)`.
+function GradientPreviewBar({ stops, onChangePosition, testIdPrefix }) {
+  const barRef = useRef(null);
+  const [dragIndex, setDragIndex] = useState(-1);
+  const previewCss = `linear-gradient(90deg, ${buildGradientStopList(stops)})`;
+
+  const pctFromClientX = (clientX) => {
+    const el = barRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const ratio = (clientX - rect.left) / rect.width;
+    return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  };
+
+  const handlePointerDown = (i) => (e) => {
+    e.preventDefault();
+    setDragIndex(i);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // setPointerCapture can throw in some environments; dragging still works
+      // via the move handler below, so swallow and continue.
+    }
+    const pct = pctFromClientX(e.clientX);
+    if (pct !== null) onChangePosition(i, pct);
+  };
+
+  const handlePointerMove = (i) => (e) => {
+    if (dragIndex !== i) return;
+    const pct = pctFromClientX(e.clientX);
+    if (pct !== null) onChangePosition(i, pct);
+  };
+
+  const endDrag = (e) => {
+    if (dragIndex === -1) return;
+    setDragIndex(-1);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore: releasing a capture that was never (or already) released.
+    }
+  };
+
+  const handleKeyDown = (i, current) => (e) => {
+    const cur = Number.isFinite(Number(current)) ? Number(current) : 0;
+    const big = e.shiftKey ? 10 : 1;
+    let next = null;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = cur - big;
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = cur + big;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 100;
+    if (next === null) return;
+    e.preventDefault();
+    onChangePosition(i, Math.max(0, Math.min(100, next)));
+  };
+
+  return (
+    <div className="space-y-1" data-testid={`${testIdPrefix}-preview`}>
+      <div
+        ref={barRef}
+        className="relative h-8 w-full rounded-md border border-slate-200"
+        style={{
+          background: `${previewCss}, repeating-conic-gradient(#e2e8f0 0% 25%, #ffffff 0% 50%) 50% / 12px 12px`,
+        }}
+        data-testid={`${testIdPrefix}-preview-bar`}
+      >
+        {stops.map((stop, i) => {
+          const pos = Number.isFinite(Number(stop.position))
+            ? Math.max(0, Math.min(100, Number(stop.position)))
+            : 0;
+          return (
+            <button
+              key={i}
+              type="button"
+              role="slider"
+              aria-label={`Stop ${i + 1} position`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pos}
+              tabIndex={0}
+              onPointerDown={handlePointerDown(i)}
+              onPointerMove={handlePointerMove(i)}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onKeyDown={handleKeyDown(i, pos)}
+              className="absolute top-1/2 h-5 w-3 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded-sm border-2 border-white shadow ring-1 ring-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              style={{
+                left: `${pos}%`,
+                backgroundColor: stop.color || '#000000',
+                touchAction: 'none',
+              }}
+              data-testid={`${testIdPrefix}-handle-${i}`}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Shared, editable, ordered list of gradient colour stops. Each stop carries a
 // colour, opacity (0–1), and position (0–100%). Authors can add, remove, and
 // reorder stops; a minimum of two stops is always enforced so the gradient
@@ -5211,8 +5317,16 @@ function GradientStopsEditor({ stops, onChange, testIdPrefix }) {
     [next[i], next[j]] = [next[j], next[i]];
     commit(next);
   };
+  const setPosition = (i, pct) => {
+    updateStop(i, { position: Math.max(0, Math.min(100, Math.round(Number(pct) || 0))) });
+  };
   return (
     <div className="space-y-3" data-testid={`${testIdPrefix}s`}>
+      <GradientPreviewBar
+        stops={stops}
+        onChangePosition={setPosition}
+        testIdPrefix={testIdPrefix}
+      />
       <div className="flex items-center justify-between gap-2">
         <Label className="text-xs text-slate-600">Colour stops</Label>
         <Button
