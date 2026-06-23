@@ -1589,13 +1589,13 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       tenantInner = labelSpan;
     }
     return (
-      <div className="w-full h-full flex items-center justify-start">
+      <div className="w-full h-full">
         <a
           href={asEditor ? undefined : (c.href || '#')}
           target={c.newTab ? '_blank' : undefined}
           rel={c.newTab ? 'noopener noreferrer' : undefined}
           aria-label={c.ariaLabel || undefined}
-          className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+          className="flex w-full h-full items-center justify-center gap-1.5 font-medium whitespace-nowrap"
           style={inlineStyle}
           onMouseEnter={() => setTenantHovered(true)}
           onMouseLeave={() => setTenantHovered(false)}
@@ -1620,7 +1620,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       outline: 'border border-slate-300 bg-white text-slate-900 hover-elevate active-elevate-2',
       ghost: 'bg-transparent text-slate-900 hover-elevate active-elevate-2',
     };
-    const baseCls = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
+    const baseCls = `flex w-full h-full items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap ${variantClass[c.variant] || variantClass.default}`;
     const padY = subFieldValue('paddingY', '--cb-btn-py',   baseline.paddingY);
     const padX = subFieldValue('paddingX', '--cb-btn-px',   baseline.paddingX);
     const fs   = subFieldValue('fontSize', '--cb-btn-fs',   baseline.fontSize);
@@ -1633,7 +1633,7 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       fontSize: fs,
     };
     return (
-      <div className="w-full h-full flex items-center justify-start">
+      <div className="w-full h-full">
         <a
           href={asEditor ? undefined : (c.href || '#')}
           target={c.newTab ? '_blank' : undefined}
@@ -1662,13 +1662,14 @@ function ButtonRender({ block, asEditor, breakpoint }) {
     </>
   );
   return (
-    <div className="w-full h-full flex items-center justify-start">
+    <div className="w-full h-full">
       <a
         href={asEditor ? undefined : (c.href || '#')}
         target={c.newTab ? '_blank' : undefined}
         rel={c.newTab ? 'noopener noreferrer' : undefined}
         aria-label={c.ariaLabel || undefined}
-        className={buttonClasses(fallbackVariant, fallbackSize)}
+        className={`${buttonClasses(fallbackVariant, fallbackSize)} whitespace-nowrap`}
+        style={{ width: '100%', height: '100%' }}
         onClick={(e) => { if (asEditor) e.preventDefault(); }}
       >
         {inner}
@@ -1723,8 +1724,11 @@ function ButtonSizeOverridesField({ block, update, baseline, baselineLabel, brea
     });
   };
   return (
-    <Field label="Size">
+    <Field label="Internal spacing & text">
       <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          The button fills its bounds — set its overall size with the Width and Height fields (or the resize handles). These values control internal padding and the label/icon size within that box.
+        </p>
         <p className="text-xs text-slate-500">
           Leave blank to use the {baselineLabel} for this variant. Set any value to override just this button.
           {bp !== 'desktop' ? ` Editing the ${bp} breakpoint — blank inherits from the wider breakpoint.` : ''}
