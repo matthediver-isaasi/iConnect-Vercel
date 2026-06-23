@@ -302,6 +302,9 @@ export default function AdminBranding() {
         borderWidth: '',
         borderColor: '',
         borderStyle: 'solid',
+        labelColor: '',
+        height: '',
+        width: '',
         position: 'left'
       }
     },
@@ -469,6 +472,9 @@ export default function AdminBranding() {
                   borderWidth: t?.header_config?.loginLink?.borderWidth ?? '',
                   borderColor: t?.header_config?.loginLink?.borderColor || '',
                   borderStyle: t?.header_config?.loginLink?.borderStyle || 'solid',
+                  labelColor: t?.header_config?.loginLink?.labelColor || '',
+                  height: t?.header_config?.loginLink?.height ?? '',
+                  width: t?.header_config?.loginLink?.width ?? '',
                   position: t?.header_config?.loginLink?.position === 'right' ? 'right' : 'left'
                 }
               },
@@ -2113,9 +2119,9 @@ export default function AdminBranding() {
                       data-testid="preview-login-button"
                     >
                       <span
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-semibold"
+                        className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-semibold"
                         style={{
-                          color: formData.header_config?.topNavTextColor || '#FFFFFF',
+                          color: formData.header_config?.loginLink?.labelColor || formData.header_config?.topNavTextColor || '#FFFFFF',
                           background: (formData.header_config?.loginLink?.backgroundMode === 'gradient')
                             ? `linear-gradient(to right, ${(formData.header_config?.loginLink?.gradientStops || DEFAULT_LOGIN_BUTTON_GRADIENT_STOPS)
                                 .slice()
@@ -2127,6 +2133,12 @@ export default function AdminBranding() {
                           borderWidth: `${parseInt(formData.header_config?.loginLink?.borderWidth, 10) || 0}px`,
                           borderStyle: formData.header_config?.loginLink?.borderStyle || 'solid',
                           borderColor: formData.header_config?.loginLink?.borderColor || 'transparent',
+                          ...(parseInt(formData.header_config?.loginLink?.height, 10) > 0
+                            ? { height: `${parseInt(formData.header_config?.loginLink?.height, 10)}px` }
+                            : {}),
+                          ...(parseInt(formData.header_config?.loginLink?.width, 10) > 0
+                            ? { width: `${parseInt(formData.header_config?.loginLink?.width, 10)}px` }
+                            : {}),
                           whiteSpace: 'nowrap'
                         }}
                       >
@@ -2322,6 +2334,93 @@ export default function AdminBranding() {
                           <SelectItem value="none">None</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Label Color</Label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={formData.header_config?.loginLink?.labelColor || formData.header_config?.topNavTextColor || '#FFFFFF'}
+                        onChange={(e) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, labelColor: e.target.value }
+                            }
+                          }));
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                        data-testid="input-login-link-label-color"
+                      />
+                      <Input
+                        type="text"
+                        placeholder="Inherit nav text color"
+                        value={formData.header_config?.loginLink?.labelColor || ''}
+                        onChange={(e) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, labelColor: e.target.value }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white font-mono"
+                        data-testid="input-login-link-label-color-hex"
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500">Color of the button label text. Leave blank to inherit the top-nav text color.</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Height (px)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="200"
+                        placeholder="Auto"
+                        value={formData.header_config?.loginLink?.height ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, height: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-login-link-height"
+                      />
+                      <p className="text-xs text-slate-500">Button height. Leave blank to size to content.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Width (px)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="400"
+                        placeholder="Auto"
+                        value={formData.header_config?.loginLink?.width ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              loginLink: { ...prev.header_config?.loginLink, width: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-login-link-width"
+                      />
+                      <p className="text-xs text-slate-500">Button width. Leave blank to size to content.</p>
                     </div>
                   </div>
                 </>

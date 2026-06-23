@@ -339,6 +339,21 @@ export default async function handler(req, res) {
             sanitizedLoginLink.borderColor = llBorderColor;
           }
 
+          const llLabelColor = normalizeHexColor(ll.labelColor);
+          if (llLabelColor) {
+            sanitizedLoginLink.labelColor = llLabelColor;
+          }
+
+          const llHeight = parseInt(ll.height, 10);
+          if (Number.isFinite(llHeight)) {
+            sanitizedLoginLink.height = Math.max(0, Math.min(200, llHeight));
+          }
+
+          const llWidth = parseInt(ll.width, 10);
+          if (Number.isFinite(llWidth)) {
+            sanitizedLoginLink.width = Math.max(0, Math.min(400, llWidth));
+          }
+
           const ALLOWED_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'none'];
           if (ALLOWED_BORDER_STYLES.includes(ll.borderStyle)) {
             sanitizedLoginLink.borderStyle = ll.borderStyle;

@@ -345,13 +345,19 @@ export default function PublicHeader() {
     && Array.isArray(loginLinkConfig?.gradientStops) && loginLinkConfig.gradientStops.length > 0)
     ? buildGradientFromStops(loginLinkConfig.gradientStops)
     : (loginLinkConfig?.solidColor || '#5C0085');
+  const loginButtonHeight = parseInt(loginLinkConfig?.height, 10);
+  const loginButtonWidth = parseInt(loginLinkConfig?.width, 10);
   const loginButtonStyle = loginAsButton ? {
     background: loginButtonBackground,
     borderRadius: `${parseInt(loginLinkConfig?.cornerRadius, 10) || 0}px`,
     borderWidth: `${parseInt(loginLinkConfig?.borderWidth, 10) || 0}px`,
     borderStyle: loginLinkConfig?.borderStyle || 'solid',
-    borderColor: loginLinkConfig?.borderColor || 'transparent'
+    borderColor: loginLinkConfig?.borderColor || 'transparent',
+    ...(loginButtonHeight > 0 ? { height: `${loginButtonHeight}px` } : {}),
+    ...(loginButtonWidth > 0 ? { width: `${loginButtonWidth}px`, justifyContent: 'center' } : {})
   } : {};
+  // Label color falls back to the top-nav text color when not explicitly set.
+  const loginLabelColor = (loginAsButton && loginLinkConfig?.labelColor) || topNavTextColor;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -1339,7 +1345,7 @@ export default function PublicHeader() {
                   <Link
                     to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
                     className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
-                    style={{ color: topNavTextColor, ...loginButtonStyle }}
+                    style={{ ...loginButtonStyle, color: loginLabelColor }}
                     data-testid="link-header-login"
                   >
                     <User className="w-4 h-4" />
@@ -1580,7 +1586,7 @@ export default function PublicHeader() {
                   <Link
                     to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
                     className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${loginAsButton ? ' px-3 py-1.5' : ''}`}
-                    style={{ color: topNavTextColor, ...loginButtonStyle }}
+                    style={{ ...loginButtonStyle, color: loginLabelColor }}
                     data-testid="link-header-login"
                   >
                     <User className="w-4 h-4" />
