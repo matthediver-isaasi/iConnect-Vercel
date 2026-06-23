@@ -883,12 +883,13 @@ export default function PublicHeader() {
   // Desktop account control: Login link (logged out) or Logout button (logged in).
   const renderAccountControl = (isTopNav) => {
     const plainColor = isTopNav ? topNavTextColor : secondaryBarTextColor;
+    const hoverClass = isTopNav ? 'ph-topnav-link' : 'ph-secnav-link';
     if (isLoggedIn) {
       return (
         <div className="flex items-center gap-2">
           <Link
             to={createPageUrl(memberLandingPage)}
-            className={`flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${memberAreaLink.asButton ? ' px-3 py-1.5' : ''}`}
+            className={`${memberAreaLink.asButton ? '' : `${hoverClass} `}flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${memberAreaLink.asButton ? ' px-3 py-1.5' : ''}`}
             style={{ ...memberAreaLink.buttonStyle, color: memberAreaLink.asButton ? memberAreaLink.labelColor : plainColor }}
             data-testid="link-header-member-area"
           >
@@ -897,7 +898,7 @@ export default function PublicHeader() {
           </Link>
           <button
             onClick={handleLogout}
-            className="flex items-center hover:opacity-80 transition-opacity"
+            className={`${hoverClass} flex items-center transition-colors`}
             style={{ color: plainColor }}
             title="Logout"
             data-testid="button-header-logout"
