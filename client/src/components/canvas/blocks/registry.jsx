@@ -924,6 +924,100 @@ function vimeoId(url) {
 // ---------------------------------------------------------------------------
 
 // HERO -----------------------------------------------------------------------
+// Renders a single Hero call-to-action button. Mirrors the standalone Button
+// block so Hero CTAs can use the same tenant-branded button styles
+// (tenant-primary / tenant-secondary / tenant:<key>) in addition to the four
+// legacy variants. Unlike the standalone Button — whose width/height come from
+// its canvas geometry / resize handles — a Hero CTA has no handles, so optional
+// per-CTA `width`/`height` (px) are exposed in the inspector and applied here.
+// Blank width/height keeps the button auto-sized (legacy behaviour).
+function HeroCtaButton({ cta, asEditor, tenantStyles, stylesResolved }) {
+  const branding = useTenantBranding()?.branding || null;
+  const variant = cta.variant || 'primary';
+  const isTenant = isTenantButtonVariant(variant);
+  const tenantStyle = isTenant ? resolveTenantButtonStyle(variant, branding) : null;
+  const [hovered, setHovered] = useState(false);
+
+  const labelStyleObj = resolveTenantStyle(cta.labelTypographyStyleId, tenantStyles);
+  const ctaLabelInline = labelStyleObj ? buildTypographyInlineStyle(labelStyleObj) : null;
+  const awaitingLabel = isAwaitingTypographyStyle(cta.labelTypographyStyleId, labelStyleObj, stylesResolved);
+  const labelStyle = awaitingLabel
+    ? { ...(ctaLabelInline || {}), visibility: 'hidden' }
+    : (ctaLabelInline || undefined);
+  const labelSpan = <span style={labelStyle}>{cta.label || 'CTA'}</span>;
+
+  // Optional explicit dimensions. Blank/0 → auto (omit so the button sizes to
+  // its content, preserving the prior look for existing heroes).
+  const w = Number(cta.width);
+  const h = Number(cta.height);
+  const sizeStyle = {};
+  if (Number.isFinite(w) && w > 0) sizeStyle.width = `${w}px`;
+  if (Number.isFinite(h) && h > 0) sizeStyle.height = `${h}px`;
+  const hasSize = Object.keys(sizeStyle).length > 0;
+
+  if (isTenant && tenantStyle) {
+    const tenantBaseline = { ...TENANT_BUTTON_DEFAULT_SIZE, ...(tenantStyle.size || {}) };
+    const bg = bgCssFromConfig(hovered ? tenantStyle.hover : tenantStyle.background) || {};
+    const border = tenantStyle.border || {};
+    const styleIconCfg = tenantStyle.icon || null;
+    const StyleIcon = styleIconCfg?.name ? getLucideIcon(styleIconCfg.name) : null;
+    const styleIconSize = StyleIcon && Number.isFinite(styleIconCfg.size) ? styleIconCfg.size : 18;
+    const styleIconColor = StyleIcon ? (styleIconCfg.color || undefined) : undefined;
+    const styleIconAfter = StyleIcon && styleIconCfg.position === 'after';
+    const styleIconEl = StyleIcon ? (
+      <StyleIcon style={{ width: styleIconSize, height: styleIconSize, color: styleIconColor }} />
+    ) : null;
+    const inlineStyle = {
+      ...bg,
+      color: hovered
+        ? tenantStyle.hoverTextColor || tenantStyle.textColor || '#ffffff'
+        : tenantStyle.textColor || '#ffffff',
+      borderRadius: `${tenantStyle.radius ?? 6}px`,
+      border:
+        border.width > 0
+          ? `${border.width}px ${border.style || 'solid'} ${border.color || '#000000'}`
+          : 'none',
+      paddingTop: tenantBaseline.paddingY,
+      paddingBottom: tenantBaseline.paddingY,
+      paddingLeft: tenantBaseline.paddingX,
+      paddingRight: tenantBaseline.paddingX,
+      fontSize: tenantBaseline.fontSize,
+      transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
+      ...sizeStyle,
+    };
+    return (
+      <a
+        href={asEditor ? undefined : (cta.href || '#')}
+        className="inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap"
+        style={inlineStyle}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={(e) => { if (asEditor) e.preventDefault(); }}
+      >
+        {styleIconAfter ? (<>{labelSpan}{styleIconEl}</>) : (<>{styleIconEl}{labelSpan}</>)}
+      </a>
+    );
+  }
+
+  // Legacy variant (or tenant variant whose tenant style isn't configured /
+  // branding hasn't loaded). Colours/radius come from buttonClasses; an
+  // explicit width/height overrides the class height via inline style. When a
+  // tenant variant falls back here we use the `lg` size (matching the
+  // standalone Button) so the CTA keeps sensible proportions.
+  const fallbackVariant = isTenant ? 'primary' : variant;
+  const fallbackSize = isTenant ? 'lg' : 'default';
+  return (
+    <a
+      href={asEditor ? undefined : (cta.href || '#')}
+      className={buttonClasses(fallbackVariant, fallbackSize)}
+      style={hasSize ? sizeStyle : undefined}
+      onClick={(e) => { if (asEditor) e.preventDefault(); }}
+    >
+      {labelSpan}
+    </a>
+  );
+}
+
 function HeroRender({ block, asEditor, priority, breakpoint }) {
   const c = block.content || {};
   // Tenant typography styles take precedence for both the headline and the
@@ -1043,24 +1137,15 @@ function HeroRender({ block, asEditor, priority, breakpoint }) {
         )}
         {Array.isArray(c.ctas) && c.ctas.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2" style={{ justifyContent: justify }}>
-            {c.ctas.map((cta, i) => {
-              const ctaLabelStyleObj = resolveTenantStyle(cta.labelTypographyStyleId, tenantStyles);
-              const ctaLabelInline = ctaLabelStyleObj ? buildTypographyInlineStyle(ctaLabelStyleObj) : null;
-              const awaitingCtaLabel = isAwaitingTypographyStyle(cta.labelTypographyStyleId, ctaLabelStyleObj, stylesResolved);
-              const ctaLabelStyle = awaitingCtaLabel
-                ? { ...(ctaLabelInline || {}), visibility: 'hidden' }
-                : (ctaLabelInline || undefined);
-              return (
-                <a
-                  key={i}
-                  href={asEditor ? undefined : (cta.href || '#')}
-                  className={buttonClasses(cta.variant || 'primary', 'default')}
-                  onClick={(e) => { if (asEditor) e.preventDefault(); }}
-                >
-                  <span style={ctaLabelStyle}>{cta.label || 'CTA'}</span>
-                </a>
-              );
-            })}
+            {c.ctas.map((cta, i) => (
+              <HeroCtaButton
+                key={i}
+                cta={cta}
+                asEditor={asEditor}
+                tenantStyles={tenantStyles}
+                stylesResolved={stylesResolved}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -1074,6 +1159,20 @@ function HeroInspector({ block, update }) {
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
   const setStyle = (patch) => update((b) => ({ ...b, style: { ...b.style, ...patch } }));
   const clampPad = (v) => Math.max(0, Number(v) || 0);
+  // Tenant branding powers the extra "Tenant …" CTA variants (mirrors the
+  // standalone Button inspector); the hook payload is cached/shared.
+  const branding = useTenantBranding()?.branding || null;
+  const customStyleEntries = (() => {
+    const styles =
+      branding?.buttonStyles ||
+      branding?.brandingConfig?.button_styles ||
+      null;
+    if (!styles || typeof styles !== 'object') return [];
+    return Object.entries(styles)
+      .filter(([k, v]) => k !== 'primary' && k !== 'secondary' && v && typeof v === 'object')
+      .map(([k, v]) => ({ key: k, label: v.label || k }));
+  })();
+  const clampDim = (v) => (v === '' || v === null || v === undefined ? undefined : Math.max(0, Number(v) || 0));
   return (
     <>
       <TextField label="Headline" value={c.headline} onChange={(v) => set({ headline: v })} testId="input-hero-headline" />
@@ -1260,8 +1359,28 @@ function HeroInspector({ block, update }) {
                   { value: 'default', label: 'Default' },
                   { value: 'outline', label: 'Outline' },
                   { value: 'ghost', label: 'Ghost' },
+                  { value: 'tenant-primary', label: 'Tenant primary (branded)' },
+                  { value: 'tenant-secondary', label: 'Tenant secondary (branded)' },
+                  ...customStyleEntries.map((e) => ({
+                    value: `tenant:${e.key}`,
+                    label: `Tenant: ${e.label}`,
+                  })),
                 ]}
                 testId={`hero-cta-${idx}-variant`}
+              />
+              <NumberField
+                label="Width (px — blank = auto)"
+                min={0}
+                value={item.width}
+                onChange={(v) => patch({ width: clampDim(v) })}
+                testId={`input-hero-cta-${idx}-width`}
+              />
+              <NumberField
+                label="Height (px — blank = auto)"
+                min={0}
+                value={item.height}
+                onChange={(v) => patch({ height: clampDim(v) })}
+                testId={`input-hero-cta-${idx}-height`}
               />
             </>
           )}
