@@ -155,6 +155,7 @@ export const BLOCK_TYPES = {
   TESTIMONIAL_GRID: 'testimonial-grid',
   NEWS_TICKER: 'news-ticker',
   MEGA_MENU: 'mega-menu',
+  COUNTDOWN: 'countdown',
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
@@ -711,6 +712,31 @@ export const BLOCK_DEFAULTS = {
       ],
     },
   },
+  [BLOCK_TYPES.COUNTDOWN]: {
+    name: 'Countdown',
+    geom: { w: 480, h: 160 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 8 },
+    content: {
+      // ISO-ish local datetime string (value of an <input type="datetime-local">),
+      // e.g. "2026-12-31T23:59". Interpreted in the viewer's local timezone,
+      // matching how the inspector's datetime-local input captures it.
+      targetDate: '',
+      showDays: true,
+      showHours: true,
+      showMinutes: true,
+      showSeconds: true,
+      daysLabel: 'Days',
+      hoursLabel: 'Hours',
+      minutesLabel: 'Minutes',
+      secondsLabel: 'Seconds',
+      finishedMessage: "Time's up!",
+      alignment: 'center',
+      numberColor: 'var(--cb-color-primary, #0f172a)',
+      labelColor: '',
+      numberFontSize: 40,
+      labelFontSize: 13,
+    },
+  },
   // ---- Dynamic blocks ----
   [BLOCK_TYPES.EVENT_LIST]: {
     name: 'Event list',
@@ -1152,6 +1178,30 @@ function generateId(prefix = 'block') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Formats a Date into the "YYYY-MM-DDTHH:mm" string an <input type="datetime-local">
+// expects, using the viewer's local timezone (matching how the Countdown
+// inspector captures and the renderer parses the value).
+export function toDatetimeLocalValue(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Merges default + override content, injecting per-type dynamic defaults that
+// can't be expressed as static values. The Countdown block needs a target that
+// is in the future *relative to when the block is dropped*, so a newly placed
+// block immediately shows a live, ticking countdown rather than the
+// "set a date" placeholder. Stored/duplicated blocks that already carry a
+// targetDate are left untouched.
+function buildBlockContent(type, defaultContent, overrideContent) {
+  const merged = { ...(defaultContent || {}), ...(overrideContent || {}) };
+  if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate) {
+    merged.targetDate = toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  }
+  return merged;
+}
+
 export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
   const defaults = getBlockDefaults(type);
   const desktop = {
@@ -1178,7 +1228,7 @@ export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
     fullWidth: !!overrides.fullWidth,
     style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(overrides.style || {}) },
     a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(overrides.a11y || {}) },
-    content: deepClone({ ...(defaults.content || {}), ...(overrides.content || {}) }),
+    content: deepClone(buildBlockContent(type, defaults.content, overrides.content)),
     bp: {
       desktop,
       tablet: overrides.tablet || {},
@@ -1814,6 +1864,15 @@ export function validateBlock(block) {
           errors.push(`Menu item #${i + 1} featured image requires alt text.`);
         }
       });
+      break;
+    }
+    case BLOCK_TYPES.COUNTDOWN: {
+      if (!c.targetDate || Number.isNaN(new Date(c.targetDate).getTime())) {
+        errors.push('Countdown requires a valid target date and time.');
+      }
+      if (!c.showDays && !c.showHours && !c.showMinutes && !c.showSeconds) {
+        errors.push('Countdown must show at least one unit.');
+      }
       break;
     }
     case BLOCK_TYPES.ACCORDION: {

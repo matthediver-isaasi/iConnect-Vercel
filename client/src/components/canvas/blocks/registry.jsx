@@ -3110,6 +3110,191 @@ function StatInspector({ block, update }) {
   );
 }
 
+// COUNTDOWN ------------------------------------------------------------------
+// Live countdown clock. Computes time remaining from `content.targetDate`
+// (a datetime-local string, interpreted in the viewer's local timezone) and
+// re-renders every second via a setInterval. Once the target has passed it
+// shows the configurable finished message instead of negative numbers. The
+// editor preview ticks too so authors see real behaviour. The interval is
+// cleaned up on unmount and is not started when there is no valid target.
+function computeCountdownParts(targetMs, now) {
+  let remaining = Math.max(0, Math.floor((targetMs - now) / 1000));
+  const days = Math.floor(remaining / 86400);
+  remaining -= days * 86400;
+  const hours = Math.floor(remaining / 3600);
+  remaining -= hours * 3600;
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining - minutes * 60;
+  return { days, hours, minutes, seconds };
+}
+
+function CountdownRender({ block }) {
+  const c = block.content || {};
+  const targetMs = useMemo(() => {
+    if (!c.targetDate) return null;
+    const t = new Date(c.targetDate).getTime();
+    return Number.isNaN(t) ? null : t;
+  }, [c.targetDate]);
+
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (targetMs == null) return undefined;
+    const start = Date.now();
+    setNow(start);
+    // Already past — no need to start a ticker at all.
+    if (start >= targetMs) return undefined;
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      // Once the target passes, stop re-rendering every second.
+      if (t >= targetMs) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [targetMs]);
+
+  const align = c.alignment || 'center';
+  const justifyContent = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
+  const numberColor = c.numberColor || 'var(--cb-color-primary, #0f172a)';
+  const numberFontSize = Number.isFinite(c.numberFontSize) && c.numberFontSize > 0
+    ? `${c.numberFontSize}px`
+    : 'clamp(1.75rem, 5vw, 2.75rem)';
+  const labelFontSize = Number.isFinite(c.labelFontSize) && c.labelFontSize > 0
+    ? `${c.labelFontSize}px`
+    : '0.8125rem';
+
+  if (targetMs == null) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-center text-sm text-slate-400">
+        Set a target date in the inspector to start the countdown.
+      </div>
+    );
+  }
+
+  const finished = now >= targetMs;
+  if (finished) {
+    return (
+      <div
+        className="w-full h-full flex items-center"
+        style={{ justifyContent }}
+        data-testid="text-countdown-finished"
+      >
+        <div
+          className="text-center"
+          style={{ color: numberColor, fontSize: numberFontSize, fontWeight: 700, lineHeight: 1.1 }}
+        >
+          {c.finishedMessage || "Time's up!"}
+        </div>
+      </div>
+    );
+  }
+
+  const parts = computeCountdownParts(targetMs, now);
+  const units = [
+    { key: 'days', show: c.showDays !== false, value: parts.days, label: c.daysLabel || 'Days' },
+    { key: 'hours', show: c.showHours !== false, value: parts.hours, label: c.hoursLabel || 'Hours' },
+    { key: 'minutes', show: c.showMinutes !== false, value: parts.minutes, label: c.minutesLabel || 'Minutes' },
+    { key: 'seconds', show: c.showSeconds !== false, value: parts.seconds, label: c.secondsLabel || 'Seconds' },
+  ].filter((u) => u.show);
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  return (
+    <div
+      className="w-full h-full flex items-center"
+      style={{ justifyContent }}
+      aria-label={block.a11y?.ariaLabel || 'Countdown timer'}
+    >
+      <div className="flex flex-wrap items-start" style={{ gap: 'clamp(0.75rem, 3vw, 2rem)', justifyContent }}>
+        {units.map((u) => (
+          <div key={u.key} className="flex flex-col items-center text-center" data-testid={`countdown-unit-${u.key}`}>
+            <div
+              data-testid={`text-countdown-${u.key}`}
+              style={{
+                color: numberColor,
+                fontSize: numberFontSize,
+                fontWeight: 700,
+                lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {u.key === 'days' ? u.value : pad(u.value)}
+            </div>
+            <div
+              className={c.labelColor ? '' : 'text-slate-600'}
+              style={{
+                color: c.labelColor || undefined,
+                fontSize: labelFontSize,
+                marginTop: 4,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {u.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CountdownInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  return (
+    <>
+      <Field label="Target date & time">
+        <Input
+          type="datetime-local"
+          value={c.targetDate || ''}
+          onChange={(e) => set({ targetDate: e.target.value })}
+          className="h-8"
+          data-testid="input-countdown-target"
+        />
+      </Field>
+      <ToggleField label="Show days" value={c.showDays !== false} onChange={(v) => set({ showDays: v })} testId="toggle-countdown-days" />
+      <ToggleField label="Show hours" value={c.showHours !== false} onChange={(v) => set({ showHours: v })} testId="toggle-countdown-hours" />
+      <ToggleField label="Show minutes" value={c.showMinutes !== false} onChange={(v) => set({ showMinutes: v })} testId="toggle-countdown-minutes" />
+      <ToggleField label="Show seconds" value={c.showSeconds !== false} onChange={(v) => set({ showSeconds: v })} testId="toggle-countdown-seconds" />
+      <TextField label="Days label" value={c.daysLabel} onChange={(v) => set({ daysLabel: v })} testId="input-countdown-days-label" />
+      <TextField label="Hours label" value={c.hoursLabel} onChange={(v) => set({ hoursLabel: v })} testId="input-countdown-hours-label" />
+      <TextField label="Minutes label" value={c.minutesLabel} onChange={(v) => set({ minutesLabel: v })} testId="input-countdown-minutes-label" />
+      <TextField label="Seconds label" value={c.secondsLabel} onChange={(v) => set({ secondsLabel: v })} testId="input-countdown-seconds-label" />
+      <TextField label="Finished message" value={c.finishedMessage} onChange={(v) => set({ finishedMessage: v })} testId="input-countdown-finished" />
+      <SelectField
+        label="Alignment"
+        value={c.alignment || 'center'}
+        onChange={(v) => set({ alignment: v })}
+        options={[
+          { value: 'left', label: 'Left' },
+          { value: 'center', label: 'Center' },
+          { value: 'right', label: 'Right' },
+        ]}
+        testId="select-countdown-alignment"
+      />
+      <ColorField label="Number colour" value={c.numberColor} onChange={(v) => set({ numberColor: v })} testId="input-countdown-number-color" />
+      <ColorField label="Label colour" value={c.labelColor} onChange={(v) => set({ labelColor: v })} testId="input-countdown-label-color" />
+      <NumberField
+        label="Number size (px)"
+        min={8}
+        max={160}
+        value={Number.isFinite(c.numberFontSize) ? c.numberFontSize : ''}
+        onChange={(v) => set({ numberFontSize: v === '' || v == null ? null : Math.max(8, Math.min(160, Number(v) || 0)) })}
+        testId="input-countdown-number-size"
+      />
+      <NumberField
+        label="Label size (px)"
+        min={8}
+        max={60}
+        value={Number.isFinite(c.labelFontSize) ? c.labelFontSize : ''}
+        onChange={(v) => set({ labelFontSize: v === '' || v == null ? null : Math.max(8, Math.min(60, Number(v) || 0)) })}
+        testId="input-countdown-label-size"
+      />
+    </>
+  );
+}
+
 // LOGO STRIP -----------------------------------------------------------------
 function LogoStripRender({ block }) {
   const c = block.content || {};
@@ -5158,6 +5343,7 @@ const REGISTRY = {
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
+  [BLOCK_TYPES.COUNTDOWN]:        { label: 'Countdown',       icon: Clock,             category: 'content',  Editor: CountdownRender,       Renderer: CountdownRender,       Inspector: CountdownInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true, allowOverflow: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,
