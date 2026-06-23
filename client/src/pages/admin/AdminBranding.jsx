@@ -77,6 +77,10 @@ export default function AdminBranding() {
       logoBorderColor: '',
       logoShadow: 'none',
       logoPadding: '',
+      logoPaddingTop: '',
+      logoPaddingRight: '',
+      logoPaddingBottom: '',
+      logoPaddingLeft: '',
       logoMarginTop: '',
       logoMarginLeft: '',
       gradientStops: DEFAULT_GRADIENT_STOPS,
@@ -195,6 +199,10 @@ export default function AdminBranding() {
                 logoBorderColor: t?.header_config?.logoBorderColor || '',
                 logoShadow: t?.header_config?.logoShadow || 'none',
                 logoPadding: t?.header_config?.logoPadding || '',
+                logoPaddingTop: t?.header_config?.logoPaddingTop || t?.header_config?.logoPadding || '',
+                logoPaddingRight: t?.header_config?.logoPaddingRight || t?.header_config?.logoPadding || '',
+                logoPaddingBottom: t?.header_config?.logoPaddingBottom || t?.header_config?.logoPadding || '',
+                logoPaddingLeft: t?.header_config?.logoPaddingLeft || t?.header_config?.logoPadding || '',
                 logoMarginTop: t?.header_config?.logoMarginTop || '',
                 logoMarginLeft: t?.header_config?.logoMarginLeft || '',
                 gradientStops: getGradientStops(t?.header_config),
@@ -964,23 +972,83 @@ export default function AdminBranding() {
                     </div>
                     <p className="text-xs text-slate-500">Leave empty for transparent background</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="header_logo_padding" className="text-slate-200">Padding (px)</Label>
-                    <Input
-                      id="header_logo_padding"
-                      type="number"
-                      value={formData.header_config?.logoPadding || ''}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        header_config: { 
-                          ...formData.header_config, 
-                          logoPadding: e.target.value 
-                        } 
-                      })}
-                      className="bg-slate-900/50 border-slate-600 text-white"
-                      placeholder="0"
-                      data-testid="input-header-logo-padding"
-                    />
+                </div>
+
+                <div className="mt-4">
+                  <Label className="text-slate-200 mb-2 block">Padding (px per side)</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_padding_top" className="text-slate-400 text-xs">Top</Label>
+                      <Input
+                        id="header_logo_padding_top"
+                        type="number"
+                        value={formData.header_config?.logoPaddingTop || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoPaddingTop: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-padding-top"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_padding_right" className="text-slate-400 text-xs">Right</Label>
+                      <Input
+                        id="header_logo_padding_right"
+                        type="number"
+                        value={formData.header_config?.logoPaddingRight || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoPaddingRight: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-padding-right"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_padding_bottom" className="text-slate-400 text-xs">Bottom</Label>
+                      <Input
+                        id="header_logo_padding_bottom"
+                        type="number"
+                        value={formData.header_config?.logoPaddingBottom || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoPaddingBottom: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-padding-bottom"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_padding_left" className="text-slate-400 text-xs">Left</Label>
+                      <Input
+                        id="header_logo_padding_left"
+                        type="number"
+                        value={formData.header_config?.logoPaddingLeft || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoPaddingLeft: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-padding-left"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1186,7 +1254,7 @@ export default function AdminBranding() {
                   </div>
                 </div>
 
-                {(formData.header_config?.logoBackground || formData.header_config?.logoBorderRadiusTopLeft || formData.header_config?.logoBorderRadiusTopRight || formData.header_config?.logoBorderRadiusBottomLeft || formData.header_config?.logoBorderRadiusBottomRight || formData.header_config?.logoBorderWidth || formData.header_config?.logoShadow !== 'none' || formData.header_config?.logoPadding || formData.header_config?.logoMarginTop || formData.header_config?.logoMarginLeft) && formData.header_logo_url && (
+                {(formData.header_config?.logoBackground || formData.header_config?.logoBorderRadiusTopLeft || formData.header_config?.logoBorderRadiusTopRight || formData.header_config?.logoBorderRadiusBottomLeft || formData.header_config?.logoBorderRadiusBottomRight || formData.header_config?.logoBorderWidth || formData.header_config?.logoShadow !== 'none' || formData.header_config?.logoPadding || formData.header_config?.logoPaddingTop || formData.header_config?.logoPaddingRight || formData.header_config?.logoPaddingBottom || formData.header_config?.logoPaddingLeft || formData.header_config?.logoMarginTop || formData.header_config?.logoMarginLeft) && formData.header_logo_url && (
                   <div className="mt-4 p-4 bg-slate-900/50 rounded-lg">
                     <Label className="text-slate-200 mb-2 block">Preview</Label>
                     <div className="flex justify-center">
@@ -1200,7 +1268,10 @@ export default function AdminBranding() {
                           borderWidth: formData.header_config?.logoBorderWidth ? `${formData.header_config.logoBorderWidth}px` : '0',
                           borderStyle: formData.header_config?.logoBorderWidth ? 'solid' : 'none',
                           borderColor: formData.header_config?.logoBorderColor || '#000000',
-                          padding: formData.header_config?.logoPadding ? `${formData.header_config.logoPadding}px` : '0',
+                          paddingTop: (formData.header_config?.logoPaddingTop || formData.header_config?.logoPadding) ? `${formData.header_config.logoPaddingTop || formData.header_config.logoPadding}px` : '0',
+                          paddingRight: (formData.header_config?.logoPaddingRight || formData.header_config?.logoPadding) ? `${formData.header_config.logoPaddingRight || formData.header_config.logoPadding}px` : '0',
+                          paddingBottom: (formData.header_config?.logoPaddingBottom || formData.header_config?.logoPadding) ? `${formData.header_config.logoPaddingBottom || formData.header_config.logoPadding}px` : '0',
+                          paddingLeft: (formData.header_config?.logoPaddingLeft || formData.header_config?.logoPadding) ? `${formData.header_config.logoPaddingLeft || formData.header_config.logoPadding}px` : '0',
                           marginTop: formData.header_config?.logoMarginTop ? `${formData.header_config.logoMarginTop}px` : '0',
                           marginLeft: formData.header_config?.logoMarginLeft ? `${formData.header_config.logoMarginLeft}px` : '0',
                           boxShadow: formData.header_config?.logoShadow === 'sm' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' :

@@ -240,6 +240,10 @@ export default function PublicHeader() {
   const logoBorderColor = branding?.headerConfig?.logoBorderColor;
   const logoShadow = branding?.headerConfig?.logoShadow || 'none';
   const logoPadding = branding?.headerConfig?.logoPadding;
+  const logoPaddingTop = branding?.headerConfig?.logoPaddingTop || branding?.headerConfig?.logoPadding;
+  const logoPaddingRight = branding?.headerConfig?.logoPaddingRight || branding?.headerConfig?.logoPadding;
+  const logoPaddingBottom = branding?.headerConfig?.logoPaddingBottom || branding?.headerConfig?.logoPadding;
+  const logoPaddingLeft = branding?.headerConfig?.logoPaddingLeft || branding?.headerConfig?.logoPadding;
   const logoMarginTop = branding?.headerConfig?.logoMarginTop;
   const logoMarginLeft = branding?.headerConfig?.logoMarginLeft;
   const gradientStops = branding ? getGradientStops(branding.headerConfig) : NEUTRAL_GRADIENT_STOPS;
@@ -254,7 +258,7 @@ export default function PublicHeader() {
     }
   };
   
-  const hasLogoContainerStyles = logoBackground || logoBorderRadiusTopLeft || logoBorderRadiusTopRight || logoBorderRadiusBottomLeft || logoBorderRadiusBottomRight || logoBorderWidth || logoShadow !== 'none' || logoPadding;
+  const hasLogoContainerStyles = logoBackground || logoBorderRadiusTopLeft || logoBorderRadiusTopRight || logoBorderRadiusBottomLeft || logoBorderRadiusBottomRight || logoBorderWidth || logoShadow !== 'none' || logoPadding || logoPaddingTop || logoPaddingRight || logoPaddingBottom || logoPaddingLeft;
   
   const logoContainerStyle = {
     backgroundColor: logoBackground || 'transparent',
@@ -265,7 +269,10 @@ export default function PublicHeader() {
     borderWidth: logoBorderWidth ? `${logoBorderWidth}px` : '0',
     borderStyle: logoBorderWidth ? 'solid' : 'none',
     borderColor: logoBorderColor || '#000000',
-    padding: logoPadding ? `${logoPadding}px` : '0',
+    paddingTop: logoPaddingTop ? `${logoPaddingTop}px` : '0',
+    paddingRight: logoPaddingRight ? `${logoPaddingRight}px` : '0',
+    paddingBottom: logoPaddingBottom ? `${logoPaddingBottom}px` : '0',
+    paddingLeft: logoPaddingLeft ? `${logoPaddingLeft}px` : '0',
     boxShadow: getShadowStyle(logoShadow)
   };
   const topBarGradient = buildGradientFromStops(gradientStops);
@@ -1449,7 +1456,10 @@ export default function PublicHeader() {
           >
             <div style={hasLogoContainerStyles ? {
               ...logoContainerStyle,
-              padding: logoPadding ? `${Math.min(parseInt(logoPadding), 8)}px` : '0'
+              paddingTop: logoPaddingTop ? `${Math.min(parseInt(logoPaddingTop), 8)}px` : '0',
+              paddingRight: logoPaddingRight ? `${Math.min(parseInt(logoPaddingRight), 8)}px` : '0',
+              paddingBottom: logoPaddingBottom ? `${Math.min(parseInt(logoPaddingBottom), 8)}px` : '0',
+              paddingLeft: logoPaddingLeft ? `${Math.min(parseInt(logoPaddingLeft), 8)}px` : '0'
             } : {}}>
               {hasLogoUrl ? (
                 <img
