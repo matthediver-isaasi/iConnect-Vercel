@@ -148,6 +148,26 @@ export default async function handler(req, res) {
         }
       }
 
+      // Validate top-nav link text color
+      if (updates.header_config && updates.header_config.topNavTextColor !== undefined) {
+        const tc = normalizeHexColor(updates.header_config.topNavTextColor);
+        if (tc) {
+          updates.header_config.topNavTextColor = tc;
+        } else {
+          delete updates.header_config.topNavTextColor;
+        }
+      }
+
+      // Clamp top-nav link font size (px) to a sensible range
+      if (updates.header_config && updates.header_config.topNavFontSize !== undefined) {
+        const tf = parseInt(updates.header_config.topNavFontSize, 10);
+        if (Number.isFinite(tf)) {
+          updates.header_config.topNavFontSize = Math.max(8, Math.min(48, tf));
+        } else {
+          delete updates.header_config.topNavFontSize;
+        }
+      }
+
       // Validate the secondary (lower) navigation bar config
       if (updates.header_config && updates.header_config.secondaryBar !== undefined) {
         const sb = updates.header_config.secondaryBar;
@@ -164,6 +184,16 @@ export default async function handler(req, res) {
             if (validatedSecondaryStops.length > 0) {
               sanitizedSecondaryBar.gradientStops = validatedSecondaryStops;
             }
+          }
+
+          const stc = normalizeHexColor(sb.textColor);
+          if (stc) {
+            sanitizedSecondaryBar.textColor = stc;
+          }
+
+          const sf = parseInt(sb.fontSize, 10);
+          if (Number.isFinite(sf)) {
+            sanitizedSecondaryBar.fontSize = Math.max(8, Math.min(48, sf));
           }
 
           updates.header_config.secondaryBar = sanitizedSecondaryBar;

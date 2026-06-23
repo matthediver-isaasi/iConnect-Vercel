@@ -85,10 +85,14 @@ export default function AdminBranding() {
       logoMarginLeft: '',
       gradientStops: DEFAULT_GRADIENT_STOPS,
       topBarHeight: '',
+      topNavTextColor: '',
+      topNavFontSize: '',
       secondaryBar: {
         enabled: false,
         height: '',
-        gradientStops: DEFAULT_SECONDARY_BAR_GRADIENT_STOPS
+        gradientStops: DEFAULT_SECONDARY_BAR_GRADIENT_STOPS,
+        textColor: '',
+        fontSize: ''
       }
     },
     footer_config: {
@@ -207,12 +211,16 @@ export default function AdminBranding() {
                 logoMarginLeft: t?.header_config?.logoMarginLeft || '',
                 gradientStops: getGradientStops(t?.header_config),
                 topBarHeight: t?.header_config?.topBarHeight || '',
+                topNavTextColor: t?.header_config?.topNavTextColor || '',
+                topNavFontSize: t?.header_config?.topNavFontSize || '',
                 secondaryBar: {
                   enabled: !!t?.header_config?.secondaryBar?.enabled,
                   height: t?.header_config?.secondaryBar?.height || '',
                   gradientStops: (t?.header_config?.secondaryBar?.gradientStops && t?.header_config?.secondaryBar?.gradientStops.length > 0)
                     ? t.header_config.secondaryBar.gradientStops
-                    : DEFAULT_SECONDARY_BAR_GRADIENT_STOPS
+                    : DEFAULT_SECONDARY_BAR_GRADIENT_STOPS,
+                  textColor: t?.header_config?.secondaryBar?.textColor || '',
+                  fontSize: t?.header_config?.secondaryBar?.fontSize || ''
                 }
               },
               footer_config: {
@@ -1328,6 +1336,59 @@ export default function AdminBranding() {
                 />
                 <p className="text-xs text-slate-500">Sets the height of the gradient top bar. Leave blank to use the default size.</p>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Link Text Color</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={formData.header_config?.topNavTextColor || '#FFFFFF'}
+                      onChange={(e) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, topNavTextColor: e.target.value }
+                        }));
+                      }}
+                      className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                      data-testid="input-top-nav-text-color"
+                    />
+                    <Input
+                      type="text"
+                      placeholder="#FFFFFF"
+                      value={formData.header_config?.topNavTextColor || ''}
+                      onChange={(e) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, topNavTextColor: e.target.value }
+                        }));
+                      }}
+                      className="bg-slate-900 border-slate-600 text-white font-mono"
+                      data-testid="input-top-nav-text-color-hex"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">Color of the top bar menu link text. Defaults to white.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Link Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    min="8"
+                    max="48"
+                    placeholder="14"
+                    value={formData.header_config?.topNavFontSize ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        header_config: { ...prev.header_config, topNavFontSize: val === '' ? '' : parseInt(val, 10) }
+                      }));
+                    }}
+                    className="bg-slate-900 border-slate-600 text-white"
+                    data-testid="input-top-nav-font-size"
+                  />
+                  <p className="text-xs text-slate-500">Size of the top bar menu link text. Leave blank for default.</p>
+                </div>
+              </div>
               <div 
                 className="h-10 rounded-lg border border-slate-600"
                 style={{
@@ -1625,6 +1686,69 @@ export default function AdminBranding() {
                     </Button>
                   </div>
                   <p className="text-xs text-slate-500">Adjust sliders to control where each color appears in the gradient (0% = left, 100% = right).</p>
+
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-700">
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Link Text Color</Label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={formData.header_config?.secondaryBar?.textColor || '#FFFFFF'}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, textColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="w-10 h-10 rounded cursor-pointer flex-shrink-0"
+                          data-testid="input-secondary-bar-text-color"
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#FFFFFF"
+                          value={formData.header_config?.secondaryBar?.textColor || ''}
+                          onChange={(e) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              header_config: {
+                                ...prev.header_config,
+                                secondaryBar: { ...prev.header_config?.secondaryBar, textColor: e.target.value }
+                              }
+                            }));
+                          }}
+                          className="bg-slate-900 border-slate-600 text-white font-mono"
+                          data-testid="input-secondary-bar-text-color-hex"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500">Color of the main menu link text in this bar. Defaults to white.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Link Font Size (px)</Label>
+                      <Input
+                        type="number"
+                        min="8"
+                        max="48"
+                        placeholder="16"
+                        value={formData.header_config?.secondaryBar?.fontSize ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormData(prev => ({
+                            ...prev,
+                            header_config: {
+                              ...prev.header_config,
+                              secondaryBar: { ...prev.header_config?.secondaryBar, fontSize: val === '' ? '' : parseInt(val, 10) }
+                            }
+                          }));
+                        }}
+                        className="bg-slate-900 border-slate-600 text-white"
+                        data-testid="input-secondary-bar-font-size"
+                      />
+                      <p className="text-xs text-slate-500">Size of the main menu link text. Leave blank for default.</p>
+                    </div>
+                  </div>
                 </>
               )}
             </CardContent>

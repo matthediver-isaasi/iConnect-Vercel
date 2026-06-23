@@ -284,6 +284,17 @@ export default function PublicHeader() {
     ? secondaryBarConfig.gradientStops
     : [{ color: '#5C0085', position: 0 }, { color: '#BA0087', position: 100 }];
   const secondaryBarGradient = buildGradientFromStops(secondaryBarStops);
+  // Combined bar that hosts the main nav: uses the secondary bar gradient/height
+  // when enabled, otherwise falls back to a plain white bar so disabling the
+  // gradient does not hide the menu.
+  const combinedBarHeight = secondaryBarEnabled ? secondaryBarHeight : 72;
+  // Per-bar link text color/size. Defaults: top bar = light text on gradient;
+  // combined bar = light default when the gradient is on, dark when it falls
+  // back to white (so existing tenants don't regress either way).
+  const topNavTextColor = branding?.headerConfig?.topNavTextColor || '#FFFFFF';
+  const topNavFontSize = branding?.headerConfig?.topNavFontSize;
+  const secondaryBarTextColor = secondaryBarConfig?.textColor || (secondaryBarEnabled ? '#FFFFFF' : '#0F172A');
+  const secondaryBarFontSize = secondaryBarConfig?.fontSize;
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
     ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
@@ -753,14 +764,22 @@ export default function PublicHeader() {
 
     const LinkComponent = item.link_type === 'external' ? 'a' : Link;
 
-    // Build className with proper font weight handling
+    // Build className with proper font weight handling. Link text colour and
+    // size are driven by per-bar branding settings (applied via navLinkStyle),
+    // so the colour/size classes are intentionally omitted here.
     const getFontClass = () => {
       if (active) return 'font-bold';
-      if (isTopNav) return 'font-semibold text-sm';
+      if (isTopNav) return 'font-semibold';
       return 'font-medium';
     };
 
-    const baseClassName = `nav-link text-${isTopNav ? 'white' : 'slate-900'} transition-colors ${getFontClass()} flex items-center gap-1`;
+    const baseClassName = `nav-link transition-colors ${getFontClass()} flex items-center gap-1`;
+
+    // Per-bar link colour + size. Top bar defaults to white at 14px; combined
+    // (main nav) bar defaults to its configured colour at 16px with Poppins.
+    const navLinkStyle = isTopNav
+      ? { color: topNavTextColor, fontSize: `${topNavFontSize || 14}px` }
+      : { color: secondaryBarTextColor, fontSize: `${secondaryBarFontSize || 16}px`, fontFamily: 'Poppins, sans-serif' };
 
     // Form modal link type - opens a form in a dialog instead of navigating
     if (item.link_type === 'form_modal') {
@@ -842,18 +861,18 @@ export default function PublicHeader() {
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          <button className={baseClassName}>
+          <button className={baseClassName} style={navLinkStyle}>
             {Icon && <Icon className="w-4 h-4" />}
             {item.title}
             <ChevronDown className="w-4 h-4" />
           </button>
 
-          {/* Active indicator - positioned at bottom of nav container */}
+          {/* Active indicator - positioned at bottom of the combined bar */}
           {!isTopNav && active && (
             <div 
               className="absolute left-0 right-0 h-[5px]"
               style={{
-                bottom: '-33px',
+                bottom: 0,
                 background: navIndicatorGradient
               }}
             />
@@ -962,18 +981,18 @@ export default function PublicHeader() {
         <LinkComponent 
           {...linkProps}
           className={baseClassName}
-          style={isTopNav ? {} : { fontFamily: 'Poppins, sans-serif' }}
+          style={navLinkStyle}
         >
           {Icon && <Icon className="w-4 h-4" />}
           {item.title}
         </LinkComponent>
 
-        {/* Active indicator - positioned at bottom of nav container */}
+        {/* Active indicator - positioned at bottom of the combined bar */}
         {!isTopNav && active && (
           <div 
             className="absolute left-0 right-0 h-[5px]"
             style={{
-              bottom: '-33px',
+              bottom: 0,
               background: navIndicatorGradient
             }}
           />
@@ -1384,42 +1403,51 @@ export default function PublicHeader() {
           </div>
         </div>
 
-        {/* Secondary Lower Navigation Bar (Desktop only) */}
-        {secondaryBarEnabled && (
+        {/* Combined Navigation Bar - hosts the main nav inside the styled
+            secondary bar (gradient + height from branding). Falls back to a
+            plain white bar when the secondary bar is disabled so the menu is
+            never hidden. */}
+        <div data-testid="secondary-nav-bar">
+          {/* Desktop: single styled bar carrying the main nav */}
           <div
             className="relative hidden lg:block"
-            style={{
-              background: secondaryBarGradient,
-              height: `${secondaryBarHeight}px`
-            }}
-            data-testid="secondary-nav-bar"
-          />
-        )}
-
-        {/* Bottom Row - Main Navigation */}
-        <div className="bg-white border-b border-slate-200">
-          <div className="max-w-7xl mx-auto px-4 py-3 lg:py-6">
-            <div className="flex justify-between items-center h-full">
-              {/* Mobile spacer for floating logo */}
-              <div className="lg:hidden" style={{ width: '120px' }}></div>
-              
-              {/* Desktop spacer for logo */}
-              <div className="hidden lg:block" style={{ width: '210px' }}></div>
-              
-              {/* Desktop Navigation */}
-              <nav className="hidden lg:flex items-center gap-8 h-full">
-                {/* Dynamic Main Nav Items */}
-                {navItems.mainNav?.map(item => renderNavItem(item, false))}
-              </nav>
-
-              {/* Mobile Menu Button */}
-              <button 
-                className="lg:hidden p-2 -mr-2"
-                onClick={() => setMobileMenuOpen(true)}
-                aria-label="Open menu"
+            style={secondaryBarEnabled
+              ? { background: secondaryBarGradient }
+              : { background: '#FFFFFF', borderBottom: '1px solid #E2E8F0' }}
+          >
+            <div className="max-w-7xl mx-auto px-4">
+              <div
+                className="flex justify-between items-center"
+                style={{ height: `${combinedBarHeight}px` }}
               >
-                <Menu className="w-6 h-6 text-slate-900" />
-              </button>
+                {/* Desktop spacer for floating logo */}
+                <div style={{ width: '210px' }}></div>
+
+                {/* Desktop Navigation */}
+                <nav className="flex items-center gap-8 h-full">
+                  {/* Dynamic Main Nav Items */}
+                  {navItems.mainNav?.map(item => renderNavItem(item, false))}
+                </nav>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile/tablet: white bar with hamburger (unchanged) */}
+          <div className="lg:hidden bg-white border-b border-slate-200">
+            <div className="max-w-7xl mx-auto px-4 py-3">
+              <div className="flex justify-between items-center">
+                {/* Mobile spacer for floating logo */}
+                <div style={{ width: '120px' }}></div>
+
+                {/* Mobile Menu Button */}
+                <button 
+                  className="p-2 -mr-2"
+                  onClick={() => setMobileMenuOpen(true)}
+                  aria-label="Open menu"
+                >
+                  <Menu className="w-6 h-6 text-slate-900" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
