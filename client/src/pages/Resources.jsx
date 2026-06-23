@@ -131,11 +131,34 @@ export default function ResourcesPage() {
       
       const allResources = await base44.entities.Resource.list('-release_date');
       console.log('[Resources] Total resources from API:', allResources.length);
-      
+
+      // Task #1701: a group resource is normally private to its group, but
+      // becomes visible tenant-wide when it is tagged with one of its group's
+      // linked resource subcategories. Build a per-group set of those linked
+      // subcategories so we can let qualifying group resources through below.
+      const linkedSubcatsByGroup = new Map();
+      try {
+        const groups = await base44.entities.MemberGroup.list();
+        for (const g of groups) {
+          const subs = Array.isArray(g.resource_subcategories)
+            ? g.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())
+            : [];
+          if (subs.length > 0) linkedSubcatsByGroup.set(g.id, subs);
+        }
+      } catch (err) {
+        console.error('[Resources] Failed to load member group subcategory links:', err);
+      }
+
       // Filter by status and permissions for authenticated users.
-      // Group resources (member_group_id set) live only on MemberGroupDetail.
+      // Group resources (member_group_id set) are hidden here UNLESS tagged with
+      // one of their group's linked subcategories (Task #1701).
       let filtered = allResources.filter(resource => {
-        if (resource.member_group_id) return false;
+        if (resource.member_group_id) {
+          const linked = linkedSubcatsByGroup.get(resource.member_group_id);
+          const subs = Array.isArray(resource.subcategories) ? resource.subcategories : [];
+          const hasLinkedTag = !!linked && subs.some((s) => linked.includes(s));
+          if (!hasLinkedTag) return false;
+        }
         if (resource.status === 'draft') return false;
         if (isAdmin) return true;
         if (resource.is_public === true) return true;

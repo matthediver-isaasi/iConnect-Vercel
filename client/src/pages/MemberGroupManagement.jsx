@@ -110,8 +110,10 @@ export default function MemberGroupManagementPage() {
     terms_of_reference: '',
     role_terms_of_reference: {},
     role_terms_url: {},
-    role_term_definitions: {}
+    role_term_definitions: {},
+    resource_subcategories: []
   });
+  const [groupSubcategorySearch, setGroupSubcategorySearch] = useState('');
   const [assignForm, setAssignForm] = useState({
     member_id: '',
     guest_id: '',
@@ -172,6 +174,15 @@ export default function MemberGroupManagementPage() {
     queryFn: () => base44.entities.MemberGroupClassification.list(),
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  // Resource categories drive the per-group subcategory link selector
+  // (Task #1701). Only fetched while the create/edit group dialog is open.
+  const { data: resourceCategories = [] } = useQuery({
+    queryKey: ['resource-categories-for-group-link'],
+    queryFn: () => base44.entities.ResourceCategory.list(),
+    enabled: showGroupDialog,
+    staleTime: 0,
   });
 
   // Organizations for the assign dialog
@@ -468,8 +479,10 @@ export default function MemberGroupManagementPage() {
       linkedin_url: '',
       terms_of_reference: '',
       role_terms_of_reference: {},
-      role_terms_url: {}
+      role_terms_url: {},
+      resource_subcategories: []
     });
+    setGroupSubcategorySearch('');
     setEditingGroup(null);
   };
 
@@ -495,8 +508,10 @@ export default function MemberGroupManagementPage() {
       terms_of_reference: group.terms_of_reference || '',
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
-      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : []
     });
+    setGroupSubcategorySearch('');
     setShowGroupDialog(true);
   };
 
@@ -522,8 +537,10 @@ export default function MemberGroupManagementPage() {
       terms_of_reference: group.terms_of_reference || '',
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
-      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {}
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : []
     });
+    setGroupSubcategorySearch('');
     setShowGroupDialog(true);
   };
 
@@ -718,7 +735,10 @@ export default function MemberGroupManagementPage() {
       terms_of_reference: trimmedTerms || null,
       role_terms_of_reference: prunedRoleTerms,
       role_terms_url: prunedRoleTermsUrl,
-      role_term_definitions: prunedRoleTermDefs
+      role_term_definitions: prunedRoleTermDefs,
+      resource_subcategories: Array.isArray(groupForm.resource_subcategories)
+        ? Array.from(new Set(groupForm.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())))
+        : []
     };
 
     if (editingGroup) {
@@ -795,6 +815,12 @@ export default function MemberGroupManagementPage() {
     const current = new Set(groupForm.forum_enabled_roles || []);
     if (current.has(role)) current.delete(role); else current.add(role);
     setGroupForm({ ...groupForm, forum_enabled_roles: Array.from(current) });
+  };
+
+  const toggleResourceSubcategory = (sub) => {
+    const current = new Set(groupForm.resource_subcategories || []);
+    if (current.has(sub)) current.delete(sub); else current.add(sub);
+    setGroupForm({ ...groupForm, resource_subcategories: Array.from(current) });
   };
 
   const handleAssignMember = () => {
@@ -2003,6 +2029,118 @@ export default function MemberGroupManagementPage() {
                     )}
                   </>
                 )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex flex-col gap-1">
+                  <Label>Linked resource subcategories</Label>
+                  <span className="text-xs text-slate-500">
+                    Select resource subcategories to link to this group. The group's Resources section shows tenant resources tagged with any of these. Resources created within the group are tagged with these subcategories and become visible tenant-wide on the Resources page under the matching filter.
+                  </span>
+                </div>
+
+                {(() => {
+                  const subQuery = groupSubcategorySearch.trim().toLowerCase();
+                  const catsWithSubs = (resourceCategories || []).filter(
+                    (cat) => Array.isArray(cat.subcategories) && cat.subcategories.length > 0
+                  );
+                  if (catsWithSubs.length === 0) {
+                    return (
+                      <p className="text-xs text-slate-500" data-testid="text-no-resource-subcategories">
+                        No resource subcategories are defined yet. Add them under Resource Management first.
+                      </p>
+                    );
+                  }
+                  const filtered = catsWithSubs
+                    .map((cat) => ({
+                      ...cat,
+                      _matchingSubs: subQuery
+                        ? cat.subcategories.filter(
+                            (sub) =>
+                              sub.toLowerCase().includes(subQuery) ||
+                              (cat.name || '').toLowerCase().includes(subQuery)
+                          )
+                        : cat.subcategories,
+                    }))
+                    .filter((cat) => cat._matchingSubs.length > 0);
+                  return (
+                    <>
+                      <div className="relative">
+                        <Input
+                          placeholder="Search subcategories..."
+                          value={groupSubcategorySearch}
+                          onChange={(e) => setGroupSubcategorySearch(e.target.value)}
+                          className="pr-9"
+                          data-testid="input-search-resource-subcategories"
+                        />
+                        {groupSubcategorySearch && (
+                          <button
+                            type="button"
+                            onClick={() => setGroupSubcategorySearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            data-testid="button-clear-subcategory-search"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-md p-3 space-y-3">
+                        {filtered.length === 0 ? (
+                          <p className="text-sm text-slate-500 text-center py-4">No matching subcategories found</p>
+                        ) : (
+                          filtered.map((cat) => (
+                            <div key={cat.id} className="space-y-1">
+                              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                                {cat.name}
+                              </p>
+                              <div className="flex flex-wrap gap-2 pl-1">
+                                {cat._matchingSubs.map((sub) => {
+                                  const checked = (groupForm.resource_subcategories || []).includes(sub);
+                                  return (
+                                    <label
+                                      key={`${cat.id}-${sub}`}
+                                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                                      data-testid={`label-resource-subcategory-${sub}`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleResourceSubcategory(sub)}
+                                        className="w-4 h-4"
+                                        data-testid={`checkbox-resource-subcategory-${sub}`}
+                                      />
+                                      <span>{sub}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {(groupForm.resource_subcategories || []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          <span className="text-xs font-medium text-slate-600 w-full">
+                            Linked: {groupForm.resource_subcategories.length}
+                          </span>
+                          {groupForm.resource_subcategories.map((sub) => (
+                            <Badge key={sub} variant="secondary" data-testid={`badge-linked-subcategory-${sub}`}>
+                              {sub}
+                              <button
+                                type="button"
+                                onClick={() => toggleResourceSubcategory(sub)}
+                                className="ml-1 hover:text-slate-900"
+                                data-testid={`button-remove-subcategory-${sub}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <DialogFooter>

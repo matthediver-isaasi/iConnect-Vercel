@@ -5,6 +5,7 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
+import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
 import { getSession } from '../../_lib/session.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
 import { handleMemberGroupForumChange, filterForumReadRows } from '../../_lib/memberGroupForumAccess.js';
@@ -1059,6 +1060,13 @@ export default async function handler(req, res) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
         }
+      }
+
+      // Resource (Task #1701): auto-tag a group-created resource with its
+      // group's linked subcategories when the caller didn't supply any, so it
+      // surfaces tenant-wide under the matching filter.
+      if (isResourceEntity(entity)) {
+        await applyGroupResourceSubcategoryDefaults(sanitizedBody);
       }
 
       // CardDeck: normalize and cap the links array (max 10 rows of { text, url })

@@ -72,6 +72,14 @@
         "type": "boolean",
         "default": false,
         "description": "Whether Group Admins of this group can create complex (multi-session) events scoped to the group"
+      },
+      "resource_subcategories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Resource subcategory names linked to this group. The group's Resources card surfaces tenant resources tagged with any of these subcategories; group-created resources are auto-tagged with them; and such auto-tagged group resources become visible tenant-wide on /Resources under the matching filter."
       }
     },
     "required": [

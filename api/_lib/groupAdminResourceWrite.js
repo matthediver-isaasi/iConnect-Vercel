@@ -25,6 +25,38 @@ export function isResourceEntity(entity) {
 }
 
 /**
+ * Task #1701: default a new group resource's subcategories to its group's
+ * linked resource subcategories when the create payload doesn't already supply
+ * them. This guarantees group-created resources are auto-tagged (and therefore
+ * surface tenant-wide under the matching filter) regardless of the client.
+ *
+ * Mutates and returns the passed body. No-op for tenant-wide resources
+ * (member_group_id null), when the caller already provided a non-empty
+ * subcategories array, or when the group has no linked subcategories.
+ */
+export async function applyGroupResourceSubcategoryDefaults(body) {
+  if (!supabase || !body || typeof body !== 'object') return body;
+  const groupId = body.member_group_id || null;
+  if (!groupId) return body;
+  if (Array.isArray(body.subcategories) && body.subcategories.length > 0) return body;
+
+  const { data: group, error } = await supabase
+    .from('member_group')
+    .select('resource_subcategories')
+    .eq('id', groupId)
+    .single();
+  if (error || !group) return body;
+
+  const linked = Array.isArray(group.resource_subcategories)
+    ? group.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())
+    : [];
+  if (linked.length > 0) {
+    body.subcategories = [...new Set(linked)];
+  }
+  return body;
+}
+
+/**
  * Resolve the set of member_group ids the caller ADMINISTERS. A caller qualifies
  * for a group when they have an active (non-expired) assignment flagged
  * is_group_admin, and the group is active and in the caller's tenant.

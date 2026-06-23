@@ -1270,6 +1270,37 @@ export default function MemberGroupDetailPage() {
     refetchOnMount: true,
   });
 
+  // Subcategories an admin has linked to this group (Task #1701). Tenant
+  // resources tagged with any of these surface in the group's Resources card.
+  const linkedSubcategories = useMemo(
+    () =>
+      Array.isArray(group?.resource_subcategories)
+        ? group.resource_subcategories.filter(
+            (s) => typeof s === "string" && s.trim()
+          )
+        : [],
+    [group]
+  );
+
+  // Tenant-wide resources (not owned by any group) tagged with one of this
+  // group's linked subcategories. These are surfaced alongside the group's own
+  // resources so members find the curated tenant resources for this group.
+  const { data: linkedTenantResources = [] } = useQuery({
+    queryKey: ["member-group-linked-resources", groupId, linkedSubcategories],
+    queryFn: async () => {
+      const all = await base44.entities.Resource.list("-release_date");
+      return all.filter((r) => {
+        if (r.member_group_id) return false; // tenant-wide resources only
+        if (r.status === "draft") return false;
+        const subs = Array.isArray(r.subcategories) ? r.subcategories : [];
+        return subs.some((s) => linkedSubcategories.includes(s));
+      });
+    },
+    enabled: accessChecked && !!groupId && linkedSubcategories.length > 0,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
   const isAuthenticated = !!memberInfo?.email;
 
   // --- Group forum summary section ---
@@ -1329,10 +1360,17 @@ export default function MemberGroupDetailPage() {
   // ResourceCard handles the login gate, but here everyone viewing is already
   // a member, so we show all of the group's resources to members and admins.
   const visibleResources = useMemo(() => {
-    if (isGroupAdmin || isJoined) return groupResources;
-    // Non-member, non-admin viewers only see public group resources.
-    return groupResources.filter((r) => r.is_public === true);
-  }, [groupResources, isGroupAdmin, isJoined]);
+    // Merge the group's own resources with tenant-wide resources linked via a
+    // subcategory (Task #1701), de-duplicating by id (a group resource
+    // auto-tagged with a linked subcategory only appears in the group list).
+    const byId = new Map();
+    for (const r of groupResources) byId.set(r.id, r);
+    for (const r of linkedTenantResources) if (!byId.has(r.id)) byId.set(r.id, r);
+    const merged = Array.from(byId.values());
+    if (isGroupAdmin || isJoined) return merged;
+    // Non-member, non-admin viewers only see public resources.
+    return merged.filter((r) => r.is_public === true);
+  }, [groupResources, linkedTenantResources, isGroupAdmin, isJoined]);
 
   const filteredResources = useMemo(() => {
     const q = resourceSearch.trim().toLowerCase();
@@ -1439,6 +1477,12 @@ export default function MemberGroupDetailPage() {
         is_public: form.is_public === true,
         status: "active",
         member_group_id: groupId,
+        // Auto-tag with the group's linked subcategories (Task #1701) so the
+        // resource surfaces tenant-wide under the matching filter. The server
+        // applies the same default as a safety net.
+        ...(linkedSubcategories.length > 0
+          ? { subcategories: linkedSubcategories }
+          : {}),
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
     },
@@ -2457,19 +2501,27 @@ export default function MemberGroupDetailPage() {
                       className="grid md:grid-cols-2 xl:grid-cols-3 gap-6"
                       data-testid="grid-group-resources"
                     >
-                      {pagedResources.map((resource) => (
-                        <ResourceCard
-                          key={resource.id}
-                          resource={resource}
-                          isAuthenticated={isAuthenticated}
-                          onEdit={isGroupAdmin ? openEditResourceDialog : undefined}
-                          onDelete={
-                            isGroupAdmin
-                              ? (r) => setResourceToDelete(r)
-                              : undefined
-                          }
-                        />
-                      ))}
+                      {pagedResources.map((resource) => {
+                        // Group admins may only edit/delete resources owned by
+                        // THIS group; surfaced tenant-wide resources (linked via
+                        // subcategory) are read-only here (Task #1701).
+                        const isOwnGroupResource =
+                          resource.member_group_id === groupId;
+                        const canManage = isGroupAdmin && isOwnGroupResource;
+                        return (
+                          <ResourceCard
+                            key={resource.id}
+                            resource={resource}
+                            isAuthenticated={isAuthenticated}
+                            onEdit={canManage ? openEditResourceDialog : undefined}
+                            onDelete={
+                              canManage
+                                ? (r) => setResourceToDelete(r)
+                                : undefined
+                            }
+                          />
+                        );
+                      })}
                     </div>
 
                     {resourceTotalPages > 1 && (
