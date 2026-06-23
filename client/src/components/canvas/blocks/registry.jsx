@@ -45,6 +45,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6092,8 +6093,25 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const overlayStrength = Number.isFinite(Number(c.overlayStrength))
     ? Math.min(1, Math.max(0, Number(c.overlayStrength)))
     : 0.72;
+  const overlayColor = c.overlayColor || '#000000';
+  const overlayFrom = hexToRgba(overlayColor, overlayStrength);
+  const overlayTo = hexToRgba(overlayColor, 0);
   const backBackground = buildCardFlipBackBackground(c);
   const backTextColor = c.backTextColor || 'var(--cb-color-on-surface, #0f172a)';
+
+  // Optional tenant typography style for the front title font. Falls back to
+  // the explicit titleColor / titleSize controls, which always win so existing
+  // blocks render unchanged.
+  const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
+  const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
+  const awaitingTitleStyle = isAwaitingTypographyStyle(c.titleTypographyStyleId, titleStyleObj, stylesResolved);
+  const titleTypoInline = titleStyleObj ? buildTypographyInlineStyle(titleStyleObj, { breakpoint }) : null;
+
+  // Per-card "View more" modal showing the full rich-text content. A single
+  // dialog is rendered at the block level (outside the 3D-transformed cards)
+  // and the open card is tracked here. DialogContent portals to <body> so it
+  // escapes the cards' preserve-3d transform context.
+  const [modalCard, setModalCard] = useState(null);
 
   const perPage = columns * rowsPerPage;
   const pageCount = Math.max(1, Math.ceil(cards.length / perPage));
@@ -6175,11 +6193,11 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     {isCircular ? (
                       <div
                         className="absolute inset-0 flex items-center justify-center px-4"
-                        style={{ background: showTitleOverlay ? `radial-gradient(ellipse at center, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0) 72%)` : 'none' }}
+                        style={{ background: showTitleOverlay ? `radial-gradient(ellipse at center, ${overlayFrom}, ${overlayTo} 72%)` : 'none' }}
                       >
                         <span
                           className="block font-semibold leading-tight text-center"
-                          style={{ color: titleColor, fontSize: titleSize }}
+                          style={{ ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
                         >
                           {card?.title || ''}
                         </span>
@@ -6187,11 +6205,11 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                     ) : (
                       <div
                         className="absolute inset-x-0 bottom-0 px-3 py-2"
-                        style={{ background: showTitleOverlay ? `linear-gradient(to top, rgba(0,0,0,${overlayStrength}), rgba(0,0,0,0))` : 'none' }}
+                        style={{ background: showTitleOverlay ? `linear-gradient(to top, ${overlayFrom}, ${overlayTo})` : 'none' }}
                       >
                         <span
                           className="block font-semibold leading-tight"
-                          style={{ color: titleColor, fontSize: titleSize, textAlign: 'left' }}
+                          style={{ ...(titleTypoInline || {}), color: titleColor, fontSize: titleSize, textAlign: 'left', ...(awaitingTitleStyle ? { visibility: 'hidden' } : null) }}
                         >
                           {card?.title || ''}
                         </span>
@@ -6211,8 +6229,22 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
                       color: backTextColor,
                     }}
                   >
-                    <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap' }}>
-                      {card?.backText || ''}
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap' }}>
+                        {card?.summary || card?.backText || ''}
+                      </div>
+                      {card?.content && String(card.content).trim() && (
+                        <button
+                          type="button"
+                          className="text-sm font-medium underline underline-offset-2 hover-elevate rounded-md px-1"
+                          style={{ color: 'inherit' }}
+                          onClick={(e) => { e.stopPropagation(); setModalCard(card); }}
+                          onKeyDown={(e) => { e.stopPropagation(); }}
+                          data-testid={`card-flip-${block.id}-${flipKey}-view-more`}
+                        >
+                          View more
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -6221,6 +6253,17 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
           })}
         </div>
       </div>
+      <Dialog open={!!modalCard} onOpenChange={(open) => { if (!open) setModalCard(null); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid={`card-flip-grid-${block.id}-modal`}>
+          <DialogHeader>
+            <DialogTitle>{modalCard?.title || ''}</DialogTitle>
+          </DialogHeader>
+          <div
+            className="prose prose-sm max-w-none [&_p:last-child]:mb-0"
+            dangerouslySetInnerHTML={{ __html: sanitizeRichText(stripTrailingEmptyParagraphs(modalCard?.content || '')) }}
+          />
+        </DialogContent>
+      </Dialog>
       {pageCount > 1 && (
         <div className="mt-3 flex items-center justify-center gap-3 shrink-0">
           <Button
@@ -6344,6 +6387,12 @@ function CardFlipGridInspector({ block, update }) {
         onChange={(v) => set({ titleSize: Math.max(8, Number(v) || 8) })}
         testId="input-card-flip-title-size"
       />
+      <TypographyStyleField
+        label="Title font style"
+        value={c.titleTypographyStyleId}
+        onChange={(id) => set({ titleTypographyStyleId: id })}
+        testId="select-card-flip-title-typography"
+      />
       <ToggleField
         label="Show title overlay"
         value={c.showTitleOverlay !== false}
@@ -6351,15 +6400,23 @@ function CardFlipGridInspector({ block, update }) {
         testId="toggle-card-flip-overlay"
       />
       {c.showTitleOverlay !== false && (
-        <NumberField
-          label="Overlay strength (0-1)"
-          min={0}
-          max={1}
-          step={0.01}
-          value={c.overlayStrength ?? 0.72}
-          onChange={(v) => set({ overlayStrength: Math.min(1, Math.max(0, Number(v) || 0)) })}
-          testId="input-card-flip-overlay-strength"
-        />
+        <>
+          <ColorField
+            label="Overlay colour"
+            value={c.overlayColor || '#000000'}
+            onChange={(v) => set({ overlayColor: v })}
+            testId="input-card-flip-overlay-color"
+          />
+          <NumberField
+            label="Overlay opacity (0-1)"
+            min={0}
+            max={1}
+            step={0.01}
+            value={c.overlayStrength ?? 0.72}
+            onChange={(v) => set({ overlayStrength: Math.min(1, Math.max(0, Number(v) || 0)) })}
+            testId="input-card-flip-overlay-strength"
+          />
+        </>
       )}
       <SelectField
         label="Back background type"
@@ -6405,7 +6462,7 @@ function CardFlipGridInspector({ block, update }) {
         <ArrayList
           items={c.cards || []}
           onChange={(next) => set({ cards: next })}
-          makeNew={() => ({ image: '', imageAlt: '', title: 'New card', backText: '' })}
+          makeNew={() => ({ image: '', imageAlt: '', title: 'New card', summary: '', content: '', backText: '' })}
           addLabel="Add card"
           testIdPrefix="card-flip-card"
           renderItem={(item, idx, patch) => (
@@ -6419,7 +6476,11 @@ function CardFlipGridInspector({ block, update }) {
                 testId={`card-flip-card-${idx}-image`}
               />
               <TextField label="Front title" value={item.title} onChange={(v) => patch({ title: v })} testId={`card-flip-card-${idx}-title`} />
-              <TextField label="Back text" multiline value={item.backText} onChange={(v) => patch({ backText: v })} testId={`card-flip-card-${idx}-back`} />
+              <TextField label="Back summary" multiline value={item.summary} onChange={(v) => patch({ summary: v })} testId={`card-flip-card-${idx}-summary`} />
+              <RichTextField label="Full content (View more)" value={item.content} onChange={(v) => patch({ content: v })} testId={`card-flip-card-${idx}-content`} />
+              {item.backText ? (
+                <TextField label="Back text (legacy)" multiline value={item.backText} onChange={(v) => patch({ backText: v })} testId={`card-flip-card-${idx}-back`} />
+              ) : null}
             </>
           )}
         />

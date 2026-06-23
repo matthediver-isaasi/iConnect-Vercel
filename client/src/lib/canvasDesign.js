@@ -1064,9 +1064,9 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       cards: [
-        { image: '', imageAlt: '', title: 'Card one', backText: 'The back of the first card. Click to flip it back.' },
-        { image: '', imageAlt: '', title: 'Card two', backText: 'The back of the second card.' },
-        { image: '', imageAlt: '', title: 'Card three', backText: 'The back of the third card.' },
+        { image: '', imageAlt: '', title: 'Card one', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the first card. Add rich text here, then it shows in a pop-up when the visitor clicks View more.</p>', backText: '' },
+        { image: '', imageAlt: '', title: 'Card two', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the second card.</p>', backText: '' },
+        { image: '', imageAlt: '', title: 'Card three', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the third card.</p>', backText: '' },
       ],
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       rowsPerPage: 2,
@@ -1077,8 +1077,10 @@ export const BLOCK_DEFAULTS = {
       flipDuration: 0.7, // seconds for the flip animation
       titleColor: '#ffffff',
       titleSize: 16, // px; front title font size
-      showTitleOverlay: true, // hide to drop the dark gradient behind the title
-      overlayStrength: 0.72, // 0-1 opacity of the bottom gradient wash
+      titleTypographyStyleId: '', // optional tenant typography style for the front title font
+      showTitleOverlay: true, // hide to drop the gradient behind the title
+      overlayStrength: 0.72, // 0-1 opacity of the front overlay wash
+      overlayColor: '#000000', // colour of the front overlay gradient (fades to transparent)
       backBgType: 'color', // color | gradient
       backBgColor: 'var(--cb-color-surface, #ffffff)',
       // Gradient back: only consulted when backBgType === 'gradient'. Kept on
