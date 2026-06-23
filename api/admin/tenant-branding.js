@@ -257,6 +257,22 @@ export default async function handler(req, res) {
         }
       }
 
+      // Coerce the optional "shrink logo on scroll" toggle to a boolean so it
+      // survives the merge below without leaking arbitrary values.
+      if (updates.header_config && updates.header_config.logoShrinkOnScroll !== undefined) {
+        updates.header_config.logoShrinkOnScroll = !!updates.header_config.logoShrinkOnScroll;
+      }
+
+      // Clamp the optional scrolled logo height (px). Drop empty/invalid input.
+      if (updates.header_config && updates.header_config.logoScrolledHeight !== undefined) {
+        const sh = parseInt(updates.header_config.logoScrolledHeight, 10);
+        if (Number.isFinite(sh)) {
+          updates.header_config.logoScrolledHeight = Math.max(10, Math.min(600, sh));
+        } else {
+          delete updates.header_config.logoScrolledHeight;
+        }
+      }
+
       // Validate top-nav link text color
       if (updates.header_config && updates.header_config.topNavTextColor !== undefined) {
         const tc = normalizeHexColor(updates.header_config.topNavTextColor);

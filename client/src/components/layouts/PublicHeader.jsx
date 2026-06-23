@@ -274,6 +274,38 @@ export default function PublicHeader() {
   const hasLogoUrl = !!headerLogoUrl;
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
+  // Optional scroll-shrink: when enabled, the logo (and its containing box)
+  // animate to a smaller height once the page is scrolled down, and back to
+  // full size at the top. No-op when the toggle is off / unset.
+  const logoShrinkOnScroll = !!branding?.headerConfig?.logoShrinkOnScroll;
+  const logoScrolledHeight = branding?.headerConfig?.logoScrolledHeight;
+  const [isLogoScrolled, setIsLogoScrolled] = useState(false);
+
+  // Scroll listener for the optional logo shrink. Only attached when the
+  // setting is enabled, and removed on unmount or when it is turned off.
+  useEffect(() => {
+    if (!logoShrinkOnScroll) {
+      setIsLogoScrolled(false);
+      return;
+    }
+    const onScroll = () => {
+      setIsLogoScrolled(window.scrollY > 20);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [logoShrinkOnScroll]);
+
+  // Effective logo height (px). When shrink is active and the page is scrolled,
+  // use the scrolled height; otherwise the configured/default full height.
+  const baseLogoHeightPx = headerLogoHeight ? parseInt(headerLogoHeight, 10) : 158;
+  const scrolledLogoHeightPx = logoScrolledHeight ? parseInt(logoScrolledHeight, 10) : baseLogoHeightPx;
+  const isLogoShrunk = logoShrinkOnScroll && isLogoScrolled;
+  const activeLogoHeightPx = isLogoShrunk ? scrolledLogoHeightPx : baseLogoHeightPx;
+  // Transition applied to the logo image + its containing box so the size
+  // change animates smoothly. Empty when the feature is disabled.
+  const logoShrinkTransition = logoShrinkOnScroll ? 'height 0.3s ease, max-height 0.3s ease, padding 0.3s ease, line-height 0.3s ease' : undefined;
+
   const logoBackground = branding?.headerConfig?.logoBackground;
   const logoBorderRadiusTopLeft = branding?.headerConfig?.logoBorderRadiusTopLeft || branding?.headerConfig?.logoBorderRadius;
   const logoBorderRadiusTopRight = branding?.headerConfig?.logoBorderRadiusTopRight || branding?.headerConfig?.logoBorderRadius;
@@ -1492,28 +1524,30 @@ export default function PublicHeader() {
           }}
           data-testid="link-header-logo"
         >
-          <div style={hasLogoContainerStyles ? logoContainerStyle : {}}>
+          <div style={{ ...(hasLogoContainerStyles ? logoContainerStyle : {}), transition: logoShrinkTransition }}>
             {hasLogoUrl ? (
               <img
                 src={headerLogoUrl}
                 alt={tenantName}
                 style={{
                   width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
-                  height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  height: `${activeLogoHeightPx}px`,
                   maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-                  maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  maxHeight: `${activeLogoHeightPx}px`,
                   objectFit: 'contain',
-                  display: 'block'
+                  display: 'block',
+                  transition: logoShrinkTransition
                 }}
               />
             ) : (
               <span 
                 className="font-bold text-slate-900"
                 style={{
-                  fontSize: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight) * 0.4, 48)}px` : '32px',
-                  lineHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  fontSize: `${Math.min(activeLogoHeightPx * 0.4, 48)}px`,
+                  lineHeight: `${activeLogoHeightPx}px`,
                   display: 'block',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  transition: logoShrinkTransition
                 }}
               >
                 {tenantName}
@@ -1536,7 +1570,8 @@ export default function PublicHeader() {
               borderRadius: '4px', 
               padding: '8px',
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
-            })
+            }),
+            transition: logoShrinkTransition
           }}
           data-testid="link-header-logo-mobile-floating"
         >
@@ -1545,11 +1580,12 @@ export default function PublicHeader() {
               src={headerLogoUrl}
               alt={tenantName}
               style={{
-                height: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight), 96)}px` : '96px',
+                height: `${Math.min(activeLogoHeightPx, 96)}px`,
                 width: 'auto',
                 maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
                 objectFit: 'contain',
-                display: 'block'
+                display: 'block',
+                transition: logoShrinkTransition
               }}
             />
           ) : (

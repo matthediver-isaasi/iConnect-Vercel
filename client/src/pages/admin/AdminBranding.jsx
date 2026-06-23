@@ -1651,6 +1651,47 @@ export default function AdminBranding() {
               <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
 
               <div className="border-t border-slate-700 pt-4 mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <Label className="text-slate-200">Shrink logo on scroll</Label>
+                    <p className="text-xs text-slate-500">Smoothly shrinks the logo to a smaller height when the public site is scrolled down</p>
+                  </div>
+                  <Switch
+                    checked={!!formData.header_config?.logoShrinkOnScroll}
+                    onCheckedChange={(checked) => setFormData({
+                      ...formData,
+                      header_config: {
+                        ...formData.header_config,
+                        logoShrinkOnScroll: checked
+                      }
+                    })}
+                    data-testid="switch-logo-shrink-on-scroll"
+                  />
+                </div>
+                {formData.header_config?.logoShrinkOnScroll && (
+                  <div className="space-y-2 mt-4">
+                    <Label htmlFor="header_logo_scrolled_height" className="text-slate-200">Scrolled Logo Height (px)</Label>
+                    <Input
+                      id="header_logo_scrolled_height"
+                      type="number"
+                      value={formData.header_config?.logoScrolledHeight || ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        header_config: {
+                          ...formData.header_config,
+                          logoScrolledHeight: e.target.value
+                        }
+                      })}
+                      className="bg-slate-900/50 border-slate-600 text-white"
+                      placeholder="80"
+                      data-testid="input-header-logo-scrolled-height"
+                    />
+                    <p className="text-xs text-slate-500">The logo height once the page is scrolled down. Should be smaller than the max height above.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-700 pt-4 mt-4">
                 <h4 className="text-white font-medium mb-4">Logo Container Styling</h4>
                 
                 <div className="grid grid-cols-2 gap-4">
