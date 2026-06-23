@@ -51,11 +51,19 @@ function toBase64DataUri(svgText) {
   // Strip any XML/doctype prologue and leading whitespace so the data URI is
   // a clean <svg> document, then base64-encode for the most cross-browser-safe
   // mask source.
-  const cleaned = String(svgText)
+  let cleaned = String(svgText)
     .replace(/<\?xml[\s\S]*?\?>/i, '')
     .replace(/<!DOCTYPE[\s\S]*?>/i, '')
     .trim();
   if (!/^<svg[\s>]/i.test(cleaned)) return null;
+  // Repair files truncated by a historical upload bug that dropped the trailing
+  // bytes of the document, turning `</svg>\n` into `</svg`. A browser's strict
+  // SVG-image parser rejects the malformed markup, so the data URI fails to load
+  // as a CSS mask and the element paints as a solid coloured square. Restoring
+  // the closing `>` makes these already-stored icons render again.
+  if (/<\/svg$/i.test(cleaned)) {
+    cleaned += '>';
+  }
   try {
     const base64 = btoa(unescape(encodeURIComponent(cleaned)));
     return `data:image/svg+xml;base64,${base64}`;

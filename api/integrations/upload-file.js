@@ -67,11 +67,16 @@ async function parseMultipartForm(req) {
             const fieldName = nameMatch[1];
             
             if (filenameMatch && fieldName === 'file') {
+              // `content` already has the framing CRLF before the next boundary
+              // removed (see `idx - 2` in the parts loop above). Do NOT trim two
+              // more bytes here — that double-strip silently truncated every
+              // uploaded file by its last two bytes (e.g. `</svg>\n` -> `</svg`),
+              // producing malformed SVGs that fail to render as CSS masks.
               file = {
                 originalname: filenameMatch[1],
                 mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream',
-                buffer: content.slice(0, content.length - 2),
-                size: content.length - 2
+                buffer: content,
+                size: content.length
               };
             } else if (fieldName === 'private') {
               isPrivate = content.toString().trim() === 'true';
