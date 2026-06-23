@@ -11,6 +11,7 @@ import {
   Loader2, 
   Plus, 
   Pencil, 
+  Copy,
   Trash2, 
   Save, 
   X,
@@ -501,7 +502,7 @@ function TypographyStyleEditor({ style, onSave, onCancel, isNew = false }) {
   );
 }
 
-function TypographyStyleCard({ style, onEdit, onDelete, onSetDefault }) {
+function TypographyStyleCard({ style, onEdit, onDuplicate, onDelete, onSetDefault }) {
   const previewStyle = {
     fontFamily: style.font_family,
     fontSize: `${Math.min(style.font_size, 32)}px`,
@@ -558,6 +559,15 @@ function TypographyStyleCard({ style, onEdit, onDelete, onSetDefault }) {
             <Button 
               size="icon" 
               variant="ghost" 
+              onClick={() => onDuplicate(style)}
+              title="Duplicate style"
+              data-testid={`button-duplicate-${style.id}`}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+            <Button 
+              size="icon" 
+              variant="ghost" 
               onClick={() => onDelete(style)}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
               data-testid={`button-delete-${style.id}`}
@@ -598,6 +608,7 @@ export default function InstalledFontsPage() {
   const [isLoadingStyles, setIsLoadingStyles] = useState(true);
   const [editingStyle, setEditingStyle] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [createSeed, setCreateSeed] = useState(null);
   const [deleteConfirmStyle, setDeleteConfirmStyle] = useState(null);
   const [activeTab, setActiveTab] = useState('fonts');
 
@@ -692,6 +703,7 @@ export default function InstalledFontsPage() {
         description: "Typography style created successfully"
       });
       setIsCreating(false);
+      setCreateSeed(null);
       loadTypographyStyles();
     } catch (error) {
       console.error('Failed to create style:', error);
@@ -701,6 +713,21 @@ export default function InstalledFontsPage() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleDuplicateStyle = (style) => {
+    // Build a fresh draft from the editable fields only (omit id / server-managed
+    // fields) so the new style is created rather than overwriting the original.
+    // Useful for making, e.g., dark and light variants of the same H1.
+    const seed = {};
+    Object.keys(defaultStyle).forEach((key) => {
+      seed[key] = style[key] !== undefined && style[key] !== null ? style[key] : defaultStyle[key];
+    });
+    seed.name = `${style.name || 'Style'} (Copy)`;
+    seed.is_default = false;
+    setEditingStyle(null);
+    setCreateSeed(seed);
+    setIsCreating(true);
   };
 
   const handleUpdateStyle = async (styleData) => {
@@ -975,7 +1002,7 @@ export default function InstalledFontsPage() {
                 <h2 className="text-xl font-semibold text-slate-900">Typography Styles</h2>
                 <p className="text-sm text-slate-600">Define consistent heading and paragraph styles for use across the page builder</p>
               </div>
-              <Button onClick={() => setIsCreating(true)} data-testid="button-create-style">
+              <Button onClick={() => { setCreateSeed(null); setEditingStyle(null); setIsCreating(true); }} data-testid="button-create-style">
                 <Plus className="w-4 h-4 mr-2" />
                 New Style
               </Button>
@@ -991,7 +1018,7 @@ export default function InstalledFontsPage() {
                   <Type className="w-12 h-12 mx-auto text-slate-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-700 mb-2">No Typography Styles</h3>
                   <p className="text-slate-500 mb-4">Create your first typography style to get started</p>
-                  <Button onClick={() => setIsCreating(true)} data-testid="button-create-first-style">
+                  <Button onClick={() => { setCreateSeed(null); setEditingStyle(null); setIsCreating(true); }} data-testid="button-create-first-style">
                     <Plus className="w-4 h-4 mr-2" />
                     Create Style
                   </Button>
@@ -1015,6 +1042,7 @@ export default function InstalledFontsPage() {
                             key={style.id}
                             style={style}
                             onEdit={setEditingStyle}
+                            onDuplicate={handleDuplicateStyle}
                             onDelete={setDeleteConfirmStyle}
                             onSetDefault={handleSetDefault}
                           />
@@ -1033,6 +1061,7 @@ export default function InstalledFontsPage() {
           if (!open) {
             setIsCreating(false);
             setEditingStyle(null);
+            setCreateSeed(null);
           }
         }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1042,11 +1071,12 @@ export default function InstalledFontsPage() {
               </DialogTitle>
             </DialogHeader>
             <TypographyStyleEditor
-              style={editingStyle || defaultStyle}
+              style={editingStyle || createSeed || defaultStyle}
               onSave={isCreating ? handleCreateStyle : handleUpdateStyle}
               onCancel={() => {
                 setIsCreating(false);
                 setEditingStyle(null);
+                setCreateSeed(null);
               }}
               isNew={isCreating}
             />
