@@ -111,7 +111,9 @@ export default function MemberGroupManagementPage() {
     role_terms_of_reference: {},
     role_terms_url: {},
     role_term_definitions: {},
-    resource_subcategories: []
+    resource_subcategories: [],
+    approval_email_template_id: '',
+    decline_email_template_id: ''
   });
   const [groupSubcategorySearch, setGroupSubcategorySearch] = useState('');
   const [assignForm, setAssignForm] = useState({
@@ -183,6 +185,14 @@ export default function MemberGroupManagementPage() {
     queryFn: () => base44.entities.ResourceCategory.list(),
     enabled: showGroupDialog,
     staleTime: 0,
+  });
+
+  // Email templates power the group-level approval/decline decision pickers
+  // (Task #1700). Both are optional.
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-for-group-decisions'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+    staleTime: 5 * 60 * 1000,
   });
 
   // Organizations for the assign dialog
@@ -480,7 +490,10 @@ export default function MemberGroupManagementPage() {
       terms_of_reference: '',
       role_terms_of_reference: {},
       role_terms_url: {},
-      resource_subcategories: []
+      role_term_definitions: {},
+      resource_subcategories: [],
+      approval_email_template_id: '',
+      decline_email_template_id: ''
     });
     setGroupSubcategorySearch('');
     setEditingGroup(null);
@@ -509,7 +522,9 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
-      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : []
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
+      approval_email_template_id: group.approval_email_template_id || '',
+      decline_email_template_id: group.decline_email_template_id || ''
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -538,7 +553,9 @@ export default function MemberGroupManagementPage() {
       role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
       role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
       role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
-      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : []
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
+      approval_email_template_id: group.approval_email_template_id || '',
+      decline_email_template_id: group.decline_email_template_id || ''
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -738,7 +755,9 @@ export default function MemberGroupManagementPage() {
       role_term_definitions: prunedRoleTermDefs,
       resource_subcategories: Array.isArray(groupForm.resource_subcategories)
         ? Array.from(new Set(groupForm.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())))
-        : []
+        : [],
+      approval_email_template_id: groupForm.approval_email_template_id || null,
+      decline_email_template_id: groupForm.decline_email_template_id || null
     };
 
     if (editingGroup) {
@@ -1605,6 +1624,46 @@ export default function MemberGroupManagementPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-slate-500 mt-1">An organisational label only — used to group and filter member groups.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="approval_email_template">Approval email template</Label>
+                  <Select
+                    value={groupForm.approval_email_template_id || '__none__'}
+                    onValueChange={(val) => setGroupForm({ ...groupForm, approval_email_template_id: val === '__none__' ? '' : val })}
+                  >
+                    <SelectTrigger id="approval_email_template" data-testid="select-approval-email-template">
+                      <SelectValue placeholder="No template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No template</SelectItem>
+                      {emailTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name || t.subject || 'Untitled template'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">Pre-fills the email sent when a vacancy applicant is approved.</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="decline_email_template">Decline email template</Label>
+                  <Select
+                    value={groupForm.decline_email_template_id || '__none__'}
+                    onValueChange={(val) => setGroupForm({ ...groupForm, decline_email_template_id: val === '__none__' ? '' : val })}
+                  >
+                    <SelectTrigger id="decline_email_template" data-testid="select-decline-email-template">
+                      <SelectValue placeholder="No template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No template</SelectItem>
+                      {emailTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name || t.subject || 'Untitled template'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">Pre-fills the email sent when a vacancy applicant is declined.</p>
+                </div>
               </div>
 
               <div>

@@ -192,6 +192,9 @@ export const entityTenantScope = {
   'Vacancy': TENANT_SCOPE.TENANT,
   'VacancyApplication': TENANT_SCOPE.TENANT,
   'VacancyAward': TENANT_SCOPE.TENANT,
+  // Vacancy approve/decline decision emails (Task #1700)
+  'VacancyDecline': TENANT_SCOPE.TENANT,
+  'VacancyDecisionEmail': TENANT_SCOPE.TENANT,
 };
 
 /**

@@ -300,6 +300,8 @@ class EntitiesProxy {
   get Vacancy() { return this._getEntity('Vacancy'); }
   get VacancyApplication() { return this._getEntity('VacancyApplication'); }
   get VacancyAward() { return this._getEntity('VacancyAward'); }
+  get VacancyDecline() { return this._getEntity('VacancyDecline'); }
+  get VacancyDecisionEmail() { return this._getEntity('VacancyDecisionEmail'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

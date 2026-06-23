@@ -313,6 +313,8 @@ const entityToTable = {
   'Vacancy': 'vacancy',
   'VacancyApplication': 'vacancy_application',
   'VacancyAward': 'vacancy_award',
+  'VacancyDecline': 'vacancy_decline',
+  'VacancyDecisionEmail': 'vacancy_decision_email',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -902,6 +904,7 @@ export default async function handler(req, res) {
               'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
               'ExternalWriter', 'ExternalWriterDocument',
               'CrmTagColor',
+              'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
@@ -1197,7 +1200,7 @@ export default async function handler(req, res) {
             'ArticleBrief', 'ArticleBriefVersion', 'ArticleBriefComment', 'ArticleBriefActivity',
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
-            'Vacancy', 'VacancyApplication', 'VacancyAward',
+            'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
             'Gallery', 'GalleryPhoto', 'CardDeck'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {

@@ -442,6 +442,12 @@ export default function MemberGroupDetailPage() {
   const [expandedSubmissionId, setExpandedSubmissionId] = useState(null);
   // Advisory max-terms warning before awarding a vacancy (Task #1630).
   const [termWarning, setTermWarning] = useState(null);
+  // Approve/decline decision modal (Task #1700). Holds the in-flight decision
+  // context + the editable email body/CC.
+  const [decisionModal, setDecisionModal] = useState(null);
+  const [decisionBody, setDecisionBody] = useState("");
+  const [decisionCc, setDecisionCc] = useState("");
+  const [viewEmailRecord, setViewEmailRecord] = useState(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -691,6 +697,68 @@ export default function MemberGroupDetailPage() {
     return map;
   }, [groupAwards]);
 
+  // Declined decisions (Task #1700) drive the "Declined" markers in the review
+  // modals, mirroring the awards query.
+  const { data: groupDeclines = [] } = useQuery({
+    queryKey: ["group-vacancy-declines", groupId],
+    queryFn: () =>
+      base44.entities.VacancyDecline.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId && isGroupAdmin,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const declinesByVacancy = useMemo(() => {
+    const map = new Map();
+    for (const d of groupDeclines) {
+      if (!d.vacancy_id) continue;
+      if (!map.has(d.vacancy_id)) map.set(d.vacancy_id, []);
+      map.get(d.vacancy_id).push(d);
+    }
+    return map;
+  }, [groupDeclines]);
+
+  const getDeclinesForVacancy = (vacancyId) => declinesByVacancy.get(vacancyId) || [];
+
+  // Sent decision emails (Task #1700) back the "View sent email" action.
+  const { data: groupDecisionEmails = [] } = useQuery({
+    queryKey: ["group-vacancy-decision-emails", groupId],
+    queryFn: () =>
+      base44.entities.VacancyDecisionEmail.filter({ member_group_id: groupId }),
+    enabled: accessChecked && !!groupId && isGroupAdmin,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  // Latest decision email per source (application/submission id) so the
+  // "View sent email" action shows the most recent message that was sent.
+  const decisionEmailBySource = useMemo(() => {
+    const map = new Map();
+    for (const e of groupDecisionEmails) {
+      if (!e.source_id) continue;
+      const existing = map.get(e.source_id);
+      const et = e.created_at ? new Date(e.created_at).getTime() : 0;
+      const xt = existing?.created_at ? new Date(existing.created_at).getTime() : 0;
+      if (!existing || et >= xt) map.set(e.source_id, e);
+    }
+    return map;
+  }, [groupDecisionEmails]);
+
+  // Email templates back the approval/decline body pre-fill in the decision
+  // modal. Resolved by id from the group's configured template choices.
+  const { data: decisionEmailTemplates = [] } = useQuery({
+    queryKey: ["email-templates-for-group-decisions", groupId],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+    enabled: accessChecked && !!groupId && isGroupAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const decisionTemplateById = useMemo(() => {
+    const map = new Map();
+    for (const t of decisionEmailTemplates) if (t?.id) map.set(t.id, t);
+    return map;
+  }, [decisionEmailTemplates]);
+
   const getAwardsForVacancy = (vacancyId) => awardsByVacancy.get(vacancyId) || [];
   const getRemainingPositions = (vacancy) =>
     Math.max(0, getPositionsAvailable(vacancy) - getAwardsForVacancy(vacancy.id).length);
@@ -912,69 +980,52 @@ export default function MemberGroupDetailPage() {
     },
   });
 
-  // Award a vacancy position to a member: records the award, then upserts the
-  // member's group assignment so their group_role becomes the vacancy's role.
-  const awardPositionMutation = useMutation({
-    mutationFn: async ({ vacancy, memberId, email, sourceType, sourceId }) => {
+  // Approve/decline decision (Task #1700). Sends the admin's edited email via
+  // the server endpoint, which ALSO performs the award (approval) or records the
+  // decline. The award logic (vacancy_award + assignment term snapshot) lives
+  // server-side so the email and the award happen atomically from one action.
+  const decisionMutation = useMutation({
+    mutationFn: async ({ decisionType, vacancy, memberId, email, sourceType, sourceId, bodyHtml, cc }) => {
       if (!vacancy?.id) throw new Error("No vacancy selected");
-      if (getRemainingPositions(vacancy) <= 0) {
-        throw new Error("All positions for this vacancy are already filled.");
-      }
-      // Form submissions don't carry a member id — resolve one from the
-      // submitter's email so we can award and assign the role.
-      let resolvedMemberId = memberId || null;
-      if (!resolvedMemberId && email) {
-        const matches = await base44.entities.Member.filter({
-          email: email.trim().toLowerCase(),
-        }).catch(() => []);
-        resolvedMemberId = matches?.[0]?.id || null;
-      }
-      if (!resolvedMemberId) {
-        throw new Error(
-          "This applicant isn't linked to a member record, so the position can't be awarded."
-        );
-      }
-      const role = (vacancy.role_title || "").trim();
-      await base44.entities.VacancyAward.create({
-        member_group_id: groupId,
-        vacancy_id: vacancy.id,
-        awarded_member_id: resolvedMemberId,
-        source_type: sourceType || null,
-        source_id: sourceId || null,
-      });
-      const existing = groupAssignments.find(
-        (a) => a.member_id === resolvedMemberId && a.group_id === groupId
-      );
-      // Snapshot the role's current term onto the assignment so later role edits
-      // don't retroactively change this member's recorded term (Task #1626).
-      const termSnapshot = buildTermSnapshot(roleTermDefByRole[role], {
-        existingAssignment: existing || null,
-        role,
-      });
-      if (existing) {
-        await base44.entities.MemberGroupAssignment.update(existing.id, {
-          group_role: role || existing.group_role,
-          ...termSnapshot,
-        });
-      } else {
-        await base44.entities.MemberGroupAssignment.create({
+      const res = await fetch("/api/member-groups/vacancy-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
           group_id: groupId,
-          member_id: resolvedMemberId,
-          group_role: role || "Member",
-          ...termSnapshot,
-        });
-      }
+          vacancy_id: vacancy.id,
+          decision_type: decisionType,
+          source_type: sourceType || null,
+          source_id: sourceId || null,
+          member_id: memberId || null,
+          email: email || null,
+          body_html: bodyHtml,
+          cc: cc || null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to send decision email");
+      return { ...json, decisionType };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["group-vacancy-awards", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["group-vacancy-declines", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["group-vacancy-decision-emails", groupId] });
       queryClient.invalidateQueries({
         queryKey: ["member-group-assignments-group", groupId],
       });
       queryClient.invalidateQueries({ queryKey: ["member-group-members", groupId] });
-      toast.success("Position awarded");
+      toast.success(
+        data?.decisionType === "approval"
+          ? "Position awarded and email sent"
+          : "Applicant declined and email sent"
+      );
+      setDecisionModal(null);
+      setDecisionBody("");
+      setDecisionCc("");
     },
     onError: (error) => {
-      toast.error("Failed to award position: " + (error?.message || "Unknown error"));
+      toast.error(error?.message || "Failed to send decision email");
     },
   });
 
@@ -1085,20 +1136,48 @@ export default function MemberGroupDetailPage() {
     return { ...warning, memberName, role };
   };
 
-  // Gate the award behind a confirmation dialog when it would exceed max_terms;
-  // otherwise award straight away.
-  const requestAward = (args) => {
-    const role = (args?.vacancy?.role_title || "").trim();
-    const warning = evaluateAwardTermLimit({
-      memberId: args.memberId,
-      email: args.email,
-      role,
-    });
-    if (warning) {
-      setTermWarning({ ...warning, awardArgs: args });
+  // Open the approve/decline email modal: resolve the group's configured
+  // template, pre-fill the body with an auto-injected greeting + the template
+  // body, and let the admin edit before sending (Task #1700).
+  const openDecisionModal = (args) => {
+    const { decisionType } = args;
+    const templateId =
+      decisionType === "approval"
+        ? group?.approval_email_template_id
+        : group?.decline_email_template_id;
+    const template = templateId ? decisionTemplateById.get(templateId) : null;
+    if (!templateId || !template) {
+      toast.error(
+        decisionType === "approval"
+          ? "No approval email template is configured for this group. Set one in the group settings."
+          : "No decline email template is configured for this group. Set one in the group settings."
+      );
       return;
     }
-    awardPositionMutation.mutate(args);
+    const firstName = (args.firstName || "").trim();
+    const greeting = `<p>Dear ${firstName || "applicant"},</p>`;
+    const templateBody = template.body || "<p></p>";
+    setDecisionBody(`${greeting}${templateBody}`);
+    setDecisionCc("");
+    setDecisionModal(args);
+  };
+
+  // Gate an approval behind the max-terms confirmation dialog; declines open the
+  // decision modal straight away.
+  const requestDecision = (args) => {
+    if (args.decisionType === "approval") {
+      const role = (args?.vacancy?.role_title || "").trim();
+      const warning = evaluateAwardTermLimit({
+        memberId: args.memberId,
+        email: args.email,
+        role,
+      });
+      if (warning) {
+        setTermWarning({ ...warning, decisionArgs: args });
+        return;
+      }
+    }
+    openDecisionModal(args);
   };
 
   const sortedMembers = useMemo(() => {
@@ -2875,7 +2954,7 @@ export default function MemberGroupDetailPage() {
       <AlertDialog
         open={!!termWarning}
         onOpenChange={(open) => {
-          if (!open && !awardPositionMutation.isPending) setTermWarning(null);
+          if (!open) setTermWarning(null);
         }}
       >
         <AlertDialogContent data-testid="dialog-term-limit-warning">
@@ -2894,7 +2973,6 @@ export default function MemberGroupDetailPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
-              disabled={awardPositionMutation.isPending}
               data-testid="button-cancel-term-limit"
             >
               Cancel
@@ -2902,11 +2980,10 @@ export default function MemberGroupDetailPage() {
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                const args = termWarning?.awardArgs;
+                const args = termWarning?.decisionArgs;
                 setTermWarning(null);
-                if (args) awardPositionMutation.mutate(args);
+                if (args) openDecisionModal(args);
               }}
-              disabled={awardPositionMutation.isPending}
               data-testid="button-confirm-term-limit"
             >
               Award anyway
@@ -2914,6 +2991,163 @@ export default function MemberGroupDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={!!decisionModal}
+        onOpenChange={(open) => {
+          if (!open && !decisionMutation.isPending) {
+            setDecisionModal(null);
+            setDecisionBody("");
+            setDecisionCc("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-2xl"
+          data-testid="dialog-decision-email"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {decisionModal?.decisionType === "approval"
+                ? "Award position & send email"
+                : "Decline & send email"}
+            </DialogTitle>
+            <DialogDescription>
+              {decisionModal?.recipientName
+                ? `Review the email to ${decisionModal.recipientName} before sending.`
+                : "Review the email before sending."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="decision-email-body">Email message</Label>
+              <SimpleRichTextEditor
+                content={decisionBody}
+                onChange={setDecisionBody}
+                placeholder="Write the email message..."
+                data-testid="input-decision-body"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="decision-email-cc">CC (optional)</Label>
+              <Input
+                id="decision-email-cc"
+                type="text"
+                value={decisionCc}
+                onChange={(e) => setDecisionCc(e.target.value)}
+                placeholder="email@example.com, another@example.com"
+                data-testid="input-decision-cc"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDecisionModal(null);
+                setDecisionBody("");
+                setDecisionCc("");
+              }}
+              disabled={decisionMutation.isPending}
+              data-testid="button-cancel-decision"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!decisionModal) return;
+                decisionMutation.mutate({
+                  ...decisionModal,
+                  bodyHtml: decisionBody,
+                  cc: decisionCc.trim() || null,
+                });
+              }}
+              disabled={decisionMutation.isPending}
+              data-testid="button-send-decision"
+            >
+              {decisionMutation.isPending
+                ? "Sending..."
+                : decisionModal?.decisionType === "approval"
+                ? "Award & send"
+                : "Decline & send"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!viewEmailRecord}
+        onOpenChange={(open) => {
+          if (!open) setViewEmailRecord(null);
+        }}
+      >
+        <DialogContent
+          className="max-w-2xl"
+          data-testid="dialog-view-sent-email"
+        >
+          <DialogHeader>
+            <DialogTitle>Sent email</DialogTitle>
+            <DialogDescription>
+              {viewEmailRecord?.created_at
+                ? `Sent ${new Date(viewEmailRecord.created_at).toLocaleString()}`
+                : "Decision email details"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 text-sm">
+            <div>
+              <span className="text-slate-500">To: </span>
+              <span data-testid="text-sent-email-to">
+                {viewEmailRecord?.to_email || "—"}
+              </span>
+            </div>
+            {viewEmailRecord?.cc_email && (
+              <div>
+                <span className="text-slate-500">CC: </span>
+                <span data-testid="text-sent-email-cc">
+                  {viewEmailRecord.cc_email}
+                </span>
+              </div>
+            )}
+            <div>
+              <span className="text-slate-500">Subject: </span>
+              <span data-testid="text-sent-email-subject">
+                {viewEmailRecord?.subject || "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">Status: </span>
+              <Badge
+                variant={
+                  viewEmailRecord?.delivery_status === "sent"
+                    ? "secondary"
+                    : "outline"
+                }
+                data-testid="badge-sent-email-status"
+              >
+                {viewEmailRecord?.delivery_status || "unknown"}
+              </Badge>
+            </div>
+            <div className="border-t border-slate-200 pt-3">
+              <div
+                className="prose prose-sm max-w-none"
+                data-testid="content-sent-email-body"
+                dangerouslySetInnerHTML={{
+                  __html: viewEmailRecord?.body_html || "<p>(no content)</p>",
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setViewEmailRecord(null)}
+              data-testid="button-close-sent-email"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!resourceToDelete}
@@ -3359,6 +3593,10 @@ export default function MemberGroupDetailPage() {
                   const awardedMemberIds = new Set(
                     vacancyAwards.map((a) => a.awarded_member_id).filter(Boolean)
                   );
+                  const vacancyDeclines = getDeclinesForVacancy(applicantsVacancy?.id);
+                  const declinedSourceIds = new Set(
+                    vacancyDeclines.map((d) => d.source_id).filter(Boolean)
+                  );
                   const remaining = getRemainingPositions(applicantsVacancy);
                   return applicants.map((app) => {
                     const member = app.__member;
@@ -3366,6 +3604,8 @@ export default function MemberGroupDetailPage() {
                     const name = display ? display.displayName : "Unknown member";
                     const isAwarded =
                       app.member_id && awardedMemberIds.has(app.member_id);
+                    const isDeclined = declinedSourceIds.has(app.id);
+                    const sentEmail = decisionEmailBySource.get(app.id) || null;
                     return (
                       <div
                         key={app.id}
@@ -3394,37 +3634,83 @@ export default function MemberGroupDetailPage() {
                               )}
                             </div>
                           </div>
-                          {isAwarded ? (
-                            <Badge
-                              variant="secondary"
-                              data-testid={`badge-applicant-awarded-${app.id}`}
-                            >
-                              <Check className="w-3.5 h-3.5 mr-1" />
-                              Awarded
-                            </Badge>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={
-                                !app.member_id ||
-                                remaining <= 0 ||
-                                awardPositionMutation.isPending
-                              }
-                              onClick={() =>
-                                requestAward({
-                                  vacancy: applicantsVacancy,
-                                  memberId: app.member_id,
-                                  sourceType: "application",
-                                  sourceId: app.id,
-                                })
-                              }
-                              data-testid={`button-award-applicant-${app.id}`}
-                            >
-                              <Award className="w-4 h-4 mr-2" />
-                              Award position
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {isAwarded ? (
+                              <Badge
+                                variant="secondary"
+                                data-testid={`badge-applicant-awarded-${app.id}`}
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1" />
+                                Awarded
+                              </Badge>
+                            ) : isDeclined ? (
+                              <Badge
+                                variant="outline"
+                                data-testid={`badge-applicant-declined-${app.id}`}
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" />
+                                Declined
+                              </Badge>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={
+                                    !app.member_id ||
+                                    remaining <= 0 ||
+                                    decisionMutation.isPending
+                                  }
+                                  onClick={() =>
+                                    requestDecision({
+                                      decisionType: "approval",
+                                      vacancy: applicantsVacancy,
+                                      memberId: app.member_id,
+                                      sourceType: "application",
+                                      sourceId: app.id,
+                                      firstName: member?.first_name || "",
+                                      recipientName: name,
+                                    })
+                                  }
+                                  data-testid={`button-award-applicant-${app.id}`}
+                                >
+                                  <Award className="w-4 h-4 mr-2" />
+                                  Award position
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={decisionMutation.isPending}
+                                  onClick={() =>
+                                    requestDecision({
+                                      decisionType: "decline",
+                                      vacancy: applicantsVacancy,
+                                      memberId: app.member_id,
+                                      sourceType: "application",
+                                      sourceId: app.id,
+                                      firstName: member?.first_name || "",
+                                      recipientName: name,
+                                    })
+                                  }
+                                  data-testid={`button-decline-applicant-${app.id}`}
+                                >
+                                  <X className="w-4 h-4 mr-2" />
+                                  Decline
+                                </Button>
+                              </>
+                            )}
+                            {sentEmail && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setViewEmailRecord(sentEmail)}
+                                data-testid={`button-view-email-applicant-${app.id}`}
+                              >
+                                <Mail className="w-4 h-4 mr-2" />
+                                View sent email
+                              </Button>
+                            )}
+                          </div>
                         </div>
                         {app.message && (
                           <p
@@ -3489,6 +3775,10 @@ export default function MemberGroupDetailPage() {
               const awardedSourceIds = new Set(
                 vacancyAwards.map((a) => a.source_id).filter(Boolean)
               );
+              const vacancyDeclines = getDeclinesForVacancy(submissionsVacancy?.id);
+              const declinedSourceIds = new Set(
+                vacancyDeclines.map((d) => d.source_id).filter(Boolean)
+              );
               const submissionsRemaining = getRemainingPositions(submissionsVacancy);
               return (
                 <div className="flex flex-col gap-3" data-testid="list-submissions">
@@ -3506,6 +3796,9 @@ export default function MemberGroupDetailPage() {
                       ([, v]) => v !== "" && v != null
                     );
                     const isAwarded = awardedSourceIds.has(sub.id);
+                    const isDeclined = declinedSourceIds.has(sub.id);
+                    const sentEmail = decisionEmailBySource.get(sub.id) || null;
+                    const subFirstName = (sub.submitted_by_name || "").trim().split(/\s+/)[0] || "";
                     return (
                       <div
                         key={sub.id}
@@ -3537,37 +3830,86 @@ export default function MemberGroupDetailPage() {
                               }`}
                             />
                           </button>
-                          {isAwarded ? (
-                            <Badge
-                              variant="secondary"
-                              data-testid={`badge-submission-awarded-${sub.id}`}
-                            >
-                              <Check className="w-3.5 h-3.5 mr-1" />
-                              Awarded
-                            </Badge>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={
-                                !sub.submitted_by_email ||
-                                submissionsRemaining <= 0 ||
-                                awardPositionMutation.isPending
-                              }
-                              onClick={() =>
-                                requestAward({
-                                  vacancy: submissionsVacancy,
-                                  email: sub.submitted_by_email,
-                                  sourceType: "submission",
-                                  sourceId: sub.id,
-                                })
-                              }
-                              data-testid={`button-award-submission-${sub.id}`}
-                            >
-                              <Award className="w-4 h-4 mr-2" />
-                              Award position
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-2 flex-wrap shrink-0">
+                            {isAwarded ? (
+                              <Badge
+                                variant="secondary"
+                                data-testid={`badge-submission-awarded-${sub.id}`}
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1" />
+                                Awarded
+                              </Badge>
+                            ) : isDeclined ? (
+                              <Badge
+                                variant="outline"
+                                data-testid={`badge-submission-declined-${sub.id}`}
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" />
+                                Declined
+                              </Badge>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={
+                                    !sub.submitted_by_email ||
+                                    submissionsRemaining <= 0 ||
+                                    decisionMutation.isPending
+                                  }
+                                  onClick={() =>
+                                    requestDecision({
+                                      decisionType: "approval",
+                                      vacancy: submissionsVacancy,
+                                      email: sub.submitted_by_email,
+                                      sourceType: "submission",
+                                      sourceId: sub.id,
+                                      firstName: subFirstName,
+                                      recipientName: who,
+                                    })
+                                  }
+                                  data-testid={`button-award-submission-${sub.id}`}
+                                >
+                                  <Award className="w-4 h-4 mr-2" />
+                                  Award position
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={
+                                    !sub.submitted_by_email ||
+                                    decisionMutation.isPending
+                                  }
+                                  onClick={() =>
+                                    requestDecision({
+                                      decisionType: "decline",
+                                      vacancy: submissionsVacancy,
+                                      email: sub.submitted_by_email,
+                                      sourceType: "submission",
+                                      sourceId: sub.id,
+                                      firstName: subFirstName,
+                                      recipientName: who,
+                                    })
+                                  }
+                                  data-testid={`button-decline-submission-${sub.id}`}
+                                >
+                                  <X className="w-4 h-4 mr-2" />
+                                  Decline
+                                </Button>
+                              </>
+                            )}
+                            {sentEmail && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setViewEmailRecord(sentEmail)}
+                                data-testid={`button-view-email-submission-${sub.id}`}
+                              >
+                                <Mail className="w-4 h-4 mr-2" />
+                                View sent email
+                              </Button>
+                            )}
+                          </div>
                         </div>
                         {expanded && (
                           <div
