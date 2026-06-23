@@ -26,6 +26,9 @@ import {
   Link as LinkIcon,
   Component as ComponentIcon,
   RotateCcw,
+  Grid2x2,
+  ChevronLeft,
+  ChevronRight,
   Table as TableIcon,
   MessageSquareQuote,
   Megaphone,
@@ -6029,6 +6032,255 @@ function SymbolInspector({ block }) {
   );
 }
 
+// CARD FLIP GRID -------------------------------------------------------------
+// A static, inline-authored grid of cards. Each card shows a front image with
+// a title overlay; clicking/tapping flips it (3D Y-axis flip, identical motion
+// to the Wall of Fame cards — perspective on the container, preserve-3d, both
+// faces backface-hidden, the back face pre-rotated 180°) to reveal free text.
+// Cards are authored in the inspector (like Hero CTAs), laid out in a CSS grid
+// of `columns` columns, paginated by `rowsPerPage`. Shape is square (1:1),
+// rectangular (configurable height) or circular (1:1 + full rounding).
+//
+// Shared by both the editor canvas and the public renderer (mirrors HeroRender).
+// In the editor the content wrapper is pointer-events-none, so flips/pagination
+// are inert there (cards show their front) — exactly like Hero CTAs.
+function CardFlipGridRender({ block, asEditor }) {
+  const c = block.content || {};
+  const cards = Array.isArray(c.cards) ? c.cards : [];
+  const columns = Math.max(1, Number(c.columns) || 1);
+  const rowsPerPage = Math.max(1, Number(c.rowsPerPage) || 1);
+  const gap = Number.isFinite(Number(c.gap)) ? Math.max(0, Number(c.gap)) : 16;
+  const shape = c.shape || 'square';
+  const isRect = shape === 'rectangular';
+  const isCircular = shape === 'circular';
+  const cardHeight = Math.max(40, Number(c.cardHeight) || 320);
+  const radius = isCircular ? '9999px' : '8px';
+  const titleColor = c.titleColor || '#ffffff';
+  const backBgColor = c.backBgColor || 'var(--cb-color-surface, #ffffff)';
+  const backTextColor = c.backTextColor || 'var(--cb-color-on-surface, #0f172a)';
+
+  const perPage = columns * rowsPerPage;
+  const pageCount = Math.max(1, Math.ceil(cards.length / perPage));
+  const [page, setPage] = useState(0);
+  const safePage = Math.min(page, pageCount - 1);
+  const [flipped, setFlipped] = useState({});
+  // Keep the page index valid if the card count shrinks, and reset any flips
+  // when the visible page changes so a new page always starts front-facing.
+  useEffect(() => { if (page > pageCount - 1) setPage(pageCount - 1); }, [pageCount, page]);
+  useEffect(() => { setFlipped({}); }, [safePage]);
+
+  const start = safePage * perPage;
+  const pageCards = cards.slice(start, start + perPage);
+  const toggle = (idx) => setFlipped((f) => ({ ...f, [idx]: !f[idx] }));
+
+  const cellShapeStyle = isRect ? { height: `${cardHeight}px` } : { aspectRatio: '1 / 1' };
+
+  return (
+    <div className="absolute inset-0 flex flex-col" data-testid={`card-flip-grid-${block.id}`}>
+      <div className="flex-1 min-h-0">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+            gap: `${gap}px`,
+          }}
+        >
+          {pageCards.map((card, i) => {
+            const flipKey = start + i;
+            const isFlipped = !!flipped[flipKey];
+            const img = card?.image ? buildResponsiveImage(card.image, { sizes: `${Math.round(100 / columns)}vw` }) : null;
+            return (
+              <div key={flipKey} style={{ perspective: '1000px', ...cellShapeStyle }}>
+                <div
+                  className="relative w-full h-full cursor-pointer"
+                  style={{
+                    transition: 'transform 0.7s',
+                    transformStyle: 'preserve-3d',
+                    transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                  }}
+                  role="button"
+                  tabIndex={asEditor ? -1 : 0}
+                  aria-pressed={isFlipped}
+                  aria-label={card?.title || 'Flip card'}
+                  onClick={() => { if (!asEditor) toggle(flipKey); }}
+                  onKeyDown={(e) => {
+                    if (asEditor) return;
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(flipKey); }
+                  }}
+                  data-testid={`card-flip-${block.id}-${flipKey}`}
+                >
+                  {/* Front face: image + title overlay */}
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                      borderRadius: radius,
+                      overflow: 'hidden',
+                      background: 'var(--cb-color-muted, #e2e8f0)',
+                    }}
+                  >
+                    {img ? (
+                      <img
+                        src={img.src}
+                        srcSet={img.srcSet}
+                        sizes={img.sizes}
+                        alt={card?.imageAlt || ''}
+                        aria-hidden={card?.imageAlt ? undefined : 'true'}
+                        loading="lazy"
+                        decoding="async"
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                        <ImageIcon className="w-8 h-8" />
+                      </div>
+                    )}
+                    <div
+                      className="absolute inset-x-0 bottom-0 px-3 py-2"
+                      style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))' }}
+                    >
+                      <span
+                        className="block font-semibold leading-tight"
+                        style={{ color: titleColor, fontSize: 16, textAlign: isCircular ? 'center' : 'left' }}
+                      >
+                        {card?.title || ''}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Back face: free text (pre-rotated 180°) */}
+                  <div
+                    className="absolute inset-0 flex items-center justify-center p-4 text-center"
+                    style={{
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                      transform: 'rotateY(180deg)',
+                      borderRadius: radius,
+                      overflow: 'auto',
+                      background: backBgColor,
+                      color: backTextColor,
+                    }}
+                  >
+                    <div className="text-sm leading-relaxed" style={{ whiteSpace: 'pre-wrap' }}>
+                      {card?.backText || ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {pageCount > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-3 shrink-0">
+          <Button
+            size="icon"
+            variant="outline"
+            type="button"
+            disabled={safePage <= 0}
+            onClick={() => { if (!asEditor) setPage((p) => Math.max(0, p - 1)); }}
+            aria-label="Previous page"
+            data-testid={`card-flip-grid-${block.id}-prev`}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-slate-600 tabular-nums" data-testid={`card-flip-grid-${block.id}-page`}>
+            {safePage + 1} / {pageCount}
+          </span>
+          <Button
+            size="icon"
+            variant="outline"
+            type="button"
+            disabled={safePage >= pageCount - 1}
+            onClick={() => { if (!asEditor) setPage((p) => Math.min(pageCount - 1, p + 1)); }}
+            aria-label="Next page"
+            data-testid={`card-flip-grid-${block.id}-next`}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CardFlipGridInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const clampInt = (v, min) => Math.max(min, Math.round(Number(v) || min));
+  return (
+    <>
+      <NumberField
+        label="Columns"
+        min={1}
+        value={c.columns ?? 3}
+        onChange={(v) => set({ columns: clampInt(v, 1) })}
+        testId="input-card-flip-columns"
+      />
+      <NumberField
+        label="Rows per page"
+        min={1}
+        value={c.rowsPerPage ?? 2}
+        onChange={(v) => set({ rowsPerPage: clampInt(v, 1) })}
+        testId="input-card-flip-rows"
+      />
+      <NumberField
+        label="Gap between cards (px)"
+        min={0}
+        value={c.gap ?? 16}
+        onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })}
+        testId="input-card-flip-gap"
+      />
+      <SelectField
+        label="Card shape"
+        value={c.shape || 'square'}
+        onChange={(v) => set({ shape: v })}
+        options={[
+          { value: 'square', label: 'Square' },
+          { value: 'rectangular', label: 'Rectangular' },
+          { value: 'circular', label: 'Circular' },
+        ]}
+        testId="select-card-flip-shape"
+      />
+      {c.shape === 'rectangular' && (
+        <NumberField
+          label="Card height (px)"
+          min={40}
+          value={c.cardHeight ?? 320}
+          onChange={(v) => set({ cardHeight: Math.max(40, Number(v) || 40) })}
+          testId="input-card-flip-height"
+        />
+      )}
+      <ColorField label="Title colour" value={c.titleColor} onChange={(v) => set({ titleColor: v })} testId="input-card-flip-title-color" />
+      <ColorField label="Back background" value={c.backBgColor} onChange={(v) => set({ backBgColor: v })} testId="input-card-flip-back-bg" />
+      <ColorField label="Back text colour" value={c.backTextColor} onChange={(v) => set({ backTextColor: v })} testId="input-card-flip-back-text-color" />
+      <Field label="Cards">
+        <ArrayList
+          items={c.cards || []}
+          onChange={(next) => set({ cards: next })}
+          makeNew={() => ({ image: '', imageAlt: '', title: 'New card', backText: '' })}
+          addLabel="Add card"
+          testIdPrefix="card-flip-card"
+          renderItem={(item, idx, patch) => (
+            <>
+              <ImageField
+                label="Front image"
+                value={item.image}
+                alt={item.imageAlt}
+                onChangeSrc={(v) => patch({ image: v })}
+                onChangeAlt={(v) => patch({ imageAlt: v })}
+                testId={`card-flip-card-${idx}-image`}
+              />
+              <TextField label="Front title" value={item.title} onChange={(v) => patch({ title: v })} testId={`card-flip-card-${idx}-title`} />
+              <TextField label="Back text" multiline value={item.backText} onChange={(v) => patch({ backText: v })} testId={`card-flip-card-${idx}-back`} />
+            </>
+          )}
+        />
+      </Field>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -6056,6 +6308,7 @@ const REGISTRY = {
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
   [BLOCK_TYPES.COUNTDOWN]:        { label: 'Countdown',       icon: Clock,             category: 'content',  Editor: CountdownRender,       Renderer: CountdownRender,       Inspector: CountdownInspector },
+  [BLOCK_TYPES.CARD_FLIP_GRID]:   { label: 'Card Flip Grid',  icon: Grid2x2,           category: 'content',  Editor: CardFlipGridRender,    Renderer: CardFlipGridRender,    Inspector: CardFlipGridInspector },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },
   [BLOCK_TYPES.SYMBOL]:       { label: 'Symbol',         icon: ComponentIcon,  category: 'advanced', Editor: SymbolRender,       Renderer: SymbolRender,       Inspector: SymbolInspector, paletteHidden: true, allowOverflow: true },
   ...DYNAMIC_BLOCK_DEFINITIONS,

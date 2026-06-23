@@ -174,6 +174,7 @@ export const BLOCK_TYPES = {
   CARD_DECK: 'card-deck',
   WALL_OF_FAME: 'wall-of-fame',
   GALLERY: 'gallery',
+  CARD_FLIP_GRID: 'card-flip-grid',
   // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
   // and is rendered by inlining the referenced canvas_symbol design.
   SYMBOL: 'symbol',
@@ -1051,6 +1052,32 @@ export const BLOCK_DEFAULTS = {
       emptyText: 'Select a photo gallery in the inspector.',
     },
   },
+  // Card Flip Grid — a static, inline-authored block (cards live in
+  // block.content, like Hero CTAs; never fetched from a data source). Each
+  // card flips on click to reveal its back text, mirroring the Wall of Fame
+  // 3D flip. `columns` × `rowsPerPage` drives pagination; `shape` is
+  // square | rectangular | circular, and `cardHeight` only applies when
+  // shape === 'rectangular' (square/circular cards are 1:1).
+  [BLOCK_TYPES.CARD_FLIP_GRID]: {
+    name: 'Card Flip Grid',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      cards: [
+        { image: '', imageAlt: '', title: 'Card one', backText: 'The back of the first card. Click to flip it back.' },
+        { image: '', imageAlt: '', title: 'Card two', backText: 'The back of the second card.' },
+        { image: '', imageAlt: '', title: 'Card three', backText: 'The back of the third card.' },
+      ],
+      columns: 3,
+      rowsPerPage: 2,
+      gap: 16,
+      shape: 'square', // square | rectangular | circular
+      cardHeight: 320, // only used when shape === 'rectangular'
+      titleColor: '#ffffff',
+      backBgColor: 'var(--cb-color-surface, #ffffff)',
+      backTextColor: 'var(--cb-color-on-surface, #0f172a)',
+    },
+  },
 };
 
 BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
@@ -1850,6 +1877,23 @@ export function validateBlock(block) {
         errors.push('Photo Gallery has no gallery selected.');
       }
       break;
+    case BLOCK_TYPES.CARD_FLIP_GRID: {
+      const cards = Array.isArray(c.cards) ? c.cards : [];
+      if (cards.length === 0) {
+        errors.push('Card Flip Grid has no cards.');
+      }
+      cards.forEach((card, i) => {
+        if (!card?.title || !String(card.title).trim()) {
+          errors.push(`Card #${i + 1} requires a title.`);
+        }
+        if (card?.image && (!card.imageAlt || !String(card.imageAlt).trim())) {
+          errors.push(`Card #${i + 1} image requires alt text.`);
+        }
+      });
+      if (!(Number(c.columns) >= 1)) errors.push('Card Flip Grid needs at least 1 column.');
+      if (!(Number(c.rowsPerPage) >= 1)) errors.push('Card Flip Grid needs at least 1 row per page.');
+      break;
+    }
     case BLOCK_TYPES.PRICING_TABLE: {
       const tiers = Array.isArray(c.tiers) ? c.tiers : [];
       if (tiers.length < 2) errors.push('Pricing table needs at least 2 tiers.');
